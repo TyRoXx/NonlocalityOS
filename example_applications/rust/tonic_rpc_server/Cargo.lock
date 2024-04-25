@@ -952,9 +952,6 @@ dependencies = [
 name = "tonic_rpc_server"
 version = "0.1.0"
 dependencies = [
- "tokio",
- "tokio-stream",
- "tonic",
  "tonic-rpc",
 ]
 

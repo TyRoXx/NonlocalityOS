@@ -1,10 +1,9 @@
 use tokio_stream::Stream;
-use tonic::transport::Server;
 use tonic_rpc::tonic_rpc;
 #[cfg(any(unix, target_os = "wasi"))]
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use core::pin::Pin;
-use tonic::{Request, transport::server::Connected};
+use tonic::{Request};
 
 extern "C" {
     fn nonlocality_accept() -> i32;
