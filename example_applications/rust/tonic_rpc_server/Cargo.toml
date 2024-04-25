@@ -1,0 +1,12 @@
+[package]
+name = "tonic_rpc_server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.37.0", default-features = false, features = [ ] }
+tokio-stream = { version = "0.1.15", default-features = false, features = [ ] }
+tonic = { version = "0.8.3", default-features = false, features = [ ] }
+tonic-rpc = { version = "0.2.1", default-features = false, features = [ "json" ] }
