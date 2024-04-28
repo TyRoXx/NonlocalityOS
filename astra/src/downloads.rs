@@ -1,6 +1,5 @@
 use curl::easy::Easy;
 use flate2::read::GzDecoder;
-use std::fs;
 use std::fs::File;
 use std::io;
 use std::io::Write;
@@ -10,22 +9,29 @@ use xz2::read::XzDecoder;
 
 fn download(download_url: &str, download_file_path: &Path) -> Result<(), std::io::Error> {
     let mut easy = Easy::new();
-    easy.url(download_url).unwrap();
+    easy.url(download_url)?;
     easy.follow_location(true)?;
-    println!("Creating file {}.", download_file_path.display());
-    let mut file = File::create(download_file_path)?;
+    let temporary_directory = tempfile::tempdir()?;
+    let temporary_file = temporary_directory.path().join("file.temp");
+    println!("Creating temporary file {}", temporary_file.display());
+    let mut file = File::create(&temporary_file)?;
     {
         println!("Downloading from {}.", download_url);
         let mut transfer = easy.transfer();
-        transfer
-            .write_function(|data| match file.write_all(data) {
-                Ok(_) => Ok(data.len()),
-                Err(_) => Ok(0),
-            })
-            .unwrap();
-        transfer.perform().unwrap();
+        transfer.write_function(|data| match file.write_all(data) {
+            Ok(_) => Ok(data.len()),
+            Err(_) => Ok(0),
+        })?;
+        transfer.perform()?;
     }
     file.flush()?;
+    drop(file);
+    println!(
+        "Renaming from {} to {}",
+        temporary_file.display(),
+        download_file_path.display()
+    );
+    std::fs::rename(&temporary_file, &download_file_path)?;
     println!("Download completed.");
     Ok(())
 }
@@ -88,7 +94,7 @@ pub fn install_from_downloaded_archive(
     unpack_destination_directory: &Path,
     compression: Compression,
 ) -> Result<(), std::io::Error> {
-    if let Ok(metadata) = fs::metadata(unpack_destination_directory) {
+    if let Ok(metadata) = std::fs::metadata(unpack_destination_directory) {
         if metadata.is_dir() {
             // assume that nothing is to be done if this directory exists
             return Ok(());
@@ -105,7 +111,7 @@ pub fn install_from_downloaded_archive(
         );
     }
 
-    if let Ok(metadata) = fs::metadata(download_file_path) {
+    if let Ok(metadata) = std::fs::metadata(download_file_path) {
         if metadata.is_file() {
             println!("File '{}' exists.", download_file_path.display());
         } else {
@@ -128,4 +134,17 @@ pub fn install_from_downloaded_archive(
         })?,
     }
     Ok(())
+}
+
+#[test]
+fn host_not_reachable() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("file");
+    let unpacked = directory.path().join("unpacked");
+    let result =
+        install_from_downloaded_archive("https://0.0.0.0:9999", &file, &unpacked, Compression::Gz);
+    assert!(result.is_err());
+    let entries: Vec<std::io::Result<std::fs::DirEntry>> =
+        directory.path().read_dir().unwrap().collect();
+    assert!(entries.is_empty());
 }

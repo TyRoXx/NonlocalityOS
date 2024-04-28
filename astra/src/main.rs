@@ -92,6 +92,12 @@ async fn run_process_with_error_only_output(
     arguments: &[&str],
     environment_variables: &HashMap<String, String>,
 ) -> NumberOfErrors {
+    /*println!(
+        "{}> {} {}",
+        working_directory.display(),
+        executable.display(),
+        arguments.join(" ")
+    );*/
     let maybe_output = tokio::process::Command::new(executable)
         .args(arguments)
         .current_dir(&working_directory)
@@ -131,12 +137,12 @@ async fn run_process_with_error_only_output(
 }
 
 async fn run_cargo(
-    project: &std::path::Path,
+    working_directory: &std::path::Path,
     arguments: &[&str],
     environment_variables: &HashMap<String, String>,
 ) -> NumberOfErrors {
     run_process_with_error_only_output(
-        &project,
+        &working_directory,
         std::path::Path::new("cargo"),
         &arguments,
         &environment_variables,
@@ -148,8 +154,25 @@ async fn run_cargo_fmt(project: &std::path::Path) -> NumberOfErrors {
     run_cargo(&project, &["fmt"], &HashMap::new()).await
 }
 
-async fn run_cargo_test(project: &std::path::Path) -> NumberOfErrors {
-    run_cargo(&project, &["test"], &HashMap::new()).await
+async fn run_cargo_test(
+    project: &std::path::Path,
+    coverage_info_directory: &std::path::Path,
+) -> NumberOfErrors {
+    let coverage_info_directory_str = coverage_info_directory
+        .to_str()
+        .expect("Tried to convert path to string");
+    run_cargo(
+        &project,
+        &["test", "--verbose"],
+        &HashMap::from([
+            ("RUSTFLAGS".to_string(), "-Cinstrument-coverage".to_string()),
+            (
+                "LLVM_PROFILE_FILE".to_string(),
+                format!("{}/cargo-test-%p-%m.profraw", coverage_info_directory_str),
+            ),
+        ]),
+    )
+    .await
 }
 
 const RASPBERRY_PI_TARGET_NAME: &str = "aarch64-unknown-linux-gnu";
@@ -237,6 +260,7 @@ async fn run_cargo_build_for_raspberry_pi(
         &project,
         &[
             "build",
+            "--verbose",
             "--target",
             target_name,
             "--config",
@@ -254,7 +278,7 @@ async fn run_cargo_build_target_name(
 ) -> NumberOfErrors {
     run_cargo(
         &project,
-        &["build", "--target", &target_name],
+        &["build", "--verbose", "--target", &target_name],
         &HashMap::new(),
     )
     .await
@@ -281,16 +305,25 @@ async fn run_cargo_build_wasi_threads(
         .to_str()
         .expect("Tried to convert a path to a string");
     run_process_with_error_only_output(&project, std::path::Path::new(
-         "rustup"), &["run" ,"nightly", "cargo", "build", "--target", target_name], &HashMap::from([
+         "rustup"), &["run" ,"nightly", "cargo", "build","--verbose", "--target", target_name], &HashMap::from([
         ("CFLAGS".to_string(), "-pthread".to_string()),
         ("RUSTFLAGS".to_string(), format!("-C target-feature=-crt-static -C link-arg=-L{} -C link-arg=-lclang_rt.builtins-wasm32" ,lib_dir_str)),
         (format!("CC_{}", target_name), clang_exe_str.to_string()),
     ])).await
 }
 
+async fn run_cargo_build_for_host(project: &std::path::Path) -> NumberOfErrors {
+    run_cargo(
+        &project,
+        &["build", "--verbose", "--release"],
+        &HashMap::new(),
+    )
+    .await
+}
+
 async fn run_cargo_build(project: &std::path::Path, target: &CargoBuildTarget) -> NumberOfErrors {
     match target {
-        CargoBuildTarget::Host => run_cargo(&project, &["build"], &HashMap::new()).await,
+        CargoBuildTarget::Host => run_cargo_build_for_host(project).await,
         CargoBuildTarget::RaspberryPi64(pi) => {
             run_cargo_build_for_raspberry_pi(&project, &pi.compiler_installation).await
         }
@@ -307,7 +340,7 @@ async fn build_relevant_targets(
 ) -> NumberOfErrors {
     let mut error_count = NumberOfErrors(0);
     for target in &program.targets {
-        error_count += run_cargo_build(&where_in_filesystem, &target).await
+        error_count += run_cargo_build(where_in_filesystem, target).await
     }
     error_count
 }
@@ -315,9 +348,10 @@ async fn build_relevant_targets(
 async fn build_and_test_program(
     program: &Program,
     where_in_filesystem: &std::path::Path,
+    coverage_info_directory: &std::path::Path,
 ) -> NumberOfErrors {
     run_cargo_fmt(&where_in_filesystem).await
-        + run_cargo_test(&where_in_filesystem).await
+        + run_cargo_test(&where_in_filesystem, coverage_info_directory).await
         + build_relevant_targets(program, where_in_filesystem).await
 }
 
@@ -325,14 +359,22 @@ async fn build_and_test_program(
 async fn build_and_test_directory_entry(
     directory_entry: &DirectoryEntry,
     where_in_filesystem: &std::path::Path,
+    coverage_info_directory: &std::path::Path,
 ) -> NumberOfErrors {
     let mut error_count = NumberOfErrors(0);
     match directory_entry {
         DirectoryEntry::Program(program) => {
-            error_count += build_and_test_program(&program, &where_in_filesystem).await;
+            error_count +=
+                build_and_test_program(&program, &where_in_filesystem, coverage_info_directory)
+                    .await;
         }
         DirectoryEntry::Directory(directory) => {
-            error_count += build_and_test_recursively(&directory, &where_in_filesystem).await;
+            error_count += build_and_test_recursively(
+                &directory,
+                &where_in_filesystem,
+                coverage_info_directory,
+            )
+            .await;
         }
     }
     error_count
@@ -342,11 +384,13 @@ async fn build_and_test_directory_entry(
 async fn build_and_test_recursively(
     description: &Directory,
     where_in_filesystem: &std::path::Path,
+    coverage_info_directory: &std::path::Path,
 ) -> NumberOfErrors {
     let mut error_count = NumberOfErrors(0);
     for entry in &description.entries {
         let subdirectory = where_in_filesystem.join(entry.0);
-        error_count += build_and_test_directory_entry(&entry.1, &subdirectory).await;
+        error_count +=
+            build_and_test_directory_entry(&entry.1, &subdirectory, coverage_info_directory).await;
     }
     error_count
 }
@@ -464,6 +508,69 @@ async fn install_tools(
     )
 }
 
+async fn install_grcov(working_directory: &std::path::Path) -> NumberOfErrors {
+    run_cargo(&working_directory, &["install", "grcov"], &HashMap::new()).await
+}
+
+async fn install_llvm_tools_preview(working_directory: &std::path::Path) -> NumberOfErrors {
+    run_process_with_error_only_output(
+        &working_directory,
+        std::path::Path::new("rustup"),
+        &["component", "add", "llvm-tools-preview"],
+        &HashMap::new(),
+    )
+    .await
+}
+
+async fn generate_coverage_report_with_grcov(
+    repository: &std::path::Path,
+    coverage_info_directory: &std::path::Path,
+    coverage_report_directory: &std::path::Path,
+) -> NumberOfErrors {
+    run_process_with_error_only_output(
+        &repository,
+        std::path::Path::new("grcov"),
+        &[
+            coverage_info_directory
+                .to_str()
+                .expect("Tried to convert path to string"),
+            "--log-level",
+            "DEBUG",
+            "--binary-path",
+            repository
+                .join("target/debug/deps")
+                .to_str()
+                .expect("Tried to convert path to string"),
+            "--source-dir",
+            repository
+                .to_str()
+                .expect("Tried to convert path to string"),
+            "-t",
+            "html",
+            "--branch",
+            "--output-path",
+            coverage_report_directory
+                .to_str()
+                .expect("Tried to convert path to string"),
+        ],
+        &HashMap::new(),
+    )
+    .await
+}
+
+fn delete_directory(root: &std::path::Path) -> NumberOfErrors {
+    match std::fs::metadata(&root) {
+        Ok(_) => match std::fs::remove_dir_all(&root) {
+            Ok(_) => NumberOfErrors(0),
+            Err(error) => {
+                println!("Could not delete {}: {}", root.display(), error);
+                NumberOfErrors(1)
+            }
+        },
+        Err(_) => NumberOfErrors(0),
+    }
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> std::process::ExitCode {
     let started_at = std::time::Instant::now();
@@ -474,6 +581,8 @@ async fn main() -> std::process::ExitCode {
     }
     let repository = std::path::Path::new(&command_line_arguments[1]);
     let (mut error_count, maybe_raspberry_pi, maybe_wasi_threads) = install_tools(repository).await;
+    error_count += install_grcov(repository).await;
+    error_count += install_llvm_tools_preview(repository).await;
 
     let root = Directory {
         entries: BTreeMap::from([
@@ -579,7 +688,18 @@ async fn main() -> std::process::ExitCode {
         ]),
     };
 
-    error_count += build_and_test_recursively(&root, &repository).await;
+    let coverage_directory = repository.join("coverage");
+    let coverage_info_directory = coverage_directory.join("info");
+    error_count += delete_directory(&coverage_info_directory);
+    error_count += build_and_test_recursively(&root, &repository, &coverage_info_directory).await;
+
+    let coverage_report_directory = coverage_directory.join("report");
+    error_count += generate_coverage_report_with_grcov(
+        &repository,
+        &coverage_info_directory,
+        &coverage_report_directory,
+    )
+    .await;
 
     let build_duration = started_at.elapsed();
     println!("Build duration: {:?}", build_duration);
