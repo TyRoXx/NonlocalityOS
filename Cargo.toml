@@ -1,0 +1,8 @@
+[workspace]
+members=[
+    "admin_tool",
+    "downloader",
+    "management_service", 
+    "nonlocality_env"
+]
+resolver="2"
