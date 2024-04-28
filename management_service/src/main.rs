@@ -470,7 +470,7 @@ async fn main() -> ExitCode {
         wasi_processes: vec![
             WasiProcess {
                 web_assembly_file: RelativePathBuf::from_path(
-                    "example_applications/rust/hello_rust/target/wasm32-wasi/debug/hello_rust.wasm",
+                    "example_applications/rust/target/wasm32-wasi/debug/hello_rust.wasm",
                 )
                 .unwrap(),
                 has_threads: false,
@@ -479,7 +479,7 @@ async fn main() -> ExitCode {
             },
             WasiProcess {
                 web_assembly_file: RelativePathBuf::from_path(
-                    "example_applications/rust/essrpc_example/essrpc_server/target/wasm32-wasip1-threads/debug/essrpc_server.wasm",
+                    "example_applications/rust/target/wasm32-wasip1-threads/debug/essrpc_server.wasm",
                 )
                 .unwrap(),
                 has_threads: true,
@@ -488,7 +488,7 @@ async fn main() -> ExitCode {
             },
             WasiProcess {
                 web_assembly_file: RelativePathBuf::from_path(
-                    "example_applications/rust/essrpc_example/essrpc_client/target/wasm32-wasi/debug/essrpc_client.wasm",
+                    "example_applications/rust/target/wasm32-wasi/debug/essrpc_client.wasm",
                 )
                 .unwrap(),
                 has_threads: false,
@@ -497,7 +497,7 @@ async fn main() -> ExitCode {
             },
             WasiProcess {
                 web_assembly_file: RelativePathBuf::from_path(
-                    "example_applications/rust/provide_api/target/wasm32-wasi/debug/provide_api.wasm",
+                    "example_applications/rust/target/wasm32-wasi/debug/provide_api.wasm",
                 )
                 .unwrap(),
                 has_threads: false,
@@ -506,7 +506,7 @@ async fn main() -> ExitCode {
             },
             WasiProcess {
                 web_assembly_file: RelativePathBuf::from_path(
-                    "example_applications/rust/call_api/target/wasm32-wasi/debug/call_api.wasm",
+                    "example_applications/rust/target/wasm32-wasi/debug/call_api.wasm",
                 )
                 .unwrap(),
                 has_threads: false,
@@ -515,7 +515,7 @@ async fn main() -> ExitCode {
             },
             WasiProcess {
                 web_assembly_file: RelativePathBuf::from_path(
-                    "example_applications/rust/database/database_server/target/wasm32-wasip1-threads/debug/database_server.wasm",
+                    "example_applications/rust/target/wasm32-wasip1-threads/debug/database_server.wasm",
                 )
                 .unwrap(),
                 has_threads: true,
@@ -524,7 +524,7 @@ async fn main() -> ExitCode {
             },
             WasiProcess {
                 web_assembly_file: RelativePathBuf::from_path(
-                    "example_applications/rust/database/database_client/target/wasm32-wasi/debug/database_client.wasm",
+                    "example_applications/rust/target/wasm32-wasi/debug/database_client.wasm",
                 )
                 .unwrap(),
                 has_threads: false,
@@ -533,7 +533,7 @@ async fn main() -> ExitCode {
             },
             WasiProcess {
                 web_assembly_file: RelativePathBuf::from_path(
-                    "example_applications/rust/idle_service/target/wasm32-wasi/debug/idle_service.wasm",
+                    "example_applications/rust/target/wasm32-wasi/debug/idle_service.wasm",
                 )
                 .unwrap(),
                 has_threads: false,
