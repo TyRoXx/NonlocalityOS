@@ -190,6 +190,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
 
 [[package]]
+name = "call_api"
+version = "0.1.0"
+dependencies = [
+ "display_bytes",
+ "nonlocality_env",
+]
+
+[[package]]
 name = "cap-fs-ext"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -491,6 +499,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "database_client"
+version = "0.1.0"
+dependencies = [
+ "database_trait",
+ "essrpc",
+ "nonlocality_env",
+]
+
+[[package]]
+name = "database_server"
+version = "0.1.0"
+dependencies = [
+ "database_trait",
+ "essrpc",
+ "nonlocality_env",
+ "sqlite",
+]
+
+[[package]]
+name = "database_trait"
+version = "0.1.0"
+dependencies = [
+ "essrpc",
+ "serde",
+]
+
+[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -617,6 +652,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "essrpc_client"
+version = "0.1.0"
+dependencies = [
+ "essrpc",
+ "essrpc_trait",
+ "nonlocality_env",
+]
+
+[[package]]
 name = "essrpc_macros"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -625,6 +669,22 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "essrpc_server"
+version = "0.1.0"
+dependencies = [
+ "essrpc",
+ "essrpc_trait",
+ "nonlocality_env",
+]
+
+[[package]]
+name = "essrpc_trait"
+version = "0.1.0"
+dependencies = [
+ "essrpc",
 ]
 
 [[package]]
@@ -874,6 +934,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
+name = "hello_rust"
+version = "0.1.0"
+
+[[package]]
 name = "hermit-abi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -907,6 +971,10 @@ name = "id-arena"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25a2bc672d1148e28034f176e01fffebb08b35768468cc954630da77a1449005"
+
+[[package]]
+name = "idle_service"
+version = "0.1.0"
 
 [[package]]
 name = "indexmap"
@@ -1327,6 +1395,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "provide_api"
+version = "0.1.0"
+dependencies = [
+ "display_bytes",
+ "nonlocality_env",
+]
+
+[[package]]
 name = "psm"
 version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1619,6 +1695,34 @@ name = "sptr"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b9b39299b249ad65f3b7e96443bad61c02ca5cd3589f46cb6d610a0fd6c0d6a"
+
+[[package]]
+name = "sqlite"
+version = "0.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "274e5a9a0968bc9797fd3fe75a544cbcd3e3c2a111cb1c11cb8a0290f9684cb2"
+dependencies = [
+ "sqlite3-sys",
+]
+
+[[package]]
+name = "sqlite3-src"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "174d4a6df77c27db281fb23de1a6d968f3aaaa4807c2a1afa8056b971f947b4a"
+dependencies = [
+ "cc",
+ "pkg-config",
+]
+
+[[package]]
+name = "sqlite3-sys"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3901ada7090c3c3584dc92ec7ef1b7091868d13bfe6d7de9f0bcaffee7d0ade5"
+dependencies = [
+ "sqlite3-src",
+]
 
 [[package]]
 name = "ssh2"
