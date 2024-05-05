@@ -690,6 +690,7 @@ async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterConfi
                     code: read_blob(&target.join("wasm32-wasi/release/hello_rust.wasm")).await,
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
             Service {
                 id: ServiceId(1),
@@ -701,6 +702,7 @@ async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterConfi
                     .await,
                     has_threads: true,
                 },
+                filesystem_dir_unique_id: None,
             },
             Service {
                 id: ServiceId(2),
@@ -712,6 +714,7 @@ async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterConfi
                     code: read_blob(&target.join("wasm32-wasi/release/essrpc_client.wasm")).await,
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
             Service {
                 id: ServiceId(3),
@@ -720,6 +723,7 @@ async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterConfi
                     code: read_blob(&target.join("wasm32-wasi/release/provide_api.wasm")).await,
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
             Service {
                 id: ServiceId(4),
@@ -731,6 +735,7 @@ async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterConfi
                     code: read_blob(&target.join("wasm32-wasi/release/call_api.wasm")).await,
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
             Service {
                 id: ServiceId(5),
@@ -742,6 +747,7 @@ async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterConfi
                     .await,
                     has_threads: true,
                 },
+                filesystem_dir_unique_id: Some("example_database_server".to_string()),
             },
             Service {
                 id: ServiceId(6),
@@ -753,6 +759,7 @@ async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterConfi
                     code: read_blob(&target.join("wasm32-wasi/release/database_client.wasm")).await,
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
             Service {
                 id: ServiceId(7),
@@ -761,6 +768,7 @@ async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterConfi
                     code: read_blob(&target.join("wasm32-wasi/release/idle_service.wasm")).await,
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
         ],
     }

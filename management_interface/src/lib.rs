@@ -50,6 +50,7 @@ pub struct Service {
     pub id: ServiceId,
     pub outgoing_interfaces: std::collections::BTreeMap<OutgoingInterfaceId, IncomingInterface>,
     pub wasi: WasiProcess,
+    pub filesystem_dir_unique_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]

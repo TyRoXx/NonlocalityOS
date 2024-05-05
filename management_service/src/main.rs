@@ -79,10 +79,7 @@ impl WasiFile for InterServiceApiStream {
             }
         };
         match writer.write_vectored(_bufs) {
-            Ok(written) => {
-                println!("Wrote {} bytes to the pipe.", written);
-                Ok(written as u64)
-            }
+            Ok(written) => Ok(written as u64),
             Err(error) => {
                 println!("Writing to pipe failed with {}", error);
                 Err(wasi_common::Error::io())
@@ -102,10 +99,7 @@ impl WasiFile for InterServiceApiStream {
             }
         };
         match reader.read_vectored(_bufs) {
-            Ok(read) => {
-                println!("Read {} bytes from the pipe.", read);
-                Ok(read as u64)
-            }
+            Ok(read) => Ok(read as u64),
             Err(error) => Err(wasi_common::Error::from(error)),
         }
     }
@@ -369,21 +363,38 @@ fn run_wasi_process(
     has_threads: bool,
     this_service_id: ServiceId,
     outgoing_interfaces: Arc<std::collections::BTreeMap<OutgoingInterfaceId, IncomingInterface>>,
+    filesystem_access: Option<std::path::PathBuf>,
 ) -> wasmtime::Result<()> {
     let mut linker = Linker::new(&engine);
     wasi_common::sync::add_to_linker(&mut linker, |s: &mut InterServiceFuncContext| &mut s.wasi)?;
-    let wasi = WasiCtxBuilder::new().build();
+    let wasi = {
+        let mut builder = WasiCtxBuilder::new();
+        match filesystem_access {
+            Some(path) => {
+                builder
+                    .preopened_dir(
+                        wasi_common::sync::Dir::open_ambient_dir(
+                            path,
+                            wasi_common::sync::ambient_authority(),
+                        )
+                        .unwrap(),
+                        "/",
+                    )
+                    .unwrap();
+            }
+            None => {}
+        };
+        builder.build()
+    };
 
     let stdout = WritePipe::new(logger);
     wasi.set_stdout(Box::new(stdout.clone()));
 
-    println!("Defining nonlocality_accept.");
     linker
         .func_wrap(
             "env",
             "nonlocality_accept",
             |caller: Caller<'_, InterServiceFuncContext>| -> wasmtime::Result<u64> {
-                println!("nonlocality_accept was called.");
                 let context = caller.data();
                 let accept_result = match context.api_hub.accept(context.this_service_id) {
                     Ok(success) => success,
@@ -409,16 +420,11 @@ fn run_wasi_process(
         )
         .expect("Tried to define nonlocality_accept");
 
-    println!("Defining nonlocality_connect.");
     linker
         .func_wrap(
             "env",
             "nonlocality_connect",
             |caller: Caller<'_, InterServiceFuncContext>, interface: i32| -> i32 {
-                println!(
-                    "nonlocality_connect was called for interface {}.",
-                    interface
-                );
                 let context = caller.data();
                 let connecting_interface = match context
                     .outgoing_interfaces
@@ -447,7 +453,6 @@ fn run_wasi_process(
         )
         .expect("Tried to define nonlocality_connect");
 
-    println!("Defining nonlocality_abort.");
     linker
         .func_wrap(
             "env",
@@ -471,7 +476,6 @@ fn run_wasi_process(
     );
 
     if has_threads {
-        println!("Threads are enabled.");
         wasmtime_wasi_threads::add_to_linker(
             &mut linker,
             &func_context_store,
@@ -483,14 +487,10 @@ fn run_wasi_process(
             WasiThreadsCtx::new(module.clone(), Arc::new(linker.clone()))
                 .expect("Tried to create a context"),
         ));
-    } else {
-        println!("Threads are not enabled.");
     }
 
-    println!("Setting up the main module or something.");
     linker.module(&mut func_context_store, "", &module)?;
 
-    println!("Calling main function.");
     let entry_point = linker
         .get_default(&mut func_context_store, "")
         .expect("Tried to find the main entry point of the application");
@@ -573,7 +573,11 @@ fn handle_external_requests(
     }
 }
 
-async fn run_services(configuration: &ClusterConfiguration, shutdown_request: Arc<Notify>) -> bool {
+async fn run_services(
+    configuration: &ClusterConfiguration,
+    shutdown_request: Arc<Notify>,
+    maybe_filesystem_access_parent: Option<std::path::PathBuf>,
+) -> bool {
     let api_hub = Arc::new(InterServiceApiHub::new());
     let api_hub_clone = api_hub.clone();
     tokio::spawn(async move {
@@ -591,6 +595,31 @@ async fn run_services(configuration: &ClusterConfiguration, shutdown_request: Ar
                 management_interface::Blob::Digest(_) => todo!(),
                 management_interface::Blob::Direct(content) => content.clone(),
             };
+
+            let maybe_filesystem_access = match maybe_filesystem_access_parent {
+                Some(ref filesystem_access_parent) => {
+                    match service.filesystem_dir_unique_id.as_ref() {
+                        Some(unique_id) => {
+                            let service_directory = filesystem_access_parent.join(unique_id);
+                            Some(service_directory)
+                        }
+                        None => None,
+                    }
+                }
+                None => None,
+            };
+
+            match maybe_filesystem_access {
+                Some(ref filesystem_access) => {
+                    println!(
+                        "Server has read/write access to {}",
+                        filesystem_access.display()
+                    );
+                    std::fs::create_dir_all(&filesystem_access).unwrap();
+                }
+                None => {}
+            }
+
             scope.spawn_blocking(move || {
                 let mut config = Config::new();
                 config.wasm_threads(service.wasi.has_threads);
@@ -623,6 +652,7 @@ async fn run_services(configuration: &ClusterConfiguration, shutdown_request: Ar
                     service.wasi.has_threads,
                     this_service_id,
                     interfaces,
+                    maybe_filesystem_access,
                 )
             });
         }
@@ -649,6 +679,7 @@ async fn run_services(configuration: &ClusterConfiguration, shutdown_request: Ar
 
 async fn run_latest_cluster(
     mut configuration_watcher: tokio::sync::mpsc::Receiver<Option<ClusterConfiguration>>,
+    maybe_filesystem_access_parent: Option<&std::path::Path>,
 ) -> bool {
     let mut maybe_running_services: Option<(tokio::task::JoinHandle<bool>, Arc<Notify>)> = None;
     loop {
@@ -673,10 +704,17 @@ async fn run_latest_cluster(
                 println!("Starting services with the new configuration.");
                 let shutdown_request = Arc::new(tokio::sync::Notify::new());
                 let shutdown_request_clone = shutdown_request.clone();
+                let maybe_filesystem_access_parent_clone =
+                    maybe_filesystem_access_parent.map(|path| path.to_path_buf());
                 maybe_running_services = Some((
-                    tokio::spawn(
-                        async move { run_services(&configuration, shutdown_request).await },
-                    ),
+                    tokio::spawn(async move {
+                        run_services(
+                            &configuration,
+                            shutdown_request,
+                            maybe_filesystem_access_parent_clone,
+                        )
+                        .await
+                    }),
                     shutdown_request_clone,
                 ));
             }
@@ -694,7 +732,7 @@ async fn test_run_services_empty_cluster() {
         services: Vec::new(),
     };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let is_success = run_services(&cluster_configuration, shutdown_request).await;
+    let is_success = run_services(&cluster_configuration, shutdown_request, None).await;
     assert!(is_success);
 }
 
@@ -741,10 +779,11 @@ async fn test_run_services_one_finite_service() {
                 code: management_interface::Blob::Direct(hello_world),
                 has_threads: false,
             },
+            filesystem_dir_unique_id: None,
         }],
     };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let is_success = run_services(&cluster_configuration, shutdown_request).await;
+    let is_success = run_services(&cluster_configuration, shutdown_request, None).await;
     assert!(is_success);
 }
 
@@ -768,10 +807,11 @@ async fn test_run_services_web_assembly_type_error() {
                 code: management_interface::Blob::Direct(type_error_program),
                 has_threads: false,
             },
+            filesystem_dir_unique_id: None,
         }],
     };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let is_success = run_services(&cluster_configuration, shutdown_request).await;
+    let is_success = run_services(&cluster_configuration, shutdown_request, None).await;
     assert!(!is_success);
 }
 
@@ -798,10 +838,11 @@ async fn test_run_services_web_assembly_infinite_recursion() {
                 code: management_interface::Blob::Direct(runtime_error_program),
                 has_threads: false,
             },
+            filesystem_dir_unique_id: None,
         }],
     };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let is_success = run_services(&cluster_configuration, shutdown_request).await;
+    let is_success = run_services(&cluster_configuration, shutdown_request, None).await;
     assert!(!is_success);
 }
 
@@ -824,10 +865,11 @@ async fn test_run_services_web_assembly_import_unknown_function() {
                 code: management_interface::Blob::Direct(compiled),
                 has_threads: false,
             },
+            filesystem_dir_unique_id: None,
         }],
     };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let is_success = run_services(&cluster_configuration, shutdown_request).await;
+    let is_success = run_services(&cluster_configuration, shutdown_request, None).await;
     assert!(!is_success);
 }
 
@@ -852,10 +894,11 @@ async fn test_run_services_web_assembly_abort() {
                 code: management_interface::Blob::Direct(runtime_error_program),
                 has_threads: false,
             },
+            filesystem_dir_unique_id: None,
         }],
     };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let is_success = run_services(&cluster_configuration, shutdown_request).await;
+    let is_success = run_services(&cluster_configuration, shutdown_request, None).await;
     assert!(!is_success);
 }
 
@@ -871,14 +914,16 @@ async fn test_run_services_many_finite_services() {
                 code: management_interface::Blob::Direct(hello_world.clone()),
                 has_threads: false,
             },
+            filesystem_dir_unique_id: None,
         });
     }
     let cluster_configuration = ClusterConfiguration { services: services };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let is_success = run_services(&cluster_configuration, shutdown_request).await;
+    let is_success = run_services(&cluster_configuration, shutdown_request, None).await;
     assert!(is_success);
 }
 
+#[cfg(test)]
 fn create_program_blocking_on_accept() -> Vec<u8> {
     const SOURCE: &str = r#"(module
         (import "env" "nonlocality_accept" (func $nonlocality_accept (result i64)))
@@ -924,6 +969,7 @@ async fn test_run_services_inter_service_connect_accept() {
                     code: management_interface::Blob::Direct(api_consumer),
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
             management_interface::Service {
                 id: ServiceId(1),
@@ -932,11 +978,12 @@ async fn test_run_services_inter_service_connect_accept() {
                     code: management_interface::Blob::Direct(api_provider),
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
         ],
     };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let is_success = run_services(&cluster_configuration, shutdown_request).await;
+    let is_success = run_services(&cluster_configuration, shutdown_request, None).await;
     assert!(is_success);
 }
 
@@ -1024,6 +1071,7 @@ async fn test_run_services_inter_service_write_read() {
                     code: management_interface::Blob::Direct(api_consumer),
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
             management_interface::Service {
                 id: ServiceId(1),
@@ -1032,11 +1080,12 @@ async fn test_run_services_inter_service_write_read() {
                     code: management_interface::Blob::Direct(api_provider),
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             },
         ],
     };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let is_success = run_services(&cluster_configuration, shutdown_request).await;
+    let is_success = run_services(&cluster_configuration, shutdown_request, None).await;
     assert!(is_success);
 }
 
@@ -1051,10 +1100,11 @@ async fn test_run_services_shutdown() {
                 code: management_interface::Blob::Direct(compiled),
                 has_threads: false,
             },
+            filesystem_dir_unique_id: None,
         }],
     };
     let shutdown_request = Arc::new(tokio::sync::Notify::new());
-    let running_services = run_services(&cluster_configuration, shutdown_request.clone());
+    let running_services = run_services(&cluster_configuration, shutdown_request.clone(), None);
     shutdown_request.notify_one();
     let is_success = running_services.await;
     // at the moment run_services will fail when you request a shutdown
@@ -1064,7 +1114,7 @@ async fn test_run_services_shutdown() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_run_latest_cluster_shutdown() {
     let (change_cluster_configuration, watch_cluster_configuration) = tokio::sync::mpsc::channel(1);
-    let running_services = tokio::spawn(run_latest_cluster(watch_cluster_configuration));
+    let running_services = tokio::spawn(run_latest_cluster(watch_cluster_configuration, None));
 
     {
         let old_compiled = create_program_blocking_on_accept();
@@ -1076,6 +1126,7 @@ async fn test_run_latest_cluster_shutdown() {
                     code: management_interface::Blob::Direct(old_compiled),
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             }],
         };
         change_cluster_configuration
@@ -1094,7 +1145,7 @@ async fn test_run_latest_cluster_shutdown() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_run_latest_cluster_change_configuration() {
     let (change_cluster_configuration, watch_cluster_configuration) = tokio::sync::mpsc::channel(1);
-    let running_services = tokio::spawn(run_latest_cluster(watch_cluster_configuration));
+    let running_services = tokio::spawn(run_latest_cluster(watch_cluster_configuration, None));
 
     {
         let old_compiled = create_program_blocking_on_accept();
@@ -1106,6 +1157,7 @@ async fn test_run_latest_cluster_change_configuration() {
                     code: management_interface::Blob::Direct(old_compiled),
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             }],
         };
         change_cluster_configuration
@@ -1124,6 +1176,7 @@ async fn test_run_latest_cluster_change_configuration() {
                     code: management_interface::Blob::Direct(new_compiled),
                     has_threads: false,
                 },
+                filesystem_dir_unique_id: None,
             }],
         };
         change_cluster_configuration
@@ -1179,6 +1232,8 @@ async fn run_api_server(
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
+    let cluster_configuration_file_path = Path::new(&args[1]);
+    let filesystem_access_root = Path::new(&args[2]);
 
     let external_port = "127.0.0.1:6969";
     let external_port_listener = match tokio::net::TcpListener::bind(external_port).await {
@@ -1189,7 +1244,6 @@ async fn main() -> ExitCode {
         }
     };
 
-    let cluster_configuration_file_path = Path::new(&args[1]);
     println!(
         "Loading configuration from {}",
         cluster_configuration_file_path.display()
@@ -1208,7 +1262,8 @@ async fn main() -> ExitCode {
         external_port_listener,
         change_cluster_configuration.clone(),
     ));
-    let is_success = run_latest_cluster(watch_cluster_configuration).await;
+    let is_success =
+        run_latest_cluster(watch_cluster_configuration, Some(filesystem_access_root)).await;
     background_acceptor.await.unwrap();
     if is_success {
         ExitCode::SUCCESS

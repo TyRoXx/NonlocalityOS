@@ -24,9 +24,9 @@ impl ExampleDatabase for ExampleDatabaseImpl {
     }
 }
 
-fn create_database_connection() -> sqlite::Connection {
-    let connection = sqlite::open(":memory:").expect("Tried to create database connection");
-    let query = "CREATE TABLE users (name TEXT, role TEXT)";
+fn create_database_connection(path: &std::path::Path) -> sqlite::Connection {
+    let connection = sqlite::open(path).expect("Tried to create database connection");
+    let query = "CREATE TABLE IF NOT EXISTS users (name TEXT, role TEXT)";
     connection.execute(query).expect("Tried to create table");
     connection
 }
@@ -67,7 +67,7 @@ fn insert_user_row(connection: &sqlite::Connection, name: &str, role: &str) {
 
 #[test]
 fn test_insert_user_row() {
-    let connection = create_database_connection();
+    let connection = create_database_connection(std::path::Path::new(":memory:"));
     insert_user_row(&connection, "Alice", "admin");
     insert_user_row(&connection, "Bob", "guest");
     let users = list_user_rows(&connection);
@@ -87,7 +87,8 @@ fn test_insert_user_row() {
 }
 
 fn main() {
-    let connection = create_database_connection();
+    println!("Opening the database.");
+    let connection = create_database_connection(std::path::Path::new("/database.sqlite"));
     println!("Accepting an API client..");
     let accepted = accept();
     println!(
