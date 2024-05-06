@@ -1,3 +1,4 @@
+#[deny(warnings)]
 use essrpc::transports::BincodeTransport;
 use essrpc::RPCClient;
 use log_trait::LogLevel;
@@ -13,4 +14,6 @@ fn main() {
     client
         .log(LogLevel::Info, "I can use the logging service".to_string())
         .expect("Could not log statement.");
+
+    println!("Logger client is done");
 }

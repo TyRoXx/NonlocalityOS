@@ -48,6 +48,7 @@ impl IncomingInterface {
 #[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]
 pub struct Service {
     pub id: ServiceId,
+    pub label: String,
     pub outgoing_interfaces: std::collections::BTreeMap<OutgoingInterfaceId, IncomingInterface>,
     pub wasi: WasiProcess,
     pub filesystem_dir_unique_id: Option<String>,

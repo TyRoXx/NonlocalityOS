@@ -1,3 +1,4 @@
+#[deny(warnings)]
 use essrpc::essrpc;
 use essrpc::RPCError;
 use serde::{Deserialize, Serialize};

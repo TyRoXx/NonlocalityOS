@@ -33,6 +33,7 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
         services: vec![
             Service {
                 id: hello_world_id,
+                label: "Hello world service".to_string(),
                 outgoing_interfaces: BTreeMap::new(),
                 wasi: WasiProcess {
                     code: read_blob(&target.join("wasm32-wasi/release/hello_rust.wasm")).await,
@@ -42,6 +43,7 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
             },
             Service {
                 id: essrpc_server_id,
+                label: "ESS RPC Server".to_string(),
                 outgoing_interfaces: BTreeMap::new(),
                 wasi: WasiProcess {
                     code: read_blob(
@@ -54,6 +56,7 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
             },
             Service {
                 id: essrpc_client_id,
+                label: "ESS RPC Client".to_string(),
                 outgoing_interfaces: BTreeMap::from([(
                     OutgoingInterfaceId(0),
                     IncomingInterface::new(essrpc_server_id, IncomingInterfaceId(0)),
@@ -66,6 +69,7 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
             },
             Service {
                 id: provide_api_id,
+                label: "Provide API".to_string(),
                 outgoing_interfaces: BTreeMap::new(),
                 wasi: WasiProcess {
                     code: read_blob(&target.join("wasm32-wasi/release/provide_api.wasm")).await,
@@ -75,6 +79,7 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
             },
             Service {
                 id: call_api_id,
+                label: "Call API".to_string(),
                 outgoing_interfaces: BTreeMap::from([(
                     OutgoingInterfaceId(0),
                     IncomingInterface::new(provide_api_id, IncomingInterfaceId(0)),
@@ -87,6 +92,7 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
             },
             Service {
                 id: database_server_id,
+                label: "Database Server".to_string(),
                 outgoing_interfaces: BTreeMap::new(),
                 wasi: WasiProcess {
                     code: read_blob(
@@ -99,6 +105,7 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
             },
             Service {
                 id: database_client_id,
+                label: "Database Client".to_string(),
                 outgoing_interfaces: BTreeMap::from([(
                     OutgoingInterfaceId(0),
                     IncomingInterface::new(database_server_id, IncomingInterfaceId(0)),
@@ -111,6 +118,7 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
             },
             Service {
                 id: idle_service_id,
+                label: "Idle Service".to_string(),
                 outgoing_interfaces: BTreeMap::new(),
                 wasi: WasiProcess {
                     code: read_blob(&target.join("wasm32-wasi/release/idle_service.wasm")).await,
@@ -120,16 +128,18 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
             },
             Service {
                 id: log_server_id,
+                label: "Logger Server".to_string(),
                 outgoing_interfaces: BTreeMap::new(),
                 wasi: WasiProcess {
                     code: read_blob(&target.join("wasm32-wasip1-threads/release/log_server.wasm"))
                         .await,
                     has_threads: true,
                 },
-                filesystem_dir_unique_id: None,
+                filesystem_dir_unique_id: Some("example_logger".to_string()),
             },
             Service {
                 id: log_client_id,
+                label: "Logger Client".to_string(),
                 outgoing_interfaces: BTreeMap::from([(
                     OutgoingInterfaceId(0),
                     IncomingInterface::new(log_server_id, IncomingInterfaceId(0)),

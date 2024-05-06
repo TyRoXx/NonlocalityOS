@@ -499,7 +499,7 @@ fn run_wasi_process(
         .expect("Tried to cast the main entry point function type");
     match typed_entry_point.call(&mut func_context_store, ()) {
         Ok(_) => {
-            println!("Main function returned.");
+            println!("Service {:?}: Completed successfully.", this_service_id);
             Ok(())
         }
         Err(error) => bail!("Service {:?} failed: {:?}", this_service_id, error),
@@ -646,7 +646,7 @@ async fn run_services(
                     engine,
                     module,
                     Logger {
-                        name: format!("Service#{:?}", service.id),
+                        name: format!("{}#{:?}", service.label, service.id),
                     },
                     api_hub_2,
                     service.wasi.has_threads,
@@ -774,6 +774,7 @@ async fn test_run_services_one_finite_service() {
     let cluster_configuration = ClusterConfiguration {
         services: vec![management_interface::Service {
             id: ServiceId(0),
+            label: "".to_string(),
             outgoing_interfaces: std::collections::BTreeMap::new(),
             wasi: management_interface::WasiProcess {
                 code: management_interface::Blob::Direct(hello_world),
@@ -802,6 +803,7 @@ async fn test_run_services_web_assembly_type_error() {
     let cluster_configuration = ClusterConfiguration {
         services: vec![management_interface::Service {
             id: ServiceId(0),
+            label: "".to_string(),
             outgoing_interfaces: std::collections::BTreeMap::new(),
             wasi: management_interface::WasiProcess {
                 code: management_interface::Blob::Direct(type_error_program),
@@ -833,6 +835,7 @@ async fn test_run_services_web_assembly_infinite_recursion() {
     let cluster_configuration = ClusterConfiguration {
         services: vec![management_interface::Service {
             id: ServiceId(0),
+            label: "".to_string(),
             outgoing_interfaces: std::collections::BTreeMap::new(),
             wasi: management_interface::WasiProcess {
                 code: management_interface::Blob::Direct(runtime_error_program),
@@ -860,6 +863,7 @@ async fn test_run_services_web_assembly_import_unknown_function() {
     let cluster_configuration = ClusterConfiguration {
         services: vec![management_interface::Service {
             id: ServiceId(0),
+            label: "".to_string(),
             outgoing_interfaces: std::collections::BTreeMap::new(),
             wasi: management_interface::WasiProcess {
                 code: management_interface::Blob::Direct(compiled),
@@ -889,6 +893,7 @@ async fn test_run_services_web_assembly_abort() {
     let cluster_configuration = ClusterConfiguration {
         services: vec![management_interface::Service {
             id: ServiceId(0),
+            label: "".to_string(),
             outgoing_interfaces: std::collections::BTreeMap::new(),
             wasi: management_interface::WasiProcess {
                 code: management_interface::Blob::Direct(runtime_error_program),
@@ -909,6 +914,7 @@ async fn test_run_services_many_finite_services() {
     for i in 0..50 {
         services.push(management_interface::Service {
             id: ServiceId(i),
+            label: "".to_string(),
             outgoing_interfaces: std::collections::BTreeMap::new(),
             wasi: management_interface::WasiProcess {
                 code: management_interface::Blob::Direct(hello_world.clone()),
@@ -961,6 +967,7 @@ async fn test_run_services_inter_service_connect_accept() {
         services: vec![
             management_interface::Service {
                 id: ServiceId(0),
+                label: "".to_string(),
                 outgoing_interfaces: std::collections::BTreeMap::from([(
                     OutgoingInterfaceId(0),
                     IncomingInterface::new(ServiceId(1), IncomingInterfaceId(0)),
@@ -973,6 +980,7 @@ async fn test_run_services_inter_service_connect_accept() {
             },
             management_interface::Service {
                 id: ServiceId(1),
+                label: "".to_string(),
                 outgoing_interfaces: std::collections::BTreeMap::new(),
                 wasi: management_interface::WasiProcess {
                     code: management_interface::Blob::Direct(api_provider),
@@ -1063,6 +1071,7 @@ async fn test_run_services_inter_service_write_read() {
         services: vec![
             management_interface::Service {
                 id: ServiceId(0),
+                label: "".to_string(),
                 outgoing_interfaces: std::collections::BTreeMap::from([(
                     OutgoingInterfaceId(0),
                     IncomingInterface::new(ServiceId(1), IncomingInterfaceId(0)),
@@ -1075,6 +1084,7 @@ async fn test_run_services_inter_service_write_read() {
             },
             management_interface::Service {
                 id: ServiceId(1),
+                label: "".to_string(),
                 outgoing_interfaces: std::collections::BTreeMap::new(),
                 wasi: management_interface::WasiProcess {
                     code: management_interface::Blob::Direct(api_provider),
@@ -1095,6 +1105,7 @@ async fn test_run_services_shutdown() {
     let cluster_configuration = ClusterConfiguration {
         services: vec![management_interface::Service {
             id: ServiceId(0),
+            label: "".to_string(),
             outgoing_interfaces: std::collections::BTreeMap::new(),
             wasi: management_interface::WasiProcess {
                 code: management_interface::Blob::Direct(compiled),
@@ -1121,6 +1132,7 @@ async fn test_run_latest_cluster_shutdown() {
         let old_cluster_configuration = ClusterConfiguration {
             services: vec![management_interface::Service {
                 id: ServiceId(0),
+                label: "".to_string(),
                 outgoing_interfaces: std::collections::BTreeMap::new(),
                 wasi: management_interface::WasiProcess {
                     code: management_interface::Blob::Direct(old_compiled),
@@ -1152,6 +1164,7 @@ async fn test_run_latest_cluster_change_configuration() {
         let old_cluster_configuration = ClusterConfiguration {
             services: vec![management_interface::Service {
                 id: ServiceId(0),
+                label: "".to_string(),
                 outgoing_interfaces: std::collections::BTreeMap::new(),
                 wasi: management_interface::WasiProcess {
                     code: management_interface::Blob::Direct(old_compiled),
@@ -1171,6 +1184,7 @@ async fn test_run_latest_cluster_change_configuration() {
         let new_cluster_configuration = ClusterConfiguration {
             services: vec![management_interface::Service {
                 id: ServiceId(0),
+                label: "".to_string(),
                 outgoing_interfaces: std::collections::BTreeMap::new(),
                 wasi: management_interface::WasiProcess {
                     code: management_interface::Blob::Direct(new_compiled),
