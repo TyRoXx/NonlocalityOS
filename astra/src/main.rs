@@ -1,19 +1,13 @@
 #![deny(warnings)]
 use async_recursion::async_recursion;
-use management_interface::Blob;
-use management_interface::IncomingInterface;
-use management_interface::IncomingInterfaceId;
-use management_interface::OutgoingInterfaceId;
-use management_interface::ServiceId;
-use management_interface::{ClusterConfiguration, Service, WasiProcess};
 use postcard::to_allocvec;
 use ssh2::OpenFlags;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 use std::os::windows::fs::MetadataExt;
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
 pub mod downloads;
+pub mod cluster_configuration;
 
 #[derive(Clone)]
 struct RaspberryPi64Target {
@@ -671,109 +665,6 @@ fn parse_command(input: &str) -> Option<AstraCommand> {
     }
 }
 
-async fn read_blob(from: &std::path::Path) -> Blob {
-    let mut file = tokio::fs::File::open(from)
-        .await
-        .expect(&format!("Tried to open {}", from.display()));
-    let mut contents = vec![];
-    file.read_to_end(&mut contents).await.unwrap();
-    Blob::Direct(contents)
-}
-
-async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterConfiguration {
-    ClusterConfiguration {
-        services: vec![
-            Service {
-                id: ServiceId(0),
-                outgoing_interfaces: BTreeMap::new(),
-                wasi: WasiProcess {
-                    code: read_blob(&target.join("wasm32-wasi/release/hello_rust.wasm")).await,
-                    has_threads: false,
-                },
-                filesystem_dir_unique_id: None,
-            },
-            Service {
-                id: ServiceId(1),
-                outgoing_interfaces: BTreeMap::new(),
-                wasi: WasiProcess {
-                    code: read_blob(
-                        &target.join("wasm32-wasip1-threads/release/essrpc_server.wasm"),
-                    )
-                    .await,
-                    has_threads: true,
-                },
-                filesystem_dir_unique_id: None,
-            },
-            Service {
-                id: ServiceId(2),
-                outgoing_interfaces: BTreeMap::from([(
-                    OutgoingInterfaceId(0),
-                    IncomingInterface::new(ServiceId(1), IncomingInterfaceId(0)),
-                )]),
-                wasi: WasiProcess {
-                    code: read_blob(&target.join("wasm32-wasi/release/essrpc_client.wasm")).await,
-                    has_threads: false,
-                },
-                filesystem_dir_unique_id: None,
-            },
-            Service {
-                id: ServiceId(3),
-                outgoing_interfaces: BTreeMap::new(),
-                wasi: WasiProcess {
-                    code: read_blob(&target.join("wasm32-wasi/release/provide_api.wasm")).await,
-                    has_threads: false,
-                },
-                filesystem_dir_unique_id: None,
-            },
-            Service {
-                id: ServiceId(4),
-                outgoing_interfaces: BTreeMap::from([(
-                    OutgoingInterfaceId(0),
-                    IncomingInterface::new(ServiceId(3), IncomingInterfaceId(0)),
-                )]),
-                wasi: WasiProcess {
-                    code: read_blob(&target.join("wasm32-wasi/release/call_api.wasm")).await,
-                    has_threads: false,
-                },
-                filesystem_dir_unique_id: None,
-            },
-            Service {
-                id: ServiceId(5),
-                outgoing_interfaces: BTreeMap::new(),
-                wasi: WasiProcess {
-                    code: read_blob(
-                        &target.join("wasm32-wasip1-threads/release/database_server.wasm"),
-                    )
-                    .await,
-                    has_threads: true,
-                },
-                filesystem_dir_unique_id: Some("example_database_server".to_string()),
-            },
-            Service {
-                id: ServiceId(6),
-                outgoing_interfaces: BTreeMap::from([(
-                    OutgoingInterfaceId(0),
-                    IncomingInterface::new(ServiceId(5), IncomingInterfaceId(0)),
-                )]),
-                wasi: WasiProcess {
-                    code: read_blob(&target.join("wasm32-wasi/release/database_client.wasm")).await,
-                    has_threads: false,
-                },
-                filesystem_dir_unique_id: None,
-            },
-            Service {
-                id: ServiceId(7),
-                outgoing_interfaces: BTreeMap::new(),
-                wasi: WasiProcess {
-                    code: read_blob(&target.join("wasm32-wasi/release/idle_service.wasm")).await,
-                    has_threads: false,
-                },
-                filesystem_dir_unique_id: None,
-            },
-        ],
-    }
-}
-
 async fn build(
     mode: CargoBuildMode,
     repository: &std::path::Path,
@@ -918,7 +809,7 @@ async fn build(
 
     match mode {
         CargoBuildMode::BuildRelease => {
-            let configuration = compile_cluster_configuration(&repository.join("target")).await;
+            let configuration = cluster_configuration::compile_cluster_configuration(&repository.join("target")).await;
             let configuration_serialized = to_allocvec(&configuration).unwrap();
             let target = repository.join("target");
             let output_path = target.join("example_applications_cluster.config");
