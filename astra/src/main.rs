@@ -771,6 +771,30 @@ async fn build(
                                     }),
                                 ),
                                 (
+                                    "logging".to_string(),
+                                    DirectoryEntry::Directory(Directory {
+                                        entries: BTreeMap::from([
+                                            (
+                                                "log_client".to_string(),
+                                                DirectoryEntry::Program(Program::wasi()),
+                                            ),
+                                            (
+                                                "log_server".to_string(),
+                                                DirectoryEntry::Program(match maybe_wasi_threads {
+                                                    Some(ref wasi_threads) => {
+                                                        Program::wasi_threads(wasi_threads.clone())
+                                                    }
+                                                    None => Program::other(),
+                                                }),
+                                            ),
+                                            (
+                                                "log_trait".to_string(),
+                                                DirectoryEntry::Program(Program::wasi()),
+                                            ),
+                                        ]),
+                                    }),
+                                ),
+                                (
                                     "hello_rust".to_string(),
                                     DirectoryEntry::Program(Program::wasi()),
                                 ),

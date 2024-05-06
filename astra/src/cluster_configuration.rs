@@ -26,6 +26,8 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
     let database_server_id = ServiceId(5);
     let database_client_id = ServiceId(6);
     let idle_service_id = ServiceId(7);
+    let log_server_id= ServiceId(8);
+    let log_client_id= ServiceId(9);
 
     ClusterConfiguration {
         services: vec![
@@ -112,6 +114,28 @@ pub async fn compile_cluster_configuration(target: &std::path::Path) -> ClusterC
                 outgoing_interfaces: BTreeMap::new(),
                 wasi: WasiProcess {
                     code: read_blob(&target.join("wasm32-wasi/release/idle_service.wasm")).await,
+                    has_threads: false,
+                },
+                filesystem_dir_unique_id: None,
+            },
+            Service {
+                id: log_server_id,
+                outgoing_interfaces: BTreeMap::new(),
+                wasi: WasiProcess {
+                    code: read_blob(&target.join("wasm32-wasip1-threads/release/log_server.wasm"))
+                        .await,
+                    has_threads: true,
+                },
+                filesystem_dir_unique_id: None,
+            },
+            Service {
+                id: log_client_id,
+                outgoing_interfaces: BTreeMap::from([(
+                    OutgoingInterfaceId(0),
+                    IncomingInterface::new(log_server_id, IncomingInterfaceId(0)),
+                )]),
+                wasi: WasiProcess {
+                    code: read_blob(&target.join("wasm32-wasi/release/log_client.wasm")).await,
                     has_threads: false,
                 },
                 filesystem_dir_unique_id: None,

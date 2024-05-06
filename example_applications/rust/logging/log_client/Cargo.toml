@@ -1,0 +1,11 @@
+[package]
+name = "log_client"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+essrpc = {version = "0.4.1", features = ["bincode_transport", "async_client"]}
+nonlocality_env = { path ="../../../../nonlocality_env" }
+log_trait = { path ="../log_trait" }

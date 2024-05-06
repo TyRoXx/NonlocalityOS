@@ -1153,6 +1153,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 
 [[package]]
+name = "log_client"
+version = "0.1.0"
+dependencies = [
+ "essrpc",
+ "log_trait",
+ "nonlocality_env",
+]
+
+[[package]]
+name = "log_server"
+version = "0.1.0"
+dependencies = [
+ "essrpc",
+ "log_trait",
+ "nonlocality_env",
+]
+
+[[package]]
+name = "log_trait"
+version = "0.1.0"
+dependencies = [
+ "essrpc",
+ "serde",
+]
+
+[[package]]
 name = "lzma-sys"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
