@@ -15,7 +15,7 @@ flate2 = "1.0"
 tempfile = "3"
 ssh2 = "0.9.4"
 dotenv = "0.15.0"
-relative-path = "1.9.2"
+relative-path = "1.9.3"
 management_interface = { path ="../management_interface" }
 postcard = {version = "1.0", features = ["alloc"]}
 serde = {version = "1.0", features = ["alloc"]}
