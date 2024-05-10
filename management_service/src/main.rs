@@ -1246,8 +1246,25 @@ async fn run_api_server(
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        let excecutable_file_name = Path::new(&args[0]).file_name().unwrap().to_str().unwrap();
+
+        println!("Usage: {} <cluster_configuration> [file_system_access_root]\n\
+        \n\
+        == Parameters == \n\
+        Cluster configuration: Path to generate the configuration to (./target/example_applications_cluster.config)\n\
+        File system access root: Location where the services store their file system access (./filesystem_access)
+        ",excecutable_file_name);
+        return ExitCode::FAILURE;
+    }
+
+    let default_filesystem_access = env::current_dir()
+        .expect("Unable to get current working directory")
+        .join("filesystem_access")
+        .display()
+        .to_string();
     let cluster_configuration_file_path = Path::new(&args[1]);
-    let filesystem_access_root = Path::new(&args[2]);
+    let filesystem_access_root = Path::new(args.get(2).unwrap_or(&default_filesystem_access));
 
     let external_port = "127.0.0.1:6969";
     let external_port_listener = match tokio::net::TcpListener::bind(external_port).await {
