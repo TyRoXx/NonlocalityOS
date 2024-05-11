@@ -1,0 +1,18 @@
+[workspace]
+members=[
+    "example_cluster",
+    "rust/call_api",
+    "rust/database/database_client",
+    "rust/database/database_server",
+    "rust/database/database_trait",
+    "rust/essrpc_example/essrpc_client",
+    "rust/essrpc_example/essrpc_server",
+    "rust/essrpc_example/essrpc_trait",
+    "rust/logging/log_client",
+    "rust/logging/log_server",
+    "rust/logging/log_trait",
+    "rust/hello_rust",
+    "rust/idle_service",
+    "rust/provide_api",
+]
+resolver="2"

@@ -1,0 +1,17 @@
+[package]
+name = "nonlocality_build_utils"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+curl = "0.4.46"
+xz2 = "0.1.7"
+tar = "0.4.40"
+flate2 = "1.0"
+tempfile = "3"
+tokio = {version = "1.37.0", features = ["process"]}
+ssh2 = "0.9.4"
+relative-path = "1.9.3"
+dotenv = "0.15.0"

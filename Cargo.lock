@@ -76,18 +76,13 @@ name = "astra"
 version = "0.1.0"
 dependencies = [
  "async-recursion",
- "curl",
  "dotenv",
- "flate2",
  "management_interface",
- "postcard",
+ "nonlocality_build_utils",
  "relative-path",
  "serde",
  "ssh2",
- "tar",
- "tempfile",
  "tokio",
- "xz2",
 ]
 
 [[package]]
@@ -206,13 +201,6 @@ name = "bytes"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
-
-[[package]]
-name = "call_api"
-version = "0.1.0"
-dependencies = [
- "nonlocality_env",
-]
 
 [[package]]
 name = "cap-fs-ext"
@@ -516,33 +504,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "database_client"
-version = "0.1.0"
-dependencies = [
- "database_trait",
- "essrpc",
- "nonlocality_env",
-]
-
-[[package]]
-name = "database_server"
-version = "0.1.0"
-dependencies = [
- "database_trait",
- "essrpc",
- "nonlocality_env",
- "sqlite",
-]
-
-[[package]]
-name = "database_trait"
-version = "0.1.0"
-dependencies = [
- "essrpc",
- "serde",
-]
-
-[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -621,12 +582,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a47c1c47d2f5964e29c61246e81db715514cd532db6b5116a25ea3c03d6780a2"
 
 [[package]]
-name = "embedded-io"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef1a6892d9eef45c8fa6b9e0086428a2cca8491aca8f787c534a3d6d0bcb3ced"
-
-[[package]]
 name = "encoding_rs"
 version = "0.8.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -669,15 +624,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "essrpc_client"
-version = "0.1.0"
-dependencies = [
- "essrpc",
- "essrpc_trait",
- "nonlocality_env",
-]
-
-[[package]]
 name = "essrpc_macros"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -686,22 +632,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "essrpc_server"
-version = "0.1.0"
-dependencies = [
- "essrpc",
- "essrpc_trait",
- "nonlocality_env",
-]
-
-[[package]]
-name = "essrpc_trait"
-version = "0.1.0"
-dependencies = [
- "essrpc",
 ]
 
 [[package]]
@@ -951,10 +881,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
-name = "hello_rust"
-version = "0.1.0"
-
-[[package]]
 name = "hermit-abi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -988,10 +914,6 @@ name = "id-arena"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25a2bc672d1148e28034f176e01fffebb08b35768468cc954630da77a1449005"
-
-[[package]]
-name = "idle_service"
-version = "0.1.0"
 
 [[package]]
 name = "indexmap"
@@ -1159,32 +1081,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 
 [[package]]
-name = "log_client"
-version = "0.1.0"
-dependencies = [
- "essrpc",
- "log_trait",
- "nonlocality_env",
-]
-
-[[package]]
-name = "log_server"
-version = "0.1.0"
-dependencies = [
- "essrpc",
- "log_trait",
- "nonlocality_env",
-]
-
-[[package]]
-name = "log_trait"
-version = "0.1.0"
-dependencies = [
- "essrpc",
- "serde",
-]
-
-[[package]]
 name = "lzma-sys"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1286,6 +1182,21 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "nonlocality_build_utils"
+version = "0.1.0"
+dependencies = [
+ "curl",
+ "dotenv",
+ "flate2",
+ "relative-path",
+ "ssh2",
+ "tar",
+ "tempfile",
+ "tokio",
+ "xz2",
 ]
 
 [[package]]
@@ -1433,7 +1344,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a55c51ee6c0db07e68448e336cf8ea4131a620edefebf9893e759b2d793420f8"
 dependencies = [
  "cobs",
- "embedded-io",
  "heapless",
  "serde",
 ]
@@ -1460,13 +1370,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44ba461c1b8785e502867026d893fa52801faccfbfe59efdae7da4b9094b4ce2"
 dependencies = [
  "threadpool",
-]
-
-[[package]]
-name = "provide_api"
-version = "0.1.0"
-dependencies = [
- "nonlocality_env",
 ]
 
 [[package]]
@@ -1762,34 +1665,6 @@ name = "sptr"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b9b39299b249ad65f3b7e96443bad61c02ca5cd3589f46cb6d610a0fd6c0d6a"
-
-[[package]]
-name = "sqlite"
-version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "274e5a9a0968bc9797fd3fe75a544cbcd3e3c2a111cb1c11cb8a0290f9684cb2"
-dependencies = [
- "sqlite3-sys",
-]
-
-[[package]]
-name = "sqlite3-src"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "174d4a6df77c27db281fb23de1a6d968f3aaaa4807c2a1afa8056b971f947b4a"
-dependencies = [
- "cc",
- "pkg-config",
-]
-
-[[package]]
-name = "sqlite3-sys"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3901ada7090c3c3584dc92ec7ef1b7091868d13bfe6d7de9f0bcaffee7d0ade5"
-dependencies = [
- "sqlite3-src",
-]
 
 [[package]]
 name = "ssh2"

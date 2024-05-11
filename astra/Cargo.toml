@@ -6,16 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = {version = "1.37.0", features = ["rt-multi-thread", "macros", "process", "fs", "io-util"]}
+tokio = {version = "1.37.0", features = ["rt-multi-thread", "macros", "fs", "io-util"]}
 async-recursion = "1.1.1"
-curl = "0.4.46"
-xz2 = "0.1.7"
-tar = "0.4.40"
-flate2 = "1.0"
-tempfile = "3"
 ssh2 = "0.9.4"
 dotenv = "0.15.0"
 relative-path = "1.9.3"
 management_interface = { path ="../management_interface" }
-postcard = {version = "1.0", features = ["alloc"]}
+nonlocality_build_utils = { path ="../nonlocality_build_utils" }
 serde = {version = "1.0", features = ["alloc"]}
