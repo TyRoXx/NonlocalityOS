@@ -1245,9 +1245,30 @@ async fn run_api_server(
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
-    let args: Vec<String> = env::args().collect();
-    let cluster_configuration_file_path = Path::new(&args[1]);
-    let filesystem_access_root = Path::new(&args[2]);
+    let mut filesystem_access: Option<String> = None;
+    let mut cluster_configuration = "Something".to_string();
+    {
+        // this block limits scope of borrows by ap.refer() method
+        let mut ap = argparse::ArgumentParser::new();
+        ap.set_description("Greet somebody.");
+        ap.refer(&mut cluster_configuration).add_argument(
+            "cluster_configuration",
+            argparse::Store,
+            "Path to where the cluster configuration file should be generated to.",
+        );
+        ap.refer(&mut filesystem_access).add_option(
+            &["--filesystem_access_root"],
+            argparse::StoreOption,
+            "Path to where filesystem access should be stored.",
+        );
+        ap.parse_args_or_exit();
+    }
+
+    let cluster_configuration_file_path = Path::new(&cluster_configuration);
+    let filesystem_access_root = match filesystem_access {
+        Some(ref path) => Some(Path::new(path)),
+        None => None,
+    };
 
     let external_port = "127.0.0.1:6969";
     let external_port_listener = match tokio::net::TcpListener::bind(external_port).await {
@@ -1276,8 +1297,7 @@ async fn main() -> ExitCode {
         external_port_listener,
         change_cluster_configuration.clone(),
     ));
-    let is_success =
-        run_latest_cluster(watch_cluster_configuration, Some(filesystem_access_root)).await;
+    let is_success = run_latest_cluster(watch_cluster_configuration, filesystem_access_root).await;
     background_acceptor.await.unwrap();
     if is_success {
         ExitCode::SUCCESS
