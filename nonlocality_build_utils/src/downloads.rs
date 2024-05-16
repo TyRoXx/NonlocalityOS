@@ -1,6 +1,7 @@
 #[deny(warnings)]
 use curl::easy::Easy;
 use flate2::read::GzDecoder;
+use fs_extra::file::CopyOptions;
 use std::fs::File;
 use std::io;
 use std::io::Write;
@@ -17,7 +18,7 @@ fn download(download_url: &str, download_file_path: &Path) -> Result<(), std::io
     println!("Creating temporary file {}", temporary_file.display());
     let mut file = File::create(&temporary_file)?;
     {
-        println!("Downloading from {}.", download_url);
+        println!("Downloading from {}", download_url);
         let mut transfer = easy.transfer();
         transfer.write_function(|data| match file.write_all(data) {
             Ok(_) => Ok(data.len()),
@@ -28,11 +29,12 @@ fn download(download_url: &str, download_file_path: &Path) -> Result<(), std::io
     file.flush()?;
     drop(file);
     println!(
-        "Renaming from {} to {}",
+        "Moving from {} to {}",
         temporary_file.display(),
         download_file_path.display()
     );
-    std::fs::rename(&temporary_file, &download_file_path)?;
+    fs_extra::file::move_file(&temporary_file, &download_file_path, &CopyOptions::new())
+        .expect("moved temp file");
     println!("Download completed.");
     Ok(())
 }
