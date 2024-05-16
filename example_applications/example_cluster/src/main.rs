@@ -9,7 +9,6 @@ use nonlocality_build_utils::install::deploy;
 use nonlocality_build_utils::install::MANAGEMENT_SERVICE_NAME;
 use nonlocality_build_utils::raspberrypi::RASPBERRY_PI_TARGET_NAME;
 use nonlocality_build_utils::run::run_cargo;
-use nonlocality_build_utils::run::run_cargo_build_for_host;
 use nonlocality_build_utils::run::run_cargo_fmt;
 use nonlocality_build_utils::run::run_cargo_test;
 use nonlocality_build_utils::run::ConsoleErrorReporter;
@@ -28,7 +27,6 @@ pub mod cluster_configuration;
 
 #[derive(Clone)]
 enum CargoBuildTarget {
-    Host,
     Wasi,
     WasiThreads(WasiSdk),
 }
@@ -39,12 +37,6 @@ struct Program {
 }
 
 impl Program {
-    pub fn host() -> Program {
-        Program {
-            targets: vec![CargoBuildTarget::Host],
-        }
-    }
-
     pub fn wasi() -> Program {
         Program {
             targets: vec![CargoBuildTarget::Wasi],
@@ -93,7 +85,6 @@ async fn run_cargo_build(
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> NumberOfErrors {
     match target {
-        CargoBuildTarget::Host => run_cargo_build_for_host(project, progress_reporter).await,
         CargoBuildTarget::Wasi => {
             run_cargo_build_target_name(project, WASIP1_TARGET, progress_reporter).await
         }
@@ -285,114 +276,108 @@ async fn build(
     }
 
     let root = Directory {
-        entries: BTreeMap::from([
-            (
-                "example_cluster".to_string(),
-                DirectoryEntry::Program(Program::host()),
-            ),
-            (
-                "rust".to_string(),
-                DirectoryEntry::Directory(Directory {
-                    entries: BTreeMap::from([
-                        (
-                            "call_api".to_string(),
-                            DirectoryEntry::Program(Program::wasi()),
-                        ),
-                        (
-                            "database".to_string(),
-                            DirectoryEntry::Directory(Directory {
-                                entries: BTreeMap::from([
-                                    (
-                                        "database_client".to_string(),
-                                        DirectoryEntry::Program(Program::wasi()),
-                                    ),
-                                    (
-                                        "database_server".to_string(),
-                                        DirectoryEntry::Program(match maybe_wasi_sdk {
-                                            Some(ref wasi_sdk) => {
-                                                Program::wasi_threads(wasi_sdk.clone())
-                                            }
-                                            None => Program::other(),
-                                        }),
-                                    ),
-                                    (
-                                        "database_trait".to_string(),
-                                        DirectoryEntry::Program(Program::wasi()),
-                                    ),
-                                ]),
-                            }),
-                        ),
-                        (
-                            "essrpc_example".to_string(),
-                            DirectoryEntry::Directory(Directory {
-                                entries: BTreeMap::from([
-                                    (
-                                        "essrpc_client".to_string(),
-                                        DirectoryEntry::Program(Program::wasi()),
-                                    ),
-                                    (
-                                        "essrpc_server".to_string(),
-                                        DirectoryEntry::Program(match maybe_wasi_sdk {
-                                            Some(ref wasi_sdk) => {
-                                                Program::wasi_threads(wasi_sdk.clone())
-                                            }
-                                            None => Program::other(),
-                                        }),
-                                    ),
-                                    (
-                                        "essrpc_trait".to_string(),
-                                        DirectoryEntry::Program(Program::wasi()),
-                                    ),
-                                ]),
-                            }),
-                        ),
-                        (
-                            "logging".to_string(),
-                            DirectoryEntry::Directory(Directory {
-                                entries: BTreeMap::from([
-                                    (
-                                        "log_client".to_string(),
-                                        DirectoryEntry::Program(Program::wasi()),
-                                    ),
-                                    (
-                                        "log_server".to_string(),
-                                        DirectoryEntry::Program(match maybe_wasi_sdk {
-                                            Some(ref wasi_sdk) => {
-                                                Program::wasi_threads(wasi_sdk.clone())
-                                            }
-                                            None => Program::other(),
-                                        }),
-                                    ),
-                                    (
-                                        "log_trait".to_string(),
-                                        DirectoryEntry::Program(Program::wasi()),
-                                    ),
-                                ]),
-                            }),
-                        ),
-                        (
-                            "hello_rust".to_string(),
-                            DirectoryEntry::Program(Program::wasi()),
-                        ),
-                        (
-                            "idle_service".to_string(),
-                            DirectoryEntry::Program(Program::wasi()),
-                        ),
-                        (
-                            "provide_api".to_string(),
-                            DirectoryEntry::Program(Program::wasi()),
-                        ),
-                        (
-                            "telegram_bot".to_string(),
-                            DirectoryEntry::Program(match maybe_wasi_sdk {
-                                Some(ref wasi_sdk) => Program::wasi_threads(wasi_sdk.clone()),
-                                None => Program::other(),
-                            }),
-                        ),
-                    ]),
-                }),
-            ),
-        ]),
+        entries: BTreeMap::from([(
+            "rust".to_string(),
+            DirectoryEntry::Directory(Directory {
+                entries: BTreeMap::from([
+                    (
+                        "call_api".to_string(),
+                        DirectoryEntry::Program(Program::wasi()),
+                    ),
+                    (
+                        "database".to_string(),
+                        DirectoryEntry::Directory(Directory {
+                            entries: BTreeMap::from([
+                                (
+                                    "database_client".to_string(),
+                                    DirectoryEntry::Program(Program::wasi()),
+                                ),
+                                (
+                                    "database_server".to_string(),
+                                    DirectoryEntry::Program(match maybe_wasi_sdk {
+                                        Some(ref wasi_sdk) => {
+                                            Program::wasi_threads(wasi_sdk.clone())
+                                        }
+                                        None => Program::other(),
+                                    }),
+                                ),
+                                (
+                                    "database_trait".to_string(),
+                                    DirectoryEntry::Program(Program::wasi()),
+                                ),
+                            ]),
+                        }),
+                    ),
+                    (
+                        "essrpc_example".to_string(),
+                        DirectoryEntry::Directory(Directory {
+                            entries: BTreeMap::from([
+                                (
+                                    "essrpc_client".to_string(),
+                                    DirectoryEntry::Program(Program::wasi()),
+                                ),
+                                (
+                                    "essrpc_server".to_string(),
+                                    DirectoryEntry::Program(match maybe_wasi_sdk {
+                                        Some(ref wasi_sdk) => {
+                                            Program::wasi_threads(wasi_sdk.clone())
+                                        }
+                                        None => Program::other(),
+                                    }),
+                                ),
+                                (
+                                    "essrpc_trait".to_string(),
+                                    DirectoryEntry::Program(Program::wasi()),
+                                ),
+                            ]),
+                        }),
+                    ),
+                    (
+                        "logging".to_string(),
+                        DirectoryEntry::Directory(Directory {
+                            entries: BTreeMap::from([
+                                (
+                                    "log_client".to_string(),
+                                    DirectoryEntry::Program(Program::wasi()),
+                                ),
+                                (
+                                    "log_server".to_string(),
+                                    DirectoryEntry::Program(match maybe_wasi_sdk {
+                                        Some(ref wasi_sdk) => {
+                                            Program::wasi_threads(wasi_sdk.clone())
+                                        }
+                                        None => Program::other(),
+                                    }),
+                                ),
+                                (
+                                    "log_trait".to_string(),
+                                    DirectoryEntry::Program(Program::wasi()),
+                                ),
+                            ]),
+                        }),
+                    ),
+                    (
+                        "hello_rust".to_string(),
+                        DirectoryEntry::Program(Program::wasi()),
+                    ),
+                    (
+                        "idle_service".to_string(),
+                        DirectoryEntry::Program(Program::wasi()),
+                    ),
+                    (
+                        "provide_api".to_string(),
+                        DirectoryEntry::Program(Program::wasi()),
+                    ),
+                    (
+                        "telegram_bot".to_string(),
+                        DirectoryEntry::Program(match maybe_wasi_sdk {
+                            Some(ref wasi_sdk) => Program::wasi_threads(wasi_sdk.clone()),
+                            None => Program::other(),
+                        }),
+                    ),
+                ]),
+            }),
+        )]),
     };
 
     error_count += build_recursively(&root, &repository, &progress_reporter, mode).await;
