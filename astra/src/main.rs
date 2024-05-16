@@ -3,6 +3,7 @@ use async_recursion::async_recursion;
 use nonlocality_build_utils::coverage::delete_directory;
 use nonlocality_build_utils::coverage::generate_coverage_report_with_grcov;
 use nonlocality_build_utils::coverage::install_grcov;
+use nonlocality_build_utils::raspberrypi::detect_host_operating_system;
 use nonlocality_build_utils::raspberrypi::install_raspberry_pi_cpp_compiler;
 use nonlocality_build_utils::raspberrypi::run_cargo_build_for_raspberry_pi;
 use nonlocality_build_utils::raspberrypi::RaspberryPi64Target;
@@ -139,11 +140,12 @@ async fn build_recursively(
 
 async fn install_tools(
     repository: &std::path::Path,
+    host: nonlocality_build_utils::raspberrypi::HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> (NumberOfErrors, Option<RaspberryPi64Target>) {
     let tools_directory = repository.join("tools");
     let (error_count_1, raspberry_pi) =
-        install_raspberry_pi_cpp_compiler(&tools_directory, progress_reporter).await;
+        install_raspberry_pi_cpp_compiler(&tools_directory, host, progress_reporter).await;
     (error_count_1, raspberry_pi)
 }
 
@@ -166,9 +168,11 @@ fn parse_command(input: &str) -> Option<CargoBuildMode> {
 async fn build(
     mode: CargoBuildMode,
     repository: &std::path::Path,
+    host: nonlocality_build_utils::raspberrypi::HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> NumberOfErrors {
-    let (mut error_count, maybe_raspberry_pi) = install_tools(repository, &progress_reporter).await;
+    let (mut error_count, maybe_raspberry_pi) =
+        install_tools(repository, host, &progress_reporter).await;
     error_count += run_cargo_fmt(&repository, &progress_reporter).await;
 
     let coverage_directory = repository.join("coverage");
@@ -272,7 +276,14 @@ async fn main() -> std::process::ExitCode {
     let progress_reporter: Arc<dyn ReportProgress + Send + Sync> =
         Arc::new(ConsoleErrorReporter {});
 
-    let error_count = build(command, &repository, &progress_reporter).await;
+    let host_operating_system = detect_host_operating_system();
+    let error_count = build(
+        command,
+        &repository,
+        host_operating_system,
+        &progress_reporter,
+    )
+    .await;
 
     let build_duration = started_at.elapsed();
     println!("Duration: {:?}", build_duration);

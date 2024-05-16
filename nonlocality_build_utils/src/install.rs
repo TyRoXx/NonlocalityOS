@@ -1,6 +1,6 @@
 use relative_path::RelativePath;
 use ssh2::OpenFlags;
-use std::{os::windows::fs::MetadataExt, sync::Arc};
+use std::sync::Arc;
 
 use crate::run::{NumberOfErrors, ReportProgress};
 
@@ -23,7 +23,7 @@ fn upload_file(
     let file_size = file_to_upload
         .metadata()
         .expect("Tried to determine the file size")
-        .file_size();
+        .len();
     println!("Uploading file with {} bytes", file_size);
 
     let mode = match is_executable {

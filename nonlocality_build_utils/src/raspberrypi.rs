@@ -11,14 +11,29 @@ pub struct RaspberryPi64Target {
     pub compiler_installation: std::path::PathBuf,
 }
 
+pub enum HostOperatingSystem {
+    WindowsAmd64,
+    LinuxAmd64,
+}
+
+pub fn detect_host_operating_system() -> HostOperatingSystem {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    return HostOperatingSystem::WindowsAmd64;
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return HostOperatingSystem::LinuxAmd64;
+}
+
 pub async fn install_raspberry_pi_cpp_compiler(
     tools_directory: &std::path::Path,
+    host: HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> (NumberOfErrors, Option<RaspberryPi64Target>) {
     // found this compiler on https://developer.arm.com/downloads/-/gnu-a
-    let compiler_name = "gcc-arm-10.3-2021.07-mingw-w64-i686-aarch64-none-linux-gnu";
+    let (compiler_name, download_url) = match host {
+        HostOperatingSystem::WindowsAmd64 => ("gcc-arm-10.3-2021.07-mingw-w64-i686-aarch64-none-linux-gnu", "https://developer.arm.com/-/media/Files/downloads/gnu-a/10.3-2021.07/binrel/gcc-arm-10.3-2021.07-mingw-w64-i686-aarch64-none-linux-gnu.tar.xz?rev=06b6c36e428c48fda4b6d907f17308be^&hash=B36CC5C9544DCFCB2DB06FB46C8B8262"),
+        HostOperatingSystem::LinuxAmd64 => ("gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu", "https://developer.arm.com/-/media/Files/downloads/gnu-a/10.3-2021.07/binrel/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu.tar.xz?rev=1cb9c51b94f54940bdcccd791451cec3&hash=B380A59EA3DC5FDC0448CA6472BF6B512706F8EC"),
+    };
     let archive_file_name = format!("{}.tar.xz", compiler_name);
-    let download_url = format!("https://developer.arm.com/-/media/Files/downloads/gnu-a/10.3-2021.07/binrel/{}?rev=06b6c36e428c48fda4b6d907f17308be^&hash=B36CC5C9544DCFCB2DB06FB46C8B8262", &archive_file_name);
     let unpacked_directory = tools_directory.join("raspberry_pi_compiler");
     match downloads::install_from_downloaded_archive(
         &download_url,
