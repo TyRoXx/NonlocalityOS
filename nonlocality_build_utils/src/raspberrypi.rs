@@ -1,5 +1,6 @@
 use crate::{
     downloads,
+    host::{add_executable_ending, HostOperatingSystem},
     run::{run_cargo, NumberOfErrors, ReportProgress},
 };
 use std::{collections::HashMap, sync::Arc};
@@ -7,22 +8,9 @@ use std::{collections::HashMap, sync::Arc};
 pub const RASPBERRY_PI_TARGET_NAME: &str = "aarch64-unknown-linux-gnu";
 
 #[derive(Clone)]
-pub enum HostOperatingSystem {
-    WindowsAmd64,
-    LinuxAmd64,
-}
-
-#[derive(Clone)]
 pub struct RaspberryPi64Target {
     pub compiler_installation: std::path::PathBuf,
     pub host: HostOperatingSystem,
-}
-
-pub fn detect_host_operating_system() -> HostOperatingSystem {
-    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    return HostOperatingSystem::WindowsAmd64;
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    return HostOperatingSystem::LinuxAmd64;
 }
 
 pub async fn install_raspberry_pi_cpp_compiler(
@@ -58,33 +46,6 @@ pub async fn install_raspberry_pi_cpp_compiler(
             (NumberOfErrors(1), None)
         }
     }
-}
-
-fn add_executable_ending(host: &HostOperatingSystem, base_name: &str) -> String {
-    match host {
-        HostOperatingSystem::WindowsAmd64 => format!("{}.exe", base_name),
-        HostOperatingSystem::LinuxAmd64 => base_name.to_string(),
-    }
-}
-
-#[test]
-fn test_add_executable_ending() {
-    assert_eq!(
-        "",
-        add_executable_ending(&HostOperatingSystem::LinuxAmd64, "")
-    );
-    assert_eq!(
-        ".exe",
-        add_executable_ending(&HostOperatingSystem::WindowsAmd64, "")
-    );
-    assert_eq!(
-        "aaa",
-        add_executable_ending(&HostOperatingSystem::LinuxAmd64, "aaa")
-    );
-    assert_eq!(
-        "aaa.exe",
-        add_executable_ending(&HostOperatingSystem::WindowsAmd64, "aaa")
-    );
 }
 
 pub async fn run_cargo_build_for_raspberry_pi(

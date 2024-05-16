@@ -3,6 +3,8 @@ use async_recursion::async_recursion;
 use nonlocality_build_utils::coverage::delete_directory;
 use nonlocality_build_utils::coverage::generate_coverage_report_with_grcov;
 use nonlocality_build_utils::coverage::install_grcov;
+use nonlocality_build_utils::host::detect_host_operating_system;
+use nonlocality_build_utils::host::HostOperatingSystem;
 use nonlocality_build_utils::install::deploy;
 use nonlocality_build_utils::install::MANAGEMENT_SERVICE_NAME;
 use nonlocality_build_utils::raspberrypi::RASPBERRY_PI_TARGET_NAME;
@@ -99,6 +101,7 @@ async fn run_cargo_build(
             run_cargo_build_wasi_threads(
                 project,
                 &threads.wasi_sdk,
+                &threads.host,
                 WASIP1_THREADS_TARGET,
                 progress_reporter,
             )
@@ -204,13 +207,14 @@ async fn build_recursively(
 
 async fn install_tools(
     repository: &std::path::Path,
+    host: HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> (NumberOfErrors, Option<WasiSdk>) {
     let tools_directory = repository.join("tools");
     std::fs::create_dir_all(&tools_directory).expect("create tools directory");
 
     let (error_count_2, wasi_threads) =
-        install_wasi_cpp_compiler(&tools_directory, progress_reporter).await;
+        install_wasi_cpp_compiler(&tools_directory, host, progress_reporter).await;
     (error_count_2, wasi_threads)
 }
 
@@ -246,9 +250,11 @@ fn where_cluster_configuration(repository: &std::path::Path) -> PathBuf {
 async fn build(
     mode: CargoBuildMode,
     repository: &std::path::Path,
+    host: HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> NumberOfErrors {
-    let (mut error_count, maybe_wasi_sdk) = install_tools(repository, &progress_reporter).await;
+    let (mut error_count, maybe_wasi_sdk) =
+        install_tools(repository, host, &progress_reporter).await;
     error_count += run_cargo_fmt(&repository, &progress_reporter).await;
 
     let coverage_directory = repository.join("coverage");
@@ -428,7 +434,9 @@ async fn main() -> std::process::ExitCode {
         );
         return std::process::ExitCode::FAILURE;
     }
-    let repository = std::path::Path::new(&command_line_arguments[1]);
+    let repository = std::env::current_dir()
+        .unwrap()
+        .join(&command_line_arguments[1]);
     let command_input = &command_line_arguments[2];
     let command = match parse_command(command_input) {
         Some(success) => success,
@@ -441,8 +449,11 @@ async fn main() -> std::process::ExitCode {
     let progress_reporter: Arc<dyn ReportProgress + Send + Sync> =
         Arc::new(ConsoleErrorReporter {});
 
+    let host_operating_system = detect_host_operating_system();
     let error_count = match command {
-        AstraCommand::Build(mode) => build(mode, &repository, &progress_reporter).await,
+        AstraCommand::Build(mode) => {
+            build(mode, &repository, host_operating_system, &progress_reporter).await
+        }
         AstraCommand::Deploy => {
             let management_service_binary = repository
                 .parent()

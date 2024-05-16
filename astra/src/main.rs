@@ -3,7 +3,8 @@ use async_recursion::async_recursion;
 use nonlocality_build_utils::coverage::delete_directory;
 use nonlocality_build_utils::coverage::generate_coverage_report_with_grcov;
 use nonlocality_build_utils::coverage::install_grcov;
-use nonlocality_build_utils::raspberrypi::detect_host_operating_system;
+use nonlocality_build_utils::host::detect_host_operating_system;
+use nonlocality_build_utils::host::HostOperatingSystem;
 use nonlocality_build_utils::raspberrypi::install_raspberry_pi_cpp_compiler;
 use nonlocality_build_utils::raspberrypi::run_cargo_build_for_raspberry_pi;
 use nonlocality_build_utils::raspberrypi::RaspberryPi64Target;
@@ -145,7 +146,7 @@ async fn build_recursively(
 
 async fn install_tools(
     repository: &std::path::Path,
-    host: nonlocality_build_utils::raspberrypi::HostOperatingSystem,
+    host: HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> (NumberOfErrors, Option<RaspberryPi64Target>) {
     let tools_directory = repository.join("tools");
@@ -173,7 +174,7 @@ fn parse_command(input: &str) -> Option<CargoBuildMode> {
 async fn build(
     mode: CargoBuildMode,
     repository: &std::path::Path,
-    host: nonlocality_build_utils::raspberrypi::HostOperatingSystem,
+    host: HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> NumberOfErrors {
     let (mut error_count, maybe_raspberry_pi) =

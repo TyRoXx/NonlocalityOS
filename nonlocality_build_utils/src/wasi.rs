@@ -1,3 +1,4 @@
+use crate::host::{add_executable_ending, HostOperatingSystem};
 use crate::run::run_process_with_error_only_output;
 use crate::{
     downloads,
@@ -12,19 +13,31 @@ pub const WASIP1_THREADS_TARGET: &str = "wasm32-wasip1-threads";
 #[derive(Clone)]
 pub struct WasiSdk {
     pub wasi_sdk: std::path::PathBuf,
+    pub host: HostOperatingSystem,
 }
 
 pub async fn install_wasi_cpp_compiler(
     tools_directory: &std::path::Path,
+    host: HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> (NumberOfErrors, Option<WasiSdk>) {
     let compiler_name = "wasi-sdk-22";
-    let archive_file_name = format!("{}.0.m-mingw.tar.gz", compiler_name);
+    let wasi_sdk_operating_system_name = match host {
+        HostOperatingSystem::WindowsAmd64 => "m-mingw",
+        HostOperatingSystem::LinuxAmd64 => "linux",
+    };
+    let archive_file_name = format!(
+        "{}.0-{}.tar.gz",
+        compiler_name, wasi_sdk_operating_system_name
+    );
     let download_url = format!(
         "https://github.com/WebAssembly/wasi-sdk/releases/download/{}/{}",
         &compiler_name, &archive_file_name
     );
-    let unpacked_directory = tools_directory.join(format!("{}.0.m-mingw", compiler_name));
+    let unpacked_directory = tools_directory.join(format!(
+        "{}.0.{}",
+        compiler_name, wasi_sdk_operating_system_name
+    ));
     match downloads::install_from_downloaded_archive(
         &download_url,
         &tools_directory.join(&archive_file_name),
@@ -32,9 +45,19 @@ pub async fn install_wasi_cpp_compiler(
         downloads::Compression::Gz,
     ) {
         Ok(_) => {
-            let sub_dir = unpacked_directory.join(format!("{}.0+m", compiler_name));
+            let weird_suffix = match host {
+                HostOperatingSystem::WindowsAmd64 => "+m",
+                HostOperatingSystem::LinuxAmd64 => "",
+            };
+            let sub_dir = unpacked_directory.join(format!("{}.0{}", compiler_name, weird_suffix));
             if confirm_directory(&sub_dir) {
-                (NumberOfErrors(0), Some(WasiSdk { wasi_sdk: sub_dir }))
+                (
+                    NumberOfErrors(0),
+                    Some(WasiSdk {
+                        wasi_sdk: sub_dir,
+                        host: host,
+                    }),
+                )
             } else {
                 (NumberOfErrors(1), None)
             }
@@ -52,6 +75,7 @@ pub async fn install_wasi_cpp_compiler(
 pub async fn run_cargo_build_wasi_threads(
     project: &std::path::Path,
     wasi_sdk: &std::path::Path,
+    host: &HostOperatingSystem,
     target_name: &str,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> NumberOfErrors {
@@ -66,7 +90,9 @@ pub async fn run_cargo_build_wasi_threads(
     let lib_dir_str = lib_dir
         .to_str()
         .expect("Tried to convert a path to a string");
-    let clang_exe = wasi_sdk.join("bin/clang.exe");
+    let clang_exe = wasi_sdk
+        .join("bin")
+        .join(&add_executable_ending(host, "clang"));
     let clang_exe_str = clang_exe
         .to_str()
         .expect("Tried to convert a path to a string");

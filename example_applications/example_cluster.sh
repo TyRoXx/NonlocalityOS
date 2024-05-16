@@ -3,6 +3,6 @@ repository=$(dirname "$0")
 command=$1
 RUST_BACKTRACE=full
 
-cargo run --bin astra --release -- $repository $command || exit 1
+cargo run --bin example_cluster --release -- $repository $command || exit 1
 
 echo Success!
