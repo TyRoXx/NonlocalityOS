@@ -6,6 +6,7 @@ use log_trait::LogLevel;
 use log_trait::Logger;
 use log_trait::LoggerRPCServer;
 use nonlocality_env::accept;
+use sqlite::State;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -49,6 +50,18 @@ impl Logger for DatabaseLogger {
             }
         }
         return Ok(());
+    }
+
+    fn show_logs(&self) -> Result<Vec<String>, RPCError> {
+        let query = "SELECT message FROM log_entries";
+        let connection = self.handle.lock().unwrap();
+        let mut statement = connection.prepare(query).unwrap();
+        let mut messages: Vec<String> = Vec::new();
+        while let Ok(State::Row) = statement.next() {
+            messages.push(statement.read::<String, _>("message").unwrap());
+        }
+
+        return Ok(messages);
     }
 }
 

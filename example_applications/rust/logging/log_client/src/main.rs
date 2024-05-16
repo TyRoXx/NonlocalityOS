@@ -15,5 +15,15 @@ fn main() {
         .log(LogLevel::Info, "I can use the logging service".to_string())
         .expect("Could not log statement.");
 
+    let messages = client
+        .show_logs()
+        .expect("Failed to get logs from the log server.");
+
+    println!("=== Log {} message(s) ===", messages.len());
+
+    for message in messages {
+        println!("{}", message);
+    }
+
     println!("Logger client is done");
 }

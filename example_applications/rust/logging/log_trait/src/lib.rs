@@ -33,4 +33,6 @@ impl std::fmt::Display for LogLevel {
 #[essrpc]
 pub trait Logger {
     fn log(&self, level: LogLevel, message: String) -> Result<(), RPCError>;
+
+    fn show_logs(&self) -> Result<Vec<String>, RPCError>;
 }
