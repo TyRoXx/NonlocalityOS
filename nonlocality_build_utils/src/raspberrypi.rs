@@ -7,13 +7,15 @@ use std::{collections::HashMap, sync::Arc};
 pub const RASPBERRY_PI_TARGET_NAME: &str = "aarch64-unknown-linux-gnu";
 
 #[derive(Clone)]
-pub struct RaspberryPi64Target {
-    pub compiler_installation: std::path::PathBuf,
-}
-
 pub enum HostOperatingSystem {
     WindowsAmd64,
     LinuxAmd64,
+}
+
+#[derive(Clone)]
+pub struct RaspberryPi64Target {
+    pub compiler_installation: std::path::PathBuf,
+    pub host: HostOperatingSystem,
 }
 
 pub fn detect_host_operating_system() -> HostOperatingSystem {
@@ -45,6 +47,7 @@ pub async fn install_raspberry_pi_cpp_compiler(
             NumberOfErrors(0),
             Some(RaspberryPi64Target {
                 compiler_installation: unpacked_directory.join(compiler_name),
+                host: host,
             }),
         ),
         Err(error) => {
@@ -57,19 +60,47 @@ pub async fn install_raspberry_pi_cpp_compiler(
     }
 }
 
+fn add_executable_ending(host: &HostOperatingSystem, base_name: &str) -> String {
+    match host {
+        HostOperatingSystem::WindowsAmd64 => format!("{}.exe", base_name),
+        HostOperatingSystem::LinuxAmd64 => base_name.to_string(),
+    }
+}
+
+#[test]
+fn test_add_executable_ending() {
+    assert_eq!(
+        "",
+        add_executable_ending(&HostOperatingSystem::LinuxAmd64, "")
+    );
+    assert_eq!(
+        ".exe",
+        add_executable_ending(&HostOperatingSystem::WindowsAmd64, "")
+    );
+    assert_eq!(
+        "aaa",
+        add_executable_ending(&HostOperatingSystem::LinuxAmd64, "aaa")
+    );
+    assert_eq!(
+        "aaa.exe",
+        add_executable_ending(&HostOperatingSystem::WindowsAmd64, "aaa")
+    );
+}
+
 pub async fn run_cargo_build_for_raspberry_pi(
     project: &std::path::Path,
     compiler_installation: &std::path::Path,
+    host: &HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> NumberOfErrors {
     let target_name = RASPBERRY_PI_TARGET_NAME;
     let bin = compiler_installation.join("bin");
-    let ar = bin.join("aarch64-none-linux-gnu-ar.exe");
+    let ar = bin.join(add_executable_ending(host, "aarch64-none-linux-gnu-ar"));
     if !confirm_regular_file(&ar) {
         return NumberOfErrors(1);
     }
     let ar_str = ar.to_str().expect("Tried to convert path to string");
-    let compiler = bin.join("aarch64-none-linux-gnu-gcc.exe");
+    let compiler = bin.join(add_executable_ending(host, "aarch64-none-linux-gnu-gcc"));
     if !confirm_regular_file(&compiler) {
         return NumberOfErrors(1);
     }

@@ -58,8 +58,13 @@ async fn run_cargo_build(
     match target {
         CargoBuildTarget::Host => run_cargo_build_for_host(project, progress_reporter).await,
         CargoBuildTarget::RaspberryPi64(pi) => {
-            run_cargo_build_for_raspberry_pi(&project, &pi.compiler_installation, progress_reporter)
-                .await
+            run_cargo_build_for_raspberry_pi(
+                &project,
+                &pi.compiler_installation,
+                &pi.host,
+                progress_reporter,
+            )
+            .await
         }
     }
 }
@@ -263,7 +268,9 @@ async fn main() -> std::process::ExitCode {
         );
         return std::process::ExitCode::FAILURE;
     }
-    let repository = std::path::Path::new(&command_line_arguments[1]);
+    let repository = std::env::current_dir()
+        .unwrap()
+        .join(&command_line_arguments[1]);
     let command_input = &command_line_arguments[2];
     let command = match parse_command(command_input) {
         Some(success) => success,

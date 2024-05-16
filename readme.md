@@ -19,7 +19,7 @@
 
 ## Linux
 
-* run `test.sh`
+* run `./test.sh` or `./build.sh`
 
 ## Windows
 
