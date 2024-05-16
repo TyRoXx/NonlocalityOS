@@ -8,6 +8,7 @@ use nonlocality_build_utils::host::HostOperatingSystem;
 use nonlocality_build_utils::raspberrypi::install_raspberry_pi_cpp_compiler;
 use nonlocality_build_utils::raspberrypi::run_cargo_build_for_raspberry_pi;
 use nonlocality_build_utils::raspberrypi::RaspberryPi64Target;
+use nonlocality_build_utils::run::run_cargo;
 use nonlocality_build_utils::run::run_cargo_build_for_host;
 use nonlocality_build_utils::run::run_cargo_fmt;
 use nonlocality_build_utils::run::run_cargo_test;
@@ -15,6 +16,7 @@ use nonlocality_build_utils::run::ConsoleErrorReporter;
 use nonlocality_build_utils::run::NumberOfErrors;
 use nonlocality_build_utils::run::ReportProgress;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -257,6 +259,33 @@ async fn build(
     error_count
 }
 
+async fn build_example_cluster(
+    mode: CargoBuildMode,
+    repository: &std::path::Path,
+    progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
+) -> NumberOfErrors {
+    let example_cluster = repository.join("example_applications");
+    run_cargo(
+        &example_cluster,
+        &[
+            "run",
+            "--bin",
+            "example_cluster",
+            "--release",
+            "--",
+            example_cluster.to_str().unwrap(),
+            match mode {
+                CargoBuildMode::BuildRelease => "build",
+                CargoBuildMode::Test => "test",
+                CargoBuildMode::Coverage => "coverage",
+            },
+        ],
+        &HashMap::new(),
+        progress_reporter,
+    )
+    .await
+}
+
 const MANAGEMENT_SERVICE_NAME: &str = "management_service";
 
 #[tokio::main(flavor = "multi_thread")]
@@ -285,13 +314,15 @@ async fn main() -> std::process::ExitCode {
         Arc::new(ConsoleErrorReporter {});
 
     let host_operating_system = detect_host_operating_system();
-    let error_count = build(
+    let mut error_count = build(
         command,
         &repository,
         host_operating_system,
         &progress_reporter,
     )
     .await;
+
+    error_count += build_example_cluster(command, &repository, &progress_reporter).await;
 
     let build_duration = started_at.elapsed();
     println!("Duration: {:?}", build_duration);
