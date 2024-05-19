@@ -1,8 +1,11 @@
-//#![deny(warnings)]
 use async_stream::stream;
 use dav_server::{fakels::FakeLs, DavHandler};
+use dogbox_tree_editor::DirectoryEntryKind;
+use dogbox_tree_editor::NamedEntry;
 use dogbox_tree_editor::NormalizedPath;
+use dogbox_tree_editor::OpenFile;
 use futures::stream::StreamExt;
+use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use tracing::error;
@@ -35,6 +38,31 @@ impl dav_server::fs::DavMetaData for DogBoxDirectoryMetaData {
 
     fn is_dir(&self) -> bool {
         true
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DogBoxMetaData {
+    kind: DirectoryEntryKind,
+}
+
+impl dav_server::fs::DavMetaData for DogBoxMetaData {
+    fn len(&self) -> u64 {
+        match self.kind {
+            DirectoryEntryKind::Directory => 0,
+            DirectoryEntryKind::File(length) => length,
+        }
+    }
+
+    fn modified(&self) -> dav_server::fs::FsResult<std::time::SystemTime> {
+        Ok(std::time::SystemTime::now())
+    }
+
+    fn is_dir(&self) -> bool {
+        match self.kind {
+            DirectoryEntryKind::Directory => true,
+            DirectoryEntryKind::File(_) => false,
+        }
     }
 }
 
@@ -82,31 +110,37 @@ impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
 }
 
 #[derive(Debug)]
-struct DogBoxOpenFile {}
+struct DogBoxOpenFile {
+    handle: Arc<OpenFile>,
+}
 
 impl dav_server::fs::DavFile for DogBoxOpenFile {
     fn metadata(&mut self) -> dav_server::fs::FsFuture<Box<dyn dav_server::fs::DavMetaData>> {
+        Box::pin(std::future::ready(Ok(Box::new(DogBoxMetaData {
+            kind: self.handle.get_meta_data(),
+        })
+            as Box<(dyn dav_server::fs::DavMetaData)>)))
+    }
+
+    fn write_buf(&mut self, _buf: Box<dyn bytes::Buf + Send>) -> dav_server::fs::FsFuture<()> {
         todo!()
     }
 
-    fn write_buf(&mut self, buf: Box<dyn bytes::Buf + Send>) -> dav_server::fs::FsFuture<()> {
+    fn write_bytes(&mut self, _buf: bytes::Bytes) -> dav_server::fs::FsFuture<()> {
         todo!()
     }
 
-    fn write_bytes(&mut self, buf: bytes::Bytes) -> dav_server::fs::FsFuture<()> {
+    fn read_bytes(&mut self, _count: usize) -> dav_server::fs::FsFuture<bytes::Bytes> {
         todo!()
     }
 
-    fn read_bytes(&mut self, count: usize) -> dav_server::fs::FsFuture<bytes::Bytes> {
-        todo!()
-    }
-
-    fn seek(&mut self, pos: std::io::SeekFrom) -> dav_server::fs::FsFuture<u64> {
+    fn seek(&mut self, _pos: std::io::SeekFrom) -> dav_server::fs::FsFuture<u64> {
         todo!()
     }
 
     fn flush(&mut self) -> dav_server::fs::FsFuture<()> {
-        todo!()
+        self.handle.flush();
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 
@@ -131,14 +165,25 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         path: &'a dav_server::davpath::DavPath,
         options: dav_server::fs::OpenOptions,
     ) -> dav_server::fs::FsFuture<Box<dyn dav_server::fs::DavFile>> {
-        info!("Open {}", path);
-        Box::pin(async move { Ok(Box::new(DogBoxOpenFile {}) as Box<dyn dav_server::fs::DavFile>) })
+        info!("Open {} | {:?}", path, options);
+        Box::pin(async move {
+            let converted_path = convert_path(&path)?;
+            let open_file = match self
+                .editor
+                .open_file(NormalizedPath::new(converted_path))
+                .await
+            {
+                Ok(success) => success,
+                Err(_error) => todo!(),
+            };
+            Ok(Box::new(DogBoxOpenFile { handle: open_file }) as Box<dyn dav_server::fs::DavFile>)
+        })
     }
 
     fn read_dir<'a>(
         &'a self,
         path: &'a dav_server::davpath::DavPath,
-        meta: dav_server::fs::ReadDirMeta,
+        _meta: dav_server::fs::ReadDirMeta,
     ) -> dav_server::fs::FsFuture<dav_server::fs::FsStream<Box<dyn dav_server::fs::DavDirEntry>>>
     {
         info!("Read dir {}", path);
@@ -181,7 +226,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .get_meta_data(NormalizedPath::new(converted_path))
                 .await
             {
-                Ok(success) => Ok(Box::new(DogBoxDirectoryMetaData {})
+                Ok(success) => Ok(Box::new(DogBoxMetaData { kind: success })
                     as Box<(dyn dav_server::fs::DavMetaData + 'static)>),
                 Err(error) => match error {
                     dogbox_tree_editor::Error::NotFound => {
@@ -202,68 +247,68 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
 
     fn create_dir<'a>(
         &'a self,
-        path: &'a dav_server::davpath::DavPath,
+        _path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<()> {
         todo!()
     }
 
     fn remove_dir<'a>(
         &'a self,
-        path: &'a dav_server::davpath::DavPath,
+        _path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<()> {
         todo!()
     }
 
     fn remove_file<'a>(
         &'a self,
-        path: &'a dav_server::davpath::DavPath,
+        _path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<()> {
         todo!()
     }
 
     fn rename<'a>(
         &'a self,
-        from: &'a dav_server::davpath::DavPath,
-        to: &'a dav_server::davpath::DavPath,
+        _from: &'a dav_server::davpath::DavPath,
+        _to: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<()> {
         todo!()
     }
 
     fn copy<'a>(
         &'a self,
-        from: &'a dav_server::davpath::DavPath,
-        to: &'a dav_server::davpath::DavPath,
+        _from: &'a dav_server::davpath::DavPath,
+        _to: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<()> {
         todo!()
     }
 
     fn have_props<'a>(
         &'a self,
-        path: &'a dav_server::davpath::DavPath,
+        _path: &'a dav_server::davpath::DavPath,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
         Box::pin(std::future::ready(false))
     }
 
     fn patch_props<'a>(
         &'a self,
-        path: &'a dav_server::davpath::DavPath,
-        patch: Vec<(bool, dav_server::fs::DavProp)>,
+        _path: &'a dav_server::davpath::DavPath,
+        _patch: Vec<(bool, dav_server::fs::DavProp)>,
     ) -> dav_server::fs::FsFuture<Vec<(hyper::StatusCode, dav_server::fs::DavProp)>> {
         todo!()
     }
 
     fn get_props<'a>(
         &'a self,
-        path: &'a dav_server::davpath::DavPath,
-        do_content: bool,
+        _path: &'a dav_server::davpath::DavPath,
+        _do_content: bool,
     ) -> dav_server::fs::FsFuture<Vec<dav_server::fs::DavProp>> {
         todo!()
     }
 
     fn get_prop<'a>(
         &'a self,
-        path: &'a dav_server::davpath::DavPath,
-        prop: dav_server::fs::DavProp,
+        _path: &'a dav_server::davpath::DavPath,
+        _prop: dav_server::fs::DavProp,
     ) -> dav_server::fs::FsFuture<Vec<u8>> {
         todo!()
     }
@@ -279,7 +324,10 @@ async fn main() {
 
     let dav_server = DavHandler::builder()
         .filesystem(Box::new(DogBoxFileSystem::new(
-            dogbox_tree_editor::TreeEditor::new(),
+            dogbox_tree_editor::TreeEditor::from_entries(BTreeMap::from([(
+                "example.txt".to_string(),
+                NamedEntry::NotOpen(DirectoryEntryKind::File(0)),
+            )])),
         )))
         .locksystem(FakeLs::new())
         .build_handler();

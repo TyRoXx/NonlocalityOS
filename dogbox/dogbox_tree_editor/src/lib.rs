@@ -1,4 +1,3 @@
-#![deny(warnings)]
 use async_stream::stream;
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -21,16 +20,30 @@ pub enum DirectoryEntryKind {
     File(u64),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DirectoryEntry {
     pub name: String,
     pub kind: DirectoryEntryKind,
 }
 
+pub enum NamedEntry {
+    NotOpen(DirectoryEntryKind),
+    Open(Arc<OpenFile>),
+}
+
+impl NamedEntry {
+    fn get_meta_data(&self) -> DirectoryEntryKind {
+        match self {
+            NamedEntry::NotOpen(kind) => kind.clone(),
+            NamedEntry::Open(open_file) => open_file.get_meta_data(),
+        }
+    }
+}
+
 struct OpenDirectory {
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
     cached_entries: Vec<DirectoryEntry>,
-    names: BTreeMap<String, DirectoryEntryKind>,
+    names: BTreeMap<String, NamedEntry>,
 }
 
 impl OpenDirectory {
@@ -42,12 +55,78 @@ impl OpenDirectory {
             }
         })
     }
+
+    fn get_meta_data<'a>(&self, name: &str) -> Future<'a, DirectoryEntryKind> {
+        Box::pin(std::future::ready(match self.names.get(name) {
+            Some(found) => Ok(found.get_meta_data()),
+            None => Err(Error::NotFound),
+        }))
+    }
+
+    fn open_file<'a>(&mut self, name: &str) -> Future<'a, Arc<OpenFile>> {
+        match self.names.get_mut(name) {
+            Some(_found) => todo!(),
+            None => {
+                let open_file = Arc::new(OpenFile {});
+                self.names
+                    .insert(name.to_string(), NamedEntry::Open(open_file.clone()));
+                self.cached_entries.push(DirectoryEntry {
+                    name: name.to_string(),
+                    kind: DirectoryEntryKind::File(0),
+                });
+                Box::pin(std::future::ready(Ok(open_file)))
+            }
+        }
+    }
 }
 
-pub enum PathSplitResult {
+#[tokio::test]
+async fn test_open_directory_get_meta_data() {
+    let expected = DirectoryEntryKind::File(12);
+    let directory = OpenDirectory {
+        cached_entries: Vec::new(),
+        names: BTreeMap::from([(
+            "test.txt".to_string(),
+            NamedEntry::NotOpen(expected.clone()),
+        )]),
+    };
+    let meta_data = directory.get_meta_data("test.txt").await.unwrap();
+    assert_eq!(expected, meta_data);
+}
+
+#[tokio::test]
+async fn test_open_directory_open_file() {
+    let mut directory = OpenDirectory {
+        cached_entries: Vec::new(),
+        names: BTreeMap::new(),
+    };
+    let file_name = "test.txt";
+    let opened = directory.open_file(file_name).await.unwrap();
+    opened.flush();
+    assert_eq!(
+        DirectoryEntryKind::File(0),
+        directory.get_meta_data(file_name).await.unwrap()
+    );
+    use futures::StreamExt;
+    let directory_entries: Vec<DirectoryEntry> = directory.read().collect().await;
+    assert_eq!(
+        &[DirectoryEntry {
+            name: file_name.to_string(),
+            kind: DirectoryEntryKind::File(0)
+        }][..],
+        &directory_entries[..]
+    );
+}
+
+pub enum PathSplitLeftResult {
     Root,
     Leaf(String),
     Directory(String, NormalizedPath),
+}
+
+pub enum PathSplitRightResult {
+    Root,
+    Entry(NormalizedPath, String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -76,21 +155,29 @@ impl NormalizedPath {
         }
     }
 
-    pub fn split(mut self) -> PathSplitResult {
+    pub fn split_left(mut self) -> PathSplitLeftResult {
         let head = match self.components.pop_front() {
             Some(head) => head,
-            None => return PathSplitResult::Root,
+            None => return PathSplitLeftResult::Root,
         };
         if self.components.is_empty() {
-            PathSplitResult::Leaf(head)
+            PathSplitLeftResult::Leaf(head)
         } else {
-            PathSplitResult::Directory(
+            PathSplitLeftResult::Directory(
                 head,
                 NormalizedPath {
                     components: self.components,
                 },
             )
         }
+    }
+
+    pub fn split_right(mut self) -> PathSplitRightResult {
+        let tail = match self.components.pop_back() {
+            Some(tail) => tail,
+            None => return PathSplitRightResult::Root,
+        };
+        PathSplitRightResult::Entry(self, tail)
     }
 }
 
@@ -102,35 +189,63 @@ fn test_normalized_path_new() {
     );
 }
 
+#[derive(Debug)]
+pub struct OpenFile {}
+
+impl OpenFile {
+    pub fn flush(&self) {}
+
+    pub fn get_meta_data(&self) -> DirectoryEntryKind {
+        DirectoryEntryKind::File(0)
+    }
+}
+
 pub struct TreeEditor {
-    root: Arc<OpenDirectory>,
+    root: Arc<tokio::sync::Mutex<OpenDirectory>>,
 }
 
 impl TreeEditor {
     pub fn new() -> TreeEditor {
+        TreeEditor::from_entries(BTreeMap::new())
+    }
+
+    pub fn from_entries(entries: BTreeMap<String, NamedEntry>) -> TreeEditor {
+        let cached_entries = entries
+            .iter()
+            .map(|entry| DirectoryEntry {
+                name: entry.0.clone(),
+                kind: entry.1.get_meta_data(),
+            })
+            .collect();
         TreeEditor {
-            root: Arc::new(OpenDirectory {
-                cached_entries: vec![],
-                names: BTreeMap::new(),
-            }),
+            root: Arc::new(tokio::sync::Mutex::new(OpenDirectory {
+                cached_entries: cached_entries,
+                names: entries,
+            })),
         }
     }
 
     fn open_directory<'t>(
-        relative_root: &'t OpenDirectory,
+        relative_root: &'t mut OpenDirectory,
         path: NormalizedPath,
-    ) -> Option<&'t OpenDirectory> {
-        match path.split() {
-            PathSplitResult::Root => Some(&relative_root),
-            PathSplitResult::Leaf(_) => todo!(),
-            PathSplitResult::Directory(_, _) => todo!(),
+    ) -> Option<&'t mut OpenDirectory> {
+        match path.split_left() {
+            PathSplitLeftResult::Root => Some(relative_root),
+            PathSplitLeftResult::Leaf(name) => match relative_root.names.get(&name) {
+                Some(_found) => {
+                    todo!()
+                }
+                None => None,
+            },
+            PathSplitLeftResult::Directory(_, _) => todo!(),
         }
     }
 
     pub fn read_directory<'a>(&self, path: NormalizedPath) -> Future<'a, Stream<DirectoryEntry>> {
         let root = self.root.clone();
         Box::pin(async move {
-            let directory = match TreeEditor::open_directory(&root, path) {
+            let mut root_lock = root.lock().await;
+            let directory = match TreeEditor::open_directory(&mut root_lock, path) {
                 Some(opened) => opened,
                 None => return Err(Error::NotFound),
             };
@@ -139,22 +254,38 @@ impl TreeEditor {
     }
 
     pub fn get_meta_data<'a>(&self, path: NormalizedPath) -> Future<'a, DirectoryEntryKind> {
-        match path.split() {
-            PathSplitResult::Root => {
+        match path.split_right() {
+            PathSplitRightResult::Root => {
                 Box::pin(std::future::ready(Ok(DirectoryEntryKind::Directory)))
             }
-            PathSplitResult::Leaf(leaf) => {
-                Box::pin(std::future::ready(match self.root.names.get(&leaf) {
-                    Some(found) => Ok(found.clone()),
-                    None => Err(Error::NotFound),
-                }))
+            PathSplitRightResult::Entry(directory_path, leaf_name) => {
+                let root = self.root.clone();
+                Box::pin(async move {
+                    let mut root_lock = root.lock().await;
+                    match TreeEditor::open_directory(&mut root_lock, directory_path) {
+                        Some(directory) => directory.get_meta_data(&leaf_name).await,
+                        None => Err(Error::NotFound),
+                    }
+                })
             }
-            PathSplitResult::Directory(directory_name, _) => Box::pin(std::future::ready(
-                match self.root.names.get(&directory_name) {
-                    Some(found) => Ok(found.clone()),
-                    None => Err(Error::NotFound),
-                },
-            )),
+        }
+    }
+
+    pub fn open_file<'a>(&self, path: NormalizedPath) -> Future<'a, Arc<OpenFile>> {
+        match path.split_right() {
+            PathSplitRightResult::Root => todo!(),
+            PathSplitRightResult::Entry(directory_path, file_name) => {
+                let root = self.root.clone();
+                Box::pin(async move {
+                    let mut root_lock = root.lock().await;
+                    let directory = match TreeEditor::open_directory(&mut root_lock, directory_path)
+                    {
+                        Some(opened) => opened,
+                        None => return Err(Error::NotFound),
+                    };
+                    directory.open_file(&file_name).await
+                })
+            }
         }
     }
 }
