@@ -1,10 +1,8 @@
 #[deny(warnings)]
+use dogbox_blob_layer::BlobDigest;
 use essrpc::essrpc;
 use essrpc::RPCError;
 use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Ord, Eq, Clone, Copy)]
-pub struct BlobDigest(pub ([u8; 32], [u8; 32]));
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]
 pub enum Blob {

@@ -5,5 +5,6 @@ members=[
     "management_service",
     "nonlocality_env",
     "nonlocality_build_utils",
+    "dogbox/dogbox_blob_layer",
 ]
 resolver="2"

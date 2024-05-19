@@ -1,0 +1,11 @@
+[package]
+name = "dogbox_blob_layer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+serde = {version = "1.0", features = [ "derive" ]}
+sha3 = "0.10"
+hex = "0.4"
