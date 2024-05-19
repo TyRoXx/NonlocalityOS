@@ -66,7 +66,14 @@ impl OpenDirectory {
     fn open_file<'a>(&mut self, name: &str) -> Future<'a, Arc<OpenFile>> {
         match self.names.get_mut(name) {
             Some(found) => match found {
-                NamedEntry::NotOpen(_) => todo!(),
+                NamedEntry::NotOpen(kind) => match kind {
+                    DirectoryEntryKind::Directory => todo!(),
+                    DirectoryEntryKind::File(_) => {
+                        let open_file = Arc::new(OpenFile {});
+                        *found = NamedEntry::Open(open_file.clone());
+                        Box::pin(std::future::ready(Ok(open_file)))
+                    }
+                },
                 NamedEntry::Open(open_file) => Box::pin(std::future::ready(Ok(open_file.clone()))),
             },
             None => {
