@@ -26,16 +26,17 @@ pub struct DirectoryEntry {
     pub kind: DirectoryEntryKind,
 }
 
+#[derive(Clone, Debug)]
 pub enum NamedEntry {
     NotOpen(DirectoryEntryKind),
     Open(Arc<OpenFile>),
 }
 
 impl NamedEntry {
-    fn get_meta_data(&self) -> DirectoryEntryKind {
+    async fn get_meta_data(&self) -> DirectoryEntryKind {
         match self {
             NamedEntry::NotOpen(kind) => kind.clone(),
-            NamedEntry::Open(open_file) => open_file.get_meta_data(),
+            NamedEntry::Open(open_file) => open_file.get_meta_data().await,
         }
     }
 }
@@ -57,10 +58,13 @@ impl OpenDirectory {
     }
 
     fn get_meta_data<'a>(&self, name: &str) -> Future<'a, DirectoryEntryKind> {
-        Box::pin(std::future::ready(match self.names.get(name) {
-            Some(found) => Ok(found.get_meta_data()),
-            None => Err(Error::NotFound),
-        }))
+        match self.names.get(name) {
+            Some(found) => {
+                let found_clone = (*found).clone();
+                Box::pin(async move { Ok(found_clone.get_meta_data().await) })
+            }
+            None => Box::pin(std::future::ready(Err(Error::NotFound))),
+        }
     }
 
     fn open_file<'a>(&mut self, name: &str) -> Future<'a, Arc<OpenFile>> {
@@ -68,8 +72,10 @@ impl OpenDirectory {
             Some(found) => match found {
                 NamedEntry::NotOpen(kind) => match kind {
                     DirectoryEntryKind::Directory => todo!(),
-                    DirectoryEntryKind::File(_) => {
-                        let open_file = Arc::new(OpenFile {});
+                    DirectoryEntryKind::File(length) => {
+                        // TODO: read file contents. For now we assume that the example file is empty at the start.
+                        assert_eq!(0, *length);
+                        let open_file = Arc::new(OpenFile::new(vec![]));
                         *found = NamedEntry::Open(open_file.clone());
                         Box::pin(std::future::ready(Ok(open_file)))
                     }
@@ -77,7 +83,7 @@ impl OpenDirectory {
                 NamedEntry::Open(open_file) => Box::pin(std::future::ready(Ok(open_file.clone()))),
             },
             None => {
-                let open_file = Arc::new(OpenFile {});
+                let open_file = Arc::new(OpenFile::new(vec![]));
                 self.names
                     .insert(name.to_string(), NamedEntry::Open(open_file.clone()));
                 self.cached_entries.push(DirectoryEntry {
@@ -200,14 +206,30 @@ fn test_normalized_path_new() {
 }
 
 #[derive(Debug)]
-pub struct OpenFile {}
+pub struct OpenFile {
+    content: tokio::sync::Mutex<Vec<u8>>,
+}
 
 impl OpenFile {
-    pub fn flush(&self) {}
-
-    pub fn get_meta_data(&self) -> DirectoryEntryKind {
-        DirectoryEntryKind::File(0)
+    pub fn new(content: Vec<u8>) -> OpenFile {
+        OpenFile {
+            content: tokio::sync::Mutex::new(content),
+        }
     }
+
+    pub async fn get_meta_data(&self) -> DirectoryEntryKind {
+        DirectoryEntryKind::File(self.content.lock().await.len() as u64)
+    }
+
+    pub fn write_bytes(&self, buf: bytes::Bytes) -> Future<()> {
+        Box::pin(async move {
+            let mut content_locked = self.content.lock().await;
+            content_locked.extend(&buf);
+            Ok(())
+        })
+    }
+
+    pub fn flush(&self) {}
 }
 
 pub struct TreeEditor {
@@ -216,21 +238,19 @@ pub struct TreeEditor {
 
 impl TreeEditor {
     pub fn new() -> TreeEditor {
-        TreeEditor::from_entries(BTreeMap::new())
+        TreeEditor::from_entries(vec![])
     }
 
-    pub fn from_entries(entries: BTreeMap<String, NamedEntry>) -> TreeEditor {
-        let cached_entries = entries
-            .iter()
-            .map(|entry| DirectoryEntry {
-                name: entry.0.clone(),
-                kind: entry.1.get_meta_data(),
-            })
-            .collect();
+    pub fn from_entries(entries: Vec<DirectoryEntry>) -> TreeEditor {
+        let names = BTreeMap::from_iter(
+            entries
+                .iter()
+                .map(|entry| (entry.name.clone(), NamedEntry::NotOpen(entry.kind.clone()))),
+        );
         TreeEditor {
             root: Arc::new(tokio::sync::Mutex::new(OpenDirectory {
-                cached_entries: cached_entries,
-                names: entries,
+                cached_entries: entries,
+                names: names,
             })),
         }
     }

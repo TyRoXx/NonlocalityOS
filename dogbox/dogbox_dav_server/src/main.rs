@@ -1,11 +1,10 @@
 use async_stream::stream;
 use dav_server::{fakels::FakeLs, DavHandler};
+use dogbox_tree_editor::DirectoryEntry;
 use dogbox_tree_editor::DirectoryEntryKind;
-use dogbox_tree_editor::NamedEntry;
 use dogbox_tree_editor::NormalizedPath;
 use dogbox_tree_editor::OpenFile;
 use futures::stream::StreamExt;
-use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use tracing::error;
@@ -116,18 +115,27 @@ struct DogBoxOpenFile {
 
 impl dav_server::fs::DavFile for DogBoxOpenFile {
     fn metadata(&mut self) -> dav_server::fs::FsFuture<Box<dyn dav_server::fs::DavMetaData>> {
-        Box::pin(std::future::ready(Ok(Box::new(DogBoxMetaData {
-            kind: self.handle.get_meta_data(),
+        Box::pin(async move {
+            Ok(Box::new(DogBoxMetaData {
+                kind: self.handle.get_meta_data().await,
+            }) as Box<(dyn dav_server::fs::DavMetaData)>)
         })
-            as Box<(dyn dav_server::fs::DavMetaData)>)))
     }
 
     fn write_buf(&mut self, _buf: Box<dyn bytes::Buf + Send>) -> dav_server::fs::FsFuture<()> {
         todo!()
     }
 
-    fn write_bytes(&mut self, _buf: bytes::Bytes) -> dav_server::fs::FsFuture<()> {
-        todo!()
+    fn write_bytes(&mut self, buf: bytes::Bytes) -> dav_server::fs::FsFuture<()> {
+        let open_file = self.handle.clone();
+        Box::pin(async move {
+            match open_file.write_bytes(buf).await {
+                Ok(_) => Ok(()),
+                Err(error) => match error {
+                    dogbox_tree_editor::Error::NotFound => todo!(),
+                },
+            }
+        })
     }
 
     fn read_bytes(&mut self, _count: usize) -> dav_server::fs::FsFuture<bytes::Bytes> {
@@ -324,10 +332,10 @@ async fn main() {
 
     let dav_server = DavHandler::builder()
         .filesystem(Box::new(DogBoxFileSystem::new(
-            dogbox_tree_editor::TreeEditor::from_entries(BTreeMap::from([(
-                "example.txt".to_string(),
-                NamedEntry::NotOpen(DirectoryEntryKind::File(0)),
-            )])),
+            dogbox_tree_editor::TreeEditor::from_entries(vec![DirectoryEntry {
+                name: "example.txt".to_string(),
+                kind: DirectoryEntryKind::File(0),
+            }]),
         )))
         .locksystem(FakeLs::new())
         .build_handler();

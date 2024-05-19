@@ -685,6 +685,7 @@ name = "dogbox_tree_editor"
 version = "0.1.0"
 dependencies = [
  "async-stream",
+ "bytes",
  "dogbox_tree",
  "futures",
  "futures-core",
