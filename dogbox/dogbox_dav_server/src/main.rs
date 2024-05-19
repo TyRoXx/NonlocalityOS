@@ -1,14 +1,105 @@
-#![deny(warnings)]
-use dav_server::{fakels::FakeLs, localfs::LocalFs, DavHandler};
+//#![deny(warnings)]
+use async_stream::stream;
+use dav_server::{fakels::FakeLs, DavHandler};
 use std::convert::Infallible;
+
+#[derive(Clone)]
+struct DogBoxFileSystem {}
+
+impl DogBoxFileSystem {
+    pub fn new() -> DogBoxFileSystem {
+        DogBoxFileSystem {}
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DogBoxDirectoryMetaData {}
+
+impl dav_server::fs::DavMetaData for DogBoxDirectoryMetaData {
+    fn len(&self) -> u64 {
+        0
+    }
+
+    fn modified(&self) -> dav_server::fs::FsResult<std::time::SystemTime> {
+        Ok(std::time::SystemTime::now())
+    }
+
+    fn is_dir(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DogBoxFileMetaData {}
+
+impl dav_server::fs::DavMetaData for DogBoxFileMetaData {
+    fn len(&self) -> u64 {
+        5
+    }
+
+    fn modified(&self) -> dav_server::fs::FsResult<std::time::SystemTime> {
+        Ok(std::time::SystemTime::now())
+    }
+
+    fn is_dir(&self) -> bool {
+        false
+    }
+}
+
+struct DogBoxDirEntry {}
+
+impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
+    fn name(&self) -> Vec<u8> {
+        "hello".as_bytes().into()
+    }
+
+    fn metadata(&self) -> dav_server::fs::FsFuture<Box<dyn dav_server::fs::DavMetaData>> {
+        Box::pin(async move {
+            Ok(Box::new(DogBoxFileMetaData {}) as Box<(dyn dav_server::fs::DavMetaData + 'static)>)
+        })
+    }
+}
+
+impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
+    fn open<'a>(
+        &'a self,
+        path: &'a dav_server::davpath::DavPath,
+        options: dav_server::fs::OpenOptions,
+    ) -> dav_server::fs::FsFuture<Box<dyn dav_server::fs::DavFile>> {
+        todo!()
+    }
+
+    fn read_dir<'a>(
+        &'a self,
+        path: &'a dav_server::davpath::DavPath,
+        meta: dav_server::fs::ReadDirMeta,
+    ) -> dav_server::fs::FsFuture<dav_server::fs::FsStream<Box<dyn dav_server::fs::DavDirEntry>>>
+    {
+        Box::pin(async move {
+            Ok(Box::pin(stream! {
+                yield (Box::new(DogBoxDirEntry{}) as Box<dyn dav_server::fs::DavDirEntry>);
+            })
+                as dav_server::fs::FsStream<
+                    Box<dyn dav_server::fs::DavDirEntry>,
+                >)
+        })
+    }
+
+    fn metadata<'a>(
+        &'a self,
+        path: &'a dav_server::davpath::DavPath,
+    ) -> dav_server::fs::FsFuture<Box<dyn dav_server::fs::DavMetaData>> {
+        Box::pin(async move {
+            Ok(Box::new(DogBoxDirectoryMetaData {})
+                as Box<(dyn dav_server::fs::DavMetaData + 'static)>)
+        })
+    }
+}
 
 #[tokio::main]
 async fn main() {
-    let dir = "C:\\dev\\NonlocalityOS\\dogbox";
-    let addr = ([127, 0, 0, 1], 4918).into();
-
     let dav_server = DavHandler::builder()
-        .filesystem(LocalFs::new(dir, false, false, false))
+        .filesystem(Box::new(DogBoxFileSystem::new()))
         .locksystem(FakeLs::new())
         .build_handler();
 
@@ -23,7 +114,8 @@ async fn main() {
         }
     });
 
-    println!("Serving {} on http://{}", dir, addr);
+    let addr = ([127, 0, 0, 1], 4918).into();
+    println!("Serving on http://{}", addr);
     let _ = hyper::Server::bind(&addr)
         .serve(make_service)
         .await
