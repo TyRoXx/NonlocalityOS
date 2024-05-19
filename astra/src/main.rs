@@ -229,13 +229,21 @@ async fn build(
             ("management_interface".to_string(), Program::other()),
             (
                 MANAGEMENT_SERVICE_NAME.to_string(),
-                match maybe_raspberry_pi {
+                match maybe_raspberry_pi.clone() {
                     Some(raspberry_pi) => Program::host_and_pi(raspberry_pi),
                     None => Program::host(),
                 },
             ),
             ("nonlocality_build_utils".to_string(), Program::other()),
             ("nonlocality_env".to_string(), Program::other()),
+            ("dogbox/dogbox_blob_layer".to_string(), Program::other()),
+            (
+                "dogbox/dogbox_dav_server".to_string(),
+                match maybe_raspberry_pi {
+                    Some(raspberry_pi) => Program::host_and_pi(raspberry_pi),
+                    None => Program::host(),
+                },
+            ),
         ]),
     };
 
