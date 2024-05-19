@@ -1,4 +1,5 @@
 use async_stream::stream;
+use bytes::Buf;
 use std::{
     collections::{BTreeMap, VecDeque},
     pin::Pin,
@@ -223,11 +224,23 @@ impl OpenFile {
 
     pub fn write_bytes(&self, position: u64, buf: bytes::Bytes) -> Future<()> {
         Box::pin(async move {
+            let position_usize = position.try_into().unwrap();
             let mut content_locked = self.content.lock().await;
-            if (content_locked.len() as u64) != position {
-                todo!()
-            }
-            content_locked.extend(&buf);
+            let previous_content_length = content_locked.len();
+            match content_locked.split_at_mut_checked(position_usize) {
+                Some((_, overwriting)) => {
+                    let can_overwrite = usize::min(overwriting.len(), buf.len());
+                    let (mut for_overwriting, for_extending) = buf.split_at(can_overwrite);
+                    for_overwriting.copy_to_slice(overwriting.split_at_mut(can_overwrite).0);
+                    content_locked.extend(for_extending);
+                }
+                None => {
+                    content_locked.extend(
+                        std::iter::repeat(0u8).take(position_usize - previous_content_length),
+                    );
+                    content_locked.extend(buf);
+                }
+            };
             Ok(())
         })
     }
