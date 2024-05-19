@@ -221,11 +221,29 @@ impl OpenFile {
         DirectoryEntryKind::File(self.content.lock().await.len() as u64)
     }
 
-    pub fn write_bytes(&self, buf: bytes::Bytes) -> Future<()> {
+    pub fn write_bytes(&self, position: u64, buf: bytes::Bytes) -> Future<()> {
         Box::pin(async move {
             let mut content_locked = self.content.lock().await;
+            if (content_locked.len() as u64) != position {
+                todo!()
+            }
             content_locked.extend(&buf);
             Ok(())
+        })
+    }
+
+    pub fn read_bytes(&self, position: u64, count: usize) -> Future<bytes::Bytes> {
+        Box::pin(async move {
+            let content_locked = self.content.lock().await;
+            match content_locked.split_at_checked(position.try_into().unwrap()) {
+                Some((_, from_position)) => Ok(bytes::Bytes::copy_from_slice(match from_position
+                    .split_at_checked(count)
+                {
+                    Some((result, _)) => result,
+                    None => from_position,
+                })),
+                None => todo!(),
+            }
         })
     }
 

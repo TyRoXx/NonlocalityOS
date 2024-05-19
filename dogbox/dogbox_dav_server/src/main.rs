@@ -111,6 +111,7 @@ impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
 #[derive(Debug)]
 struct DogBoxOpenFile {
     handle: Arc<OpenFile>,
+    cursor: u64,
 }
 
 impl dav_server::fs::DavFile for DogBoxOpenFile {
@@ -127,10 +128,12 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
     }
 
     fn write_bytes(&mut self, buf: bytes::Bytes) -> dav_server::fs::FsFuture<()> {
+        let write_at = self.cursor;
+        self.cursor += buf.len() as u64;
         let open_file = self.handle.clone();
         Box::pin(async move {
-            match open_file.write_bytes(buf).await {
-                Ok(_) => Ok(()),
+            match open_file.write_bytes(write_at, buf).await {
+                Ok(result) => Ok(result),
                 Err(error) => match error {
                     dogbox_tree_editor::Error::NotFound => todo!(),
                 },
@@ -138,8 +141,18 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
         })
     }
 
-    fn read_bytes(&mut self, _count: usize) -> dav_server::fs::FsFuture<bytes::Bytes> {
-        todo!()
+    fn read_bytes(&mut self, count: usize) -> dav_server::fs::FsFuture<bytes::Bytes> {
+        let read_at = self.cursor;
+        self.cursor += count as u64;
+        let open_file = self.handle.clone();
+        Box::pin(async move {
+            match open_file.read_bytes(read_at, count).await {
+                Ok(result) => Ok(result),
+                Err(error) => match error {
+                    dogbox_tree_editor::Error::NotFound => todo!(),
+                },
+            }
+        })
     }
 
     fn seek(&mut self, _pos: std::io::SeekFrom) -> dav_server::fs::FsFuture<u64> {
@@ -184,7 +197,10 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 Ok(success) => success,
                 Err(_error) => todo!(),
             };
-            Ok(Box::new(DogBoxOpenFile { handle: open_file }) as Box<dyn dav_server::fs::DavFile>)
+            Ok(Box::new(DogBoxOpenFile {
+                handle: open_file,
+                cursor: 0,
+            }) as Box<dyn dav_server::fs::DavFile>)
         })
     }
 
