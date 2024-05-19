@@ -109,6 +109,21 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
     }
 }
 
+fn convert_path<'t>(
+    path: &'t dav_server::davpath::DavPath,
+) -> dav_server::fs::FsResult<&'t relative_path::RelativePath> {
+    match relative_path::RelativePath::from_path(path.as_rel_ospath()) {
+        Ok(success) => Ok(success),
+        Err(error) => {
+            error!(
+                "Could not convert path {} into a relative path: {}",
+                path, error
+            );
+            Err(dav_server::fs::FsError::GeneralFailure)
+        }
+    }
+}
+
 impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     fn open<'a>(
         &'a self,
@@ -127,17 +142,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     {
         info!("Read dir {}", path);
         Box::pin(async move {
-            let converted_path = match relative_path::RelativePath::from_path(path.as_rel_ospath())
-            {
-                Ok(success) => success,
-                Err(error) => {
-                    error!(
-                        "Could not convert path {} into a relative path: {}",
-                        path, error
-                    );
-                    return Err(dav_server::fs::FsError::GeneralFailure);
-                }
-            };
+            let converted_path = convert_path(&path)?;
             let mut directory = match self.editor.read_directory(converted_path).await {
                 Ok(success) => success,
                 Err(error) => match error {
