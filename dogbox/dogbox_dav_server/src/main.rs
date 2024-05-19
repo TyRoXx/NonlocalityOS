@@ -1,6 +1,7 @@
 //#![deny(warnings)]
 use async_stream::stream;
 use dav_server::{fakels::FakeLs, DavHandler};
+use dogbox_tree_editor::NormalizedPath;
 use futures::stream::StreamExt;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -143,11 +144,15 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         info!("Read dir {}", path);
         Box::pin(async move {
             let converted_path = convert_path(&path)?;
-            let mut directory = match self.editor.read_directory(converted_path).await {
+            let mut directory = match self
+                .editor
+                .read_directory(NormalizedPath::new(converted_path))
+                .await
+            {
                 Ok(success) => success,
                 Err(error) => match error {
                     dogbox_tree_editor::Error::NotFound => {
-                        error!("Directory not found: {}", converted_path);
+                        info!("Directory not found: {}", converted_path);
                         return Err(dav_server::fs::FsError::NotFound);
                     }
                 },
@@ -170,8 +175,21 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     ) -> dav_server::fs::FsFuture<Box<dyn dav_server::fs::DavMetaData>> {
         info!("Metadata {}", path);
         Box::pin(async move {
-            Ok(Box::new(DogBoxDirectoryMetaData {})
-                as Box<(dyn dav_server::fs::DavMetaData + 'static)>)
+            let converted_path = convert_path(&path)?;
+            match self
+                .editor
+                .get_meta_data(NormalizedPath::new(converted_path))
+                .await
+            {
+                Ok(success) => Ok(Box::new(DogBoxDirectoryMetaData {})
+                    as Box<(dyn dav_server::fs::DavMetaData + 'static)>),
+                Err(error) => match error {
+                    dogbox_tree_editor::Error::NotFound => {
+                        info!("File or directory not found: {}", converted_path);
+                        return Err(dav_server::fs::FsError::NotFound);
+                    }
+                },
+            }
         })
     }
 
