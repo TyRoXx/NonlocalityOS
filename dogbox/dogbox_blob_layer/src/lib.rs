@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_512};
 
 /// SHA3-512 hash. Supports Serde because we will need this type a lot in network protocols and file formats.
-#[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Ord, Eq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Ord, Eq, Clone, Copy, Hash)]
 pub struct BlobDigest(
     /// data is split into two parts because Serde doesn't support 64-element arrays
     pub ([u8; 32], [u8; 32]),
@@ -48,4 +48,57 @@ fn test_calculate_digest_empty() {
 fn test_calculate_digest_non_empty() {
     let digest: [u8; 64] = BlobDigest::hash("Hello, world!".as_bytes()).into();
     assert_eq!("8e47f1185ffd014d238fabd02a1a32defe698cbf38c037a90e3c0a0a32370fb52cbd641250508502295fcabcbf676c09470b27443868c8e5f70e26dc337288af",hex::encode( &digest  ));
+}
+
+pub trait ReadBlob {
+    fn read_blob(&self, digest: &BlobDigest) -> Option<Vec<u8>>;
+}
+
+pub trait WriteBlob {
+    fn write_blob(&mut self, content: &[u8]) -> bool;
+}
+
+pub struct MemoryBlobStore {
+    entries: std::collections::HashMap<BlobDigest, Vec<u8>>,
+}
+
+impl MemoryBlobStore {
+    pub fn new() -> MemoryBlobStore {
+        MemoryBlobStore {
+            entries: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl ReadBlob for MemoryBlobStore {
+    fn read_blob(&self, digest: &BlobDigest) -> Option<Vec<u8>> {
+        self.entries.get(digest).map(|found| found.clone())
+    }
+}
+
+impl WriteBlob for MemoryBlobStore {
+    fn write_blob(&mut self, content: &[u8]) -> bool {
+        let key = BlobDigest::hash(content);
+        if self.entries.contains_key(&key) {
+            return true;
+        }
+        self.entries.insert(key, content.into());
+        return true;
+    }
+}
+
+#[test]
+fn test_memory_blob_store_read_unknown() {
+    let store = MemoryBlobStore::new();
+    let result = store.read_blob(&BlobDigest::hash("test".as_bytes()));
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_memory_blob_store_write() {
+    let mut store = MemoryBlobStore::new();
+    let message = "1234".as_bytes();
+    assert!(store.write_blob(message));
+    let result = store.read_blob(&BlobDigest::hash(message)).unwrap();
+    assert_eq!(message, &result[..]);
 }

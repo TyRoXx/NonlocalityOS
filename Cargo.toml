@@ -6,6 +6,8 @@ members=[
     "nonlocality_env",
     "nonlocality_build_utils",
     "dogbox/dogbox_blob_layer",
+    "dogbox/dogbox_tree",
+    "dogbox/dogbox_tree_editor",
     "dogbox/dogbox_dav_server",
 ]
 resolver="2"

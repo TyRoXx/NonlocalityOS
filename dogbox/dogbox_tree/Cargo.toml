@@ -1,0 +1,10 @@
+[package]
+name = "dogbox_tree"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+dogbox_blob_layer = { path ="../dogbox_blob_layer" }
+serde = "1.0"
