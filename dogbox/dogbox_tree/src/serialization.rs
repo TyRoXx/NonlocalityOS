@@ -144,6 +144,14 @@ impl TryFrom<String> for FileName {
     }
 }
 
+impl TryFrom<&str> for FileName {
+    type Error = FileNameError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        FileName::try_from(value.to_string())
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum DirectoryEntryKind {
     Directory,

@@ -650,9 +650,12 @@ checksum = "fa333c37992bc9a2ca345cac27e7f150e97740a92daaeb488c98292d83329803"
 name = "dogbox_blob_layer"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "hex",
  "serde",
  "sha3",
+ "tokio",
+ "tokio-macros",
 ]
 
 [[package]]
@@ -681,6 +684,7 @@ dependencies = [
  "dogbox_blob_layer",
  "futures-core",
  "futures-util",
+ "postcard",
  "serde",
  "tokio",
  "tokio-macros",
@@ -710,6 +714,12 @@ name = "either"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a47c1c47d2f5964e29c61246e81db715514cd532db6b5116a25ea3c03d6780a2"
+
+[[package]]
+name = "embedded-io"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1a6892d9eef45c8fa6b9e0086428a2cca8491aca8f787c534a3d6d0bcb3ced"
 
 [[package]]
 name = "encoding_rs"
@@ -1714,6 +1724,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a55c51ee6c0db07e68448e336cf8ea4131a620edefebf9893e759b2d793420f8"
 dependencies = [
  "cobs",
+ "embedded-io",
  "heapless",
  "serde",
 ]

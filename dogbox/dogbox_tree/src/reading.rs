@@ -2,11 +2,11 @@ use crate::serialization::FileName;
 use async_trait::async_trait;
 use std::pin::Pin;
 
-pub trait AsyncReadBlob: tokio::io::AsyncSeek + tokio::io::AsyncRead {}
+pub trait AsyncReadBlob: tokio::io::AsyncSeek + tokio::io::AsyncRead + Unpin {}
 
 #[async_trait]
 pub trait ReadFile {
-    fn open(&self) -> Result<Box<dyn AsyncReadBlob>>;
+    async fn open(&self) -> Result<Box<dyn AsyncReadBlob>>;
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
@@ -37,7 +37,8 @@ pub enum EntryAccessor {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Error {
-    Unknown,
+    DataUnavailable,
+    DataIncompatible,
 }
 
 impl std::fmt::Display for Error {
@@ -51,6 +52,6 @@ pub type Stream<'t, T> = Pin<Box<dyn futures_core::stream::Stream<Item = T> + Se
 
 #[async_trait]
 pub trait ReadDirectory {
-    async fn enumerate<'t>(&'t self) -> Stream<'t, DirectoryEntry>;
-    async fn access_entry(&self, name: &FileName) -> Option<EntryAccessor>;
+    async fn enumerate<'t>(&'t self) -> Result<Stream<'t, DirectoryEntry>>;
+    async fn access_entry(&self, name: &FileName) -> Result<Option<EntryAccessor>>;
 }

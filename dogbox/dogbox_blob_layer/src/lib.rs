@@ -1,4 +1,5 @@
 #![feature(array_chunks)]
+use async_trait::async_trait;
 #[deny(warnings)]
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_512};
@@ -50,12 +51,14 @@ fn test_calculate_digest_non_empty() {
     assert_eq!("8e47f1185ffd014d238fabd02a1a32defe698cbf38c037a90e3c0a0a32370fb52cbd641250508502295fcabcbf676c09470b27443868c8e5f70e26dc337288af",hex::encode( &digest  ));
 }
 
-pub trait ReadBlob {
-    fn read_blob(&self, digest: &BlobDigest) -> Option<Vec<u8>>;
+#[async_trait]
+pub trait ReadBlob: Send + Sync {
+    async fn read_blob(&self, digest: &BlobDigest) -> Option<Vec<u8>>;
 }
 
+#[async_trait]
 pub trait WriteBlob {
-    fn write_blob(&mut self, content: &[u8]) -> bool;
+    async fn write_blob(&mut self, content: &[u8]) -> BlobDigest;
 }
 
 pub struct MemoryBlobStore {
@@ -70,35 +73,38 @@ impl MemoryBlobStore {
     }
 }
 
+#[async_trait]
 impl ReadBlob for MemoryBlobStore {
-    fn read_blob(&self, digest: &BlobDigest) -> Option<Vec<u8>> {
+    async fn read_blob(&self, digest: &BlobDigest) -> Option<Vec<u8>> {
         self.entries.get(digest).map(|found| found.clone())
     }
 }
 
+#[async_trait]
 impl WriteBlob for MemoryBlobStore {
-    fn write_blob(&mut self, content: &[u8]) -> bool {
+    async fn write_blob(&mut self, content: &[u8]) -> BlobDigest {
         let key = BlobDigest::hash(content);
-        if self.entries.contains_key(&key) {
-            return true;
+        if !self.entries.contains_key(&key) {
+            self.entries.insert(key, content.into());
         }
-        self.entries.insert(key, content.into());
-        return true;
+        key
     }
 }
 
-#[test]
-fn test_memory_blob_store_read_unknown() {
+#[tokio::test]
+async fn test_memory_blob_store_read_unknown() {
     let store = MemoryBlobStore::new();
-    let result = store.read_blob(&BlobDigest::hash("test".as_bytes()));
+    let result = store.read_blob(&BlobDigest::hash("test".as_bytes())).await;
     assert!(result.is_none());
 }
 
-#[test]
-fn test_memory_blob_store_write() {
+#[tokio::test]
+async fn test_memory_blob_store_write() {
     let mut store = MemoryBlobStore::new();
     let message = "1234".as_bytes();
-    assert!(store.write_blob(message));
-    let result = store.read_blob(&BlobDigest::hash(message)).unwrap();
+    let expected_digest = BlobDigest::hash(message);
+    let digest = store.write_blob(message).await;
+    assert_eq!(expected_digest, digest);
+    let result = store.read_blob(&expected_digest).await.unwrap();
     assert_eq!(message, &result[..]);
 }
