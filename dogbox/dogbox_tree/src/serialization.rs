@@ -1,8 +1,7 @@
-#![deny(warnings)]
 use dogbox_blob_layer::BlobDigest;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 #[serde(try_from = "String")]
 struct FileNameContent(String);
 
@@ -132,15 +131,24 @@ impl TryFrom<String> for FileNameContent {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct FileName {
     content: FileNameContent,
+}
+
+impl TryFrom<String> for FileName {
+    type Error = FileNameError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        FileNameContent::try_from(value).map(|content| FileName { content: content })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum DirectoryEntryKind {
     Directory,
-    File,
+    /// the size is duplicated here so that you can enumerate directories and get the file sizes without having to access every file's blob
+    File(u64),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -149,7 +157,22 @@ pub struct DirectoryEntry {
     pub digest: BlobDigest,
 }
 
+impl DirectoryEntry {
+    pub fn new(kind: DirectoryEntryKind, digest: BlobDigest) -> DirectoryEntry {
+        DirectoryEntry {
+            kind: kind,
+            digest: digest,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DirectoryTree {
     pub children: std::collections::BTreeMap<FileName, DirectoryEntry>,
+}
+
+impl DirectoryTree {
+    pub fn new(children: std::collections::BTreeMap<FileName, DirectoryEntry>) -> DirectoryTree {
+        DirectoryTree { children: children }
+    }
 }
