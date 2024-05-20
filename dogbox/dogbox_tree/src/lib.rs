@@ -1,14 +1,4 @@
 #![deny(warnings)]
-use dogbox_blob_layer::BlobDigest;
-use serde::{Deserialize, Serialize};
+#![feature(iter_repeat_n)]
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum DirectoryEntry {
-    Directory(Box<DirectoryTree>),
-    File(BlobDigest),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DirectoryTree {
-    pub children: std::collections::BTreeMap<String, DirectoryEntry>,
-}
+pub mod serialization;

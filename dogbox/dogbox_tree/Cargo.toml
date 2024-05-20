@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 dogbox_blob_layer = { path ="../dogbox_blob_layer" }
-serde = "1.0"
+serde = "1"
