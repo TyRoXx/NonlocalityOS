@@ -48,7 +48,7 @@ impl NamedEntry {
 }
 
 #[derive(Debug)]
-struct OpenDirectory {
+pub struct OpenDirectory {
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
     names: tokio::sync::Mutex<BTreeMap<String, NamedEntry>>,
 }
@@ -155,7 +155,7 @@ async fn test_open_directory_get_meta_data() {
 
 #[tokio::test]
 async fn test_open_directory_open_file() {
-    let mut directory = OpenDirectory {
+    let directory = OpenDirectory {
         names: tokio::sync::Mutex::new(BTreeMap::new()),
     };
     let file_name = "test.txt";
@@ -178,7 +178,7 @@ async fn test_open_directory_open_file() {
 
 #[tokio::test]
 async fn test_read_directory_after_file_write() {
-    let mut directory = OpenDirectory {
+    let directory = OpenDirectory {
         names: tokio::sync::Mutex::new(BTreeMap::new()),
     };
     let file_name = "test.txt";
