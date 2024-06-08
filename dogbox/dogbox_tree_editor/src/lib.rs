@@ -108,13 +108,19 @@ impl OpenDirectory {
         self: &Arc<OpenDirectory>,
         path: NormalizedPath,
     ) -> Result<Arc<OpenDirectory>> {
-        let names_locked = self.names.lock().await;
+        let mut names_locked = self.names.lock().await;
         match path.split_left() {
             PathSplitLeftResult::Root => Ok(self.clone()),
-            PathSplitLeftResult::Leaf(name) => match names_locked.get(&name) {
+            PathSplitLeftResult::Leaf(name) => match names_locked.get_mut(&name) {
                 Some(found) => match found {
                     NamedEntry::NotOpen(kind) => match kind {
-                        DirectoryEntryKind::Directory => todo!(),
+                        DirectoryEntryKind::Directory => {
+                            let subdirectory = Arc::new(OpenDirectory {
+                                names: tokio::sync::Mutex::new(BTreeMap::new()),
+                            });
+                            *found = NamedEntry::OpenSubdirectory(subdirectory.clone());
+                            Ok(subdirectory)
+                        }
                         DirectoryEntryKind::File(_) => Err(Error::CannotOpenRegularFileAsDirectory),
                     },
                     NamedEntry::OpenRegularFile(_) => Err(Error::CannotOpenRegularFileAsDirectory),
@@ -516,7 +522,6 @@ async fn test_create_directory() {
         .create_directory(NormalizedPath::new(RelativePath::new("/test")))
         .await
         .unwrap();
-
     let mut reading = editor
         .read_directory(NormalizedPath::new(relative_path::RelativePath::new("/")))
         .await
@@ -529,6 +534,24 @@ async fn test_create_directory() {
         },
         entry
     );
+    let end = reading.next().await;
+    assert!(end.is_none());
+}
+
+#[tokio::test]
+async fn test_read_created_directory() {
+    use futures::StreamExt;
+    let editor = TreeEditor::from_entries(vec![]);
+    editor
+        .create_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .await
+        .unwrap();
+    let mut reading = editor
+        .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
+            "/test",
+        )))
+        .await
+        .unwrap();
     let end = reading.next().await;
     assert!(end.is_none());
 }
