@@ -48,15 +48,7 @@ impl NamedEntry {
 }
 
 #[derive(Debug)]
-enum OpenDirectoryStatus {
-    DefinitelyOutdated,
-    MaybeOutdated,
-}
-
-#[derive(Debug)]
 struct OpenDirectory {
-    // TODO: remove this unused field
-    status: OpenDirectoryStatus,
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
     // TODO: remove this unused field
     cached_entries: Vec<DirectoryEntry>,
@@ -128,7 +120,6 @@ impl OpenDirectory {
 async fn test_open_directory_get_meta_data() {
     let expected = DirectoryEntryKind::File(12);
     let directory = OpenDirectory {
-        status: OpenDirectoryStatus::MaybeOutdated,
         cached_entries: Vec::new(),
         names: BTreeMap::from([(
             "test.txt".to_string(),
@@ -142,7 +133,6 @@ async fn test_open_directory_get_meta_data() {
 #[tokio::test]
 async fn test_open_directory_open_file() {
     let mut directory = OpenDirectory {
-        status: OpenDirectoryStatus::MaybeOutdated,
         cached_entries: Vec::new(),
         names: BTreeMap::new(),
     };
@@ -167,7 +157,6 @@ async fn test_open_directory_open_file() {
 #[tokio::test]
 async fn test_read_directory_after_file_write() {
     let mut directory = OpenDirectory {
-        status: OpenDirectoryStatus::MaybeOutdated,
         cached_entries: Vec::new(),
         names: BTreeMap::new(),
     };
@@ -189,7 +178,6 @@ async fn test_read_directory_after_file_write() {
 #[tokio::test]
 async fn test_get_meta_data_after_file_write() {
     let mut directory = OpenDirectory {
-        status: OpenDirectoryStatus::MaybeOutdated,
         cached_entries: Vec::new(),
         names: BTreeMap::new(),
     };
@@ -348,7 +336,6 @@ impl TreeEditor {
         );
         TreeEditor {
             root: Arc::new(tokio::sync::Mutex::new(OpenDirectory {
-                status: OpenDirectoryStatus::DefinitelyOutdated,
                 cached_entries: entries,
                 names: names,
             })),
