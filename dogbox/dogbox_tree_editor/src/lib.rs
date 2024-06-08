@@ -50,12 +50,13 @@ impl NamedEntry {
 #[derive(Debug)]
 struct OpenDirectory {
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
-    names: BTreeMap<String, NamedEntry>,
+    names: tokio::sync::Mutex<BTreeMap<String, NamedEntry>>,
 }
 
 impl OpenDirectory {
-    fn read(&self) -> Stream<DirectoryEntry> {
-        let snapshot = self.names.clone();
+    async fn read(&self) -> Stream<DirectoryEntry> {
+        let names_locked = self.names.lock().await;
+        let snapshot = names_locked.clone();
         Box::pin(stream! {
             for cached_entry in snapshot {
                 let kind = cached_entry.1.get_meta_data().await;
@@ -64,18 +65,20 @@ impl OpenDirectory {
         })
     }
 
-    fn get_meta_data<'a>(&self, name: &str) -> Future<'a, DirectoryEntryKind> {
-        match self.names.get(name) {
+    async fn get_meta_data(&self, name: &str) -> Result<DirectoryEntryKind> {
+        let names_locked = self.names.lock().await;
+        match names_locked.get(name) {
             Some(found) => {
                 let found_clone = (*found).clone();
-                Box::pin(async move { Ok(found_clone.get_meta_data().await) })
+                Ok(found_clone.get_meta_data().await)
             }
-            None => Box::pin(std::future::ready(Err(Error::NotFound))),
+            None => Err(Error::NotFound),
         }
     }
 
-    fn open_file<'a>(&mut self, name: &str) -> Future<'a, Arc<OpenFile>> {
-        match self.names.get_mut(name) {
+    async fn open_file(&self, name: &str) -> Result<Arc<OpenFile>> {
+        let mut names_locked = self.names.lock().await;
+        match names_locked.get_mut(name) {
             Some(found) => match found {
                 NamedEntry::NotOpen(kind) => match kind {
                     DirectoryEntryKind::Directory => todo!(),
@@ -84,29 +87,56 @@ impl OpenDirectory {
                         assert_eq!(0, *length);
                         let open_file = Arc::new(OpenFile::new(vec![]));
                         *found = NamedEntry::OpenRegularFile(open_file.clone());
-                        Box::pin(std::future::ready(Ok(open_file)))
+                        Ok(open_file)
                     }
                 },
-                NamedEntry::OpenRegularFile(open_file) => {
-                    Box::pin(std::future::ready(Ok(open_file.clone())))
-                }
-                NamedEntry::OpenSubdirectory(_) => Box::pin(std::future::ready(Err(
-                    Error::CannotOpenDirectoryAsRegularFile,
-                ))),
+                NamedEntry::OpenRegularFile(open_file) => Ok(open_file.clone()),
+                NamedEntry::OpenSubdirectory(_) => Err(Error::CannotOpenDirectoryAsRegularFile),
             },
             None => {
                 let open_file = Arc::new(OpenFile::new(vec![]));
-                self.names.insert(
+                names_locked.insert(
                     name.to_string(),
                     NamedEntry::OpenRegularFile(open_file.clone()),
                 );
-                Box::pin(std::future::ready(Ok(open_file)))
+                Ok(open_file)
             }
         }
     }
 
-    fn open_directory<'a>(&mut self, name: &str) -> Future<'a, Arc<OpenDirectory>> {
-        todo!()
+    async fn open_directory(
+        self: &Arc<OpenDirectory>,
+        path: NormalizedPath,
+    ) -> Result<Arc<OpenDirectory>> {
+        let names_locked = self.names.lock().await;
+        match path.split_left() {
+            PathSplitLeftResult::Root => Ok(self.clone()),
+            PathSplitLeftResult::Leaf(name) => match names_locked.get(&name) {
+                Some(found) => match found {
+                    NamedEntry::NotOpen(kind) => match kind {
+                        DirectoryEntryKind::Directory => todo!(),
+                        DirectoryEntryKind::File(_) => Err(Error::CannotOpenRegularFileAsDirectory),
+                    },
+                    NamedEntry::OpenRegularFile(_) => Err(Error::CannotOpenRegularFileAsDirectory),
+                    NamedEntry::OpenSubdirectory(_) => todo!(),
+                },
+                None => Err(Error::NotFound),
+            },
+            PathSplitLeftResult::Directory(directory_name, tail) => {
+                todo!("Opening {}, {:?}", &directory_name, &tail)
+            }
+        }
+    }
+
+    async fn create_directory(&self, name: String) -> Result<()> {
+        let mut names_locked = self.names.lock().await;
+        match names_locked.get(&name) {
+            Some(_found) => todo!(),
+            None => {
+                names_locked.insert(name, NamedEntry::NotOpen(DirectoryEntryKind::Directory));
+                Ok(())
+            }
+        }
     }
 }
 
@@ -114,10 +144,10 @@ impl OpenDirectory {
 async fn test_open_directory_get_meta_data() {
     let expected = DirectoryEntryKind::File(12);
     let directory = OpenDirectory {
-        names: BTreeMap::from([(
+        names: tokio::sync::Mutex::new(BTreeMap::from([(
             "test.txt".to_string(),
             NamedEntry::NotOpen(expected.clone()),
-        )]),
+        )])),
     };
     let meta_data = directory.get_meta_data("test.txt").await.unwrap();
     assert_eq!(expected, meta_data);
@@ -126,7 +156,7 @@ async fn test_open_directory_get_meta_data() {
 #[tokio::test]
 async fn test_open_directory_open_file() {
     let mut directory = OpenDirectory {
-        names: BTreeMap::new(),
+        names: tokio::sync::Mutex::new(BTreeMap::new()),
     };
     let file_name = "test.txt";
     let opened = directory.open_file(file_name).await.unwrap();
@@ -136,7 +166,7 @@ async fn test_open_directory_open_file() {
         directory.get_meta_data(file_name).await.unwrap()
     );
     use futures::StreamExt;
-    let directory_entries: Vec<DirectoryEntry> = directory.read().collect().await;
+    let directory_entries: Vec<DirectoryEntry> = directory.read().await.collect().await;
     assert_eq!(
         &[DirectoryEntry {
             name: file_name.to_string(),
@@ -149,14 +179,14 @@ async fn test_open_directory_open_file() {
 #[tokio::test]
 async fn test_read_directory_after_file_write() {
     let mut directory = OpenDirectory {
-        names: BTreeMap::new(),
+        names: tokio::sync::Mutex::new(BTreeMap::new()),
     };
     let file_name = "test.txt";
     let opened = directory.open_file(file_name).await.unwrap();
     let file_content = &b"hello world"[..];
     opened.write_bytes(0, file_content.into()).await.unwrap();
     use futures::StreamExt;
-    let directory_entries: Vec<DirectoryEntry> = directory.read().collect().await;
+    let directory_entries: Vec<DirectoryEntry> = directory.read().await.collect().await;
     assert_eq!(
         &[DirectoryEntry {
             name: file_name.to_string(),
@@ -168,8 +198,8 @@ async fn test_read_directory_after_file_write() {
 
 #[tokio::test]
 async fn test_get_meta_data_after_file_write() {
-    let mut directory = OpenDirectory {
-        names: BTreeMap::new(),
+    let directory = OpenDirectory {
+        names: tokio::sync::Mutex::new(BTreeMap::new()),
     };
     let file_name = "test.txt";
     let opened = directory.open_file(file_name).await.unwrap();
@@ -310,7 +340,7 @@ impl OpenFile {
 }
 
 pub struct TreeEditor {
-    root: Arc<tokio::sync::Mutex<OpenDirectory>>,
+    root: Arc<OpenDirectory>,
 }
 
 impl TreeEditor {
@@ -325,43 +355,18 @@ impl TreeEditor {
                 .map(|entry| (entry.name.clone(), NamedEntry::NotOpen(entry.kind.clone()))),
         );
         TreeEditor {
-            root: Arc::new(tokio::sync::Mutex::new(OpenDirectory { names: names })),
+            root: Arc::new(OpenDirectory {
+                names: tokio::sync::Mutex::new(names),
+            }),
         }
     }
 
-    fn open_directory<'t>(
-        relative_root: &'t mut OpenDirectory,
-        path: NormalizedPath,
-    ) -> Result<&'t mut OpenDirectory> {
-        match path.split_left() {
-            PathSplitLeftResult::Root => Ok(relative_root),
-            PathSplitLeftResult::Leaf(name) => match relative_root.names.get(&name) {
-                Some(found) => match found {
-                    NamedEntry::NotOpen(kind) => match kind {
-                        DirectoryEntryKind::Directory => todo!(),
-                        DirectoryEntryKind::File(_) => Err(Error::CannotOpenRegularFileAsDirectory),
-                    },
-                    NamedEntry::OpenRegularFile(_) => Err(Error::CannotOpenRegularFileAsDirectory),
-                    NamedEntry::OpenSubdirectory(_) => todo!(),
-                },
-                None => Err(Error::NotFound),
-            },
-            PathSplitLeftResult::Directory(directory_name, tail) => {
-                todo!("Opening {}, {:?}", &directory_name, &tail)
-            }
-        }
-    }
-
-    pub fn read_directory<'a>(&self, path: NormalizedPath) -> Future<'a, Stream<DirectoryEntry>> {
-        let root = self.root.clone();
-        Box::pin(async move {
-            let mut root_lock = root.lock().await;
-            let directory = match TreeEditor::open_directory(&mut root_lock, path) {
-                Ok(opened) => opened,
-                Err(error) => return Err(error),
-            };
-            Ok(directory.read())
-        })
+    pub async fn read_directory(&self, path: NormalizedPath) -> Result<Stream<DirectoryEntry>> {
+        let directory = match self.root.open_directory(path).await {
+            Ok(opened) => opened,
+            Err(error) => return Err(error),
+        };
+        Ok(directory.read().await)
     }
 
     pub fn get_meta_data<'a>(&self, path: NormalizedPath) -> Future<'a, DirectoryEntryKind> {
@@ -372,8 +377,7 @@ impl TreeEditor {
             PathSplitRightResult::Entry(directory_path, leaf_name) => {
                 let root = self.root.clone();
                 Box::pin(async move {
-                    let mut root_lock = root.lock().await;
-                    match TreeEditor::open_directory(&mut root_lock, directory_path) {
+                    match root.open_directory(directory_path).await {
                         Ok(directory) => directory.get_meta_data(&leaf_name).await,
                         Err(error) => return Err(error),
                     }
@@ -388,9 +392,7 @@ impl TreeEditor {
             PathSplitRightResult::Entry(directory_path, file_name) => {
                 let root = self.root.clone();
                 Box::pin(async move {
-                    let mut root_lock = root.lock().await;
-                    let directory = match TreeEditor::open_directory(&mut root_lock, directory_path)
-                    {
+                    let directory = match root.open_directory(directory_path).await {
                         Ok(opened) => opened,
                         Err(error) => return Err(error),
                     };
@@ -406,18 +408,8 @@ impl TreeEditor {
             PathSplitRightResult::Entry(directory_path, file_name) => {
                 let root = self.root.clone();
                 Box::pin(async move {
-                    let mut root_lock = root.lock().await;
-                    match TreeEditor::open_directory(&mut root_lock, directory_path) {
-                        Ok(directory) => match directory.names.get(&file_name) {
-                            Some(_found) => todo!(),
-                            None => {
-                                directory.names.insert(
-                                    file_name,
-                                    NamedEntry::NotOpen(DirectoryEntryKind::Directory),
-                                );
-                                Ok(())
-                            }
-                        },
+                    match root.open_directory(directory_path).await {
+                        Ok(directory) => directory.create_directory(file_name).await,
                         Err(error) => return Err(error),
                     }
                 })
