@@ -269,7 +269,13 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                         info!("File or directory not found: {}", converted_path);
                         return Err(dav_server::fs::FsError::NotFound);
                     }
-                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => todo!(),
+                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => {
+                        info!(
+                            "Cannot read regular file as a directory: {}",
+                            converted_path
+                        );
+                        return Err(dav_server::fs::FsError::NotImplemented);
+                    }
                     dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
                 },
             }
