@@ -50,8 +50,6 @@ impl NamedEntry {
 #[derive(Debug)]
 struct OpenDirectory {
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
-    // TODO: remove this unused field
-    cached_entries: Vec<DirectoryEntry>,
     names: BTreeMap<String, NamedEntry>,
 }
 
@@ -102,10 +100,6 @@ impl OpenDirectory {
                     name.to_string(),
                     NamedEntry::OpenRegularFile(open_file.clone()),
                 );
-                self.cached_entries.push(DirectoryEntry {
-                    name: name.to_string(),
-                    kind: DirectoryEntryKind::File(0),
-                });
                 Box::pin(std::future::ready(Ok(open_file)))
             }
         }
@@ -120,7 +114,6 @@ impl OpenDirectory {
 async fn test_open_directory_get_meta_data() {
     let expected = DirectoryEntryKind::File(12);
     let directory = OpenDirectory {
-        cached_entries: Vec::new(),
         names: BTreeMap::from([(
             "test.txt".to_string(),
             NamedEntry::NotOpen(expected.clone()),
@@ -133,7 +126,6 @@ async fn test_open_directory_get_meta_data() {
 #[tokio::test]
 async fn test_open_directory_open_file() {
     let mut directory = OpenDirectory {
-        cached_entries: Vec::new(),
         names: BTreeMap::new(),
     };
     let file_name = "test.txt";
@@ -157,7 +149,6 @@ async fn test_open_directory_open_file() {
 #[tokio::test]
 async fn test_read_directory_after_file_write() {
     let mut directory = OpenDirectory {
-        cached_entries: Vec::new(),
         names: BTreeMap::new(),
     };
     let file_name = "test.txt";
@@ -178,7 +169,6 @@ async fn test_read_directory_after_file_write() {
 #[tokio::test]
 async fn test_get_meta_data_after_file_write() {
     let mut directory = OpenDirectory {
-        cached_entries: Vec::new(),
         names: BTreeMap::new(),
     };
     let file_name = "test.txt";
@@ -335,10 +325,7 @@ impl TreeEditor {
                 .map(|entry| (entry.name.clone(), NamedEntry::NotOpen(entry.kind.clone()))),
         );
         TreeEditor {
-            root: Arc::new(tokio::sync::Mutex::new(OpenDirectory {
-                cached_entries: entries,
-                names: names,
-            })),
+            root: Arc::new(tokio::sync::Mutex::new(OpenDirectory { names: names })),
         }
     }
 
