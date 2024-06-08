@@ -124,7 +124,7 @@ impl OpenDirectory {
                         DirectoryEntryKind::File(_) => Err(Error::CannotOpenRegularFileAsDirectory),
                     },
                     NamedEntry::OpenRegularFile(_) => Err(Error::CannotOpenRegularFileAsDirectory),
-                    NamedEntry::OpenSubdirectory(_) => todo!(),
+                    NamedEntry::OpenSubdirectory(subdirectory) => Ok(subdirectory.clone()),
                 },
                 None => Err(Error::NotFound),
             },
