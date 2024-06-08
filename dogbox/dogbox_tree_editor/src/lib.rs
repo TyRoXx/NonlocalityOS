@@ -56,10 +56,11 @@ struct OpenDirectory {
 
 impl OpenDirectory {
     fn read(&self) -> Stream<DirectoryEntry> {
-        let snapshot = self.cached_entries.clone();
+        let snapshot = self.names.clone();
         Box::pin(stream! {
             for cached_entry in snapshot {
-                yield cached_entry;
+                let kind = cached_entry.1.get_meta_data().await;
+                yield DirectoryEntry{name: cached_entry.0, kind: kind};
             }
         })
     }
@@ -140,6 +141,45 @@ async fn test_open_directory_open_file() {
             kind: DirectoryEntryKind::File(0)
         }][..],
         &directory_entries[..]
+    );
+}
+
+#[tokio::test]
+async fn test_read_directory_after_file_write() {
+    let mut directory = OpenDirectory {
+        status: OpenDirectoryStatus::MaybeOutdated,
+        cached_entries: Vec::new(),
+        names: BTreeMap::new(),
+    };
+    let file_name = "test.txt";
+    let opened = directory.open_file(file_name).await.unwrap();
+    let file_content = &b"hello world"[..];
+    opened.write_bytes(0, file_content.into()).await.unwrap();
+    use futures::StreamExt;
+    let directory_entries: Vec<DirectoryEntry> = directory.read().collect().await;
+    assert_eq!(
+        &[DirectoryEntry {
+            name: file_name.to_string(),
+            kind: DirectoryEntryKind::File(file_content.len() as u64)
+        }][..],
+        &directory_entries[..]
+    );
+}
+
+#[tokio::test]
+async fn test_get_meta_data_after_file_write() {
+    let mut directory = OpenDirectory {
+        status: OpenDirectoryStatus::MaybeOutdated,
+        cached_entries: Vec::new(),
+        names: BTreeMap::new(),
+    };
+    let file_name = "test.txt";
+    let opened = directory.open_file(file_name).await.unwrap();
+    let file_content = &b"hello world"[..];
+    opened.write_bytes(0, file_content.into()).await.unwrap();
+    assert_eq!(
+        DirectoryEntryKind::File(file_content.len() as u64),
+        directory.get_meta_data(file_name).await.unwrap()
     );
 }
 
@@ -303,11 +343,13 @@ impl TreeEditor {
             PathSplitLeftResult::Root => Some(relative_root),
             PathSplitLeftResult::Leaf(name) => match relative_root.names.get(&name) {
                 Some(_found) => {
-                    todo!()
+                    todo!("Found {}, but don't know what to do with it", &name)
                 }
                 None => None,
             },
-            PathSplitLeftResult::Directory(_, _) => todo!(),
+            PathSplitLeftResult::Directory(directory_name, tail) => {
+                todo!("Opening {}, {:?}", &directory_name, &tail)
+            }
         }
     }
 
