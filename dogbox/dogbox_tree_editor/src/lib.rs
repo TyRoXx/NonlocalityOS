@@ -104,32 +104,37 @@ impl OpenDirectory {
         }
     }
 
+    async fn open_subdirectory(&self, name: String) -> Result<Arc<OpenDirectory>> {
+        let mut names_locked = self.names.lock().await;
+        match names_locked.get_mut(&name) {
+            Some(found) => match found {
+                NamedEntry::NotOpen(kind) => match kind {
+                    DirectoryEntryKind::Directory => {
+                        let subdirectory = Arc::new(OpenDirectory {
+                            names: tokio::sync::Mutex::new(BTreeMap::new()),
+                        });
+                        *found = NamedEntry::OpenSubdirectory(subdirectory.clone());
+                        Ok(subdirectory)
+                    }
+                    DirectoryEntryKind::File(_) => Err(Error::CannotOpenRegularFileAsDirectory),
+                },
+                NamedEntry::OpenRegularFile(_) => Err(Error::CannotOpenRegularFileAsDirectory),
+                NamedEntry::OpenSubdirectory(subdirectory) => Ok(subdirectory.clone()),
+            },
+            None => Err(Error::NotFound),
+        }
+    }
+
     async fn open_directory(
         self: &Arc<OpenDirectory>,
         path: NormalizedPath,
     ) -> Result<Arc<OpenDirectory>> {
-        let mut names_locked = self.names.lock().await;
         match path.split_left() {
             PathSplitLeftResult::Root => Ok(self.clone()),
-            PathSplitLeftResult::Leaf(name) => match names_locked.get_mut(&name) {
-                Some(found) => match found {
-                    NamedEntry::NotOpen(kind) => match kind {
-                        DirectoryEntryKind::Directory => {
-                            let subdirectory = Arc::new(OpenDirectory {
-                                names: tokio::sync::Mutex::new(BTreeMap::new()),
-                            });
-                            *found = NamedEntry::OpenSubdirectory(subdirectory.clone());
-                            Ok(subdirectory)
-                        }
-                        DirectoryEntryKind::File(_) => Err(Error::CannotOpenRegularFileAsDirectory),
-                    },
-                    NamedEntry::OpenRegularFile(_) => Err(Error::CannotOpenRegularFileAsDirectory),
-                    NamedEntry::OpenSubdirectory(subdirectory) => Ok(subdirectory.clone()),
-                },
-                None => Err(Error::NotFound),
-            },
+            PathSplitLeftResult::Leaf(name) => self.open_subdirectory(name).await,
             PathSplitLeftResult::Directory(directory_name, tail) => {
-                todo!("Opening {}, {:?}", &directory_name, &tail)
+                let subdirectory = self.open_subdirectory(directory_name).await?;
+                Box::pin(subdirectory.open_directory(tail)).await
             }
         }
     }
@@ -554,4 +559,62 @@ async fn test_read_created_directory() {
         .unwrap();
     let end = reading.next().await;
     assert!(end.is_none());
+}
+
+#[tokio::test]
+async fn test_nested_create_directory() {
+    use futures::StreamExt;
+    let editor = TreeEditor::from_entries(vec![]);
+    editor
+        .create_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .await
+        .unwrap();
+    editor
+        .create_directory(NormalizedPath::new(RelativePath::new("/test/subdir")))
+        .await
+        .unwrap();
+    {
+        let mut reading = editor
+            .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
+                "/test/subdir",
+            )))
+            .await
+            .unwrap();
+        let end = reading.next().await;
+        assert!(end.is_none());
+    }
+    {
+        let mut reading = editor
+            .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
+                "/test",
+            )))
+            .await
+            .unwrap();
+        let entry: DirectoryEntry = reading.next().await.unwrap();
+        assert_eq!(
+            DirectoryEntry {
+                name: "subdir".to_string(),
+                kind: DirectoryEntryKind::Directory
+            },
+            entry
+        );
+        let end = reading.next().await;
+        assert!(end.is_none());
+    }
+    {
+        let mut reading = editor
+            .read_directory(NormalizedPath::new(relative_path::RelativePath::new("/")))
+            .await
+            .unwrap();
+        let entry: DirectoryEntry = reading.next().await.unwrap();
+        assert_eq!(
+            DirectoryEntry {
+                name: "test".to_string(),
+                kind: DirectoryEntryKind::Directory
+            },
+            entry
+        );
+        let end = reading.next().await;
+        assert!(end.is_none());
+    }
 }
