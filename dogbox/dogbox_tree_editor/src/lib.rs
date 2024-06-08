@@ -9,6 +9,8 @@ use std::{
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     NotFound,
+    CannotOpenRegularFileAsDirectory,
+    CannotOpenDirectoryAsRegularFile,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -31,6 +33,7 @@ pub struct DirectoryEntry {
 pub enum NamedEntry {
     NotOpen(DirectoryEntryKind),
     Open(Arc<OpenFile>),
+    OpenSubdirectory(Arc<OpenDirectory>),
 }
 
 impl NamedEntry {
@@ -38,15 +41,18 @@ impl NamedEntry {
         match self {
             NamedEntry::NotOpen(kind) => kind.clone(),
             NamedEntry::Open(open_file) => open_file.get_meta_data().await,
+            NamedEntry::OpenSubdirectory(_) => DirectoryEntryKind::Directory,
         }
     }
 }
 
+#[derive(Debug)]
 enum OpenDirectoryStatus {
     DefinitelyOutdated,
     MaybeOutdated,
 }
 
+#[derive(Debug)]
 struct OpenDirectory {
     status: OpenDirectoryStatus,
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
@@ -89,6 +95,9 @@ impl OpenDirectory {
                     }
                 },
                 NamedEntry::Open(open_file) => Box::pin(std::future::ready(Ok(open_file.clone()))),
+                NamedEntry::OpenSubdirectory(_) => Box::pin(std::future::ready(Err(
+                    Error::CannotOpenDirectoryAsRegularFile,
+                ))),
             },
             None => {
                 let open_file = Arc::new(OpenFile::new(vec![]));
@@ -101,6 +110,10 @@ impl OpenDirectory {
                 Box::pin(std::future::ready(Ok(open_file)))
             }
         }
+    }
+
+    fn open_directory<'a>(&mut self, name: &str) -> Future<'a, Arc<OpenDirectory>> {
+        todo!()
     }
 }
 
@@ -338,14 +351,19 @@ impl TreeEditor {
     fn open_directory<'t>(
         relative_root: &'t mut OpenDirectory,
         path: NormalizedPath,
-    ) -> Option<&'t mut OpenDirectory> {
+    ) -> Result<&'t mut OpenDirectory> {
         match path.split_left() {
-            PathSplitLeftResult::Root => Some(relative_root),
+            PathSplitLeftResult::Root => Ok(relative_root),
             PathSplitLeftResult::Leaf(name) => match relative_root.names.get(&name) {
-                Some(_found) => {
-                    todo!("Found {}, but don't know what to do with it", &name)
-                }
-                None => None,
+                Some(found) => match found {
+                    NamedEntry::NotOpen(kind) => match kind {
+                        DirectoryEntryKind::Directory => todo!(),
+                        DirectoryEntryKind::File(_) => Err(Error::CannotOpenRegularFileAsDirectory),
+                    },
+                    NamedEntry::Open(_) => todo!(),
+                    NamedEntry::OpenSubdirectory(_) => todo!(),
+                },
+                None => Err(Error::NotFound),
             },
             PathSplitLeftResult::Directory(directory_name, tail) => {
                 todo!("Opening {}, {:?}", &directory_name, &tail)
@@ -358,8 +376,8 @@ impl TreeEditor {
         Box::pin(async move {
             let mut root_lock = root.lock().await;
             let directory = match TreeEditor::open_directory(&mut root_lock, path) {
-                Some(opened) => opened,
-                None => return Err(Error::NotFound),
+                Ok(opened) => opened,
+                Err(error) => return Err(error),
             };
             Ok(directory.read())
         })
@@ -375,8 +393,8 @@ impl TreeEditor {
                 Box::pin(async move {
                     let mut root_lock = root.lock().await;
                     match TreeEditor::open_directory(&mut root_lock, directory_path) {
-                        Some(directory) => directory.get_meta_data(&leaf_name).await,
-                        None => Err(Error::NotFound),
+                        Ok(directory) => directory.get_meta_data(&leaf_name).await,
+                        Err(error) => return Err(error),
                     }
                 })
             }
@@ -392,8 +410,8 @@ impl TreeEditor {
                     let mut root_lock = root.lock().await;
                     let directory = match TreeEditor::open_directory(&mut root_lock, directory_path)
                     {
-                        Some(opened) => opened,
-                        None => return Err(Error::NotFound),
+                        Ok(opened) => opened,
+                        Err(error) => return Err(error),
                     };
                     directory.open_file(&file_name).await
                 })
@@ -458,4 +476,18 @@ async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
         .await
         .unwrap_err();
     assert_eq!(Error::NotFound, error);
+}
+
+#[tokio::test]
+async fn test_open_directory_on_regular_file() {
+    let editor = TreeEditor::from_entries(vec![DirectoryEntry {
+        name: "test.txt".to_string(),
+        kind: DirectoryEntryKind::File(0),
+    }]);
+    let result = editor
+        .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
+            "/test.txt",
+        )))
+        .await;
+    assert_eq!(Some(Error::CannotOpenRegularFileAsDirectory), result.err());
 }

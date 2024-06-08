@@ -136,6 +136,8 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
                 Ok(result) => Ok(result),
                 Err(error) => match error {
                     dogbox_tree_editor::Error::NotFound => todo!(),
+                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => todo!(),
+                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
                 },
             }
         })
@@ -150,6 +152,8 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
                 Ok(result) => Ok(result),
                 Err(error) => match error {
                     dogbox_tree_editor::Error::NotFound => todo!(),
+                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => todo!(),
+                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
                 },
             }
         })
@@ -224,6 +228,14 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                         info!("Directory not found: {}", converted_path);
                         return Err(dav_server::fs::FsError::NotFound);
                     }
+                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => {
+                        info!(
+                            "Cannot open regular file as a directory: {}",
+                            converted_path
+                        );
+                        return Err(dav_server::fs::FsError::NotImplemented);
+                    }
+                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
                 },
             };
             Ok(Box::pin(stream! {
@@ -257,6 +269,8 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                         info!("File or directory not found: {}", converted_path);
                         return Err(dav_server::fs::FsError::NotFound);
                     }
+                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => todo!(),
+                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
                 },
             }
         })
