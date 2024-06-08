@@ -55,8 +55,10 @@ enum OpenDirectoryStatus {
 
 #[derive(Debug)]
 struct OpenDirectory {
+    // TODO: remove this unused field
     status: OpenDirectoryStatus,
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
+    // TODO: remove this unused field
     cached_entries: Vec<DirectoryEntry>,
     names: BTreeMap<String, NamedEntry>,
 }
@@ -423,6 +425,31 @@ impl TreeEditor {
             }
         }
     }
+
+    pub fn create_directory<'a>(&self, path: NormalizedPath) -> Future<'a, ()> {
+        match path.split_right() {
+            PathSplitRightResult::Root => todo!(),
+            PathSplitRightResult::Entry(directory_path, file_name) => {
+                let root = self.root.clone();
+                Box::pin(async move {
+                    let mut root_lock = root.lock().await;
+                    match TreeEditor::open_directory(&mut root_lock, directory_path) {
+                        Ok(directory) => match directory.names.get(&file_name) {
+                            Some(_found) => todo!(),
+                            None => {
+                                directory.names.insert(
+                                    file_name,
+                                    NamedEntry::NotOpen(DirectoryEntryKind::Directory),
+                                );
+                                Ok(())
+                            }
+                        },
+                        Err(error) => return Err(error),
+                    }
+                })
+            }
+        }
+    }
 }
 
 #[tokio::test]
@@ -513,4 +540,29 @@ async fn test_read_directory_on_open_regular_file() {
         )))
         .await;
     assert_eq!(Some(Error::CannotOpenRegularFileAsDirectory), result.err());
+}
+
+#[tokio::test]
+async fn test_create_directory() {
+    use futures::StreamExt;
+    let editor = TreeEditor::from_entries(vec![]);
+    editor
+        .create_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .await
+        .unwrap();
+
+    let mut reading = editor
+        .read_directory(NormalizedPath::new(relative_path::RelativePath::new("/")))
+        .await
+        .unwrap();
+    let entry: DirectoryEntry = reading.next().await.unwrap();
+    assert_eq!(
+        DirectoryEntry {
+            name: "test".to_string(),
+            kind: DirectoryEntryKind::Directory
+        },
+        entry
+    );
+    let end = reading.next().await;
+    assert!(end.is_none());
 }

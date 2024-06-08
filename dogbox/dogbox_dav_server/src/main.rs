@@ -291,9 +291,33 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
 
     fn create_dir<'a>(
         &'a self,
-        _path: &'a dav_server::davpath::DavPath,
+        path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<()> {
-        todo!()
+        info!("Create directory {}", path);
+        Box::pin(async move {
+            let converted_path = convert_path(&path)?;
+            match self
+                .editor
+                .create_directory(NormalizedPath::new(converted_path))
+                .await
+            {
+                Ok(success) => Ok(success),
+                Err(error) => match error {
+                    dogbox_tree_editor::Error::NotFound => {
+                        info!("File or directory not found: {}", converted_path);
+                        return Err(dav_server::fs::FsError::NotFound);
+                    }
+                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => {
+                        info!(
+                            "Cannot read regular file as a directory: {}",
+                            converted_path
+                        );
+                        return Err(dav_server::fs::FsError::NotImplemented);
+                    }
+                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
+                },
+            }
+        })
     }
 
     fn remove_dir<'a>(
