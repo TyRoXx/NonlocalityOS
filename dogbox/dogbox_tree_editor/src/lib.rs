@@ -1,5 +1,6 @@
 use async_stream::stream;
 use bytes::Buf;
+use relative_path::RelativePath;
 use std::{
     collections::{BTreeMap, VecDeque},
     pin::Pin,
@@ -32,7 +33,7 @@ pub struct DirectoryEntry {
 #[derive(Clone, Debug)]
 pub enum NamedEntry {
     NotOpen(DirectoryEntryKind),
-    Open(Arc<OpenFile>),
+    OpenRegularFile(Arc<OpenFile>),
     OpenSubdirectory(Arc<OpenDirectory>),
 }
 
@@ -40,7 +41,7 @@ impl NamedEntry {
     async fn get_meta_data(&self) -> DirectoryEntryKind {
         match self {
             NamedEntry::NotOpen(kind) => kind.clone(),
-            NamedEntry::Open(open_file) => open_file.get_meta_data().await,
+            NamedEntry::OpenRegularFile(open_file) => open_file.get_meta_data().await,
             NamedEntry::OpenSubdirectory(_) => DirectoryEntryKind::Directory,
         }
     }
@@ -90,19 +91,23 @@ impl OpenDirectory {
                         // TODO: read file contents. For now we assume that the example file is empty at the start.
                         assert_eq!(0, *length);
                         let open_file = Arc::new(OpenFile::new(vec![]));
-                        *found = NamedEntry::Open(open_file.clone());
+                        *found = NamedEntry::OpenRegularFile(open_file.clone());
                         Box::pin(std::future::ready(Ok(open_file)))
                     }
                 },
-                NamedEntry::Open(open_file) => Box::pin(std::future::ready(Ok(open_file.clone()))),
+                NamedEntry::OpenRegularFile(open_file) => {
+                    Box::pin(std::future::ready(Ok(open_file.clone())))
+                }
                 NamedEntry::OpenSubdirectory(_) => Box::pin(std::future::ready(Err(
                     Error::CannotOpenDirectoryAsRegularFile,
                 ))),
             },
             None => {
                 let open_file = Arc::new(OpenFile::new(vec![]));
-                self.names
-                    .insert(name.to_string(), NamedEntry::Open(open_file.clone()));
+                self.names.insert(
+                    name.to_string(),
+                    NamedEntry::OpenRegularFile(open_file.clone()),
+                );
                 self.cached_entries.push(DirectoryEntry {
                     name: name.to_string(),
                     kind: DirectoryEntryKind::File(0),
@@ -360,7 +365,7 @@ impl TreeEditor {
                         DirectoryEntryKind::Directory => todo!(),
                         DirectoryEntryKind::File(_) => Err(Error::CannotOpenRegularFileAsDirectory),
                     },
-                    NamedEntry::Open(_) => todo!(),
+                    NamedEntry::OpenRegularFile(_) => Err(Error::CannotOpenRegularFileAsDirectory),
                     NamedEntry::OpenSubdirectory(_) => todo!(),
                 },
                 None => Err(Error::NotFound),
@@ -479,11 +484,29 @@ async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
 }
 
 #[tokio::test]
-async fn test_open_directory_on_regular_file() {
+async fn test_read_directory_on_closed_regular_file() {
     let editor = TreeEditor::from_entries(vec![DirectoryEntry {
         name: "test.txt".to_string(),
         kind: DirectoryEntryKind::File(0),
     }]);
+    let result = editor
+        .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
+            "/test.txt",
+        )))
+        .await;
+    assert_eq!(Some(Error::CannotOpenRegularFileAsDirectory), result.err());
+}
+
+#[tokio::test]
+async fn test_read_directory_on_open_regular_file() {
+    let editor = TreeEditor::from_entries(vec![DirectoryEntry {
+        name: "test.txt".to_string(),
+        kind: DirectoryEntryKind::File(0),
+    }]);
+    let _open_file = editor
+        .open_file(NormalizedPath::new(RelativePath::new("/test.txt")))
+        .await
+        .unwrap();
     let result = editor
         .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
             "/test.txt",
