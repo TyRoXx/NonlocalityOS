@@ -17,7 +17,7 @@ wasmtime-wasi-threads = "20.0.0"
 anyhow = { version = "1.0", default-features = false }
 management_interface = { path ="../management_interface" }
 essrpc = {version = "0.4.1", features = ["bincode_transport", "async_client"]}
-tokio = {version = "1.37.0", features = ["rt-multi-thread", "macros", "process", "net", "fs"]}
+tokio = {version = "1.38.0", features = ["rt-multi-thread", "macros", "process", "net", "fs"]}
 tokio-util = {version = "0.7.11", features = ["io-util", "io"]}
 postcard = {version = "1.0", features = []}
 serde = {version = "1.0", features = []}
