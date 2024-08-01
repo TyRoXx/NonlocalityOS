@@ -6,6 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-essrpc = {version = "0.4.1", features = ["bincode_transport", "async_client"]}
+essrpc = {version = "0", features = ["bincode_transport", "async_client"]}
 management_interface = { path ="../management_interface" }
-postcard = {version = "1.0", features = []}
+postcard = {version = "1", features = []}
