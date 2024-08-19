@@ -10,7 +10,7 @@ dogbox_blob_layer = { path ="../dogbox_blob_layer" }
 dogbox_tree_editor = { path ="../dogbox_tree_editor" }
 dav-server = "0.5"
 hyper = { version = "0.14", features = [ "http1", "http2", "server", "stream", "runtime" ] }
-tokio = { version = "1.3", features = ["full"] }
+tokio = { version = "1.39", features = ["full"] }
 async-stream = "0.3"
 bytes = "1.0"
 tracing = "0.1"
