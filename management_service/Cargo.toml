@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 relative-path = "1.9.3"
 wasmtime = "20.0.2"
-wasi-common = "20.0.0"
+wasi-common = "24.0.0"
 display_bytes = "0.2.1"
 wiggle = "24.0.0"
 promising-future = "0.2.4"

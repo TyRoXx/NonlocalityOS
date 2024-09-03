@@ -1761,7 +1761,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util 0.7.11",
- "wasi-common",
+ "wasi-common 24.0.0",
  "wasmtime 20.0.2",
  "wasmtime-wasi-threads",
  "wat",
@@ -3257,6 +3257,28 @@ checksum = "a50088539152d419200c1558482c23b7033b9c5e0c751e97d4338050669ff9f1"
 dependencies = [
  "anyhow",
  "bitflags 2.6.0",
+ "cap-rand",
+ "cap-std",
+ "io-extras",
+ "libc",
+ "log",
+ "once_cell",
+ "rustix",
+ "thiserror",
+ "tracing",
+ "wasmtime 20.0.2",
+ "wiggle 20.0.2",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "wasi-common"
+version = "24.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7336747832c6fe1086c81ef38b63dfeaeec48fc1b7c33a88fd16115cc940d178"
+dependencies = [
+ "anyhow",
+ "bitflags 2.6.0",
  "cap-fs-ext",
  "cap-rand",
  "cap-std",
@@ -3264,15 +3286,14 @@ dependencies = [
  "fs-set-times",
  "io-extras",
  "io-lifetimes",
- "libc",
  "log",
  "once_cell",
  "rustix",
  "system-interface",
  "thiserror",
  "tracing",
- "wasmtime 20.0.2",
- "wiggle 20.0.2",
+ "wasmtime 24.0.0",
+ "wiggle 24.0.0",
  "windows-sys 0.52.0",
 ]
 
@@ -3798,7 +3819,7 @@ dependencies = [
  "anyhow",
  "log",
  "rand",
- "wasi-common",
+ "wasi-common 20.0.2",
  "wasmtime 20.0.2",
 ]
 
