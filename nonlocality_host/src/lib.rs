@@ -126,22 +126,6 @@ pub async fn reduce_expression_without_storing_the_final_result(
     Ok(result)
 }
 
-pub async fn reduce_expression(
-    argument: TypedValue,
-    service_resolver: &dyn ResolveServiceId,
-    loader: &dyn LoadValue,
-    storage: &dyn StoreValue,
-) -> std::result::Result<Reference, ReductionError> {
-    let value = reduce_expression_without_storing_the_final_result(
-        argument,
-        service_resolver,
-        loader,
-        storage,
-    )
-    .await?;
-    Ok(storage.store_value(Arc::new(value.value)))
-}
-
 pub struct ReferencedValue {
     reference: TypedReference,
     value: Arc<Value>,
