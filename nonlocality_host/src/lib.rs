@@ -612,3 +612,196 @@ impl ReduceExpression for ActualConsole {
         })
     }
 }
+
+struct Lambda {
+    variable: TypedReference,
+    body: TypedReference,
+}
+
+impl Lambda {
+    fn new(variable: TypedReference, body: TypedReference) -> Self {
+        Self {
+            variable: variable,
+            body: body,
+        }
+    }
+}
+
+pub fn make_lambda(lambda: Lambda) -> TypedValue {
+    TypedValue::new(
+        TypeId(7),
+        Value {
+            serialized: Vec::new(),
+            references: vec![lambda.variable, lambda.body],
+        },
+    )
+}
+
+pub fn to_lambda(value: Value) -> Option<Lambda> {
+    if value.references.len() != 2 {
+        return None;
+    }
+    Some(Lambda::new(value.references[0], value.references[1]))
+}
+
+struct LambdaApplication {
+    function: TypedReference,
+    argument: TypedReference,
+}
+
+impl LambdaApplication {
+    fn new(function: TypedReference, argument: TypedReference) -> Self {
+        Self {
+            function: function,
+            argument: argument,
+        }
+    }
+}
+
+pub fn make_lambda_application(function: TypedReference, argument: TypedReference) -> TypedValue {
+    TypedValue::new(
+        TypeId(8),
+        Value {
+            serialized: Vec::new(),
+            references: vec![function, argument],
+        },
+    )
+}
+
+pub fn to_lambda_application(value: Value) -> Option<LambdaApplication> {
+    if value.references.len() != 2 {
+        return None;
+    }
+    Some(LambdaApplication::new(
+        value.references[0],
+        value.references[1],
+    ))
+}
+
+fn replace_variable_recursively(
+    body: &TypedReference,
+    variable: &Reference,
+    argument: &TypedReference,
+    loader: &dyn LoadValue,
+    storage: &dyn StoreValue,
+) -> Option<TypedValue> {
+    let body_loaded = loader.load_value(&body.reference).unwrap();
+    let mut references = Vec::new();
+    let mut has_replaced_something = false;
+    for child in &body_loaded.references {
+        if &child.reference == variable {
+            references.push(argument.clone());
+            has_replaced_something = true;
+        } else {
+            if let Some(replaced) =
+                replace_variable_recursively(child, variable, argument, loader, storage)
+            {
+                let stored = storage
+                    .store_value(Arc::new(replaced.value))
+                    .add_type(replaced.type_id);
+                references.push(stored);
+                has_replaced_something = true;
+            } else {
+                references.push(*child);
+            }
+        }
+    }
+    if !has_replaced_something {
+        return None;
+    }
+    Some(TypedValue::new(
+        body.type_id,
+        Value::new(body_loaded.serialized.clone(), references),
+    ))
+}
+
+pub struct LambdaApplicationService {}
+
+impl ReduceExpression for LambdaApplicationService {
+    fn reduce<'t>(
+        &'t self,
+        argument: TypedValue,
+        _service_resolver: &'t dyn ResolveServiceId,
+        loader: &'t dyn LoadValue,
+        storage: &'t dyn StoreValue,
+    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+        let lambda_application = to_lambda_application(argument.value).unwrap();
+        let argument = &lambda_application.argument;
+        let function = to_lambda(
+            (*loader
+                .load_value(&lambda_application.function.reference)
+                .unwrap())
+            .clone(),
+        )
+        .unwrap();
+        let variable = &function.variable;
+        Box::pin(std::future::ready(
+            match replace_variable_recursively(
+                &function.body,
+                &variable.reference,
+                argument,
+                loader,
+                storage,
+            ) {
+                Some(replaced) => replaced,
+                None => TypedValue::new(
+                    function.body.type_id,
+                    (*loader.load_value(&function.body.reference).unwrap()).clone(),
+                ),
+            },
+        ))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_lambda() {
+    let lambda_application_service: Arc<dyn ReduceExpression> =
+        Arc::new(LambdaApplicationService {});
+    let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
+    let sum_service: Arc<dyn ReduceExpression> = Arc::new(SumService {});
+    let services = ServiceRegistry {
+        services: BTreeMap::from([
+            (TypeId(5), identity.clone()),
+            (TypeId(6), sum_service),
+            (TypeId(7), identity),
+            (TypeId(8), lambda_application_service),
+        ]),
+    };
+    let value_storage = InMemoryValueStorage {
+        reference_to_value: Mutex::new(BTreeMap::new()),
+    };
+    let arg = value_storage
+        .store_value(Arc::new(Value::from_string("arg")))
+        .add_type(TypeId(0));
+    let one = value_storage
+        .store_value(Arc::new(make_seconds(1).value))
+        .add_type(TypeId(5));
+    let sum = value_storage
+        .store_value(Arc::new(make_sum(vec![one, arg]).value))
+        .add_type(TypeId(6));
+    let plus_one = value_storage
+        .store_value(Arc::new(make_lambda(Lambda::new(arg, sum)).value))
+        .add_type(TypeId(7));
+    let two = value_storage
+        .store_value(Arc::new(make_seconds(2).value))
+        .add_type(TypeId(5));
+    let call = value_storage
+        .store_value(Arc::new(make_lambda_application(plus_one, two).value))
+        .add_type(TypeId(8));
+    // When we apply a function to an argument we receive the body with the variable replaced.
+    let reduced_once =
+        reduce_expression_from_reference(&call, &services, &value_storage, &value_storage)
+            .await
+            .unwrap();
+    // A second reduction then constant-folds the body away:
+    let reduced_twice = reduce_expression_from_reference(
+        &reduced_once.reference,
+        &services,
+        &value_storage,
+        &value_storage,
+    )
+    .await
+    .unwrap();
+    assert_ne!(reduced_once.reference, reduced_twice.reference);
+    assert_eq!(make_seconds(3).value, *reduced_twice.value);
+}
