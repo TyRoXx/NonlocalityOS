@@ -32,13 +32,24 @@ async fn main() -> std::io::Result<()> {
         (TypeId(5), identity),
     ]));
     let value_storage = InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
-    let past = value_storage.store_value(Arc::new(make_beginning_of_time()));
-    let message_1 = value_storage.store_value(Arc::new(Value::from_string("hello, ")));
-    let text_in_console_1 =
-        value_storage.store_value(Arc::new(make_text_in_console(past, message_1)));
-    let duration = value_storage.store_value(Arc::new(make_seconds(3)));
-    let delay = value_storage.store_value(Arc::new(make_delay(text_in_console_1, duration)));
-    let message_2 = value_storage.store_value(Arc::new(Value::from_string("world!\n")));
+    let past = value_storage
+        .store_value(Arc::new(make_beginning_of_time()))
+        .add_type(TypeId(3));
+    let message_1 = value_storage
+        .store_value(Arc::new(Value::from_string("hello, ")))
+        .add_type(TypeId(0));
+    let text_in_console_1 = value_storage
+        .store_value(Arc::new(make_text_in_console(past, message_1).value))
+        .add_type(TypeId(2));
+    let duration = value_storage
+        .store_value(Arc::new(make_seconds(3).value))
+        .add_type(TypeId(5));
+    let delay = value_storage
+        .store_value(Arc::new(make_delay(text_in_console_1, duration).value))
+        .add_type(TypeId(4));
+    let message_2 = value_storage
+        .store_value(Arc::new(Value::from_string("world!\n")))
+        .add_type(TypeId(0));
     let text_in_console_2 = make_text_in_console(delay, message_2);
     let _result = reduce_expression_without_storing_the_final_result(
         text_in_console_2,

@@ -9,26 +9,51 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Copy)]
 pub struct TypeId(pub u64);
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Copy)]
 pub struct Reference {
-    type_id: TypeId,
     digest: BlobDigest,
+}
+
+impl Reference {
+    pub fn add_type(&self, type_id: TypeId) -> TypedReference {
+        TypedReference::new(type_id, *self)
+    }
+}
+
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Copy)]
+pub struct TypedReference {
+    type_id: TypeId,
+    reference: Reference,
+}
+
+impl TypedReference {
+    fn new(type_id: TypeId, reference: Reference) -> TypedReference {
+        TypedReference {
+            type_id: type_id,
+            reference: reference,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Value {
-    type_id: TypeId,
     serialized: Vec<u8>,
-    references: Vec<Reference>,
+    references: Vec<TypedReference>,
 }
 
 impl Value {
+    pub fn new(serialized: Vec<u8>, references: Vec<TypedReference>) -> Value {
+        Value {
+            serialized: serialized,
+            references: references,
+        }
+    }
+
     pub fn from_string(value: &str) -> Value {
         Value {
-            type_id: TypeId(0),
             serialized: value.as_bytes().to_vec(),
             references: Vec::new(),
         }
@@ -36,16 +61,12 @@ impl Value {
 
     pub fn from_unit() -> Value {
         Value {
-            type_id: TypeId(1),
             serialized: Vec::new(),
             references: Vec::new(),
         }
     }
 
     pub fn to_string(&self) -> Option<String> {
-        if self.type_id != TypeId(0) {
-            return None;
-        }
         match std::str::from_utf8(&self.serialized) {
             Ok(success) => Some(success.to_string()),
             Err(_) => None,
@@ -53,14 +74,29 @@ impl Value {
     }
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub struct TypedValue {
+    pub type_id: TypeId,
+    pub value: Value,
+}
+
+impl TypedValue {
+    pub fn new(type_id: TypeId, value: Value) -> TypedValue {
+        TypedValue {
+            type_id: type_id,
+            value: value,
+        }
+    }
+}
+
 pub trait ReduceExpression: Sync + Send {
     fn reduce<'t>(
         &'t self,
-        argument: Value,
+        argument: TypedValue,
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>>;
+    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>>;
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -75,11 +111,11 @@ pub trait ResolveServiceId {
 }
 
 pub async fn reduce_expression_without_storing_the_final_result(
-    argument: Value,
+    argument: TypedValue,
     service_resolver: &dyn ResolveServiceId,
     loader: &dyn LoadValue,
     storage: &dyn StoreValue,
-) -> std::result::Result<Value, ReductionError> {
+) -> std::result::Result<TypedValue, ReductionError> {
     let service = match service_resolver.resolve(&argument.type_id) {
         Some(service) => service,
         None => return Err(ReductionError::NoServiceForType(argument.type_id)),
@@ -91,7 +127,7 @@ pub async fn reduce_expression_without_storing_the_final_result(
 }
 
 pub async fn reduce_expression(
-    argument: Value,
+    argument: TypedValue,
     service_resolver: &dyn ResolveServiceId,
     loader: &dyn LoadValue,
     storage: &dyn StoreValue,
@@ -103,40 +139,45 @@ pub async fn reduce_expression(
         storage,
     )
     .await?;
-    Ok(storage.store_value(Arc::new(value)))
+    Ok(storage.store_value(Arc::new(value.value)))
 }
 
 pub struct ReferencedValue {
-    reference: Reference,
+    reference: TypedReference,
     value: Arc<Value>,
 }
 
 impl ReferencedValue {
-    fn new(reference: Reference, value: Arc<Value>) -> ReferencedValue {
+    fn new(reference: TypedReference, value: Arc<Value>) -> ReferencedValue {
         ReferencedValue { reference, value }
     }
 }
 
 pub async fn reduce_expression_from_reference(
-    argument: &Reference,
+    argument: &TypedReference,
     service_resolver: &dyn ResolveServiceId,
     loader: &dyn LoadValue,
     storage: &dyn StoreValue,
 ) -> std::result::Result<ReferencedValue, ReductionError> {
-    let argument_value = match loader.load_value(argument) {
+    let argument_value = match loader.load_value(&argument.reference) {
         Some(loaded) => loaded,
-        None => return Err(ReductionError::UnknownReference(argument.clone())),
+        None => return Err(ReductionError::UnknownReference(argument.reference)),
     };
     let value = reduce_expression_without_storing_the_final_result(
-        /*TODO: avoid this clone*/ (*argument_value).clone(),
+        TypedValue::new(
+            argument.type_id,
+            /*TODO: avoid this clone*/ (*argument_value).clone(),
+        ),
         service_resolver,
         loader,
         storage,
     )
     .await?;
-    let arc_value = Arc::new(value);
+    let arc_value = Arc::new(value.value);
     Ok(ReferencedValue::new(
-        storage.store_value(arc_value.clone()),
+        storage
+            .store_value(arc_value.clone())
+            .add_type(value.type_id),
         arc_value,
     ))
 }
@@ -164,21 +205,21 @@ pub struct TestConsole {
 impl ReduceExpression for TestConsole {
     fn reduce<'t>(
         &'t self,
-        argument: Value,
+        argument: TypedValue,
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
         Box::pin(async move {
-            assert_eq!(2, argument.references.len());
+            assert_eq!(2, argument.value.references.len());
             let past_ref = reduce_expression_from_reference(
-                &argument.references[0],
+                &argument.value.references[0],
                 service_resolver,
                 loader,
                 storage,
             );
             let message_ref = reduce_expression_from_reference(
-                &argument.references[1],
+                &argument.value.references[1],
                 service_resolver,
                 loader,
                 storage,
@@ -197,23 +238,22 @@ pub struct Identity {}
 impl ReduceExpression for Identity {
     fn reduce(
         &self,
-        argument: Value,
-        service_resolver: &dyn ResolveServiceId,
+        argument: TypedValue,
+        _service_resolver: &dyn ResolveServiceId,
         _loader: &dyn LoadValue,
-        storage: &dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = Value>>> {
+        _storage: &dyn StoreValue,
+    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue>>> {
         Box::pin(std::future::ready(argument))
     }
 }
 
 pub fn calculate_reference(referenced: &Value) -> Reference {
     let mut hasher = Sha3_512::new();
-    hasher.update(referenced.type_id.0.to_be_bytes());
     hasher.update(&referenced.serialized);
     for item in &referenced.references {
         hasher.update(item.type_id.0.to_be_bytes());
-        hasher.update(item.digest.0 .0);
-        hasher.update(item.digest.0 .1);
+        hasher.update(item.reference.digest.0 .0);
+        hasher.update(item.reference.digest.0 .1);
     }
     let result = hasher.finalize();
     let slice: &[u8] = result.as_slice();
@@ -221,7 +261,6 @@ pub fn calculate_reference(referenced: &Value) -> Reference {
     let chunk = chunks.next().unwrap();
     assert!(chunks.remainder().is_empty());
     Reference {
-        type_id: referenced.type_id.clone(),
         digest: BlobDigest::new(chunk),
     }
 }
@@ -272,38 +311,45 @@ async fn test_reduce_expression() {
         reference_to_value: Mutex::new(BTreeMap::new()),
     };
     let result = reduce_expression_without_storing_the_final_result(
-        Value::from_string("hello, world!\n"),
+        TypedValue::new(TypeId(0), Value::from_string("hello, world!\n")),
         &services,
         &value_storage,
         &value_storage,
     )
     .await
     .unwrap();
-    assert_eq!(Some("hello, world!\n".to_string()), result.to_string());
+    assert_eq!(TypeId(0), result.type_id);
+    assert_eq!(
+        Some("hello, world!\n".to_string()),
+        result.value.to_string()
+    );
 }
 
-pub fn make_text_in_console(past: Reference, text: Reference) -> Value {
-    Value {
-        type_id: TypeId(2),
-        serialized: Vec::new(),
-        references: vec![past, text],
-    }
+pub fn make_text_in_console(past: TypedReference, text: TypedReference) -> TypedValue {
+    TypedValue::new(
+        TypeId(2),
+        Value {
+            serialized: Vec::new(),
+            references: vec![past, text],
+        },
+    )
 }
 
 pub fn make_beginning_of_time() -> Value {
     Value {
-        type_id: TypeId(3),
         serialized: Vec::new(),
         references: vec![],
     }
 }
 
-pub fn make_effect(cause: Reference) -> Value {
-    Value {
-        type_id: TypeId(3),
-        serialized: Vec::new(),
-        references: vec![cause],
-    }
+pub fn make_effect(cause: TypedReference) -> TypedValue {
+    TypedValue::new(
+        TypeId(3),
+        Value {
+            serialized: Vec::new(),
+            references: vec![cause],
+        },
+    )
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -323,9 +369,13 @@ async fn test_effect() {
     let value_storage = InMemoryValueStorage {
         reference_to_value: Mutex::new(BTreeMap::new()),
     };
-    let past = value_storage.store_value(Arc::new(make_beginning_of_time()));
-    let message = value_storage.store_value(Arc::new(Value::from_string("hello, world!\n")));
-    let text_in_console = make_text_in_console(past.clone(), message);
+    let past = value_storage
+        .store_value(Arc::new(make_beginning_of_time()))
+        .add_type(TypeId(3));
+    let message = value_storage
+        .store_value(Arc::new(Value::from_string("hello, world!\n")))
+        .add_type(TypeId(0));
+    let text_in_console = make_text_in_console(past, message);
     let result = reduce_expression_without_storing_the_final_result(
         text_in_console,
         &services,
@@ -338,18 +388,17 @@ async fn test_effect() {
     assert_eq!(Some("hello, world!\n".to_string()), receiver.recv().await);
 }
 
-pub fn make_seconds(amount: u64) -> Value {
-    Value {
-        type_id: TypeId(5),
-        serialized: amount.to_be_bytes().to_vec(),
-        references: Vec::new(),
-    }
+pub fn make_seconds(amount: u64) -> TypedValue {
+    TypedValue::new(
+        TypeId(5),
+        Value {
+            serialized: amount.to_be_bytes().to_vec(),
+            references: Vec::new(),
+        },
+    )
 }
 
 pub fn to_seconds(value: &Value) -> Option<u64> {
-    if value.type_id != TypeId(5) {
-        return None;
-    }
     let mut buf: [u8; 8] = [0; 8];
     if buf.len() != value.serialized.len() {
         return None;
@@ -358,18 +407,17 @@ pub fn to_seconds(value: &Value) -> Option<u64> {
     Some(u64::from_be_bytes(buf))
 }
 
-pub fn make_sum(summands: Vec<Reference>) -> Value {
-    Value {
-        type_id: TypeId(6),
-        serialized: Vec::new(),
-        references: summands,
-    }
+pub fn make_sum(summands: Vec<TypedReference>) -> TypedValue {
+    TypedValue::new(
+        TypeId(6),
+        Value {
+            serialized: Vec::new(),
+            references: summands,
+        },
+    )
 }
 
-pub fn to_sum(value: Value) -> Option<Vec<Reference>> {
-    if value.type_id != TypeId(6) {
-        return None;
-    }
+pub fn to_sum(value: Value) -> Option<Vec<TypedReference>> {
     Some(value.references)
 }
 
@@ -378,12 +426,12 @@ pub struct SumService {}
 impl ReduceExpression for SumService {
     fn reduce<'t>(
         &'t self,
-        argument: Value,
+        argument: TypedValue,
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
-        let summands_expressions = to_sum(argument).unwrap();
+    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+        let summands_expressions = to_sum(argument.value).unwrap();
         Box::pin(async move {
             let summands_futures: Vec<_> = summands_expressions
                 .iter()
@@ -411,13 +459,19 @@ async fn test_sum() {
     let value_storage = InMemoryValueStorage {
         reference_to_value: Mutex::new(BTreeMap::new()),
     };
-    let a = value_storage.store_value(Arc::new(make_seconds(1)));
-    let b = value_storage.store_value(Arc::new(make_seconds(2)));
-    let sum = value_storage.store_value(Arc::new(make_sum(vec![a, b])));
+    let a = value_storage
+        .store_value(Arc::new(make_seconds(1).value))
+        .add_type(TypeId(5));
+    let b = value_storage
+        .store_value(Arc::new(make_seconds(2).value))
+        .add_type(TypeId(5));
+    let sum = value_storage
+        .store_value(Arc::new(make_sum(vec![a, b]).value))
+        .add_type(TypeId(6));
     let result = reduce_expression_from_reference(&sum, &services, &value_storage, &value_storage)
         .await
         .unwrap();
-    assert_eq!(make_seconds(3), *result.value);
+    assert_eq!(make_seconds(3).value, *result.value);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -430,9 +484,15 @@ async fn test_nested_sum() {
     let value_storage = InMemoryValueStorage {
         reference_to_value: Mutex::new(BTreeMap::new()),
     };
-    let a = value_storage.store_value(Arc::new(make_seconds(1)));
-    let b = value_storage.store_value(Arc::new(make_seconds(2)));
-    let c = value_storage.store_value(Arc::new(make_sum(vec![a.clone(), b])));
+    let a = value_storage
+        .store_value(Arc::new(make_seconds(1).value))
+        .add_type(TypeId(5));
+    let b = value_storage
+        .store_value(Arc::new(make_seconds(2).value))
+        .add_type(TypeId(5));
+    let c = value_storage
+        .store_value(Arc::new(make_sum(vec![a.clone(), b]).value))
+        .add_type(TypeId(6));
     let sum = make_sum(vec![a.clone(), a, c]);
     let result = reduce_expression_without_storing_the_final_result(
         sum,
@@ -445,12 +505,14 @@ async fn test_nested_sum() {
     assert_eq!(make_seconds(5), result);
 }
 
-pub fn make_delay(before: Reference, duration: Reference) -> Value {
-    Value {
-        type_id: TypeId(4),
-        serialized: Vec::new(),
-        references: vec![before, duration],
-    }
+pub fn make_delay(before: TypedReference, duration: TypedReference) -> TypedValue {
+    TypedValue::new(
+        TypeId(4),
+        Value {
+            serialized: Vec::new(),
+            references: vec![before, duration],
+        },
+    )
 }
 
 pub struct DelayService {}
@@ -458,12 +520,12 @@ pub struct DelayService {}
 impl ReduceExpression for DelayService {
     fn reduce<'t>(
         &'t self,
-        mut argument: Value,
+        mut argument: TypedValue,
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
-        let mut arguments = argument.references.drain(0..2);
+    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+        let mut arguments = argument.value.references.drain(0..2);
         let before_ref = arguments.next().unwrap();
         let duration_ref = arguments.next().unwrap();
         assert!(arguments.next().is_none());
@@ -501,11 +563,18 @@ async fn test_delay() {
     let value_storage = InMemoryValueStorage {
         reference_to_value: Mutex::new(BTreeMap::new()),
     };
-    let past = value_storage.store_value(Arc::new(make_beginning_of_time()));
-    let duration =
-        value_storage.store_value(Arc::new(make_seconds(/*can't waste time here*/ 0)));
-    let delay = value_storage.store_value(Arc::new(make_delay(past.clone(), duration)));
-    let message = value_storage.store_value(Arc::new(Value::from_string("hello, world!\n")));
+    let past = value_storage
+        .store_value(Arc::new(make_beginning_of_time()))
+        .add_type(TypeId(3));
+    let duration = value_storage
+        .store_value(Arc::new(make_seconds(/*can't waste time here*/ 0).value))
+        .add_type(TypeId(5));
+    let delay = value_storage
+        .store_value(Arc::new(make_delay(past.clone(), duration).value))
+        .add_type(TypeId(4));
+    let message = value_storage
+        .store_value(Arc::new(Value::from_string("hello, world!\n")))
+        .add_type(TypeId(0));
     let text_in_console = make_text_in_console(delay, message);
     let result = reduce_expression_without_storing_the_final_result(
         text_in_console,
@@ -516,7 +585,11 @@ async fn test_delay() {
     .await
     .unwrap();
     assert_eq!(
-        make_effect(value_storage.store_value(Arc::new(make_effect(past)))),
+        make_effect(
+            value_storage
+                .store_value(Arc::new(make_effect(past).value))
+                .add_type(TypeId(3))
+        ),
         result
     );
     assert_eq!(Some("hello, world!\n".to_string()), receiver.recv().await);
@@ -527,21 +600,21 @@ pub struct ActualConsole {}
 impl ReduceExpression for ActualConsole {
     fn reduce<'t>(
         &'t self,
-        argument: Value,
+        argument: TypedValue,
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
         Box::pin(async move {
-            assert_eq!(2, argument.references.len());
+            assert_eq!(2, argument.value.references.len());
             let past_ref = reduce_expression_from_reference(
-                &argument.references[0],
+                &argument.value.references[0],
                 service_resolver,
                 loader,
                 storage,
             );
             let message_ref = reduce_expression_from_reference(
-                &argument.references[1],
+                &argument.value.references[1],
                 service_resolver,
                 loader,
                 storage,
