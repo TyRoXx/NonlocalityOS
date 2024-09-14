@@ -1999,6 +1999,8 @@ dependencies = [
  "futures",
  "futures-core",
  "futures-util",
+ "postcard",
+ "serde",
  "sha3",
  "tokio",
  "tokio-stream",

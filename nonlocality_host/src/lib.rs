@@ -1,6 +1,7 @@
 #![feature(array_chunks)]
 use dogbox_blob_layer::BlobDigest;
 use futures::future::join;
+use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_512};
 use std::{
     collections::BTreeMap,
@@ -9,10 +10,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Copy)]
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
 pub struct TypeId(pub u64);
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Copy)]
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
 pub struct Reference {
     digest: BlobDigest,
 }
@@ -23,7 +24,7 @@ impl Reference {
     }
 }
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Copy)]
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
 pub struct TypedReference {
     type_id: TypeId,
     reference: Reference,
@@ -804,4 +805,117 @@ async fn test_lambda() {
     .unwrap();
     assert_ne!(reduced_once.reference, reduced_twice.reference);
     assert_eq!(make_seconds(3).value, *reduced_twice.value);
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+struct CompilerError {
+    pub message: String,
+    pub line: u64,
+    pub column: u64,
+}
+
+impl CompilerError {
+    fn new(message: String, line: u64, column: u64) -> Self {
+        Self {
+            message,
+            line,
+            column,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+struct CompilerOutput {
+    pub entry_point: TypedReference,
+    pub errors: Vec<CompilerError>,
+}
+
+impl CompilerOutput {
+    pub fn new(entry_point: TypedReference, errors: Vec<CompilerError>) -> CompilerOutput {
+        CompilerOutput {
+            entry_point: entry_point,
+            errors: errors,
+        }
+    }
+
+    pub fn from_value(input: Value) -> Option<CompilerOutput> {
+        if input.references.len() != 1 {
+            return None;
+        }
+        let errors: Vec<CompilerError> = match postcard::from_bytes(&input.serialized[..]) {
+            Ok(parsed) => parsed,
+            Err(_) => return None,
+        };
+        Some(CompilerOutput::new(input.references[0], errors))
+    }
+
+    pub fn to_value(self) -> Value {
+        let serialized = postcard::to_allocvec(&self.errors).unwrap();
+        Value::new(serialized, vec![self.entry_point])
+    }
+}
+
+struct Compiled {
+    pub source: TypedReference,
+}
+
+impl Compiled {
+    pub fn new(source: TypedReference) -> Compiled {
+        Compiled { source: source }
+    }
+
+    pub fn from_value(input: Value) -> Option<Compiled> {
+        if input.references.len() != 1 {
+            return None;
+        }
+        Some(Compiled::new(input.references[0]))
+    }
+
+    pub fn to_value(self) -> Value {
+        Value::new(Vec::new(), vec![self.source])
+    }
+}
+
+fn compile(source: &str, loader: &dyn LoadValue, storage: &dyn StoreValue) -> CompilerOutput {
+    let errors = Vec::new();
+    let entry_point = storage
+        .store_value(Arc::new(Value::from_unit()))
+        .add_type(TypeId(1));
+    CompilerOutput::new(entry_point, errors)
+}
+
+#[test]
+fn test_compile() {
+    let value_storage = InMemoryValueStorage {
+        reference_to_value: Mutex::new(BTreeMap::new()),
+    };
+    let output = compile("", &value_storage, &value_storage);
+    let expected = CompilerOutput::new(
+        value_storage
+            .store_value(Arc::new(Value::from_unit()))
+            .add_type(TypeId(1)),
+        Vec::new(),
+    );
+    assert_eq!(expected, output);
+}
+
+pub struct CompiledReducer {}
+
+impl ReduceExpression for CompiledReducer {
+    fn reduce<'t>(
+        &'t self,
+        argument: TypedValue,
+        service_resolver: &'t dyn ResolveServiceId,
+        loader: &'t dyn LoadValue,
+        storage: &'t dyn StoreValue,
+    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+        let source_ref = argument.value.references[0];
+        let source_value = loader.load_value(&source_ref.reference).unwrap();
+        let source_string = source_value.to_string().unwrap();
+        let compiler_output: CompilerOutput = compile(&source_string, loader, storage);
+        Box::pin(std::future::ready(TypedValue::new(
+            TypeId(10),
+            compiler_output.to_value(),
+        )))
+    }
 }
