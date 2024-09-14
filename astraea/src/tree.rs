@@ -1,4 +1,3 @@
-#![feature(array_chunks)]
 use dogbox_blob_layer::BlobDigest;
 use futures::future::join;
 use serde::{Deserialize, Serialize};
@@ -265,6 +264,10 @@ pub struct InMemoryValueStorage {
 impl InMemoryValueStorage {
     pub fn new(reference_to_value: Mutex<BTreeMap<Reference, Arc<Value>>>) -> InMemoryValueStorage {
         InMemoryValueStorage { reference_to_value }
+    }
+
+    pub fn len(&self) -> usize {
+        self.reference_to_value.lock().unwrap().len()
     }
 }
 
@@ -808,7 +811,7 @@ async fn test_lambda() {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-struct CompilerError {
+pub struct CompilerError {
     pub message: String,
     pub line: u64,
     pub column: u64,
@@ -825,7 +828,7 @@ impl CompilerError {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-struct CompilerOutput {
+pub struct CompilerOutput {
     pub entry_point: TypedReference,
     pub errors: Vec<CompilerError>,
 }
@@ -876,29 +879,6 @@ impl Compiled {
     }
 }
 
-fn compile(source: &str, loader: &dyn LoadValue, storage: &dyn StoreValue) -> CompilerOutput {
-    let errors = Vec::new();
-    let entry_point = storage
-        .store_value(Arc::new(Value::from_unit()))
-        .add_type(TypeId(1));
-    CompilerOutput::new(entry_point, errors)
-}
-
-#[test]
-fn test_compile() {
-    let value_storage = InMemoryValueStorage {
-        reference_to_value: Mutex::new(BTreeMap::new()),
-    };
-    let output = compile("", &value_storage, &value_storage);
-    let expected = CompilerOutput::new(
-        value_storage
-            .store_value(Arc::new(Value::from_unit()))
-            .add_type(TypeId(1)),
-        Vec::new(),
-    );
-    assert_eq!(expected, output);
-}
-
 pub struct CompiledReducer {}
 
 impl ReduceExpression for CompiledReducer {
@@ -912,7 +892,8 @@ impl ReduceExpression for CompiledReducer {
         let source_ref = argument.value.references[0];
         let source_value = loader.load_value(&source_ref.reference).unwrap();
         let source_string = source_value.to_string().unwrap();
-        let compiler_output: CompilerOutput = compile(&source_string, loader, storage);
+        let compiler_output: CompilerOutput =
+            crate::compiler::compile(&source_string, loader, storage);
         Box::pin(std::future::ready(TypedValue::new(
             TypeId(10),
             compiler_output.to_value(),

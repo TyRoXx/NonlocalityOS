@@ -1,0 +1,19 @@
+[package]
+name = "astraea"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+dogbox_blob_layer = { path ="../dogbox/dogbox_blob_layer" }
+hippeus_parser_generator = { path ="../hippeus_parser_generator" }
+tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "sync"]}
+tokio-stream = "0"
+async-stream = "0"
+futures = "0"
+futures-util = "0"
+futures-core = "0"
+sha3 = "0"
+serde = "1"
+postcard = {version = "1", features = ["alloc"]}

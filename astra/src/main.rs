@@ -250,6 +250,7 @@ async fn build(
             ),
             ("nonlocality_build_utils".to_string(), Program::other()),
             ("nonlocality_env".to_string(), Program::other()),
+            ("astraea".to_string(), Program::other()),
             (
                 "nonlocality_host".to_string(),
                 match maybe_raspberry_pi.clone() {
