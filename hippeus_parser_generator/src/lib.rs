@@ -1,8 +1,8 @@
 #![feature(map_try_insert)]
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, io::Read};
 
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
-pub struct RegisterId(u16);
+pub struct RegisterId(pub u16);
 
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
 pub enum RegisterValue {
@@ -35,6 +35,11 @@ pub enum Parser {
     Multiply {
         destination: RegisterId,
         factor: RegisterId,
+    },
+    IsAnyOf {
+        input: RegisterId,
+        result: RegisterId,
+        candidates: Vec<RegisterValue>,
     },
 }
 
@@ -221,6 +226,20 @@ impl<'t> Interpreter<'t> {
                     return Some(status);
                 }
             }
+            Parser::IsAnyOf {
+                input,
+                result,
+                candidates,
+            } => {
+                let register_read_result = self.registers.get(input);
+                match register_read_result {
+                    Some(value_to_search_for) => {
+                        let contains = candidates.contains(value_to_search_for);
+                        self.write_register(*result, &RegisterValue::Boolean(contains));
+                    }
+                    None => return Some(InterpreterStatus::ErrorInParser),
+                }
+            }
         }
         None
     }
@@ -264,12 +283,18 @@ pub trait ReadInput {
     fn read_input(&mut self) -> Option<u8>;
 }
 
+pub trait PeekInput {
+    fn peek_input(&self) -> Option<u8>;
+}
+
+pub trait ReadPeekInput: ReadInput + PeekInput {}
+
 pub struct Slice<'t> {
     remaining: &'t [u8],
 }
 
 impl<'t> Slice<'t> {
-    fn new(input: &'t str) -> Slice<'t> {
+    pub fn new(input: &'t str) -> Slice<'t> {
         Slice {
             remaining: input.as_bytes(),
         }
@@ -287,6 +312,17 @@ impl<'t> ReadInput for Slice<'t> {
         }
     }
 }
+
+impl<'t> PeekInput for Slice<'t> {
+    fn peek_input(&self) -> Option<u8> {
+        match self.remaining.split_at_checked(1) {
+            Some((head, _tail)) => Some(head[0]),
+            None => None,
+        }
+    }
+}
+
+impl<'t> ReadPeekInput for Slice<'t> {}
 
 struct Ignorance {}
 
@@ -349,20 +385,23 @@ pub enum ParseResult {
     ErrorInParser,
 }
 
-pub fn parse(parser: &Parser, input: &mut dyn ReadInput) -> ParseResult {
+pub fn parse(parser: &Parser, input: &mut dyn ReadPeekInput) -> ParseResult {
     let mut interpreter = Interpreter::new(parser);
     let mut output_buffer = OutputBuffer { output: Vec::new() };
     loop {
-        let next = input.read_input();
+        let next = input.peek_input();
         let status = interpreter.advance_with_input(next, &mut output_buffer);
         match status {
-            InterpreterStatus::WaitingForInput => {}
+            InterpreterStatus::WaitingForInput => {
+                assert_eq!(next, input.read_input());
+            }
             InterpreterStatus::Failed => return ParseResult::Failed,
             InterpreterStatus::Completed => {
+                assert_eq!(next, input.read_input());
                 return ParseResult::Success {
                     output: output_buffer.output,
                     has_extraneous_input: false,
-                }
+                };
             }
             InterpreterStatus::CompletedWithExtraneousInput => {
                 return ParseResult::Success {

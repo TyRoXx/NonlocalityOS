@@ -171,6 +171,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "hippeus_parser_generator",
+ "lazy_static",
  "postcard",
  "serde",
  "sha3",
