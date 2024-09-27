@@ -617,13 +617,13 @@ impl ReduceExpression for ActualConsole {
     }
 }
 
-struct Lambda {
+pub struct Lambda {
     variable: TypedReference,
     body: TypedReference,
 }
 
 impl Lambda {
-    fn new(variable: TypedReference, body: TypedReference) -> Self {
+    pub fn new(variable: TypedReference, body: TypedReference) -> Self {
         Self {
             variable: variable,
             body: body,
@@ -810,20 +810,27 @@ async fn test_lambda() {
     assert_eq!(make_seconds(3).value, *reduced_twice.value);
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-pub struct CompilerError {
-    pub message: String,
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub struct SourceLocation {
     pub line: u64,
     pub column: u64,
 }
 
+impl SourceLocation {
+    pub fn new(line: u64, column: u64) -> Self {
+        Self { line, column }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+pub struct CompilerError {
+    pub message: String,
+    pub location: SourceLocation,
+}
+
 impl CompilerError {
-    fn new(message: String, line: u64, column: u64) -> Self {
-        Self {
-            message,
-            line,
-            column,
-        }
+    pub fn new(message: String, location: SourceLocation) -> Self {
+        Self { message, location }
     }
 }
 

@@ -1,5 +1,8 @@
 #![feature(map_try_insert)]
-use std::{collections::BTreeMap, io::Read};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    io::Read,
+};
 
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
 pub struct RegisterId(pub u16);
@@ -13,6 +16,7 @@ pub enum RegisterValue {
 pub enum Parser {
     IsEndOfInput(RegisterId),
     ReadInputByte(RegisterId),
+    PeekInputByte(RegisterId),
     Condition(RegisterId, Box<Parser>),
     Fail,
     Sequence(Vec<Parser>),
@@ -20,10 +24,17 @@ pub enum Parser {
         from: RegisterId,
         to: RegisterId,
     },
+    Copy {
+        from: RegisterId,
+        to: RegisterId,
+    },
     Constant(RegisterId, RegisterValue),
     WriteOutputByte(RegisterId),
     WriteOutputSeparator,
-    Loop(RegisterId, Box<Parser>),
+    Loop {
+        condition: RegisterId,
+        body: Box<Parser>,
+    },
     RequireDigit {
         input: RegisterId,
         output: RegisterId,
@@ -41,8 +52,10 @@ pub enum Parser {
         result: RegisterId,
         candidates: Vec<RegisterValue>,
     },
+    Or(Vec<Parser>),
 }
 
+#[derive(PartialEq)]
 pub enum InterpreterStatus {
     WaitingForInput,
     Failed,
@@ -56,18 +69,42 @@ pub trait WriteOutput {
     fn write_separator(&mut self);
 }
 
+struct Frame<'t> {
+    parser: &'t [Parser],
+    index: usize,
+    is_recoverable: bool,
+}
+
+struct InputQueue {
+    characters: std::collections::VecDeque<u8>,
+    is_end_of_file: bool,
+}
+
+impl InputQueue {
+    fn new(characters: std::collections::VecDeque<u8>, is_end_of_file: bool) -> Self {
+        Self {
+            characters,
+            is_end_of_file,
+        }
+    }
+}
+
 struct Interpreter<'t> {
     registers: BTreeMap<RegisterId, RegisterValue>,
-    position: Vec<(&'t [Parser], usize)>,
-    buffered_input: Option<u8>,
+    position: Vec<Frame<'t>>,
+    buffered_input: InputQueue,
 }
 
 impl<'t> Interpreter<'t> {
     pub fn new(parser: &'t Parser) -> Interpreter<'t> {
         Interpreter {
             registers: BTreeMap::new(),
-            position: vec![(std::slice::from_ref(parser), 0)],
-            buffered_input: None,
+            position: vec![Frame {
+                parser: std::slice::from_ref(parser),
+                index: 0,
+                is_recoverable: false,
+            }],
+            buffered_input: InputQueue::new(VecDeque::new(), false),
         }
     }
 
@@ -76,33 +113,57 @@ impl<'t> Interpreter<'t> {
         input: Option<u8>,
         output: &mut dyn WriteOutput,
     ) -> InterpreterStatus {
-        self.buffered_input = input;
+        assert!(!self.buffered_input.is_end_of_file);
+        match input {
+            Some(character) => self.buffered_input.characters.push_back(character),
+            None => self.buffered_input.is_end_of_file = true,
+        }
         self.advance(output)
     }
 
     fn advance(&mut self, output: &mut dyn WriteOutput) -> InterpreterStatus {
+        let mut is_failing = false;
         loop {
             let position_in_innermost_sequence = match self.position.last_mut() {
                 Some(element) => element,
                 None => {
-                    return if self.buffered_input.is_some() {
+                    if is_failing {
+                        return InterpreterStatus::Failed;
+                    }
+                    return if !self.buffered_input.characters.is_empty() {
                         InterpreterStatus::CompletedWithExtraneousInput
                     } else {
                         InterpreterStatus::Completed
-                    }
+                    };
                 }
             };
-            assert!(position_in_innermost_sequence.1 <= position_in_innermost_sequence.0.len());
-            if position_in_innermost_sequence.1 == position_in_innermost_sequence.0.len() {
+            if is_failing {
+                if position_in_innermost_sequence.is_recoverable {
+                    is_failing = false;
+                } else {
+                    self.position
+                        .pop()
+                        .expect("As far as we know, the stack shouldn't be empty right now.");
+                    continue;
+                }
+            }
+            assert!(
+                position_in_innermost_sequence.index <= position_in_innermost_sequence.parser.len()
+            );
+            if position_in_innermost_sequence.index == position_in_innermost_sequence.parser.len() {
                 self.position
                     .pop()
                     .expect("As far as we know, the stack shouldn't be empty right now.");
                 continue;
             }
             let sequence_element =
-                &position_in_innermost_sequence.0[position_in_innermost_sequence.1];
-            position_in_innermost_sequence.1 += 1;
+                &position_in_innermost_sequence.parser[position_in_innermost_sequence.index];
+            position_in_innermost_sequence.index += 1;
             if let Some(status) = self.enter_parser(sequence_element, output) {
+                if status == InterpreterStatus::Failed {
+                    is_failing = true;
+                    continue;
+                }
                 return status;
             }
         }
@@ -116,12 +177,23 @@ impl<'t> Interpreter<'t> {
         match parser {
             Parser::IsEndOfInput(destination) => self.write_register(
                 *destination,
-                &RegisterValue::Boolean(self.buffered_input.is_none()),
+                &RegisterValue::Boolean(
+                    self.buffered_input.characters.is_empty() && self.buffered_input.is_end_of_file,
+                ),
             ),
-            Parser::ReadInputByte(destination) => match self.buffered_input {
+            Parser::ReadInputByte(destination) => {
+                match self.buffered_input.characters.pop_front() {
+                    Some(byte) => {
+                        self.write_register(*destination, &RegisterValue::Byte(byte));
+                        return Some(InterpreterStatus::WaitingForInput);
+                    }
+                    None => return Some(InterpreterStatus::Failed),
+                }
+            }
+            Parser::PeekInputByte(destination) => match self.buffered_input.characters.front() {
                 Some(byte) => {
-                    self.write_register(*destination, &RegisterValue::Byte(byte));
-                    return Some(InterpreterStatus::WaitingForInput);
+                    self.write_register(*destination, &RegisterValue::Byte(*byte));
+                    return None;
                 }
                 None => return Some(InterpreterStatus::Failed),
             },
@@ -130,7 +202,11 @@ impl<'t> Interpreter<'t> {
                 match register_read_result {
                     Some(register_value) => match register_value {
                         RegisterValue::Boolean(true) => {
-                            self.position.push((std::slice::from_ref(action), 0));
+                            self.position.push(Frame {
+                                parser: std::slice::from_ref(action),
+                                index: 0,
+                                is_recoverable: false,
+                            });
                         }
                         RegisterValue::Boolean(false) => {}
                         RegisterValue::Byte(_) => return Some(InterpreterStatus::ErrorInParser),
@@ -140,7 +216,11 @@ impl<'t> Interpreter<'t> {
             }
             Parser::Fail => return Some(InterpreterStatus::Failed),
             Parser::Sequence(inner_sequence) => {
-                self.position.push((&inner_sequence[..], 0));
+                self.position.push(Frame {
+                    parser: &inner_sequence[..],
+                    index: 0,
+                    is_recoverable: false,
+                });
             }
             Parser::Not { from, to } => {
                 let register_read_result = self.registers.get(from);
@@ -152,6 +232,15 @@ impl<'t> Interpreter<'t> {
                     None => return Some(InterpreterStatus::ErrorInParser),
                 };
                 self.write_register(*to, &RegisterValue::Boolean(result_of_not_operation));
+            }
+            Parser::Copy { from, to } => {
+                let register_read_result = self.registers.get(from);
+                match register_read_result {
+                    Some(register_value) => {
+                        self.write_register(*to, &register_value.clone());
+                    }
+                    None => return Some(InterpreterStatus::ErrorInParser),
+                }
             }
             Parser::Constant(destination, value) => {
                 self.write_register(*destination, value);
@@ -167,15 +256,19 @@ impl<'t> Interpreter<'t> {
                 }
             }
             Parser::WriteOutputSeparator => output.write_separator(),
-            Parser::Loop(condition, body) => {
+            Parser::Loop { condition, body } => {
                 let register_read_result = self.registers.get(condition);
                 match register_read_result {
                     Some(register_value) => match register_value {
                         RegisterValue::Boolean(true) => {
                             // this is the loop magic:
-                            self.position.last_mut().unwrap().1 -= 1;
+                            self.position.last_mut().unwrap().index -= 1;
 
-                            self.position.push((std::slice::from_ref(body), 0));
+                            self.position.push(Frame {
+                                parser: std::slice::from_ref(body),
+                                index: 0,
+                                is_recoverable: false,
+                            });
                         }
                         RegisterValue::Boolean(false) => {}
                         RegisterValue::Byte(_) => return Some(InterpreterStatus::ErrorInParser),
@@ -239,6 +332,13 @@ impl<'t> Interpreter<'t> {
                     }
                     None => return Some(InterpreterStatus::ErrorInParser),
                 }
+            }
+            Parser::Or(candidates) => {
+                self.position.push(Frame {
+                    parser: &candidates[..],
+                    index: 0,
+                    is_recoverable: true,
+                });
             }
         }
         None
@@ -332,15 +432,20 @@ impl WriteOutput for Ignorance {
     fn write_separator(&mut self) {}
 }
 
-pub fn is_match(parser: &Parser, input: &mut dyn ReadInput) -> Option<bool> {
+pub fn is_match(parser: &Parser, input: &mut dyn ReadPeekInput) -> Option<bool> {
     let mut interpreter = Interpreter::new(parser);
     loop {
-        let next = input.read_input();
+        let next = input.peek_input();
         let status = interpreter.advance_with_input(next, &mut Ignorance {});
         match status {
-            InterpreterStatus::WaitingForInput => {}
+            InterpreterStatus::WaitingForInput => {
+                assert_eq!(next, input.read_input());
+            }
             InterpreterStatus::Failed => return Some(false),
-            InterpreterStatus::Completed => return Some(true),
+            InterpreterStatus::Completed => {
+                assert_eq!(next, input.read_input());
+                return Some(true);
+            }
             InterpreterStatus::CompletedWithExtraneousInput => return Some(false),
             InterpreterStatus::ErrorInParser => return None,
         }
@@ -628,9 +733,9 @@ fn test_number_parsing() {
         Parser::Constant(accumulator, RegisterValue::Byte(0)),
         Parser::Constant(loop_condition, RegisterValue::Boolean(true)),
         Parser::Constant(constant_10, RegisterValue::Byte(10)),
-        Parser::Loop(
-            loop_condition,
-            Box::new(Parser::Sequence(vec![
+        Parser::Loop {
+            condition: loop_condition,
+            body: Box::new(Parser::Sequence(vec![
                 Parser::ReadInputByte(input_byte),
                 Parser::RequireDigit {
                     input: input_byte,
@@ -650,7 +755,7 @@ fn test_number_parsing() {
                     to: loop_condition,
                 },
             ])),
-        ),
+        },
         Parser::WriteOutputByte(accumulator),
     ]);
     let result = parse(&parser, &mut Slice::new("123"));
@@ -664,6 +769,170 @@ fn test_number_parsing() {
                 let element = &output[0];
                 let non_separator = element.as_ref().unwrap();
                 assert_eq!(&[123u8][..], &non_separator[..]);
+            }
+            assert!(!has_extraneous_input);
+        }
+        ParseResult::Failed => panic!(),
+        ParseResult::ErrorInParser => panic!(),
+    }
+}
+
+#[test]
+fn test_or_none() {
+    let parser = Parser::Or(vec![]);
+    let result = parse(&parser, &mut Slice::new(""));
+    match result {
+        ParseResult::Success {
+            output,
+            has_extraneous_input,
+        } => {
+            assert_eq!(0, output.len());
+            assert!(!has_extraneous_input);
+        }
+        ParseResult::Failed => panic!(),
+        ParseResult::ErrorInParser => panic!(),
+    }
+}
+
+#[test]
+fn test_or_one() {
+    let parser = Parser::Or(vec![Parser::Sequence(vec![
+        Parser::ReadInputByte(RegisterId(0)),
+        Parser::IsAnyOf {
+            input: RegisterId(0),
+            result: RegisterId(1),
+            candidates: vec![RegisterValue::Byte(b'A')],
+        },
+        Parser::Not {
+            from: RegisterId(1),
+            to: RegisterId(1),
+        },
+        Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+        Parser::Constant(RegisterId(2), RegisterValue::Byte(0)),
+        Parser::WriteOutputByte(RegisterId(2)),
+    ])]);
+    let result = parse(&parser, &mut Slice::new("A"));
+    match result {
+        ParseResult::Success {
+            output,
+            has_extraneous_input,
+        } => {
+            assert_eq!(1, output.len());
+            {
+                let element = &output[0];
+                let non_separator = element.as_ref().unwrap();
+                assert_eq!(&[0u8][..], &non_separator[..]);
+            }
+            assert!(!has_extraneous_input);
+        }
+        ParseResult::Failed => panic!(),
+        ParseResult::ErrorInParser => panic!(),
+    }
+}
+
+#[test]
+fn test_or_first() {
+    let parser = Parser::Or(vec![
+        Parser::Sequence(vec![
+            Parser::ReadInputByte(RegisterId(0)),
+            Parser::IsAnyOf {
+                input: RegisterId(0),
+                result: RegisterId(1),
+                candidates: vec![RegisterValue::Byte(b'A')],
+            },
+            Parser::Not {
+                from: RegisterId(1),
+                to: RegisterId(1),
+            },
+            Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+            Parser::Constant(RegisterId(2), RegisterValue::Byte(0)),
+            Parser::WriteOutputByte(RegisterId(2)),
+        ]),
+        Parser::Sequence(vec![
+            Parser::ReadInputByte(RegisterId(0)),
+            Parser::IsAnyOf {
+                input: RegisterId(0),
+                result: RegisterId(1),
+                candidates: vec![RegisterValue::Byte(b'B')],
+            },
+            Parser::Not {
+                from: RegisterId(1),
+                to: RegisterId(1),
+            },
+            Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+            Parser::Constant(RegisterId(2), RegisterValue::Byte(1)),
+            Parser::WriteOutputByte(RegisterId(2)),
+        ]),
+    ]);
+    let result = parse(&parser, &mut Slice::new("A"));
+    match result {
+        ParseResult::Success {
+            output,
+            has_extraneous_input,
+        } => {
+            assert_eq!(1, output.len());
+            {
+                let element = &output[0];
+                let non_separator = element.as_ref().unwrap();
+                assert_eq!(&[0u8][..], &non_separator[..]);
+            }
+            assert!(!has_extraneous_input);
+        }
+        ParseResult::Failed => panic!(),
+        ParseResult::ErrorInParser => panic!(),
+    }
+}
+
+#[test]
+fn test_or_second() {
+    let parser = Parser::Or(vec![
+        Parser::Sequence(vec![
+            Parser::ReadInputByte(RegisterId(0)),
+            Parser::IsAnyOf {
+                input: RegisterId(0),
+                result: RegisterId(1),
+                candidates: vec![RegisterValue::Byte(b'A')],
+            },
+            Parser::Not {
+                from: RegisterId(1),
+                to: RegisterId(1),
+            },
+            Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+            Parser::Constant(RegisterId(2), RegisterValue::Byte(0)),
+            Parser::WriteOutputByte(RegisterId(2)),
+        ]),
+        Parser::Sequence(vec![
+            Parser::ReadInputByte(RegisterId(0)),
+            Parser::IsAnyOf {
+                input: RegisterId(0),
+                result: RegisterId(1),
+                candidates: vec![RegisterValue::Byte(b'B')],
+            },
+            Parser::Not {
+                from: RegisterId(1),
+                to: RegisterId(1),
+            },
+            Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+            Parser::Constant(RegisterId(2), RegisterValue::Byte(1)),
+            Parser::WriteOutputByte(RegisterId(2)),
+        ]),
+    ]);
+    let result = parse(
+        &parser,
+        &mut Slice::new(
+            /*this is obviously wrong. TODO: support arbitrary lookahead*/ "BB",
+        ),
+    );
+    match result {
+        ParseResult::Success {
+            output,
+            has_extraneous_input,
+        } => {
+            assert_eq!(1, output.len());
+            {
+                let element = &output[0];
+                let non_separator = element.as_ref().unwrap();
+                assert_eq!(&[1u8][..], &non_separator[..]);
             }
             assert!(!has_extraneous_input);
         }
