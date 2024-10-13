@@ -45,12 +45,19 @@ impl std::convert::From<BlobDigest> for [u8; 64] {
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
 pub struct TypeId(pub u64);
 
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy, Serialize, Deserialize)]
+pub struct ReferenceIndex(pub u64);
+
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
 pub struct Reference {
-    digest: BlobDigest,
+    pub digest: BlobDigest,
 }
 
 impl Reference {
+    pub fn new(digest: BlobDigest) -> Self {
+        Self { digest }
+    }
+
     pub fn add_type(&self, type_id: TypeId) -> TypedReference {
         TypedReference::new(type_id, *self)
     }
@@ -63,7 +70,7 @@ pub struct TypedReference {
 }
 
 impl TypedReference {
-    fn new(type_id: TypeId, reference: Reference) -> TypedReference {
+    pub fn new(type_id: TypeId, reference: Reference) -> TypedReference {
         TypedReference {
             type_id: type_id,
             reference: reference,
@@ -290,6 +297,14 @@ pub trait LoadValue {
     fn load_value(&self, reference: &Reference) -> Option<Arc<Value>>;
 }
 
+pub trait LoadStoreValue: LoadValue + StoreValue {}
+
+impl std::fmt::Debug for dyn LoadStoreValue + Send + Sync {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LoadStoreValue")
+    }
+}
+
 pub struct InMemoryValueStorage {
     reference_to_value: Mutex<BTreeMap<Reference, Arc<Value>>>,
 }
@@ -321,6 +336,8 @@ impl LoadValue for InMemoryValueStorage {
         lock.get(reference).cloned()
     }
 }
+
+impl LoadStoreValue for InMemoryValueStorage {}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_reduce_expression() {

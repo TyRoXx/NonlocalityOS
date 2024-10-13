@@ -1,4 +1,4 @@
-use astraea::tree::BlobDigest;
+use astraea::tree::{BlobDigest, ReferenceIndex};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
@@ -162,11 +162,11 @@ pub enum DirectoryEntryKind {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DirectoryEntry {
     pub kind: DirectoryEntryKind,
-    pub digest: BlobDigest,
+    pub digest: ReferenceIndex,
 }
 
 impl DirectoryEntry {
-    pub fn new(kind: DirectoryEntryKind, digest: BlobDigest) -> DirectoryEntry {
+    pub fn new(kind: DirectoryEntryKind, digest: ReferenceIndex) -> DirectoryEntry {
         DirectoryEntry { kind, digest }
     }
 }

@@ -1,18 +1,25 @@
 #[cfg(test)]
 mod tests {
     use crate::file_system::DogBoxFileSystem;
+    use astraea::tree::InMemoryValueStorage;
     use dav_server::{fakels::FakeLs, DavHandler};
     use hyper::{body, server::conn::http1, Request};
     use hyper_util::rt::TokioIo;
     use reqwest_dav::{Auth, ClientBuilder, Depth};
-    use std::{convert::Infallible, net::SocketAddr};
+    use std::{
+        collections::BTreeMap,
+        convert::Infallible,
+        net::SocketAddr,
+        sync::{Arc, Mutex},
+    };
     use tokio::net::TcpListener;
 
     #[test_log::test(tokio::test)]
     async fn test_dav_access() {
+        let blob_storage = Arc::new(InMemoryValueStorage::new(Mutex::new(BTreeMap::new())));
         let dav_server = DavHandler::builder()
             .filesystem(Box::new(DogBoxFileSystem::new(
-                dogbox_tree_editor::TreeEditor::from_entries(vec![]),
+                dogbox_tree_editor::TreeEditor::from_entries(vec![], blob_storage),
             )))
             .locksystem(FakeLs::new())
             .build_handler();

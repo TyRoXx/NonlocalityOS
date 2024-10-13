@@ -872,6 +872,7 @@ dependencies = [
 name = "dogbox_dav_server"
 version = "0.1.0"
 dependencies = [
+ "astraea",
  "async-stream",
  "bytes 1.7.1",
  "dav-server",
@@ -908,11 +909,13 @@ dependencies = [
 name = "dogbox_tree_editor"
 version = "0.1.0"
 dependencies = [
+ "astraea",
  "async-stream",
  "bytes 1.7.1",
  "dogbox_tree",
  "futures",
  "futures-core",
+ "postcard",
  "relative-path",
  "tokio",
 ]

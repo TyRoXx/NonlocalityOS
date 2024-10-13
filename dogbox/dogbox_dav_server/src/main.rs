@@ -1,8 +1,14 @@
+use astraea::tree::InMemoryValueStorage;
 use dav_server::{fakels::FakeLs, DavHandler};
 use dogbox_tree_editor::{DirectoryEntry, DirectoryEntryKind};
 use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
-use std::{convert::Infallible, net::SocketAddr, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    convert::Infallible,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 use tokio::net::TcpListener;
 mod file_system;
 mod file_system_test;
@@ -12,13 +18,18 @@ use file_system::DogBoxFileSystem;
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt::init();
 
+    // TODO: persistance
+    let blob_storage = Arc::new(InMemoryValueStorage::new(Mutex::new(BTreeMap::new())));
     let dav_server = Arc::new(
         DavHandler::builder()
             .filesystem(Box::new(DogBoxFileSystem::new(
-                dogbox_tree_editor::TreeEditor::from_entries(vec![DirectoryEntry {
-                    name: "example.txt".to_string(),
-                    kind: DirectoryEntryKind::File(0),
-                }]),
+                dogbox_tree_editor::TreeEditor::from_entries(
+                    vec![DirectoryEntry {
+                        name: "example.txt".to_string(),
+                        kind: DirectoryEntryKind::File(0),
+                    }],
+                    blob_storage,
+                ),
             )))
             .locksystem(FakeLs::new())
             .build_handler(),

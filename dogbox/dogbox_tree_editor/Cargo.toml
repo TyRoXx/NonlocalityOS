@@ -6,6 +6,7 @@ edition = "2021"
 [lib]
 
 [dependencies]
+astraea = { path ="../../astraea" }
 dogbox_tree = { path ="../dogbox_tree" }
 futures-core = "0"
 relative-path = "1"
@@ -13,3 +14,4 @@ tokio = { version = "1", features = ["full"] }
 futures = "0"
 async-stream = "0"
 bytes = "1"
+postcard = {version = "1", features = ["alloc"]}
