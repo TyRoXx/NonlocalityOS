@@ -593,6 +593,38 @@ mod tests {
         };
         test_fresh_dav_server(change_files, &verify_changes).await
     }
+
+    #[test_log::test(tokio::test)]
+    async fn test_remove_file() {
+        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A", "content").await.unwrap();
+                client.delete("A").await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                expect_directory_empty(client, "/").await;
+            })
+        };
+        test_fresh_dav_server(change_files, &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_remove_directory() {
+        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.mkcol("A").await.unwrap();
+                client.delete("A").await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                expect_directory_empty(client, "/").await;
+            })
+        };
+        test_fresh_dav_server(change_files, &verify_changes).await
+    }
 }
 
 #[tokio::main]

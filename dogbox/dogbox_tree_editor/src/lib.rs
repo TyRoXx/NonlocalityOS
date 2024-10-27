@@ -16,8 +16,8 @@ use tracing::info;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
-    NotFound,
-    CannotOpenRegularFileAsDirectory,
+    NotFound(String),
+    CannotOpenRegularFileAsDirectory(String),
     CannotOpenDirectoryAsRegularFile,
     Postcard(postcard::Error),
     ReferenceIndexOutOfRange,
@@ -220,7 +220,7 @@ impl OpenDirectory {
                 let found_clone = (*found).clone();
                 Ok(found_clone.get_meta_data().await)
             }
-            None => Err(Error::NotFound),
+            None => Err(Error::NotFound(name.to_string())),
         }
     }
 
@@ -329,13 +329,17 @@ impl OpenDirectory {
                             self.change_event_sender.send(()).unwrap();
                             Ok(subdirectory)
                         }
-                        DirectoryEntryKind::File(_) => Err(Error::CannotOpenRegularFileAsDirectory),
+                        DirectoryEntryKind::File(_) => {
+                            Err(Error::CannotOpenRegularFileAsDirectory(name.to_string()))
+                        }
                     },
-                    NamedEntry::OpenRegularFile(_) => Err(Error::CannotOpenRegularFileAsDirectory),
+                    NamedEntry::OpenRegularFile(_) => {
+                        Err(Error::CannotOpenRegularFileAsDirectory(name.to_string()))
+                    }
                     NamedEntry::OpenSubdirectory(subdirectory) => Ok(subdirectory.clone()),
                 }
             }
-            None => Err(Error::NotFound),
+            None => Err(Error::NotFound(name.to_string())),
         }
     }
 
@@ -375,6 +379,17 @@ impl OpenDirectory {
         }
     }
 
+    pub async fn remove(&self, name_here: &str) -> Result<()> {
+        let mut names_locked = self.names.lock().await;
+        if !names_locked.contains_key(name_here) {
+            return Err(Error::NotFound(name_here.to_string()));
+        }
+
+        self.change_event_sender.send(()).unwrap();
+        names_locked.remove(name_here);
+        Ok(())
+    }
+
     pub async fn rename(
         &self,
         name_here: &str,
@@ -402,7 +417,7 @@ impl OpenDirectory {
 
         match names_locked.get(name_here) {
             Some(_) => {}
-            None => return Err(Error::NotFound),
+            None => return Err(Error::NotFound(name_here.to_string())),
         }
 
         info!(
@@ -876,6 +891,22 @@ impl TreeEditor {
                 .await
         })
     }
+
+    pub fn remove<'a>(&'a self, path: NormalizedPath) -> Future<'a, ()> {
+        let opening_directory = match path.split_right() {
+            PathSplitRightResult::Root => {
+                return Box::pin(std::future::ready(Err(Error::CannotRename)))
+            }
+            PathSplitRightResult::Entry(directory_path, leaf_name) => {
+                (self.root.open_directory(directory_path), leaf_name)
+            }
+        };
+        return Box::pin(async move {
+            let directory = opening_directory.0.await?;
+
+            directory.remove(&opening_directory.1).await
+        });
+    }
 }
 
 #[cfg(test)]
@@ -1051,7 +1082,7 @@ mod tests {
             )))
             .await
             .unwrap_err();
-        assert_eq!(Error::NotFound, error);
+        assert_eq!(Error::NotFound("unknown.txt".to_string()), error);
     }
 
     #[tokio::test]
@@ -1066,7 +1097,7 @@ mod tests {
             )))
             .await
             .unwrap_err();
-        assert_eq!(Error::NotFound, error);
+        assert_eq!(Error::NotFound("unknown.txt".to_string()), error);
     }
 
     #[tokio::test]
@@ -1081,7 +1112,7 @@ mod tests {
             )))
             .await
             .unwrap_err();
-        assert_eq!(Error::NotFound, error);
+        assert_eq!(Error::NotFound("unknown".to_string()), error);
     }
 
     #[tokio::test]
@@ -1099,7 +1130,12 @@ mod tests {
                 "/test.txt",
             )))
             .await;
-        assert_eq!(Some(Error::CannotOpenRegularFileAsDirectory), result.err());
+        assert_eq!(
+            Some(Error::CannotOpenRegularFileAsDirectory(
+                "test.txt".to_string()
+            )),
+            result.err()
+        );
     }
 
     #[tokio::test]
@@ -1120,7 +1156,12 @@ mod tests {
         let result = editor
             .read_directory(NormalizedPath::new(RelativePath::new("/test.txt")))
             .await;
-        assert_eq!(Some(Error::CannotOpenRegularFileAsDirectory), result.err());
+        assert_eq!(
+            Some(Error::CannotOpenRegularFileAsDirectory(
+                "test.txt".to_string()
+            )),
+            result.err()
+        );
     }
 
     #[tokio::test]

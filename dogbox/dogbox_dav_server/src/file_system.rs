@@ -19,6 +19,24 @@ impl DogBoxFileSystem {
             editor: Arc::new(editor),
         }
     }
+
+    fn handle_error(&self, err: dogbox_tree_editor::Error) -> FsError {
+        return match err {
+            dogbox_tree_editor::Error::NotFound(path) => {
+                info!("File or directory not found: {}", path);
+                return dav_server::fs::FsError::NotFound;
+            }
+            dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(path) => {
+                info!("Cannot read regular file as a directory: {}", path);
+                return dav_server::fs::FsError::NotImplemented;
+            }
+            dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
+            dogbox_tree_editor::Error::Postcard(_error) => todo!(),
+            dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
+            dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
+            dogbox_tree_editor::Error::CannotRename => FsError::Forbidden,
+        };
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -133,8 +151,8 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
             match open_file.write_bytes(write_at, buf).await {
                 Ok(result) => Ok(result),
                 Err(error) => match error {
-                    dogbox_tree_editor::Error::NotFound => todo!(),
-                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => todo!(),
+                    dogbox_tree_editor::Error::NotFound(_error) => todo!(),
+                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(_error) => todo!(),
                     dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
                     dogbox_tree_editor::Error::Postcard(_error) => todo!(),
                     dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
@@ -153,8 +171,8 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
             match open_file.read_bytes(read_at, count).await {
                 Ok(result) => Ok(result),
                 Err(error) => match error {
-                    dogbox_tree_editor::Error::NotFound => todo!(),
-                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => todo!(),
+                    dogbox_tree_editor::Error::NotFound(_error) => todo!(),
+                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(_error) => todo!(),
                     dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
                     dogbox_tree_editor::Error::Postcard(_error) => todo!(),
                     dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
@@ -229,24 +247,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .await
             {
                 Ok(success) => success,
-                Err(error) => match error {
-                    dogbox_tree_editor::Error::NotFound => {
-                        info!("Directory not found: {}", converted_path);
-                        return Err(dav_server::fs::FsError::NotFound);
-                    }
-                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => {
-                        info!(
-                            "Cannot open regular file as a directory: {}",
-                            converted_path
-                        );
-                        return Err(dav_server::fs::FsError::NotImplemented);
-                    }
-                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
-                    dogbox_tree_editor::Error::Postcard(_error) => todo!(),
-                    dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
-                    dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
-                    dogbox_tree_editor::Error::CannotRename => todo!(),
-                },
+                Err(error) => return Err(Self::handle_error(self, error)),
             };
             Ok(Box::pin(stream! {
                 while let Some(entry) = directory.next().await {
@@ -274,24 +275,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
             {
                 Ok(success) => Ok(Box::new(DogBoxMetaData { kind: success })
                     as Box<(dyn dav_server::fs::DavMetaData + 'static)>),
-                Err(error) => match error {
-                    dogbox_tree_editor::Error::NotFound => {
-                        info!("File or directory not found: {}", converted_path);
-                        return Err(dav_server::fs::FsError::NotFound);
-                    }
-                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => {
-                        info!(
-                            "Cannot read regular file as a directory: {}",
-                            converted_path
-                        );
-                        return Err(dav_server::fs::FsError::NotImplemented);
-                    }
-                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
-                    dogbox_tree_editor::Error::Postcard(_error) => todo!(),
-                    dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
-                    dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
-                    dogbox_tree_editor::Error::CannotRename => todo!(),
-                },
+                Err(error) => Err(Self::handle_error(self, error)),
             }
         })
     }
@@ -316,24 +300,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .await
             {
                 Ok(success) => Ok(success),
-                Err(error) => match error {
-                    dogbox_tree_editor::Error::NotFound => {
-                        info!("File or directory not found: {}", converted_path);
-                        return Err(dav_server::fs::FsError::NotFound);
-                    }
-                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => {
-                        info!(
-                            "Cannot read regular file as a directory: {}",
-                            converted_path
-                        );
-                        return Err(dav_server::fs::FsError::NotImplemented);
-                    }
-                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
-                    dogbox_tree_editor::Error::Postcard(_error) => todo!(),
-                    dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
-                    dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
-                    dogbox_tree_editor::Error::CannotRename => todo!(),
-                },
+                Err(error) => Err(Self::handle_error(self, error)),
             }
         })
     }
@@ -342,14 +309,36 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, ()> {
-        todo!()
+        info!("Removing directory {}", _path);
+        Box::pin(async move {
+            let converted_path = convert_path(&_path)?;
+            match self
+                .editor
+                .remove(NormalizedPath::new(converted_path))
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(error) => Err(Self::handle_error(self, error)),
+            }
+        })
     }
 
     fn remove_file<'a>(
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, ()> {
-        todo!()
+        info!("Removing file {}", _path);
+        Box::pin(async move {
+            let converted_path = convert_path(&_path)?;
+            match self
+                .editor
+                .remove(NormalizedPath::new(converted_path))
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(error) => Err(Self::handle_error(self, error)),
+            }
+        })
     }
 
     fn rename<'a>(
@@ -370,15 +359,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .await
             {
                 Ok(_) => Ok(()),
-                Err(error) => match error {
-                    dogbox_tree_editor::Error::NotFound => todo!(),
-                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory => todo!(),
-                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
-                    dogbox_tree_editor::Error::Postcard(_error) => todo!(),
-                    dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
-                    dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
-                    dogbox_tree_editor::Error::CannotRename => Err(FsError::Forbidden),
-                },
+                Err(error) => Err(Self::handle_error(&self, error)),
             }
         })
     }
