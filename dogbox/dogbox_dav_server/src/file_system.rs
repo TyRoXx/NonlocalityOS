@@ -284,7 +284,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 Err(_error) => todo!(),
             };
             if (open_file.size().await > 0) && options.truncate {
-                todo!()
+                warn!("options.truncate not supported yet");
             }
             let write_permission = match options.write {
                 true => Some(open_file.get_write_permission()),
@@ -438,10 +438,25 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     #[instrument(skip(self))]
     fn copy<'a>(
         &'a self,
-        _from: &'a dav_server::davpath::DavPath,
-        _to: &'a dav_server::davpath::DavPath,
+        from: &'a dav_server::davpath::DavPath,
+        to: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, ()> {
-        Box::pin(core::future::ready(Err(FsError::NotImplemented)))
+        info!("Copy {} to {}", from, to);
+        Box::pin(async move {
+            let from_converted_path = convert_path(&from)?;
+            let to_converted_path = convert_path(&to)?;
+            match self
+                .editor
+                .copy(
+                    NormalizedPath::new(from_converted_path),
+                    NormalizedPath::new(to_converted_path),
+                )
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(error) => Err(handle_error(error)),
+            }
+        })
     }
 
     #[instrument(skip(self))]

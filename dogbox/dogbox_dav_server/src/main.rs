@@ -384,7 +384,7 @@ mod tests {
     }
 
     async fn expect_file(
-        client: Client,
+        client: &Client,
         entity: &ListEntity,
         name: &str,
         content: &[u8],
@@ -392,18 +392,18 @@ mod tests {
     ) {
         match entity {
             reqwest_dav::list_cmd::ListEntity::File(file) => {
-                assert_eq!(name, file.href);
-                assert_eq!(content.len() as i64, file.content_length);
-                assert_eq!(content_type, file.content_type);
+                assert_eq!(name, file.href, "File names do not match");
+                assert_eq!(content.len() as i64, file.content_length, "File content length does not match");
+                assert_eq!(content_type, file.content_type, "File type does not match");
                 //TODO: check tag value
-                assert_eq!(true, file.tag.is_some());
+                assert_eq!(true, file.tag.is_some(), "File has no tags");
                 //TODO: check last modified
 
                 let response = client.get(&name).await.unwrap();
                 let response_content = response.bytes().await.unwrap().to_vec();
-                assert_eq!(*content, response_content);
+                assert_eq!(*content, response_content, "File content is wrong");
             }
-            reqwest_dav::list_cmd::ListEntity::Folder(_folder) => panic!(),
+            reqwest_dav::list_cmd::ListEntity::Folder(_folder) => panic!("Asserting that a folder is a file"),
         }
     }
 
@@ -451,7 +451,7 @@ mod tests {
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
                 expect_file(
-                    client,
+                    &client,
                     &listed[1],
                     &format!("/{}", file_name),
                     &content_cloned,
@@ -679,7 +679,7 @@ mod tests {
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
                 expect_file(
-                    client,
+                    &client,
                     &listed[1],
                     "/B",
                     content_a.as_bytes(),
@@ -706,7 +706,7 @@ mod tests {
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
                 expect_file(
-                    client,
+                    &client,
                     &listed[1],
                     "/B",
                     content.as_bytes(),
@@ -754,7 +754,7 @@ mod tests {
                 expect_directory(&root_listed[0], "/");
                 expect_directory(&root_listed[1], "/A/");
                 expect_file(
-                    client.clone(),
+                    &client,
                     &root_listed[2],
                     "/B.txt",
                     content.as_bytes(),
@@ -790,7 +790,7 @@ mod tests {
                 assert_eq!(2, a_listed.len());
                 expect_directory(&a_listed[0], "/A/");
                 expect_file(
-                    client,
+                    &client,
                     &a_listed[1],
                     "/A/foo.txt",
                     content.as_bytes(),
@@ -831,6 +831,243 @@ mod tests {
                 expect_directory_empty(&client, "/").await;
             })
         };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file() {
+        let content = "content";
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content).await.unwrap();
+                client.cp("A.txt", "B.txt").await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+                expect_file(
+                    &client,
+                    &root_listed[2],
+                    "/B.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+            })
+        };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file_independent_content() {
+        let content_1 = "1";
+        let content_2 = "2";
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content_1).await.unwrap();
+                client.cp("A.txt", "B.txt").await.unwrap();
+                client.put("A.txt", content_2).await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content_2.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+                expect_file(
+                    &client,
+                    &root_listed[2],
+                    "/B.txt",
+                    content_1.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+            })
+        };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file_into_different_folder() {
+        let content = "content";
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content).await.unwrap();
+                client.mkcol("/foo").await.unwrap();
+                client.cp("A.txt", "/foo/B.txt").await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+
+                let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
+                expect_directory(&foo_listed[0], "/foo/");
+                expect_file(
+                    &client,
+                    &foo_listed[1],
+                    "/foo/B.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+            })
+        };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file_to_already_existing_target() {
+        let content = "content";
+        let other_content = "some other content";
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content).await.unwrap();
+                client.mkcol("/foo").await.unwrap();
+                client.put("/foo/B.txt", other_content).await.unwrap();
+
+                client.cp("A.txt", "/foo/B.txt").await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+
+                let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
+                expect_directory(&foo_listed[0], "/foo/");
+                expect_file(
+                    &client,
+                    &foo_listed[1],
+                    "/foo/B.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+            })
+        };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file_to_itself() {
+        let content = "content";
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content).await.unwrap();
+                match client.cp("A.txt", "A.txt").await {
+                    Ok(_) => {
+                        panic!("The request should have failed");
+                    }
+                    Err(err) => match err {
+                        reqwest_dav::Error::Reqwest(_error) => {
+                            panic!("Expecting a different error")
+                        }
+                        reqwest_dav::Error::ReqwestDecode(_reqwest_decode_error) => {
+                            panic!("The request failed decoding")
+                        }
+                        reqwest_dav::Error::Decode(decode_error) => {
+                            match decode_error {
+                                reqwest_dav::DecodeError::DigestAuth(_error) => panic!("DigestAuth error"),
+                                reqwest_dav::DecodeError::NoAuthHeaderInResponse => panic!("No auth header in response"),
+                                reqwest_dav::DecodeError::SerdeXml(_error) => panic!("XML decoding error"),
+                                reqwest_dav::DecodeError::FieldNotSupported(field_error) => panic!("{:?}" , field_error),
+                                reqwest_dav::DecodeError::FieldNotFound(field_error) => panic!("{:?}" , field_error),
+                                reqwest_dav::DecodeError::StatusMismatched(status_mismatched_error) => panic!("{:?}" , status_mismatched_error),
+                                reqwest_dav::DecodeError::Server(_server_error) => {},
+                            };
+                        }
+                        reqwest_dav::Error::MissingAuthContext => {
+                            panic!("The request failed decoding")
+                        }
+                    },
+                };
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(2, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+            })
+        };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_non_existing_file() {
+        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.mkcol("/foo").await.unwrap();
+                match client.cp("A.txt", "/foo/B.txt").await {
+                    Ok(_) => {
+                        panic!("The request should have failed");
+                    }
+                    Err(err) => match err {
+                        reqwest_dav::Error::Reqwest(error) => {
+                            assert_eq!(error.status().unwrap(), 404)
+                        }
+                        reqwest_dav::Error::ReqwestDecode(_reqwest_decode_error) => {
+                            panic!("The request failed decoding")
+                        }
+                        reqwest_dav::Error::Decode(_decode_error) => {
+                            print!("{:?}", _decode_error)
+                        }
+                        reqwest_dav::Error::MissingAuthContext => {
+                            panic!("The request failed decoding")
+                        }
+                    },
+                };
+            })
+        };
+        let verify_changes =
+            move |_client: Client| -> Pin<Box<dyn Future<Output = ()>>> { Box::pin(async move {}) };
         test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 }
