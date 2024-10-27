@@ -1,2 +1,5 @@
 #!/usr/bin/env sh
-cargo nextest run || exit 1
+set -e
+
+cargo install cargo-nextest
+cargo nextest run
