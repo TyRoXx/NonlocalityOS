@@ -437,6 +437,35 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
+    async fn test_rename_file_to_already_existing_path() {
+        let content_a = "test";
+        let content_b = "foo";
+        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A", content_a).await.unwrap();
+                client.put("B", content_b).await.unwrap();
+                client.mv("A", "B").await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/");
+                expect_file(
+                    &listed[1],
+                    "/B",
+                    content_a.len() as i64,
+                    "application/octet-stream",
+                );
+                let response = client.get("B").await.unwrap();
+                let response_content = response.bytes().await.unwrap().to_vec();
+                assert_eq!(content_a.as_bytes(), response_content);
+            })
+        };
+        test_fresh_dav_server(change_files, &verify_changes).await
+    }
+    #[test_log::test(tokio::test)]
     async fn test_rename_file() {
         let content = "test";
         let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {

@@ -386,12 +386,17 @@ impl OpenDirectory {
             Some(_) => {}
             None => return Err(Error::NotFound),
         }
-        match names_locked.get(name_there) {
-            Some(_) => todo!(),
+
+        info!(
+            "Renaming from {} to {} within the directory sends a change event to the directory.",
+            name_here, name_there
+        );
+        self.change_event_sender.send(()).unwrap();
+        let (_obsolete_name, entry) = names_locked.remove_entry(name_here).unwrap();
+
+        match names_locked.get_mut(name_there) {
+            Some(existing_name) => *existing_name = entry,
             None => {
-                info!("Renaming from {} to {} within the directory sends a change event to the directory.", name_here, name_there);
-                self.change_event_sender.send(()).unwrap();
-                let (_obsolete_name, entry) = names_locked.remove_entry(name_here).unwrap();
                 names_locked.insert(name_there.to_string(), entry);
             }
         }
