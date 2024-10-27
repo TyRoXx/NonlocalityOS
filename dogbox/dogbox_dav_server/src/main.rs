@@ -227,6 +227,10 @@ mod tests {
         assert!(std::fs::exists(&database_file_name).unwrap());
     }
 
+    async fn list_directory(client: &Client, directory: &str) -> Vec<ListEntity> {
+        return client.list(directory, Depth::Number(1)).await.unwrap();
+    }
+
     fn create_client(server_url: String) -> Client {
         let client = ClientBuilder::new()
             .set_host(server_url)
@@ -250,21 +254,31 @@ mod tests {
         }
     }
 
-    async fn expect_directory_empty(client: Client, directory: &str) {
-        let subdir_listed = client.list(directory, Depth::Number(1)).await.unwrap();
+    async fn expect_directory_empty(client: &Client, directory: &str) {
+        let subdir_listed = list_directory(client, directory).await;
         assert_eq!(1, subdir_listed.len());
         expect_directory(&subdir_listed[0], directory)
     }
 
-    fn expect_file(entity: &ListEntity, name: &str, size: i64, content_type: &str) {
+    async fn expect_file(
+        client: Client,
+        entity: &ListEntity,
+        name: &str,
+        content: &[u8],
+        content_type: &str,
+    ) {
         match entity {
             reqwest_dav::list_cmd::ListEntity::File(file) => {
                 assert_eq!(name, file.href);
-                assert_eq!(size, file.content_length);
+                assert_eq!(content.len() as i64, file.content_length);
                 assert_eq!(content_type, file.content_type);
                 //TODO: check tag value
                 assert_eq!(true, file.tag.is_some());
                 //TODO: check last modified
+
+                let response = client.get(&name).await.unwrap();
+                let response_content = response.bytes().await.unwrap().to_vec();
+                assert_eq!(*content, response_content);
             }
             reqwest_dav::list_cmd::ListEntity::Folder(_folder) => panic!(),
         }
@@ -293,7 +307,7 @@ mod tests {
         };
         let verify_changes = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                let listed = client.list("", Depth::Number(1)).await.unwrap();
+                let listed = list_directory(&client, "/").await;
                 assert_eq!(1, listed.len());
                 expect_directory(&listed[0], "/");
             })
@@ -303,7 +317,6 @@ mod tests {
 
     async fn test_create_file(content: Vec<u8>) {
         let file_name = "test.txt";
-        let size = content.len() as i64;
         let content_cloned = content.clone();
         let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
@@ -313,13 +326,17 @@ mod tests {
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             let content_cloned = content.clone();
             Box::pin(async move {
-                let listed = client.list("", Depth::Number(1)).await.unwrap();
+                let listed = list_directory(&client, "/").await;
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
-                expect_file(&listed[1], &format!("/{}", file_name), size, "text/plain");
-                let response = client.get(&file_name).await.unwrap();
-                let response_content = response.bytes().await.unwrap().to_vec();
-                assert_eq!(content_cloned, response_content);
+                expect_file(
+                    client,
+                    &listed[1],
+                    &format!("/{}", file_name),
+                    &content_cloned,
+                    "text/plain",
+                )
+                .await;
             })
         };
         test_fresh_dav_server(change_files, &verify_changes).await
@@ -359,16 +376,13 @@ mod tests {
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 {
-                    let listed = client.list("", Depth::Number(1)).await.unwrap();
+                    let listed = list_directory(&client, "/").await;
                     assert_eq!(2, listed.len());
                     expect_directory(&listed[0], "/");
                     expect_directory(&listed[1], &format!("/{}/", dir_name));
                 }
                 {
-                    let listed = client
-                        .list(&format!("/{}/", dir_name), Depth::Number(1))
-                        .await
-                        .unwrap();
+                    let listed = list_directory(&client, &format!("/{}/", dir_name)).await;
                     assert_eq!(1, listed.len());
                     expect_directory(&listed[0], &format!("/{}/", dir_name));
                 }
@@ -389,25 +403,25 @@ mod tests {
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 {
-                    let listed = client.list("", Depth::Number(1)).await.unwrap();
+                    let listed = list_directory(&client, "/").await;
                     assert_eq!(2, listed.len());
                     expect_directory(&listed[0], "/");
                     expect_directory(&listed[1], "/a/");
                 }
                 {
-                    let listed = client.list("a", Depth::Number(1)).await.unwrap();
+                    let listed = list_directory(&client, "/a").await;
                     assert_eq!(2, listed.len());
                     expect_directory(&listed[0], "/a/");
                     expect_directory(&listed[1], "/a/b/");
                 }
                 {
-                    let listed = client.list("a/b", Depth::Number(1)).await.unwrap();
+                    let listed = list_directory(&client, "/a/b").await;
                     assert_eq!(2, listed.len());
                     expect_directory(&listed[0], "/a/b/");
                     expect_directory(&listed[1], "/a/b/c/");
                 }
                 {
-                    let listed = client.list("a/b/c", Depth::Number(1)).await.unwrap();
+                    let listed = list_directory(&client, "/a/b/c").await;
                     assert_eq!(1, listed.len());
                     expect_directory(&listed[0], "/a/b/c/");
                 }
@@ -448,7 +462,7 @@ mod tests {
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                let listed = client.list("", Depth::Number(1)).await.unwrap();
+                let listed = list_directory(&client, "/").await;
                 assert_eq!(1, listed.len());
                 expect_directory(&listed[0], "/");
             })
@@ -469,18 +483,17 @@ mod tests {
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                let listed = client.list("", Depth::Number(1)).await.unwrap();
+                let listed = list_directory(&client, "/").await;
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
                 expect_file(
+                    client,
                     &listed[1],
                     "/B",
-                    content_a.len() as i64,
+                    content_a.as_bytes(),
                     "application/octet-stream",
-                );
-                let response = client.get("B").await.unwrap();
-                let response_content = response.bytes().await.unwrap().to_vec();
-                assert_eq!(content_a.as_bytes(), response_content);
+                )
+                .await;
             })
         };
         test_fresh_dav_server(change_files, &verify_changes).await
@@ -497,18 +510,17 @@ mod tests {
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                let listed = client.list("", Depth::Number(1)).await.unwrap();
+                let listed = list_directory(&client, "/").await;
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
                 expect_file(
+                    client,
                     &listed[1],
                     "/B",
-                    content.len() as i64,
+                    content.as_bytes(),
                     "application/octet-stream",
-                );
-                let response = client.get("B").await.unwrap();
-                let response_content = response.bytes().await.unwrap().to_vec();
-                assert_eq!(content.as_bytes(), response_content);
+                )
+                .await;
             })
         };
         test_fresh_dav_server(change_files, &verify_changes).await
@@ -524,7 +536,7 @@ mod tests {
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                let listed = client.list("", Depth::Number(1)).await.unwrap();
+                let listed = list_directory(&client, "/").await;
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
                 expect_directory(&listed[1], "/B/");
@@ -545,18 +557,20 @@ mod tests {
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                let root_listed = list_directory(&client, "/").await;
                 assert_eq!(3, root_listed.len());
                 expect_directory(&root_listed[0], "/");
                 expect_directory(&root_listed[1], "/A/");
                 expect_file(
+                    client.clone(),
                     &root_listed[2],
                     "/B.txt",
-                    content.len() as i64,
+                    content.as_bytes(),
                     "text/plain",
-                );
+                )
+                .await;
 
-                expect_directory_empty(client, "/A/").await;
+                expect_directory_empty(&client, "/A/").await;
             })
         };
         test_fresh_dav_server(change_files, &verify_changes).await
@@ -575,20 +589,22 @@ mod tests {
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                let root_listed = list_directory(&client, "/").await;
                 assert_eq!(2, root_listed.len());
                 expect_directory(&root_listed[0], "/");
                 expect_directory(&root_listed[1], "/A/");
 
-                let a_listed = client.list("/A/", Depth::Number(1)).await.unwrap();
+                let a_listed = list_directory(&client, "/A/").await;
                 assert_eq!(2, a_listed.len());
                 expect_directory(&a_listed[0], "/A/");
                 expect_file(
+                    client,
                     &a_listed[1],
                     "/A/foo.txt",
-                    content.len() as i64,
+                    content.as_bytes(),
                     "text/plain",
-                );
+                )
+                .await;
             })
         };
         test_fresh_dav_server(change_files, &verify_changes).await
@@ -604,7 +620,7 @@ mod tests {
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                expect_directory_empty(client, "/").await;
+                expect_directory_empty(&client, "/").await;
             })
         };
         test_fresh_dav_server(change_files, &verify_changes).await
@@ -620,7 +636,7 @@ mod tests {
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                expect_directory_empty(client, "/").await;
+                expect_directory_empty(&client, "/").await;
             })
         };
         test_fresh_dav_server(change_files, &verify_changes).await
