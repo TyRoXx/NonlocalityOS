@@ -220,7 +220,12 @@ mod tests {
     use crate::run_dav_server;
     use astraea::tree::VALUE_BLOB_MAX_LENGTH;
     use dogbox_tree_editor::WallClock;
-    use reqwest_dav::{list_cmd::ListEntity, Auth, Client, ClientBuilder, Depth};
+    use hyper::{header::HeaderValue, HeaderMap, Method, StatusCode};
+    use reqwest_dav::{
+        list_cmd::ListEntity, list_cmd::ListEntity, re_exports::url::Url, Auth, Auth, Client,
+        Client, ClientBuilder, ClientBuilder, Depth, Depth,
+    };
+    use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin};
     use std::{future::Future, net::SocketAddr, pin::Pin};
     use tokio::net::TcpListener;
     use tracing::info;
@@ -405,6 +410,32 @@ mod tests {
             }
             reqwest_dav::list_cmd::ListEntity::Folder(_folder) => panic!(),
         }
+    }
+
+    async fn client_copy(client: Client, from: &str, to: &str) -> StatusCode {
+        let base = Url::parse(&client.host).unwrap();
+        let cp_to = format!(
+            "{}/{}",
+            base.path().trim_end_matches("/"),
+            to.trim_start_matches("/")
+        );
+        let response = client
+            .start_request(Method::from_bytes(b"COPY").unwrap(), from)
+            .await
+            .unwrap()
+            .headers({
+                let mut map = HeaderMap::new();
+                map.insert(
+                    "destination",
+                    HeaderValue::from_str(&cp_to).expect("Impossible"),
+                );
+                map
+            })
+            .send()
+            .await
+            .unwrap();
+
+        response.status()
     }
 
     #[test_log::test(tokio::test)]
@@ -832,6 +863,130 @@ mod tests {
             })
         };
         test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file() {
+        let content = "content";
+        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content).await.unwrap();
+                assert_eq!(client_copy(client, "A.txt", "B.txt").await, 201);
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.len() as i64,
+                    "text/plain",
+                );
+                expect_file(
+                    &client,
+                    &root_listed[2],
+                    "/B.txt",
+                    content.len() as i64,
+                    "text/plain",
+                );
+            })
+        };
+        test_fresh_dav_server(change_files, &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file_into_different_folder() {
+        let content = "content";
+        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content).await.unwrap();
+                client.mkcol("/foo").await.unwrap();
+
+                assert_eq!(client_copy(client, "A.txt", "/foo/B.txt").await, 201);
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.len() as i64,
+                    "text/plain",
+                );
+
+                let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
+                expect_directory(&foo_listed[0], "/foo/");
+                expect_file(
+                    &client,
+                    &foo_listed[1],
+                    "/foo/B.txt",
+                    content.len() as i64,
+                    "text/plain",
+                );
+            })
+        };
+        test_fresh_dav_server(change_files, &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file_to_already_existing_target() {
+        let content = "content";
+        let other_content = "some other content";
+        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content).await.unwrap();
+                client.mkcol("/foo").await.unwrap();
+                client.put("/foo/B.txt", other_content).await.unwrap();
+
+                assert_eq!(client_copy(client, "A.txt", "/foo/B.txt").await, 204);
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                );
+
+                let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
+                expect_directory(&foo_listed[0], "/foo/");
+                expect_file(
+                    &client,
+                    &foo_listed[1],
+                    "/foo/B.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                );
+            })
+        };
+        test_fresh_dav_server(change_files, &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_non_existing_file() {
+        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.mkcol("/foo").await.unwrap();
+                assert_eq!(client_copy(client, "A.txt", "/foo/B.txt").await, 404);
+            })
+        };
+        let verify_changes =
+            move |_client: Client| -> Pin<Box<dyn Future<Output = ()>>> { Box::pin(async move {}) };
+        test_fresh_dav_server(change_files, &verify_changes).await
     }
 }
 

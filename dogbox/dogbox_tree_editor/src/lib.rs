@@ -625,6 +625,55 @@ impl OpenDirectory {
         Ok(())
     }
 
+    pub async fn copy(
+        &self,
+        name_here: &str,
+        there: &OpenDirectory,
+        name_there: &str,
+    ) -> Result<()> {
+        let names_locked: MutexGuard<'_, BTreeMap<String, NamedEntry>>;
+        let names_there_locked: Option<MutexGuard<'_, BTreeMap<String, NamedEntry>>>;
+
+        let comparison = std::ptr::from_ref(self).cmp(&std::ptr::from_ref(there));
+        match comparison {
+            std::cmp::Ordering::Less => {
+                names_locked = self.names.lock().await;
+                names_there_locked = Some(there.names.lock().await);
+            }
+            std::cmp::Ordering::Equal => {
+                names_locked = self.names.lock().await;
+                names_there_locked = None;
+            }
+            std::cmp::Ordering::Greater => {
+                names_there_locked = Some(there.names.lock().await);
+                names_locked = self.names.lock().await;
+            }
+        }
+
+        match names_locked.get(name_here) {
+            Some(_) => {}
+            None => return Err(Error::NotFound(name_here.to_string())),
+        }
+
+        info!(
+            "Copying from {} to {} sending a change event to the directory.",
+            name_here, name_there
+        );
+
+        if names_there_locked.is_some() {
+            there.change_event_sender.send(()).unwrap();
+        } else {
+            self.change_event_sender.send(()).unwrap();
+        }
+
+        let entry = names_locked.get(name_here).unwrap().clone();
+        match names_there_locked {
+            Some(value) => Self::write_into_directory(value, name_there, entry),
+            None => Self::write_into_directory(names_locked, name_there, entry),
+        }
+        Ok(())
+    }
+
     pub async fn rename(
         self: Arc<OpenDirectory>,
         name_here: &str,
@@ -1862,6 +1911,38 @@ impl TreeEditor {
                 })
             }
         }
+    }
+
+    pub fn copy<'a>(&'a self, from: NormalizedPath, to: NormalizedPath) -> Future<'a, ()> {
+        let opening_directory_from = match from.split_right() {
+            PathSplitRightResult::Root => {
+                return Box::pin(std::future::ready(Err(Error::CannotRename)))
+            }
+            PathSplitRightResult::Entry(directory_path, leaf_name) => {
+                (self.root.open_directory(directory_path), leaf_name)
+            }
+        };
+        let opening_directory_to = match to.split_right() {
+            PathSplitRightResult::Root => {
+                return Box::pin(std::future::ready(Err(Error::CannotRename)))
+            }
+            PathSplitRightResult::Entry(directory_path, leaf_name) => {
+                (self.root.open_directory(directory_path), leaf_name)
+            }
+        };
+        Box::pin(async move {
+            let (maybe_directory_from, maybe_directory_to) =
+                futures::join!(opening_directory_from.0, opening_directory_to.0);
+            let directory_from = maybe_directory_from?;
+            let directory_to = maybe_directory_to?;
+            directory_from
+                .copy(
+                    &opening_directory_from.1,
+                    &directory_to,
+                    &opening_directory_to.1,
+                )
+                .await
+        })
     }
 
     pub fn rename<'a>(&'a self, from: NormalizedPath, to: NormalizedPath) -> Future<'a, ()> {
