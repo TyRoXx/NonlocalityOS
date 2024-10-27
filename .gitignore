@@ -4,3 +4,4 @@
 /.idea
 /dogbox_dav_server.sqlite
 /build_rs_cov.profraw
+/.bin

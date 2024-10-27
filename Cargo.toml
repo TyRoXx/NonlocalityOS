@@ -14,3 +14,9 @@ members=[
     "dogbox/dogbox_dav_server",
 ]
 resolver="2"
+
+[workspace.dependencies]
+cargo-run-bin = { version = "1" }
+
+[workspace.metadata.bin]
+bacon = { version = "3.1.1", locked = true }

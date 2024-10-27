@@ -505,7 +505,7 @@ mod tests {
             Box::pin(async move {
                 let listed = client.list("", Depth::Number(1)).await.unwrap();
                 assert_eq!(2, listed.len());
-                expect_directory(&listed[0], "/");
+                expect_directory(&listed[0], "/ ");
                 expect_directory(&listed[1], "/B/");
             })
         };

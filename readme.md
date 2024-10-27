@@ -48,7 +48,13 @@
 
 ## One time
 
-* `bacon coverage`
+### Linux
+
+* `./coverage.sh`
+
+### Windows
+
+* `coverage.bat`
 
 ## Watch code and keep running tests to measure test coverage
 
