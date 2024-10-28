@@ -166,14 +166,20 @@ pub enum DirectoryEntryKind {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub enum ReferenceIndexOrInlineContent {
+    Indirect(ReferenceIndex),
+    Direct(Vec<u8>),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct DirectoryEntry {
     pub kind: DirectoryEntryKind,
-    pub digest: ReferenceIndex,
+    pub content: ReferenceIndexOrInlineContent,
 }
 
 impl DirectoryEntry {
-    pub fn new(kind: DirectoryEntryKind, digest: ReferenceIndex) -> DirectoryEntry {
-        DirectoryEntry { kind, digest }
+    pub fn new(kind: DirectoryEntryKind, content: ReferenceIndexOrInlineContent) -> DirectoryEntry {
+        DirectoryEntry { kind, content }
     }
 }
 

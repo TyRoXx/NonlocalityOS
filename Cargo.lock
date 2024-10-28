@@ -897,6 +897,7 @@ dependencies = [
  "dogbox_tree",
  "futures",
  "futures-core",
+ "lazy_static",
  "postcard",
  "relative-path",
  "tokio",

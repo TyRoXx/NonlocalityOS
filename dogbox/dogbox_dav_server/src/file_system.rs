@@ -6,6 +6,7 @@ use dogbox_tree_editor::NormalizedPath;
 use dogbox_tree_editor::OpenFile;
 use futures::stream::StreamExt;
 use std::sync::Arc;
+use tracing::debug;
 use tracing::error;
 use tracing::info;
 
@@ -20,25 +21,37 @@ impl DogBoxFileSystem {
             editor: Arc::new(editor),
         }
     }
+}
 
-    fn handle_error(&self, err: dogbox_tree_editor::Error) -> FsError {
-        return match err {
-            dogbox_tree_editor::Error::NotFound(path) => {
-                info!("File or directory not found: {}", path);
-                return dav_server::fs::FsError::NotFound;
-            }
-            dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(path) => {
-                info!("Cannot read regular file as a directory: {}", path);
-                return dav_server::fs::FsError::NotImplemented;
-            }
-            dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
-            dogbox_tree_editor::Error::Postcard(_error) => todo!(),
-            dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
-            dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
-            dogbox_tree_editor::Error::CannotRename => FsError::Forbidden,
-            dogbox_tree_editor::Error::MissingValue(_) => todo!(),
-        };
-    }
+fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
+    return match err {
+        dogbox_tree_editor::Error::NotFound(path) => {
+            debug!("File or directory not found: {}", path);
+            return dav_server::fs::FsError::NotFound;
+        }
+        dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(path) => {
+            info!("Cannot read regular file as a directory: {}", path);
+            return dav_server::fs::FsError::NotImplemented;
+        }
+        dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
+        dogbox_tree_editor::Error::Postcard(_error) => todo!(),
+        dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
+        dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
+        dogbox_tree_editor::Error::SegmentedBlobSizeMismatch {
+            digest,
+            segmented_blob_internal_size,
+            directory_entry_size,
+        } => {
+            error!(
+                "Segmented blob {} has internal size {}, but a directory listed it as size {}",
+                &digest, segmented_blob_internal_size, directory_entry_size
+            );
+            return dav_server::fs::FsError::GeneralFailure;
+        }
+        dogbox_tree_editor::Error::CannotRename => FsError::Forbidden,
+        dogbox_tree_editor::Error::MissingValue(_) => todo!(),
+        dogbox_tree_editor::Error::Storage(_) => todo!(),
+    };
 }
 
 #[derive(Debug, Clone)]
@@ -156,16 +169,7 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
         Box::pin(async move {
             match open_file.write_bytes(write_at, buf).await {
                 Ok(result) => Ok(result),
-                Err(error) => match error {
-                    dogbox_tree_editor::Error::NotFound(_error) => todo!(),
-                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(_error) => todo!(),
-                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
-                    dogbox_tree_editor::Error::Postcard(_error) => todo!(),
-                    dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
-                    dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
-                    dogbox_tree_editor::Error::CannotRename => todo!(),
-                    dogbox_tree_editor::Error::MissingValue(_) => todo!(),
-                },
+                Err(error) => Err(handle_error(error)),
             }
         })
     }
@@ -179,16 +183,7 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
                     self.cursor += result.len() as u64;
                     Ok(result)
                 }
-                Err(error) => match error {
-                    dogbox_tree_editor::Error::NotFound(_error) => todo!(),
-                    dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(_error) => todo!(),
-                    dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
-                    dogbox_tree_editor::Error::Postcard(_error) => todo!(),
-                    dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
-                    dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
-                    dogbox_tree_editor::Error::CannotRename => todo!(),
-                    dogbox_tree_editor::Error::MissingValue(_) => todo!(),
-                },
+                Err(error) => Err(handle_error(error)),
             }
         })
     }
@@ -198,8 +193,12 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
     }
 
     fn flush(&mut self) -> dav_server::fs::FsFuture<()> {
-        self.handle.flush();
-        Box::pin(std::future::ready(Ok(())))
+        Box::pin(async {
+            match self.handle.flush().await {
+                Ok(_) => Ok(()),
+                Err(_error) => todo!(),
+            }
+        })
     }
 }
 
@@ -257,7 +256,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .await
             {
                 Ok(success) => success,
-                Err(error) => return Err(Self::handle_error(self, error)),
+                Err(error) => return Err(handle_error(error)),
             };
             Ok(Box::pin(stream! {
                 while let Some(entry) = directory.next().await {
@@ -275,7 +274,6 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         &'a self,
         path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, Box<dyn dav_server::fs::DavMetaData>> {
-        info!("Metadata {}", path);
         Box::pin(async move {
             let converted_path = convert_path(&path)?;
             match self
@@ -283,9 +281,15 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .get_meta_data(NormalizedPath::new(converted_path))
                 .await
             {
-                Ok(success) => Ok(Box::new(DogBoxMetaData { entry: success })
-                    as Box<(dyn dav_server::fs::DavMetaData + 'static)>),
-                Err(error) => Err(Self::handle_error(self, error)),
+                Ok(success) => {
+                    info!("Metadata {}: {:?}", path, &success);
+                    Ok(Box::new(DogBoxMetaData { entry: success })
+                        as Box<(dyn dav_server::fs::DavMetaData + 'static)>)
+                }
+                Err(error) => {
+                    info!("Metadata failed for {}: {:?}", path, &error);
+                    Err(handle_error(error))
+                }
             }
         })
     }
@@ -310,7 +314,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .await
             {
                 Ok(success) => Ok(success),
-                Err(error) => Err(Self::handle_error(self, error)),
+                Err(error) => Err(handle_error(error)),
             }
         })
     }
@@ -328,7 +332,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .await
             {
                 Ok(_) => Ok(()),
-                Err(error) => Err(Self::handle_error(self, error)),
+                Err(error) => Err(handle_error(error)),
             }
         })
     }
@@ -346,7 +350,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .await
             {
                 Ok(_) => Ok(()),
-                Err(error) => Err(Self::handle_error(self, error)),
+                Err(error) => Err(handle_error(error)),
             }
         })
     }
@@ -369,7 +373,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .await
             {
                 Ok(_) => Ok(()),
-                Err(error) => Err(Self::handle_error(&self, error)),
+                Err(error) => Err(handle_error(error)),
             }
         })
     }
@@ -386,7 +390,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
-        info!("have_props");
+        debug!("have_props");
         Box::pin(std::future::ready(false))
     }
 

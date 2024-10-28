@@ -1,3 +1,4 @@
+use crate::storage::{LoadValue, StoreError, StoreValue};
 use futures::future::join;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_512};
@@ -7,8 +8,6 @@ use std::{
     pin::Pin,
     sync::Arc,
 };
-
-use crate::storage::{LoadValue, StoreError, StoreValue};
 
 /// SHA3-512 hash. Supports Serde because we will need this type a lot in network protocols and file formats.
 #[derive(Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Clone, Copy, Hash)]
@@ -99,7 +98,7 @@ pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ValueBlob {
-    content: Vec<u8>,
+    pub content: Vec<u8>,
 }
 
 impl ValueBlob {
@@ -313,6 +312,7 @@ impl ReduceExpression for Identity {
     }
 }
 
+//#[instrument(skip_all)]
 pub fn calculate_reference(referenced: &Value) -> Reference {
     let mut hasher = Sha3_512::new();
     hasher.update(referenced.blob.as_slice());

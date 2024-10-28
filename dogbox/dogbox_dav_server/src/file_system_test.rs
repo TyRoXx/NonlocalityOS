@@ -24,17 +24,19 @@ mod tests {
         let blob_storage = Arc::new(InMemoryValueStorage::new(Mutex::new(BTreeMap::new())));
         let dav_server = DavHandler::builder()
             .filesystem(Box::new(DogBoxFileSystem::new(
-                dogbox_tree_editor::TreeEditor::new(Arc::new(OpenDirectory::from_entries(
-                    vec![],
-                    blob_storage,
-                    test_clock(),
-                    test_clock,
-                ))),
+                dogbox_tree_editor::TreeEditor::new(
+                    Arc::new(
+                        OpenDirectory::create_directory(blob_storage, test_clock)
+                            .await
+                            .unwrap(),
+                    ),
+                    None,
+                ),
             )))
             .locksystem(FakeLs::new())
             .build_handler();
 
-        let address = SocketAddr::from(([127, 0, 0, 1], 4918));
+        let address = SocketAddr::from(([127, 0, 0, 1], 4919));
         let listener = TcpListener::bind(address).await.unwrap();
         println!("Serving on http://{}", address);
 

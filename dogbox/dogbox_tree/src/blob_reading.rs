@@ -151,14 +151,18 @@ mod tests {
                     dir_name.clone(),
                     crate::serialization::DirectoryEntry::new(
                         crate::serialization::DirectoryEntryKind::Directory,
-                        ReferenceIndex(0),
+                        crate::serialization::ReferenceIndexOrInlineContent::Indirect(
+                            ReferenceIndex(0),
+                        ),
                     ),
                 ),
                 (
                     file_name.clone(),
                     crate::serialization::DirectoryEntry::new(
                         crate::serialization::DirectoryEntryKind::File(file_size),
-                        ReferenceIndex(1),
+                        crate::serialization::ReferenceIndexOrInlineContent::Indirect(
+                            ReferenceIndex(1),
+                        ),
                     ),
                 ),
             ]))))),

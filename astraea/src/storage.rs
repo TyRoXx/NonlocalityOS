@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
 };
-use tracing::info;
+use tracing::{debug, info};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum StoreError {
@@ -145,6 +145,11 @@ impl StoreValue for SQLiteStorage {
     fn store_value(&self, value: Arc<Value>) -> std::result::Result<Reference, StoreError> {
         let connection_locked = self.connection.lock().unwrap();
         let reference = calculate_reference(&value);
+        debug!(
+            "Store {} bytes as {}",
+            value.blob.content.len(),
+            &reference.digest,
+        );
         let origin_digest: [u8; 64] = reference.digest.into();
         let transaction = Transaction::new_unchecked(&connection_locked, rusqlite::TransactionBehavior::Deferred).unwrap(/*TODO*/);
         let existing_count: i64 = connection_locked
@@ -204,6 +209,11 @@ impl LoadValue for SQLiteStorage {
                 reference
             })
             .collect();
+        debug!(
+            "Load {} bytes as {}",
+            value_blob.content.len(),
+            &reference.digest,
+        );
         Some(Arc::new(Value::new(value_blob, references)))
     }
 }

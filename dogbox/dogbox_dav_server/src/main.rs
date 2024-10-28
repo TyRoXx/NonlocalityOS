@@ -11,19 +11,21 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::net::{TcpListener, TcpStream};
-use tracing::info;
+use tracing::{debug, error, info};
+use tracing_subscriber::fmt::format::FmtSpan;
 mod file_system;
 mod file_system_test;
 use file_system::DogBoxFileSystem;
 
 async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
     let make_service = move |req: Request<body::Incoming>| {
-        info!("Request: {:?}", &req);
+        debug!("Request: {:?}", &req);
         let dav_server = dav_server.clone();
         async move { Ok::<_, Infallible>(dav_server.handle(req).await) }
     };
     let io = TokioIo::new(stream);
     if let Err(err) = http1::Builder::new()
+        .max_buf_size(5_000_000)
         .serve_connection(io, hyper::service::service_fn(make_service))
         .await
     {
@@ -42,51 +44,87 @@ async fn handle_tcp_connections(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum SaveStatus {
     Saved,
     Saving,
 }
 
-async fn save_tree_regularly(
+async fn save_root_regularly(root: Arc<OpenDirectory>) {
+    let mut previous_status = None;
+    let mut next_wait_time = std::time::Duration::from_secs(0);
+    loop {
+        let save_result = root.request_save().await;
+        match save_result {
+            Ok(status) => {
+                let is_same_as_before = Some(&status) == previous_status.as_ref();
+                previous_status = Some(status);
+                if is_same_as_before {
+                    next_wait_time = std::cmp::min(
+                        std::time::Duration::from_secs(10),
+                        next_wait_time + std::time::Duration::from_millis(20),
+                    );
+                } else {
+                    next_wait_time = std::time::Duration::from_secs(0);
+                }
+                tokio::time::sleep(next_wait_time).await;
+            }
+            Err(error_) => {
+                error!("request_save failed with {:?}", &error_);
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            }
+        }
+    }
+}
+
+async fn persist_root_on_change(
     root: Arc<OpenDirectory>,
     root_name: &str,
     blob_storage: &(dyn UpdateRoot + Sync),
-    save_status_sender: tokio::sync::watch::Sender<SaveStatus>,
+    save_status_sender: tokio::sync::mpsc::Sender<SaveStatus>,
 ) {
-    let mut previous_root_status: Option<OpenDirectoryStatus> = None;
     let mut number_of_no_changes_in_a_row: u64 = 0;
+    let mut receiver = root.watch().await;
+    let mut previous_root_status: OpenDirectoryStatus = *receiver.borrow();
     loop {
-        let (maybe_status, change_event_future) = root.wait_for_next_change().await;
-        match maybe_status {
-            Ok(root_status) => {
-                if previous_root_status.as_ref() == Some(&root_status) {
-                    println!("Root didn't change");
-                    number_of_no_changes_in_a_row += 1;
-                    assert_ne!(10, number_of_no_changes_in_a_row);
-                } else {
-                    println!("Root changed: {:?}", &root_status);
-                    number_of_no_changes_in_a_row = 0;
-                    blob_storage.update_root(root_name, &root_status.digest);
-                    save_status_sender
-                        .send(match root_status.files_unflushed_count {
-                            0 => SaveStatus::Saved,
-                            _ => SaveStatus::Saving,
-                        })
-                        .unwrap();
-                    previous_root_status = Some(root_status);
-                }
-            }
-            Err(error) => {
-                println!("Could not poll root status: {:?}", &error);
-            }
+        let root_status = *receiver.borrow();
+        if previous_root_status == root_status {
+            info!("Root didn't change");
+            number_of_no_changes_in_a_row += 1;
+            assert_ne!(10, number_of_no_changes_in_a_row);
+        } else {
+            info!("Root changed: {:?}", &root_status);
+            number_of_no_changes_in_a_row = 0;
+            blob_storage.update_root(root_name, &root_status.digest.last_known_digest);
+            let save_status = if root_status.digest.is_digest_up_to_date {
+                assert!(root_status.bytes_unflushed_count == 0);
+                assert!(root_status.files_unflushed_count == 0);
+                assert!(root_status.directories_unsaved_count == 0);
+                info!("Root digest is up to date.");
+                SaveStatus::Saved
+            } else {
+                assert!(root_status.directories_unsaved_count != 0);
+                info!("Root digest is not up to date.");
+                SaveStatus::Saving
+            };
+            tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                save_status_sender.send(save_status),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            previous_root_status = root_status;
         }
-        match change_event_future.await {
+        info!("Waiting for root to change.");
+        let maybe_changed = receiver.changed().await;
+        match maybe_changed {
             Ok(_) => {
-                println!("Detected a change event!");
+                info!("changed() event!");
             }
-            Err(error) => {
-                println!("Could not wait for change event: {:?}", &error);
+            Err(error_) => {
+                error!("Could not wait for change event: {:?}", &error_);
+                return;
             }
         }
     }
@@ -99,7 +137,7 @@ async fn run_dav_server(
     clock: WallClock,
 ) -> Result<
     (
-        tokio::sync::watch::Receiver<SaveStatus>,
+        tokio::sync::mpsc::Receiver<SaveStatus>,
         Pin<
             Box<
                 dyn std::future::Future<
@@ -133,30 +171,39 @@ async fn run_dav_server(
         Some(found) => {
             OpenDirectory::load_directory(blob_storage.clone(), &found, modified_default, clock).await.unwrap(/*TODO*/)
         }
-        None => Arc::new(OpenDirectory::from_entries(
-            vec![],
-            blob_storage.clone(),
-            modified_default,
-            clock,
-        )),
+        None => Arc::new(
+            OpenDirectory::create_directory(blob_storage.clone(), clock)
+                .await
+                .unwrap(/*TODO*/),
+        ),
     };
     let dav_server = Arc::new(
         DavHandler::builder()
             .filesystem(Box::new(DogBoxFileSystem::new(
-                dogbox_tree_editor::TreeEditor::new(root.clone()),
+                dogbox_tree_editor::TreeEditor::new(root.clone(), None),
             )))
             .locksystem(FakeLs::new())
             .build_handler(),
     );
-    let (save_status_sender, save_status_receiver) = tokio::sync::watch::channel(SaveStatus::Saved);
+    let (save_status_sender, save_status_receiver) = tokio::sync::mpsc::channel(6);
     let result = async move {
-        tokio::join!(
+        let root_cloned = root.clone();
+        let join_result = tokio::try_join!(
             async move {
-                save_tree_regularly(root, &root_name, &*blob_storage, save_status_sender).await;
+                save_root_regularly(root).await;
+                Ok(())
             },
-            handle_tcp_connections(listener, dav_server)
-        )
-        .1
+            async move {
+                persist_root_on_change(root_cloned, &root_name, &*blob_storage, save_status_sender)
+                    .await;
+                Ok(())
+            },
+            async move {
+                handle_tcp_connections(listener, dav_server).await.unwrap();
+                Ok(())
+            }
+        );
+        join_result.map(|_| ())
     };
     Ok((save_status_receiver, Box::pin(result)))
 }
@@ -173,7 +220,8 @@ mod tests {
 
     async fn run_dav_server_instance<'t>(
         database_file_name: &std::path::Path,
-        change_files: impl FnOnce(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>,
+        change_files: Option<Box<dyn FnOnce(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>>>,
+        is_saving_expected: bool,
         verify_changes: &impl Fn(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>,
         modified_default: std::time::SystemTime,
         clock: WallClock,
@@ -187,20 +235,39 @@ mod tests {
                 .await
                 .unwrap();
         let client_side_testing = async move {
-            change_files(create_client(server_url.clone())).await;
+            if let Some(change_files2) = change_files {
+                change_files2(create_client(server_url.clone())).await;
+            }
             verify_changes(create_client(server_url.clone())).await;
             // verify again to be extra sure this is deterministic
             verify_changes(create_client(server_url)).await;
         };
         let waiting_for_saved = async {
-            info!("Waiting for the save status to become saved.");
-            save_status_receiver
-                .wait_for(|status| match status {
-                    crate::SaveStatus::Saved => true,
-                    crate::SaveStatus::Saving => false,
-                })
+            if is_saving_expected {
+                info!("Waiting for the save status to become saved.");
+                loop {
+                    let mut events = Vec::new();
+                    save_status_receiver.recv_many(&mut events, 100).await;
+                    info!("Receive save status: {:?}", &events);
+                    match events.last().unwrap() {
+                        crate::SaveStatus::Saved => {
+                            info!("The save status became saved.");
+                            break;
+                        }
+                        crate::SaveStatus::Saving => info!("Still saving"),
+                    }
+                }
+            } else {
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(50),
+                    save_status_receiver.recv(),
+                )
                 .await
-                .unwrap();
+                {
+                    Ok(status) => assert_eq!(Some(crate::SaveStatus::Saved), status),
+                    Err(_elapsed) => {}
+                }
+            }
         };
         let testing = async {
             client_side_testing.await;
@@ -216,7 +283,7 @@ mod tests {
     }
 
     async fn test_fresh_dav_server<'t>(
-        change_files: impl FnOnce(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>,
+        change_files: Option<Box<dyn FnOnce(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>>>,
         verify_changes: &impl Fn(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>,
     ) {
         let clock = || {
@@ -229,23 +296,26 @@ mod tests {
         let database_file_name = temporary_directory.path().join("dogbox_dav_server.sqlite");
         assert!(!std::fs::exists(&database_file_name).unwrap());
         info!("First test server instance");
-        run_dav_server_instance(
-            &database_file_name,
-            change_files,
-            &verify_changes,
-            modified_default,
-            clock,
-        )
-        .await;
+        {
+            let is_saving_expected = change_files.is_some();
+            run_dav_server_instance(
+                &database_file_name,
+                change_files,
+                is_saving_expected,
+                &verify_changes,
+                modified_default,
+                clock,
+            )
+            .await;
+        }
 
         // Start a new instance with the database from the first instance to check if the data was persisted correctly.
         info!("Second test server instance");
         assert!(std::fs::exists(&database_file_name).unwrap());
         run_dav_server_instance(
             &database_file_name,
-            |_client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-                Box::pin(async move { /* no changes */ })
-            },
+            None,
+            false,
             &verify_changes,
             modified_default,
             clock,
@@ -313,10 +383,11 @@ mod tests {
 
     #[test_log::test(tokio::test)]
     async fn test_file_not_found() {
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let verify_changes = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                let error = client.get("/test.txt").await.unwrap_err();
-                match error {
+                {
+                    let error = client.get("/test.txt").await.unwrap_err();
+                    match error {
                     reqwest_dav::Error::Reqwest(_) | reqwest_dav::Error::ReqwestDecode(_) | reqwest_dav::Error::MissingAuthContext => panic!("Unexpected error: {:?}", &error),
                     reqwest_dav::Error::Decode(decode) => match decode {
                         reqwest_dav::DecodeError::DigestAuth(_) => panic!(),
@@ -330,22 +401,19 @@ mod tests {
                                 format!("{:?}", server_error)),
                     },
                 };
-            })
-        };
-        let verify_changes = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-            Box::pin(async move {
+                }
                 let listed = list_directory(&client, "/").await;
                 assert_eq!(1, listed.len());
                 expect_directory(&listed[0], "/");
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(None, &verify_changes).await
     }
 
     async fn test_create_file(content: Vec<u8>) {
         let file_name = "test.txt";
         let content_cloned = content.clone();
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.put(file_name, content_cloned).await.unwrap();
             })
@@ -366,7 +434,7 @@ mod tests {
                 .await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
@@ -413,19 +481,24 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
+    async fn test_create_file_200k() {
+        test_create_file(std::iter::repeat_n(0u8, 200_000).collect()).await
+    }
+
+    #[test_log::test(tokio::test)]
     async fn test_create_file_1_mb() {
         test_create_file(std::iter::repeat_n(0u8, 1_000_000).collect()).await
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_create_file_2_mb() {
-        test_create_file(std::iter::repeat_n(0u8, 2_000_000).collect()).await
+    async fn test_create_file_4_mb() {
+        test_create_file(std::iter::repeat_n(0u8, 4_000_000).collect()).await
     }
 
     #[test_log::test(tokio::test)]
     async fn test_create_directory() {
         let dir_name = "Dir4";
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.mkcol(&dir_name).await.unwrap();
             })
@@ -445,11 +518,43 @@ mod tests {
                 }
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_nested_directories() {
+    async fn test_two_nested_directories() {
+        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.mkcol("a").await.unwrap();
+                client.mkcol("a/b").await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                {
+                    let listed = list_directory(&client, "/").await;
+                    assert_eq!(2, listed.len());
+                    expect_directory(&listed[0], "/");
+                    expect_directory(&listed[1], "/a/");
+                }
+                {
+                    let listed = list_directory(&client, "/a").await;
+                    assert_eq!(2, listed.len());
+                    expect_directory(&listed[0], "/a/");
+                    expect_directory(&listed[1], "/a/b/");
+                }
+                {
+                    let listed = list_directory(&client, "/a/b").await;
+                    assert_eq!(1, listed.len());
+                    expect_directory(&listed[0], "/a/b/");
+                }
+            })
+        };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_three_nested_directories() {
         let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.mkcol("a").await.unwrap();
@@ -484,14 +589,12 @@ mod tests {
                 }
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
     async fn test_list_infinity() {
         // WebDAV servers sometimes refuse "depth: infinity" PROPFIND requests. The library we use does this as well.
-        let change_files =
-            |_client: Client| -> Pin<Box<dyn Future<Output = ()>>> { Box::pin(async move {}) };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 assert_eq!(
@@ -503,35 +606,31 @@ mod tests {
                 );
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(None, &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
     async fn test_rename_root() {
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 assert_eq!(
                     "reqwest_dav::Error { kind: \"Decode\", source: Server(ServerError { response_code: 403, exception: \"server exception and parse error\", message: \"\" }) }",
                     format!(
                         "{:?}",
                         &client.mv("/", "/test/").await.unwrap_err()));
-            })
-        };
-        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-            Box::pin(async move {
                 let listed = list_directory(&client, "/").await;
                 assert_eq!(1, listed.len());
                 expect_directory(&listed[0], "/");
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(None, &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
     async fn test_rename_file_to_already_existing_path() {
         let content_a = "test";
         let content_b = "foo";
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.put("A", content_a).await.unwrap();
                 client.put("B", content_b).await.unwrap();
@@ -553,13 +652,13 @@ mod tests {
                 .await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
     async fn test_rename_file() {
         let content = "test";
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.put("A", content).await.unwrap();
                 client.mv("A", "B").await.unwrap();
@@ -580,7 +679,7 @@ mod tests {
                 .await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
@@ -599,13 +698,13 @@ mod tests {
                 expect_directory(&listed[1], "/B/");
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
     async fn test_rename_with_different_directories() {
         let content = "test";
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.mkcol("A").await.unwrap();
                 client.put("A/foo.txt", content).await.unwrap();
@@ -630,13 +729,13 @@ mod tests {
                 expect_directory_empty(&client, "/A/").await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
     async fn test_rename_with_different_directories_locking() {
         let content = "test";
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.mkcol("A").await.unwrap();
                 client.put("A/foo.txt", content).await.unwrap();
@@ -664,7 +763,7 @@ mod tests {
                 .await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
@@ -680,7 +779,7 @@ mod tests {
                 expect_directory_empty(&client, "/").await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
@@ -696,14 +795,16 @@ mod tests {
                 expect_directory_empty(&client, "/").await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing_subscriber::fmt::init();
-    let address = SocketAddr::from(([127, 0, 0, 1], 4918));
+    tracing_subscriber::fmt()
+        .with_span_events(FmtSpan::CLOSE)
+        .init();
+    let address = SocketAddr::from(([0, 0, 0, 0], 4918));
     let database_file_name = std::env::current_dir()
         .unwrap()
         .join("dogbox_dav_server.sqlite");
@@ -715,8 +816,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "Last modification time defaults to {:#?}",
         &modified_default
     );
-    let (_save_status_receiver, server) =
+    let (mut save_status_receiver, server) =
         run_dav_server(listener, &database_file_name, modified_default, clock).await?;
-    server.await?;
+    tokio::try_join!(server, async move {
+        while let Some(status) = save_status_receiver.recv().await {
+            info!("Save status: {:?}", status);
+        }
+        Ok(())
+    })?;
     Ok(())
 }

@@ -13,12 +13,13 @@ command = ["cargo", "tarpaulin", "--verbose", "--color", "always", "--out", "lco
 env.CARGO_TARGET_DIR = "target-coverage"
 need_stdout = false
 on_change_strategy = "wait_then_restart"
-background = false
+background = true
 
 [jobs.check]
 command = ["cargo", "check", "--color", "always"]
 need_stdout = false
-background = false
+on_change_strategy = "wait_then_restart"
+background = true
 
 [jobs.check-all]
 command = ["cargo", "check", "--all-targets", "--color", "always"]
