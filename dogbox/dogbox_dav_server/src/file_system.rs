@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
+use tracing::instrument;
 
 #[derive(Clone)]
 pub struct DogBoxFileSystem {
@@ -393,46 +394,51 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         })
     }
 
+    #[instrument(skip(self))]
     fn copy<'a>(
         &'a self,
         _from: &'a dav_server::davpath::DavPath,
         _to: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, ()> {
-        todo!()
+        Box::pin(core::future::ready(Err(FsError::NotImplemented)))
     }
 
+    #[instrument(skip(self))]
     fn have_props<'a>(
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
-        debug!("have_props");
-        Box::pin(std::future::ready(false))
+        Box::pin(std::future::ready(true))
     }
 
+    #[instrument(skip(self))]
     fn patch_props<'a>(
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
         _patch: Vec<(bool, dav_server::fs::DavProp)>,
     ) -> dav_server::fs::FsFuture<'a, Vec<(hyper::StatusCode, dav_server::fs::DavProp)>> {
-        todo!()
+        Box::pin(core::future::ready(Err(FsError::NotImplemented)))
     }
 
+    #[instrument(skip(self))]
     fn get_props<'a>(
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
         _do_content: bool,
     ) -> dav_server::fs::FsFuture<'a, Vec<dav_server::fs::DavProp>> {
-        todo!()
+        Box::pin(core::future::ready(Ok(vec![])))
     }
 
+    #[instrument(skip(self))]
     fn get_prop<'a>(
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
         _prop: dav_server::fs::DavProp,
     ) -> dav_server::fs::FsFuture<'a, Vec<u8>> {
-        todo!()
+        Box::pin(core::future::ready(Err(FsError::NotImplemented)))
     }
 
+    #[instrument(skip(self))]
     fn get_quota(&self) -> dav_server::fs::FsFuture<(u64, Option<u64>)> {
         Box::pin(core::future::ready(Err(FsError::NotImplemented)))
     }

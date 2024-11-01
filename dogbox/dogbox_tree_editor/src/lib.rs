@@ -153,7 +153,7 @@ impl NamedEntry {
                 let mut previous_status = *cloned_receiver.borrow();
                 info!("The previous status was: {:?}", &previous_status);
                 tokio::task::spawn(async move {
-                    info!("Hello from the spawned task!");
+                    debug!("Hello from the spawned task!");
                     loop {
                         match cloned_receiver.changed().await {
                             Ok(_) => {
@@ -185,7 +185,7 @@ impl NamedEntry {
                 let mut previous_status = *cloned_receiver.borrow();
                 info!("The previous status was: {:?}", &previous_status);
                 tokio::task::spawn(async move {
-                    info!("Hello from the spawned task!");
+                    debug!("Hello from the spawned task!");
                     loop {
                         match cloned_receiver.changed().await {
                             Ok(_) => {
@@ -733,7 +733,6 @@ impl OpenDirectory {
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<Option<BlobDigest>> {
         if state_locked.has_unsaved_changes {
-            info!("Saving directory.");
             for entry in state_locked.names.iter() {
                 entry.1.request_save().await?;
             }

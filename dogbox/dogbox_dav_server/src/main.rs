@@ -18,10 +18,13 @@ mod file_system_test;
 use file_system::DogBoxFileSystem;
 
 async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
-    let make_service = move |req: Request<body::Incoming>| {
-        debug!("Request: {:?}", &req);
+    let make_service = move |request: Request<body::Incoming>| {
+        info!("Request: {:?}", &request);
         let dav_server = dav_server.clone();
-        async move { Ok::<_, Infallible>(dav_server.handle(req).await) }
+        async move {
+            let response = dav_server.handle(request).await;
+            Ok::<_, Infallible>(response)
+        }
     };
     let io = TokioIo::new(stream);
     if let Err(err) = http1::Builder::new()
@@ -120,7 +123,7 @@ async fn persist_root_on_change(
         let maybe_changed = receiver.changed().await;
         match maybe_changed {
             Ok(_) => {
-                info!("changed() event!");
+                debug!("changed() event!");
             }
             Err(error_) => {
                 error!("Could not wait for change event: {:?}", &error_);
