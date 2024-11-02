@@ -73,3 +73,21 @@ After measuring the test coverage, you can find [an HTML report under `target-co
 # Formatting code
 
 * `cargo fmt`
+
+# Running the DAV server
+
+## Release mode for better performance
+
+Caution: The server binds to `0.0.0.0` which means it will be accessible from the local network. It doesn't support auth nor SSL yet, so be careful!
+
+* `cargo run --bin dogbox_dav_server --release`
+
+## Mount the DAV drive on Linux via fstab
+
+Configure your system once:
+
+* `./setup_dav_fstab.sh`
+
+You will have to explicitly mount the filesystem after starting your DAV server. When it asks for username and password, you can just hit return. The server requires no username or password at the moment.
+
+* `sudo mount /mnt/dogbox_localhost`
