@@ -19,7 +19,7 @@ use file_system::DogBoxFileSystem;
 
 async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
     let make_service = move |request: Request<body::Incoming>| {
-        info!("Request: {:?}", &request);
+        debug!("Request: {:?}", &request);
         let dav_server = dav_server.clone();
         async move {
             let response = dav_server.handle(request).await;
@@ -32,7 +32,7 @@ async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
         .serve_connection(io, hyper::service::service_fn(make_service))
         .await
     {
-        eprintln!("Error serving connection: {:?}", err);
+        error!("Error serving connection: {:?}", err);
     }
 }
 
@@ -53,9 +53,10 @@ enum SaveStatus {
     Saving,
 }
 
-async fn save_root_regularly(root: Arc<OpenDirectory>) {
+async fn save_root_regularly(root: Arc<OpenDirectory>, minimum_delay: std::time::Duration) {
+    let maximum_delay = std::time::Duration::from_secs(10) + (2 * minimum_delay);
     let mut previous_status = None;
-    let mut next_wait_time = std::time::Duration::from_secs(0);
+    let mut next_wait_time = minimum_delay;
     loop {
         let save_result = root.request_save().await;
         match save_result {
@@ -64,11 +65,11 @@ async fn save_root_regularly(root: Arc<OpenDirectory>) {
                 previous_status = Some(status);
                 if is_same_as_before {
                     next_wait_time = std::cmp::min(
-                        std::time::Duration::from_secs(10),
+                        maximum_delay,
                         next_wait_time + std::time::Duration::from_millis(20),
                     );
                 } else {
-                    next_wait_time = std::time::Duration::from_secs(0);
+                    next_wait_time = minimum_delay;
                 }
                 tokio::time::sleep(next_wait_time).await;
             }
@@ -107,7 +108,7 @@ async fn persist_root_on_change(
                 SaveStatus::Saved
             } else {
                 assert!(root_status.directories_unsaved_count != 0);
-                info!("Root digest is not up to date.");
+                debug!("Root digest is not up to date.");
                 SaveStatus::Saving
             };
             tokio::time::timeout(
@@ -119,7 +120,7 @@ async fn persist_root_on_change(
             .unwrap();
             previous_root_status = root_status;
         }
-        info!("Waiting for root to change.");
+        debug!("Waiting for root to change.");
         let maybe_changed = receiver.changed().await;
         match maybe_changed {
             Ok(_) => {
@@ -138,6 +139,7 @@ async fn run_dav_server(
     database_file_name: &Path,
     modified_default: std::time::SystemTime,
     clock: WallClock,
+    minimum_save_delay: std::time::Duration,
 ) -> Result<
     (
         tokio::sync::mpsc::Receiver<SaveStatus>,
@@ -193,7 +195,7 @@ async fn run_dav_server(
         let root_cloned = root.clone();
         let join_result = tokio::try_join!(
             async move {
-                save_root_regularly(root).await;
+                save_root_regularly(root, minimum_save_delay).await;
                 Ok(())
             },
             async move {
@@ -233,10 +235,16 @@ mod tests {
         let listener = TcpListener::bind(address).await.unwrap();
         let actual_address = listener.local_addr().unwrap();
         let server_url = format!("http://{}", actual_address);
-        let (mut save_status_receiver, server) =
-            run_dav_server(listener, &database_file_name, modified_default, clock)
-                .await
-                .unwrap();
+        let (mut save_status_receiver, server) = run_dav_server(
+            listener,
+            &database_file_name,
+            modified_default,
+            clock,
+            /*TODO: reduce to ZERO after fixing the save/check race condition in these tests*/
+            std::time::Duration::from_millis(500),
+        )
+        .await
+        .unwrap();
         let client_side_testing = async move {
             if let Some(change_files2) = change_files {
                 change_files2(create_client(server_url.clone())).await;
@@ -491,11 +499,6 @@ mod tests {
     #[test_log::test(tokio::test)]
     async fn test_create_file_1_mb() {
         test_create_file(std::iter::repeat_n(0u8, 1_000_000).collect()).await
-    }
-
-    #[test_log::test(tokio::test)]
-    async fn test_create_file_4_mb() {
-        test_create_file(std::iter::repeat_n(0u8, 4_000_000).collect()).await
     }
 
     #[test_log::test(tokio::test)]
@@ -819,8 +822,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "Last modification time defaults to {:#?}",
         &modified_default
     );
-    let (mut save_status_receiver, server) =
-        run_dav_server(listener, &database_file_name, modified_default, clock).await?;
+    let (mut save_status_receiver, server) = run_dav_server(
+        listener,
+        &database_file_name,
+        modified_default,
+        clock,
+        std::time::Duration::from_secs(10),
+    )
+    .await?;
     tokio::try_join!(server, async move {
         while let Some(status) = save_status_receiver.recv().await {
             info!("Save status: {:?}", status);

@@ -191,15 +191,12 @@ impl NamedEntry {
                             Ok(_) => {
                                 let current_status = *cloned_receiver.borrow();
                                 if previous_status == current_status {
-                                    info!(
+                                    panic!(
                                         "Open directory status received, but it is the same as before: {:?}",
                                         &previous_status
                                     );
                                 } else {
-                                    info!(
-                                        "Open directory status changed from {:?} to {:?}",
-                                        &previous_status, &current_status
-                                    );
+                                    info!("Open directory status changed: {:?}", &current_status);
                                     previous_status = current_status;
                                     on_change().await.unwrap();
                                 }
@@ -435,7 +432,7 @@ impl OpenDirectory {
 
     fn watch_new_entry(self: Arc<OpenDirectory>, entry: &mut NamedEntry) {
         entry.watch(Box::new(move || {
-            info!("Notifying directory of changes in one of the entries.");
+            debug!("Notifying directory of changes in one of the entries.");
             let self2 = self.clone();
             Box::pin(async move {
                 let mut state_locked = self2.state.lock().await;
@@ -751,7 +748,7 @@ impl OpenDirectory {
         state_locked: &mut OpenDirectoryMutableState,
         new_digest: Option<BlobDigest>,
     ) -> OpenDirectoryStatus {
-        let mut directories_open_count: usize=/*count self*/ 1;
+        let mut directories_open_count: usize= /*count self*/ 1;
         let mut directories_unsaved_count: usize = 0;
         let mut files_open_count: usize = 0;
         let mut files_open_for_writing_count: usize = 0;
@@ -773,7 +770,7 @@ impl OpenDirectory {
                         files_unflushed_count += open_directory_status.files_unflushed_count;
                         bytes_unflushed_count += open_directory_status.bytes_unflushed_count;
                         if !open_directory_status.digest.is_digest_up_to_date {
-                            info!("Child directory is not up to date.");
+                            debug!("Child directory is not up to date.");
                             are_children_up_to_date = false;
                         }
                     }
@@ -787,7 +784,7 @@ impl OpenDirectory {
                         }
                         bytes_unflushed_count += open_file_status.bytes_unflushed_count;
                         if !open_file_status.digest.is_digest_up_to_date {
-                            info!("Child file is not up to date.");
+                            debug!("Child file is not up to date.");
                             are_children_up_to_date = false;
                         }
                     }
@@ -872,7 +869,15 @@ impl OpenDirectory {
                 },
             );
         }
-        info!("Saving directory: {:?}", &serialization_children);
+        if serialization_children.len() > 5 {
+            info!(
+                "Saving directory with {} entries",
+                serialization_children.len()
+            );
+            debug!("Saving directory: {:?}", &serialization_children);
+        } else {
+            info!("Saving directory: {:?}", &serialization_children);
+        }
         let maybe_value_blob = ValueBlob::try_from(
             postcard::to_allocvec(&DirectoryTree {
                 children: serialization_children,
@@ -1535,7 +1540,6 @@ impl OpenFile {
             true,
             content.unsaved_bytes(),
         );
-        info!("Sending file status: {:?}", &status);
         if change_event_sender.send_if_modified(|last_status| {
             if *last_status == status {
                 false

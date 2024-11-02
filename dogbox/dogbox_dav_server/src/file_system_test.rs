@@ -36,9 +36,10 @@ mod tests {
             .locksystem(FakeLs::new())
             .build_handler();
 
-        let address = SocketAddr::from(([127, 0, 0, 1], 4919));
+        let address = SocketAddr::from(([127, 0, 0, 1], 0));
         let listener = TcpListener::bind(address).await.unwrap();
-        println!("Serving on http://{}", address);
+        let actual_address = listener.local_addr().unwrap();
+        println!("Serving on http://{}", actual_address);
 
         let serve = || async {
             loop {
@@ -63,7 +64,7 @@ mod tests {
             }
         };
 
-        let server_url = format!("http://{}", address);
+        let server_url = format!("http://{}", actual_address);
         let run_client = async {
             let client = ClientBuilder::new()
                 .set_host(server_url)
