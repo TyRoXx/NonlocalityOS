@@ -1690,20 +1690,24 @@ impl OpenFile {
         Box::pin(async move {
             let write_buffer = OptimizedWriteBuffer::from_bytes(position, buf);
             let mut content_locked = self.content.lock().await;
-            content_locked
+            let write_result = content_locked
                 .write(position, write_buffer, self.storage.clone())
-                .await?;
+                .await;
             debug!("Writing to file sends a change event for this file.");
-            match Self::update_status(
+            let update_result = Self::update_status(
                 &self.change_event_sender,
                 &mut content_locked,
                 &self.write_permission,
             )
-            .await
-            {
-                Ok(_) => Ok(()),
-                Err(error) => Err(Error::Storage(error)),
-            }
+            .await;
+            // We want to update the status even if parts of the write failed.
+            write_result?;
+            update_result
+                .map_err(|error| Error::Storage(error))
+                .map(|status| {
+                    debug!("Status after writing: {:?}", &status);
+                    ()
+                })
         })
     }
 
