@@ -1213,6 +1213,58 @@ pub enum StoreChanges {
 }
 
 #[derive(Debug)]
+pub struct OptimizedWriteBuffer {
+    // less than VALUE_BLOB_MAX_LENGTH
+    prefix: bytes::Bytes,
+    // each one is exactly VALUE_BLOB_MAX_LENGTH
+    full_blocks: Vec<bytes::Bytes>,
+    // less than VALUE_BLOB_MAX_LENGTH
+    suffix: bytes::Bytes,
+}
+
+impl OptimizedWriteBuffer {
+    pub fn from_bytes(write_position: u64, content: bytes::Bytes) -> OptimizedWriteBuffer {
+        let first_block_offset = (write_position % VALUE_BLOB_MAX_LENGTH as u64) as usize;
+        let first_block_capacity = VALUE_BLOB_MAX_LENGTH - first_block_offset;
+        let mut block_aligned_content = content.clone();
+        let prefix = match first_block_offset {
+            0 => bytes::Bytes::new(),
+            _ => {
+                let prefix = block_aligned_content.split_to(std::cmp::min(
+                    block_aligned_content.len(),
+                    first_block_capacity,
+                ));
+                assert!(prefix.len() <= first_block_capacity);
+                assert!((first_block_offset + prefix.len()) <= VALUE_BLOB_MAX_LENGTH);
+                prefix
+            }
+        };
+        let mut full_blocks = Vec::new();
+        loop {
+            if block_aligned_content.len() < VALUE_BLOB_MAX_LENGTH {
+                let result = OptimizedWriteBuffer {
+                    prefix: prefix,
+                    full_blocks: full_blocks,
+                    suffix: block_aligned_content,
+                };
+                assert!((first_block_offset + result.prefix.len()) <= VALUE_BLOB_MAX_LENGTH);
+                assert!(result.prefix.len() < VALUE_BLOB_MAX_LENGTH);
+                assert!(result.suffix.len() < VALUE_BLOB_MAX_LENGTH);
+                assert_eq!(content.len(), result.len());
+                return result;
+            }
+            let next = block_aligned_content.split_to(VALUE_BLOB_MAX_LENGTH);
+            // TODO: hash the full blocks here before taking any locks on the file, and in parallel
+            full_blocks.push(next);
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.prefix.len() + (self.full_blocks.len() * VALUE_BLOB_MAX_LENGTH) + self.suffix.len()
+    }
+}
+
+#[derive(Debug)]
 pub enum OpenFileContentBuffer {
     NotLoaded { digest: BlobDigest, size: u64 },
     Loaded(OpenFileContentBufferLoaded),
@@ -1394,7 +1446,7 @@ impl OpenFileContentBuffer {
     pub async fn write(
         &mut self,
         position: u64,
-        buf: bytes::Bytes,
+        buf: OptimizedWriteBuffer,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<()> {
         let loaded = self.require_loaded(storage.clone()).await?;
@@ -1414,6 +1466,10 @@ impl OpenFileContentBuffer {
         // Consider the digest outdated because any write is very likely to change the digest.
         loaded.digest.is_digest_up_to_date = false;
 
+        let new_size = std::cmp::max(loaded.size, position + buf.len() as u64);
+        assert!(new_size >= loaded.size);
+        loaded.size = new_size;
+
         let first_block_index = position / (VALUE_BLOB_MAX_LENGTH as u64);
         if first_block_index >= (loaded.blocks.len() as u64) {
             if let Some(last_block) = loaded.blocks.last_mut() {
@@ -1424,14 +1480,12 @@ impl OpenFileContentBuffer {
                         std::iter::repeat_n(0u8, filler).collect::<Vec<_>>().into(),
                         storage.clone(),
                     )
-                    .await?;
+                    .await.unwrap(/*TODO: somehow recover and fix loaded.size*/);
                 assert!(write_result.remaining.is_empty());
-                loaded.size += write_result.growth as u64;
                 loaded.number_of_bytes_written_since_last_save += write_result.growth as u64;
             }
             while first_block_index >= (loaded.blocks.len() as u64) {
                 let filler = vec![0u8; VALUE_BLOB_MAX_LENGTH];
-                loaded.size += filler.len() as u64;
                 loaded.number_of_bytes_written_since_last_save += filler.len() as u64;
                 loaded
                     .blocks
@@ -1439,29 +1493,66 @@ impl OpenFileContentBuffer {
             }
         }
 
-        let mut next_block_index = first_block_index as usize;
-        let mut position_in_block = (position % (VALUE_BLOB_MAX_LENGTH as u64)) as u16;
         loaded.number_of_bytes_written_since_last_save += buf.len() as u64;
-        let mut remaining_data_to_write = buf;
-        while !remaining_data_to_write.is_empty() {
-            debug!(
-                "Write {} bytes, starting at block {}",
-                remaining_data_to_write.len(),
-                next_block_index,
-            );
+        let mut next_block_index = first_block_index as usize;
+        {
+            let position_in_block = (position % (VALUE_BLOB_MAX_LENGTH as u64)) as u16;
+            if buf.prefix.is_empty() {
+                assert_eq!(0, position_in_block);
+            } else {
+                assert_ne!(0, position_in_block);
+                if next_block_index == loaded.blocks.len() {
+                    loaded
+                        .blocks
+                        .push(OpenFileContentBlock::Loaded(None, buf.prefix.to_vec()));
+                } else {
+                    let block = &mut loaded.blocks[next_block_index];
+                    assert!(buf.prefix.len() < VALUE_BLOB_MAX_LENGTH);
+                    assert!((position_in_block as usize) < VALUE_BLOB_MAX_LENGTH);
+                    assert!(
+                        (position_in_block as usize + buf.prefix.len()) <= VALUE_BLOB_MAX_LENGTH
+                    );
+                    let write_result = block
+                        .write(position_in_block, buf.prefix, storage.clone())
+                        .await.unwrap(/*TODO: somehow recover and fix loaded.size*/);
+                    assert_eq!(0, write_result.remaining.len());
+                }
+                next_block_index += 1;
+            }
+        }
+
+        for full_block in buf.full_blocks {
             if next_block_index == loaded.blocks.len() {
                 loaded
                     .blocks
-                    .push(OpenFileContentBlock::Loaded(None, Vec::new()));
+                    .push(OpenFileContentBlock::Loaded(None, full_block.to_vec()));
+            } else {
+                let existing_block = &mut loaded.blocks[next_block_index];
+                match existing_block {
+                    OpenFileContentBlock::NotLoaded(_blob_digest, _) => {
+                        *existing_block = OpenFileContentBlock::Loaded(None, full_block.to_vec());
+                    }
+                    OpenFileContentBlock::Loaded(blob_digest, vec) => {
+                        *blob_digest = None;
+                        // reuse the memory
+                        vec.clear();
+                        vec.extend_from_slice(&full_block);
+                    }
+                }
             }
-            let block = &mut loaded.blocks[next_block_index];
-            let write_result = block
-                .write(position_in_block, remaining_data_to_write, storage.clone())
-                .await?;
-            position_in_block = 0;
-            remaining_data_to_write = write_result.remaining;
-            loaded.size = loaded.size + write_result.growth as u64;
             next_block_index += 1;
+        }
+
+        if !buf.suffix.is_empty() {
+            if next_block_index == loaded.blocks.len() {
+                loaded
+                    .blocks
+                    .push(OpenFileContentBlock::Loaded(None, buf.suffix.to_vec()));
+            } else {
+                let block = &mut loaded.blocks[next_block_index];
+                let write_result = block.write(0, buf.suffix, storage.clone()).await.unwrap(/*TODO: somehow recover and fix loaded.size*/);
+                assert_eq!(0, write_result.remaining.len());
+            }
         }
         Ok(())
     }
@@ -1597,10 +1688,10 @@ impl OpenFile {
         ));
         debug!("Write at {}: {} bytes", position, buf.len());
         Box::pin(async move {
-            // TODO: split buf into 64 KB chunks and hash them before taking the lock
+            let write_buffer = OptimizedWriteBuffer::from_bytes(position, buf);
             let mut content_locked = self.content.lock().await;
             content_locked
-                .write(position, buf, self.storage.clone())
+                .write(position, write_buffer, self.storage.clone())
                 .await?;
             debug!("Writing to file sends a change event for this file.");
             match Self::update_status(
