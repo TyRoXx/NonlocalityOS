@@ -49,7 +49,7 @@ async fn handle_tcp_connections(
 
 #[derive(Debug, PartialEq)]
 enum SaveStatus {
-    Saved,
+    Saved { files_open_for_writing_count: usize },
     Saving,
 }
 
@@ -105,7 +105,9 @@ async fn persist_root_on_change(
                 assert!(root_status.files_unflushed_count == 0);
                 assert!(root_status.directories_unsaved_count == 0);
                 info!("Root digest is up to date.");
-                SaveStatus::Saved
+                SaveStatus::Saved {
+                    files_open_for_writing_count: root_status.files_open_for_writing_count,
+                }
             } else {
                 assert!(root_status.directories_unsaved_count != 0);
                 debug!("Root digest is not up to date.");
@@ -261,9 +263,17 @@ mod tests {
                     save_status_receiver.recv_many(&mut events, 100).await;
                     info!("Receive save status: {:?}", &events);
                     match events.last().unwrap() {
-                        crate::SaveStatus::Saved => {
-                            info!("The save status became saved.");
-                            break;
+                        crate::SaveStatus::Saved {
+                            files_open_for_writing_count,
+                        } => {
+                            info!(
+                                "The save status became saved with {} files open for writing.",
+                                *files_open_for_writing_count
+                            );
+                            if *files_open_for_writing_count == 0 {
+                                break;
+                            }
+                            info!("Waiting for remaining files to be closed.");
                         }
                         crate::SaveStatus::Saving => info!("Still saving"),
                     }
@@ -275,7 +285,12 @@ mod tests {
                 )
                 .await
                 {
-                    Ok(status) => assert_eq!(Some(crate::SaveStatus::Saved), status),
+                    Ok(status) => assert_eq!(
+                        Some(crate::SaveStatus::Saved {
+                            files_open_for_writing_count: 0
+                        }),
+                        status
+                    ),
                     Err(_elapsed) => {}
                 }
             }
@@ -499,6 +514,21 @@ mod tests {
     #[test_log::test(tokio::test)]
     async fn test_create_file_1_mb() {
         test_create_file(std::iter::repeat_n(0u8, 1_000_000).collect()).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_create_file_2_mb() {
+        test_create_file(std::iter::repeat_n(0u8, 2_000_000).collect()).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_create_file_4_mb() {
+        test_create_file(std::iter::repeat_n(0u8, 4_000_000).collect()).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_create_file_8_mb() {
+        test_create_file(std::iter::repeat_n(0u8, 8_000_000).collect()).await
     }
 
     #[test_log::test(tokio::test)]

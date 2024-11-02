@@ -776,7 +776,7 @@ impl OpenDirectory {
                     }
                     OpenNamedEntryStatus::File(open_file_status) => {
                         files_open_count += 1;
-                        if open_file_status.is_writeable {
+                        if open_file_status.is_open_for_writing {
                             files_open_for_writing_count += 1;
                         }
                         if open_file_status.bytes_unflushed_count > 0 {
@@ -984,7 +984,7 @@ pub struct OpenFileStatus {
     pub digest: DigestStatus,
     pub size: u64,
     pub last_known_digest_file_size: u64,
-    pub is_writeable: bool,
+    pub is_open_for_writing: bool,
     pub bytes_unflushed_count: u64,
 }
 
@@ -993,14 +993,14 @@ impl OpenFileStatus {
         digest: DigestStatus,
         size: u64,
         last_known_digest_file_size: u64,
-        is_writeable: bool,
+        is_open_for_writing: bool,
         bytes_unflushed_count: u64,
     ) -> Self {
         Self {
             digest,
             size,
             last_known_digest_file_size,
-            is_writeable,
+            is_open_for_writing,
             bytes_unflushed_count,
         }
     }
@@ -1480,12 +1480,16 @@ impl OpenFileContentBuffer {
 }
 
 #[derive(Debug)]
+pub struct OpenFileWritePermission {}
+
+#[derive(Debug)]
 pub struct OpenFile {
     content: tokio::sync::Mutex<OpenFileContentBuffer>,
     storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     change_event_sender: tokio::sync::watch::Sender<OpenFileStatus>,
     _change_event_receiver: tokio::sync::watch::Receiver<OpenFileStatus>,
     modified: std::time::SystemTime,
+    write_permission: Arc<OpenFileWritePermission>,
 }
 
 impl OpenFile {
@@ -1499,7 +1503,7 @@ impl OpenFile {
             last_known_digest,
             content.size(),
             last_known_digest_file_size,
-            true,
+            false,
             0,
         ));
         OpenFile {
@@ -1508,6 +1512,7 @@ impl OpenFile {
             change_event_sender: sender,
             _change_event_receiver: receiver,
             modified,
+            write_permission: Arc::new(OpenFileWritePermission {}),
         }
     }
 
@@ -1528,16 +1533,22 @@ impl OpenFile {
         self.flush().await
     }
 
+    fn is_open_for_writing(write_permission: &Arc<OpenFileWritePermission>) -> bool {
+        Arc::strong_count(write_permission) > 1
+    }
+
     async fn update_status(
         change_event_sender: &tokio::sync::watch::Sender<OpenFileStatus>,
         content: &OpenFileContentBuffer,
+        write_permission: &Arc<OpenFileWritePermission>,
     ) -> std::result::Result<OpenFileStatus, StoreError> {
         let (last_known_digest, last_known_digest_file_size) = content.last_known_digest();
+        let is_open_for_writing = Self::is_open_for_writing(write_permission);
         let status = OpenFileStatus::new(
             last_known_digest,
             content.size(),
             last_known_digest_file_size,
-            true,
+            is_open_for_writing,
             content.unsaved_bytes(),
         );
         if change_event_sender.send_if_modified(|last_status| {
@@ -1558,7 +1569,32 @@ impl OpenFile {
         Ok(status)
     }
 
-    pub fn write_bytes(&self, position: u64, buf: bytes::Bytes) -> Future<()> {
+    pub fn get_write_permission(&self) -> Arc<OpenFileWritePermission> {
+        self.write_permission.clone()
+    }
+
+    pub fn notify_dropped_write_permission(&self) {
+        self.change_event_sender.send_if_modified(|status| {
+            let is_open_for_writing = Self::is_open_for_writing(&self.write_permission);
+            if status.is_open_for_writing == is_open_for_writing {
+                false
+            } else {
+                status.is_open_for_writing = is_open_for_writing;
+                true
+            }
+        });
+    }
+
+    pub fn write_bytes(
+        &self,
+        write_permission: &OpenFileWritePermission,
+        position: u64,
+        buf: bytes::Bytes,
+    ) -> Future<()> {
+        assert!(std::ptr::eq(
+            self.write_permission.as_ref(),
+            write_permission
+        ));
         debug!("Write at {}: {} bytes", position, buf.len());
         Box::pin(async move {
             // TODO: split buf into 64 KB chunks and hash them before taking the lock
@@ -1567,7 +1603,13 @@ impl OpenFile {
                 .write(position, buf, self.storage.clone())
                 .await?;
             debug!("Writing to file sends a change event for this file.");
-            match Self::update_status(&self.change_event_sender, &mut content_locked).await {
+            match Self::update_status(
+                &self.change_event_sender,
+                &mut content_locked,
+                &self.write_permission,
+            )
+            .await
+            {
                 Ok(_) => Ok(()),
                 Err(error) => Err(Error::Storage(error)),
             }
@@ -1589,7 +1631,12 @@ impl OpenFile {
         let mut content_locked = self.content.lock().await;
         match content_locked.store(self.storage.clone()).await? {
             StoreChanges::SomeChanges => {
-                Self::update_status(&self.change_event_sender, &mut content_locked).await
+                Self::update_status(
+                    &self.change_event_sender,
+                    &mut content_locked,
+                    &self.write_permission,
+                )
+                .await
             }
             StoreChanges::NoChanges => Ok(*self.change_event_sender.borrow()),
         }
@@ -1904,8 +1951,12 @@ mod tests {
             .open_file(file_name, &empty_file_digest)
             .await
             .unwrap();
+        let write_permission = opened.get_write_permission();
         let file_content = &b"hello world"[..];
-        opened.write_bytes(0, file_content.into()).await.unwrap();
+        opened
+            .write_bytes(&write_permission, 0, file_content.into())
+            .await
+            .unwrap();
         use futures::StreamExt;
         let directory_entries: Vec<MutableDirectoryEntry> = directory.read().await.collect().await;
         assert_eq!(
@@ -1936,8 +1987,12 @@ mod tests {
             .open_file(file_name, &empty_file_digest)
             .await
             .unwrap();
+        let write_permission = opened.get_write_permission();
         let file_content = &b"hello world"[..];
-        opened.write_bytes(0, file_content.into()).await.unwrap();
+        opened
+            .write_bytes(&write_permission, 0, file_content.into())
+            .await
+            .unwrap();
         assert_eq!(
             DirectoryEntryMetaData::new(
                 DirectoryEntryKind::File(file_content.len() as u64),

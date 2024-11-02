@@ -4,12 +4,14 @@ use dogbox_tree_editor::DirectoryEntryKind;
 use dogbox_tree_editor::DirectoryEntryMetaData;
 use dogbox_tree_editor::NormalizedPath;
 use dogbox_tree_editor::OpenFile;
+use dogbox_tree_editor::OpenFileWritePermission;
 use futures::stream::StreamExt;
 use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
 use tracing::instrument;
+use tracing::warn;
 
 #[derive(Clone)]
 pub struct DogBoxFileSystem {
@@ -147,6 +149,7 @@ impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
 #[derive(Debug)]
 struct DogBoxOpenFile {
     handle: Arc<OpenFile>,
+    write_permission: Option<Arc<OpenFileWritePermission>>,
     cursor: u64,
 }
 
@@ -168,9 +171,15 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
         self.cursor += buf.len() as u64;
         let open_file = self.handle.clone();
         Box::pin(async move {
-            match open_file.write_bytes(write_at, buf).await {
-                Ok(result) => Ok(result),
-                Err(error) => Err(handle_error(error)),
+            match &self.write_permission {
+                Some(writeable) => match open_file.write_bytes(&writeable, write_at, buf).await {
+                    Ok(result) => Ok(result),
+                    Err(error) => Err(handle_error(error)),
+                },
+                None => {
+                    warn!("Disallowed writing to a file that has not been opened for writing.");
+                    Err(FsError::Forbidden)
+                }
             }
         })
     }
@@ -218,6 +227,18 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
     }
 }
 
+impl Drop for DogBoxOpenFile {
+    fn drop(&mut self) {
+        match self.write_permission {
+            Some(_) => {
+                self.write_permission = None;
+                self.handle.notify_dropped_write_permission();
+            }
+            None => {}
+        }
+    }
+}
+
 fn convert_path<'t>(
     path: &'t dav_server::davpath::DavPath,
 ) -> dav_server::fs::FsResult<&'t relative_path::RelativePath> {
@@ -240,6 +261,18 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         options: dav_server::fs::OpenOptions,
     ) -> dav_server::fs::FsFuture<'a, Box<dyn dav_server::fs::DavFile>> {
         info!("Open {} | {:?}", path, options);
+        if options.append {
+            todo!()
+        }
+        if options.create_new {
+            warn!("options.create_new not supported yet");
+        }
+        if options.checksum.is_some() {
+            todo!()
+        }
+        if options.size.is_some() {
+            warn!("options.size not supported yet");
+        }
         Box::pin(async move {
             let converted_path = convert_path(&path)?;
             let open_file = match self
@@ -250,9 +283,17 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 Ok(success) => success,
                 Err(_error) => todo!(),
             };
+            if (open_file.size().await > 0) && options.truncate {
+                todo!()
+            }
+            let write_permission = match options.write {
+                true => Some(open_file.get_write_permission()),
+                false => None,
+            };
             Ok(Box::new(DogBoxOpenFile {
                 handle: open_file,
                 cursor: 0,
+                write_permission,
             }) as Box<dyn dav_server::fs::DavFile>)
         })
     }
