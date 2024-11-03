@@ -22,12 +22,37 @@ impl BlobDigest {
         BlobDigest((first.try_into().unwrap(), second.try_into().unwrap()))
     }
 
+    pub fn parse_hex_string(input: &str) -> Option<BlobDigest> {
+        let mut result = [0u8; 64];
+        hex::decode_to_slice(input, &mut result).ok()?;
+        Some(BlobDigest::new(&result))
+    }
+
     pub fn hash(input: &[u8]) -> BlobDigest {
         let mut hasher = Sha3_512::new();
         hasher.update(input);
         let result = hasher.finalize().into();
         BlobDigest::new(&result)
     }
+}
+
+#[test]
+fn blob_digest_parse_hex_string() {
+    let correct_input = "98b682d4ed7cae2d71b52b0548f37eb5e1243077b4bf5cc43dd7c0dfe50ef462a41d0d70ec41abdd31ef4a2bce79d29b9bafee45ffde2154a61590932c9c92d7";
+    assert_eq!(None, BlobDigest::parse_hex_string(""));
+    let too_short = correct_input.split_at(correct_input.len() - 1).0;
+    assert_eq!(None, BlobDigest::parse_hex_string(too_short));
+    let too_long = format!("{}0", correct_input);
+    assert_eq!(None, BlobDigest::parse_hex_string(&too_long));
+    assert_eq!(
+        Some(BlobDigest::new(&[
+            152, 182, 130, 212, 237, 124, 174, 45, 113, 181, 43, 5, 72, 243, 126, 181, 225, 36, 48,
+            119, 180, 191, 92, 196, 61, 215, 192, 223, 229, 14, 244, 98, 164, 29, 13, 112, 236, 65,
+            171, 221, 49, 239, 74, 43, 206, 121, 210, 155, 155, 175, 238, 69, 255, 222, 33, 84,
+            166, 21, 144, 147, 44, 156, 146, 215
+        ])),
+        BlobDigest::parse_hex_string(correct_input)
+    );
 }
 
 impl std::fmt::Debug for BlobDigest {
@@ -264,7 +289,7 @@ pub async fn reduce_expression_from_reference(
     let value = reduce_expression_without_storing_the_final_result(
         TypedValue::new(
             argument.type_id,
-            /*TODO: avoid this clone*/ (*argument_value).clone(),
+            /*TODO: avoid this clone*/ (**argument_value.value()).clone(),
         ),
         service_resolver,
         loader,
@@ -783,7 +808,7 @@ fn replace_variable_recursively(
     let body_loaded = loader.load_value(&body.reference).unwrap();
     let mut references = Vec::new();
     let mut has_replaced_something = false;
-    for child in &body_loaded.references {
+    for child in &body_loaded.value().references {
         if &child.reference == variable {
             references.push(argument.clone());
             has_replaced_something = true;
@@ -807,7 +832,7 @@ fn replace_variable_recursively(
     }
     Some(TypedValue::new(
         body.type_id,
-        Value::new(body_loaded.blob.clone(), references),
+        Value::new(body_loaded.value().blob().clone(), references),
     ))
 }
 
@@ -824,9 +849,10 @@ impl ReduceExpression for LambdaApplicationService {
         let lambda_application = to_lambda_application(argument.value).unwrap();
         let argument = &lambda_application.argument;
         let function = to_lambda(
-            (*loader
+            (**loader
                 .load_value(&lambda_application.function.reference)
-                .unwrap())
+                .unwrap()
+                .value())
             .clone(),
         )
         .unwrap();
@@ -842,7 +868,7 @@ impl ReduceExpression for LambdaApplicationService {
                 Some(replaced) => replaced,
                 None => TypedValue::new(
                     function.body.type_id,
-                    (*loader.load_value(&function.body.reference).unwrap()).clone(),
+                    (**loader.load_value(&function.body.reference).unwrap().value()).clone(),
                 ),
             },
         ))
@@ -980,7 +1006,7 @@ impl ReduceExpression for CompiledReducer {
     ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
         let source_ref = argument.value.references[0];
         let source_value = loader.load_value(&source_ref.reference).unwrap();
-        let source_string = source_value.to_string().unwrap();
+        let source_string = source_value.value().to_string().unwrap();
         let compiler_output: CompilerOutput = crate::compiler::compile(&source_string, storage);
         Box::pin(std::future::ready(TypedValue::new(
             TypeId(10),

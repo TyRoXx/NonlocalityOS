@@ -28,7 +28,9 @@ mod tests {
             connection1.pragma_update(None, "key", correct_key).unwrap();
             SQLiteStorage::create_schema(&connection1).unwrap();
             let storage = SQLiteStorage::new(Mutex::new(connection1));
-            let reference = storage.store_value(Arc::new(Value::from_unit())).unwrap();
+            let reference = storage
+                .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+                .unwrap();
             assert_eq!(expected_reference, reference.digest);
         }
         {
@@ -37,8 +39,9 @@ mod tests {
                 .pragma_update(None, "key", incorrect_key)
                 .unwrap();
             let storage = SQLiteStorage::new(Mutex::new(connection2));
-            let result = storage.store_value(Arc::new(Value::from_unit()));
-            let expected : std::result::Result<Reference, StoreError> = Err(StoreError::Rusqlite("SqliteFailure(Error { code: NotADatabase, extended_code: 26 }, Some(\"file is not a database\"))".to_string()));
+            let result = storage.store_value(&HashedValue::from(Arc::new(Value::from_unit())));
+            let expected : std::result::Result<Reference, StoreError> =
+              Err(StoreError::Rusqlite("SqliteFailure(Error { code: NotADatabase, extended_code: 26 }, Some(\"file is not a database\"))".to_string()));
             assert_eq!(&expected, &result);
         }
         {
@@ -48,7 +51,7 @@ mod tests {
             let loaded_back = storage
                 .load_value(&Reference::new(expected_reference))
                 .unwrap();
-            assert_eq!(Value::from_unit(), *loaded_back);
+            assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
         }
     }
 
@@ -76,7 +79,7 @@ mod tests {
             reference.digest
         );
         let loaded_back = storage.load_value(&reference).unwrap();
-        assert_eq!(Value::from_unit(), *loaded_back);
+        assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
     }
 
     #[test]
@@ -103,7 +106,7 @@ mod tests {
         assert_eq!(reference_1.digest, reference_2.digest);
 
         let loaded_back = storage.load_value(&reference_1).unwrap();
-        assert_eq!(Value::from_unit(), *loaded_back);
+        assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
     }
 
     #[test]
@@ -128,7 +131,7 @@ mod tests {
             reference.digest
         );
         let loaded_back = storage.load_value(&reference).unwrap();
-        assert_eq!(*value, *loaded_back);
+        assert_eq!(HashedValue::from(value), loaded_back);
     }
 
     #[test]
@@ -157,7 +160,57 @@ mod tests {
             reference.digest
         );
         let loaded_back = storage.load_value(&reference).unwrap();
-        assert_eq!(*value, *loaded_back);
+        assert_eq!(HashedValue::from(value), loaded_back);
+    }
+
+    #[test]
+    fn test_store_two_references() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        SQLiteStorage::create_schema(&connection).unwrap();
+        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let referenced_digests = [b"a".as_slice(), b"ab"]
+            .into_iter()
+            .map(|element: &[u8]| BlobDigest::hash(element))
+            .map(|digest| TypedReference::new(TypeId(0), Reference::new(digest)))
+            .collect();
+        let value = Arc::new(Value::new(
+            ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
+            referenced_digests,
+        ));
+        let reference = storage
+            .store_value(&HashedValue::from(value.clone()))
+            .unwrap();
+        assert_eq!(
+            BlobDigest::parse_hex_string("7a94d90a60e67e6f1eaa209b308250e7260824a0e1b44f28afbdec93ba48ce674ebc68535a375b63589e99c1e1333a99402f039be481163501b3ff21d6d5f095").unwrap(),
+            reference.digest
+        );
+        let loaded_back = storage.load_value(&reference).unwrap();
+        assert_eq!(HashedValue::from(value), loaded_back);
+    }
+
+    #[test]
+    fn test_store_three_references() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        SQLiteStorage::create_schema(&connection).unwrap();
+        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let referenced_digests = [b"a".as_slice(), b"ab", b"abc"]
+            .into_iter()
+            .map(|element: &[u8]| BlobDigest::hash(element))
+            .map(|digest| TypedReference::new(TypeId(0), Reference::new(digest)))
+            .collect();
+        let value = Arc::new(Value::new(
+            ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
+            referenced_digests,
+        ));
+        let reference = storage
+            .store_value(&HashedValue::from(value.clone()))
+            .unwrap();
+        assert_eq!(
+            BlobDigest::parse_hex_string("28ce0d016af6bdd104fe0f1fbc5c7a8802d3c2d4b50fee71dd3041b69ae9766dbaea94ef1e82666deece16748e1e3ad720e9b260e2a82a9836a4c05336eec93c").unwrap(),
+            reference.digest
+        );
+        let loaded_back = storage.load_value(&reference).unwrap();
+        assert_eq!(HashedValue::from(value), loaded_back);
     }
 
     #[test]

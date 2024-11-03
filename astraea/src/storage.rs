@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
 };
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum StoreError {
@@ -20,7 +20,7 @@ pub trait StoreValue {
 }
 
 pub trait LoadValue {
-    fn load_value(&self, reference: &Reference) -> Option<Arc<Value>>;
+    fn load_value(&self, reference: &Reference) -> Option<HashedValue>;
 }
 
 pub trait LoadStoreValue: LoadValue + StoreValue {}
@@ -40,11 +40,13 @@ pub trait LoadRoot {
 }
 
 pub struct InMemoryValueStorage {
-    reference_to_value: Mutex<BTreeMap<Reference, Arc<Value>>>,
+    reference_to_value: Mutex<BTreeMap<Reference, HashedValue>>,
 }
 
 impl InMemoryValueStorage {
-    pub fn new(reference_to_value: Mutex<BTreeMap<Reference, Arc<Value>>>) -> InMemoryValueStorage {
+    pub fn new(
+        reference_to_value: Mutex<BTreeMap<Reference, HashedValue>>,
+    ) -> InMemoryValueStorage {
         InMemoryValueStorage { reference_to_value }
     }
 
@@ -64,14 +66,14 @@ impl StoreValue for InMemoryValueStorage {
         let mut lock = self.reference_to_value.lock().unwrap();
         let reference = Reference::new(*value.digest());
         if !lock.contains_key(&reference) {
-            lock.insert(reference.clone(), value.value().clone());
+            lock.insert(reference.clone(), value.clone());
         }
         Ok(reference)
     }
 }
 
 impl LoadValue for InMemoryValueStorage {
-    fn load_value(&self, reference: &Reference) -> Option<Arc<Value>> {
+    fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
         let lock = self.reference_to_value.lock().unwrap();
         lock.get(reference).cloned()
     }
@@ -182,7 +184,7 @@ impl StoreValue for SQLiteStorage {
 }
 
 impl LoadValue for SQLiteStorage {
-    fn load_value(&self, reference: &Reference) -> Option<Arc<Value>> {
+    fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
         let connection_locked = self.connection.lock().unwrap();
         let digest: [u8; 64] = reference.digest.into();
         let (id, value_blob) = connection_locked.query_row_and_then("SELECT id, value_blob FROM value WHERE digest = ?1", 
@@ -215,7 +217,16 @@ impl LoadValue for SQLiteStorage {
             value_blob.content.len(),
             &reference.digest,
         );
-        Some(Arc::new(Value::new(value_blob, references)))
+        let result = HashedValue::from(Arc::new(Value::new(value_blob, references)));
+        if *result.digest() != reference.digest {
+            error!(
+                "Tried to load {} from the database, but the digest of what we actually received back from the database is {}. The database appears to have been corrupted.",
+                &reference.digest,
+                result.digest()
+            );
+            return None;
+        }
+        Some(result)
     }
 }
 

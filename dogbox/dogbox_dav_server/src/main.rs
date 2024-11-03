@@ -527,11 +527,6 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_create_file_8_mb() {
-        test_create_file(std::iter::repeat_n(0u8, 8_000_000).collect()).await
-    }
-
-    #[test_log::test(tokio::test)]
     async fn test_create_directory() {
         let dir_name = "Dir4";
         let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {

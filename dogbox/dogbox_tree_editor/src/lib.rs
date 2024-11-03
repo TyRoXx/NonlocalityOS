@@ -462,7 +462,7 @@ impl OpenDirectory {
         match storage.load_value(&Reference::new(*digest)) {
             Some(loaded) => {
                 let parsed_directory: DirectoryTree =
-                    match postcard::from_bytes(loaded.blob().as_slice()) {
+                    match postcard::from_bytes(loaded.value().blob().as_slice()) {
                         Ok(success) => success,
                         Err(error) => return Err(Error::Postcard(error)),
                     };
@@ -482,10 +482,10 @@ impl OpenDirectory {
                         serialization::ReferenceIndexOrInlineContent::Indirect(reference_index) => {
                             let index: usize = usize::try_from(reference_index.0)
                                 .map_err(|_error| Error::ReferenceIndexOutOfRange)?;
-                            if index >= loaded.references().len() {
+                            if index >= loaded.value().references().len() {
                                 return Err(Error::ReferenceIndexOutOfRange);
                             }
-                            let digest = loaded.references()[index].reference.digest;
+                            let digest = loaded.value().references()[index].reference.digest;
                             Ok(DirectoryEntry::new(child.0.clone().into(), kind, digest))
                         }
                         serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
@@ -1121,17 +1121,17 @@ impl OpenFileContentBlock {
                     Some(success) => success,
                     None => return Err(Error::MissingValue(*blob_digest)),
                 };
-                if loaded.blob().as_slice().len() != *size as usize {
+                if loaded.value().blob().as_slice().len() != *size as usize {
                     error!(
                         "Loaded blob of size {}, but it was expected to be {} long",
-                        loaded.blob().as_slice().len(),
+                        loaded.value().blob().as_slice().len(),
                         *size
                     );
                     return Err(Error::FileSizeMismatch);
                 }
                 *self = OpenFileContentBlock::Loaded(
                     Some(*blob_digest),
-                    /*TODO: avoid cloning*/ loaded.blob().as_slice().to_vec(),
+                    /*TODO: avoid cloning*/ loaded.value().blob().as_slice().to_vec(),
                 );
             }
             OpenFileContentBlock::Loaded(_blob_digest, _vec) => {}
@@ -1260,10 +1260,7 @@ impl OpenFileContentBufferLoaded {
         // TODO(KWI): find unsaved blocks faster than O(N)
         for block in self.blocks.iter_mut() {
             let block_stored = block.store(storage.clone()).await?;
-            blocks_stored.push(TypedReference::new(
-                TypeId(u64::MAX),
-                Reference::new(block_stored),
-            ));
+            blocks_stored.push(TypedReference::new(TypeId(0), Reference::new(block_stored)));
         }
         assert!(blocks_stored.len() >= 1);
         if blocks_stored.len() == 1 {
@@ -1444,10 +1441,11 @@ impl OpenFileContentBuffer {
                         Some(success) => success,
                         None => return Err(Error::MissingValue(*digest)),
                     };
-                    let info: SegmentedBlob = match postcard::from_bytes(&value.blob().as_slice()) {
-                        Ok(success) => success,
-                        Err(error) => return Err(Error::Postcard(error)),
-                    };
+                    let info: SegmentedBlob =
+                        match postcard::from_bytes(&value.value().blob().as_slice()) {
+                            Ok(success) => success,
+                            Err(error) => return Err(Error::Postcard(error)),
+                        };
                     if info.size_in_bytes != *size {
                         return Err(Error::SegmentedBlobSizeMismatch {
                             digest: *digest,
@@ -1455,13 +1453,14 @@ impl OpenFileContentBuffer {
                             directory_entry_size: *size,
                         });
                     }
-                    if value.references().len() < 1 {
+                    if value.value().references().len() < 1 {
                         todo!()
                     }
                     let full_blocks = value
+                        .value()
                         .references()
                         .iter()
-                        .take(value.references().len() - 1)
+                        .take(value.value().references().len() - 1)
                         .map(|reference| {
                             OpenFileContentBlock::NotLoaded(
                                 reference.reference.digest,
@@ -1478,7 +1477,7 @@ impl OpenFileContentBuffer {
                     }
                     full_blocks
                         .chain(std::iter::once(OpenFileContentBlock::NotLoaded(
-                            value.references().last().unwrap().reference.digest,
+                            value.value().references().last().unwrap().reference.digest,
                             final_block_size as u16,
                         )))
                         .collect()
@@ -2246,7 +2245,7 @@ mod tests {
         fn load_value(
             &self,
             _reference: &astraea::tree::Reference,
-        ) -> Option<Arc<astraea::tree::Value>> {
+        ) -> Option<astraea::tree::HashedValue> {
             panic!()
         }
     }
