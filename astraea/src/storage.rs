@@ -1,5 +1,5 @@
 use crate::tree::{
-    calculate_reference, BlobDigest, Reference, TypeId, TypedReference, Value, ValueBlob,
+    BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob,
     VALUE_BLOB_MAX_LENGTH,
 };
 use rusqlite::Transaction;
@@ -16,7 +16,7 @@ pub enum StoreError {
 }
 
 pub trait StoreValue {
-    fn store_value(&self, value: Arc<Value>) -> std::result::Result<Reference, StoreError>;
+    fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError>;
 }
 
 pub trait LoadValue {
@@ -60,11 +60,11 @@ impl InMemoryValueStorage {
 }
 
 impl StoreValue for InMemoryValueStorage {
-    fn store_value(&self, value: Arc<Value>) -> std::result::Result<Reference, StoreError> {
+    fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
         let mut lock = self.reference_to_value.lock().unwrap();
-        let reference = calculate_reference(&value);
+        let reference = Reference::new(*value.digest());
         if !lock.contains_key(&reference) {
-            lock.insert(reference.clone(), value);
+            lock.insert(reference.clone(), value.value().clone());
         }
         Ok(reference)
     }
@@ -142,12 +142,12 @@ impl SQLiteStorage {
 }
 
 impl StoreValue for SQLiteStorage {
-    fn store_value(&self, value: Arc<Value>) -> std::result::Result<Reference, StoreError> {
+    fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
         let connection_locked = self.connection.lock().unwrap();
-        let reference = calculate_reference(&value);
+        let reference = Reference::new(*value.digest());
         debug!(
             "Store {} bytes as {}",
-            value.blob().content.len(),
+            value.value().blob().content.len(),
             &reference.digest,
         );
         let origin_digest: [u8; 64] = reference.digest.into();
@@ -166,10 +166,10 @@ impl StoreValue for SQLiteStorage {
         }
         connection_locked.execute(
             "INSERT INTO value (digest, value_blob) VALUES (?1, ?2)",
-            (&origin_digest, value.blob().as_slice()),
+            (&origin_digest, value.value().blob().as_slice()),
         ).unwrap(/*TODO*/);
         let inserted_value_rowid = connection_locked.last_insert_rowid();
-        for (index, reference) in value.references().iter().enumerate() {
+        for (index, reference) in value.value().references().iter().enumerate() {
             let target_digest: [u8; 64] = reference.reference.digest.into();
             connection_locked.execute(
                 "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",

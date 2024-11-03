@@ -4,7 +4,7 @@ mod tests {
 
     use crate::{
         storage::{LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
-        tree::{BlobDigest, Reference, TypeId, TypedReference, Value, ValueBlob},
+        tree::{BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob},
     };
     use std::sync::{Arc, Mutex};
 
@@ -63,7 +63,9 @@ mod tests {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::new(Mutex::new(connection));
-        let reference = storage.store_value(Arc::new(Value::from_unit())).unwrap();
+        let reference = storage
+            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .unwrap();
         assert_eq!(
             BlobDigest::new(&[
                 166, 159, 115, 204, 162, 58, 154, 197, 200, 181, 103, 220, 24, 90, 117, 110, 151,
@@ -82,7 +84,9 @@ mod tests {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::new(Mutex::new(connection));
-        let reference_1 = storage.store_value(Arc::new(Value::from_unit())).unwrap();
+        let reference_1 = storage
+            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .unwrap();
         assert_eq!(
             BlobDigest::new(&[
                 166, 159, 115, 204, 162, 58, 154, 197, 200, 181, 103, 220, 24, 90, 117, 110, 151,
@@ -93,7 +97,9 @@ mod tests {
             reference_1.digest
         );
 
-        let reference_2 = storage.store_value(Arc::new(Value::from_unit())).unwrap();
+        let reference_2 = storage
+            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .unwrap();
         assert_eq!(reference_1.digest, reference_2.digest);
 
         let loaded_back = storage.load_value(&reference_1).unwrap();
@@ -109,7 +115,9 @@ mod tests {
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
             vec![],
         ));
-        let reference = storage.store_value(value.clone()).unwrap();
+        let reference = storage
+            .store_value(&HashedValue::from(value.clone()))
+            .unwrap();
         assert_eq!(
             BlobDigest::new(&[
                 130, 115, 235, 131, 140, 52, 158, 195, 128, 151, 52, 84, 4, 23, 120, 30, 186, 184,
@@ -136,7 +144,9 @@ mod tests {
                 Reference::new(referenced_digest),
             )],
         ));
-        let reference = storage.store_value(value.clone()).unwrap();
+        let reference = storage
+            .store_value(&HashedValue::from(value.clone()))
+            .unwrap();
         assert_eq!(
             BlobDigest::new(&[
                 152, 182, 130, 212, 237, 124, 174, 45, 113, 181, 43, 5, 72, 243, 126, 181, 225, 36,
@@ -155,12 +165,14 @@ mod tests {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::new(Mutex::new(connection));
-        let reference_1 = storage.store_value(Arc::new(Value::from_unit())).unwrap();
+        let reference_1 = storage
+            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .unwrap();
         let reference_2 = storage
-            .store_value(Arc::new(Value::new(
+            .store_value(&HashedValue::from(Arc::new(Value::new(
                 ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
                 vec![],
-            )))
+            ))))
             .unwrap();
         let name = "test";
         assert_eq!(None, storage.load_root(name));
@@ -175,7 +187,9 @@ mod tests {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::new(Mutex::new(connection));
-        let reference_1 = storage.store_value(Arc::new(Value::from_unit())).unwrap();
+        let reference_1 = storage
+            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .unwrap();
         let name_1 = "testA";
         let name_2 = "testB";
         assert_eq!(None, storage.load_root(name_1));

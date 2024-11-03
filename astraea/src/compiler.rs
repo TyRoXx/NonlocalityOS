@@ -1,6 +1,8 @@
 use crate::{
     storage::StoreValue,
-    tree::{CompilerError, CompilerOutput, SourceLocation, TypeId, TypedReference, Value},
+    tree::{
+        CompilerError, CompilerOutput, HashedValue, SourceLocation, TypeId, TypedReference, Value,
+    },
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -582,7 +584,9 @@ fn parse_expression(
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
             TokenContent::Identifier(identifier) => storage
-                .store_value(Arc::new(Value::from_string(&identifier).unwrap(/*TODO*/)))
+                .store_value(&HashedValue::from(Arc::new(
+                    Value::from_string(&identifier).unwrap(/*TODO*/),
+                )))
                 .unwrap()
                 .add_type(TypeId(0)),
             TokenContent::Assign => todo!(),
@@ -609,17 +613,17 @@ fn parse_lambda(tokens: &mut std::slice::Iter<Token>, storage: &dyn StoreValue) 
         None => todo!(),
     };
     let parameter = storage
-        .store_value(Arc::new(
+        .store_value(&HashedValue::from(Arc::new(
             Value::from_string(parameter_name).unwrap(/*TODO*/),
-        ))
+        )))
         .unwrap()
         .add_type(TypeId(0));
     expect_dot(tokens);
     let body = parse_expression(tokens, storage);
     let result = storage
-        .store_value(Arc::new(
+        .store_value(&HashedValue::from(Arc::new(
             crate::tree::make_lambda(crate::tree::Lambda::new(parameter, body)).value,
-        ))
+        )))
         .unwrap()
         .add_type(TypeId(7));
     result
@@ -649,7 +653,7 @@ pub fn parse_entry_point_lambda(
                 SourceLocation::new(0, 0),
             ));
             let entry_point = storage
-                .store_value(Arc::new(Value::from_unit()))
+                .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
                 .unwrap()
                 .add_type(TypeId(1));
             CompilerOutput::new(entry_point, errors)
@@ -685,7 +689,7 @@ mod tests2 {
         let output = compile("", &value_storage);
         let expected = CompilerOutput::new(
             value_storage
-                .store_value(Arc::new(Value::from_unit()))
+                .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
                 .unwrap()
                 .add_type(TypeId(1)),
             vec![CompilerError::new(
@@ -703,13 +707,15 @@ mod tests2 {
             InMemoryValueStorage::new(std::sync::Mutex::new(std::collections::BTreeMap::new()));
         let output = compile(r#"^x . x"#, &value_storage);
         let parameter = value_storage
-            .store_value(Arc::new(Value::from_string("x").unwrap()))
+            .store_value(&HashedValue::from(Arc::new(
+                Value::from_string("x").unwrap(),
+            )))
             .unwrap()
             .add_type(TypeId(0));
         let entry_point = value_storage
-            .store_value(Arc::new(
+            .store_value(&HashedValue::from(Arc::new(
                 crate::tree::make_lambda(crate::tree::Lambda::new(parameter, parameter)).value,
-            ))
+            )))
             .unwrap()
             .add_type(TypeId(7));
         let expected = CompilerOutput::new(entry_point, Vec::new());

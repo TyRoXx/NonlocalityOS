@@ -7,6 +7,7 @@ use astraea::tree::make_text_in_console;
 use astraea::tree::reduce_expression_without_storing_the_final_result;
 use astraea::tree::ActualConsole;
 use astraea::tree::DelayService;
+use astraea::tree::HashedValue;
 use astraea::tree::Identity;
 use astraea::tree::ReduceExpression;
 use astraea::tree::ServiceRegistry;
@@ -31,27 +32,35 @@ async fn main() -> std::io::Result<()> {
     ]));
     let value_storage = InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let past = value_storage
-        .store_value(Arc::new(make_beginning_of_time()))
+        .store_value(&HashedValue::from(Arc::new(make_beginning_of_time())))
         .unwrap()
         .add_type(TypeId(3));
     let message_1 = value_storage
-        .store_value(Arc::new(Value::from_string("hello, ").unwrap()))
+        .store_value(&HashedValue::from(Arc::new(
+            Value::from_string("hello, ").unwrap(),
+        )))
         .unwrap()
         .add_type(TypeId(0));
     let text_in_console_1 = value_storage
-        .store_value(Arc::new(make_text_in_console(past, message_1).value))
+        .store_value(&HashedValue::from(Arc::new(
+            make_text_in_console(past, message_1).value,
+        )))
         .unwrap()
         .add_type(TypeId(2));
     let duration = value_storage
-        .store_value(Arc::new(make_seconds(3).value))
+        .store_value(&HashedValue::from(Arc::new(make_seconds(3).value)))
         .unwrap()
         .add_type(TypeId(5));
     let delay = value_storage
-        .store_value(Arc::new(make_delay(text_in_console_1, duration).value))
+        .store_value(&HashedValue::from(Arc::new(
+            make_delay(text_in_console_1, duration).value,
+        )))
         .unwrap()
         .add_type(TypeId(4));
     let message_2 = value_storage
-        .store_value(Arc::new(Value::from_string("world!\n").unwrap()))
+        .store_value(&HashedValue::from(Arc::new(
+            Value::from_string("world!\n").unwrap(),
+        )))
         .unwrap()
         .add_type(TypeId(0));
     let text_in_console_2 = make_text_in_console(delay, message_2);

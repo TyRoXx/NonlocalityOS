@@ -1,8 +1,8 @@
 use astraea::{
     storage::{LoadStoreValue, StoreError},
     tree::{
-        BlobDigest, Reference, ReferenceIndex, TypeId, TypedReference, Value, ValueBlob,
-        VALUE_BLOB_MAX_LENGTH,
+        BlobDigest, HashedValue, Reference, ReferenceIndex, TypeId, TypedReference, Value,
+        ValueBlob, VALUE_BLOB_MAX_LENGTH,
     },
 };
 use async_stream::stream;
@@ -568,12 +568,13 @@ impl OpenDirectory {
         ))
         .unwrap();
         info!("Storing empty directory");
-        let empty_directory_digest =
-            match storage.store_value(Arc::new(Value::new(value_blob, vec![]))) {
-                Ok(success) => success,
-                Err(error) => return Err(Error::Storage(error)),
-            }
-            .digest;
+        let empty_directory_digest = match storage
+            .store_value(&HashedValue::from(Arc::new(Value::new(value_blob, vec![]))))
+        {
+            Ok(success) => success,
+            Err(error) => return Err(Error::Storage(error)),
+        }
+        .digest;
         Ok(OpenDirectory::new(
             DigestStatus::new(empty_directory_digest, true),
             BTreeMap::new(),
@@ -968,7 +969,10 @@ impl OpenDirectory {
         ));
         match maybe_value_blob {
             Some(value_blob) => storage
-                .store_value(Arc::new(Value::new(value_blob, serialization_references)))
+                .store_value(&HashedValue::from(Arc::new(Value::new(
+                    value_blob,
+                    serialization_references,
+                ))))
                 .map(|reference| reference.digest),
             None => todo!(),
         }
@@ -1195,10 +1199,10 @@ impl OpenFileContentBlock {
                 let size = vec.len() as u16;
                 debug!("Storing content block of size {}", size);
                 let result = storage
-                    .store_value(Arc::new(Value::new(
+                    .store_value(&HashedValue::from(Arc::new(Value::new(
                         ValueBlob::try_from( bytes::Bytes::from(vec.clone())).unwrap(/*TODO*/),
                         vec![],
-                    )))
+                    ))))
                     .map(|success| {
                         *blob_digest = Some(success.digest);
                         success.digest
@@ -1272,7 +1276,7 @@ impl OpenFileContentBufferLoaded {
             ValueBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap())).unwrap(),
             blocks_stored,
         );
-        let reference = storage.store_value(Arc::new(value))?;
+        let reference = storage.store_value(&HashedValue::from(Arc::new(value)))?;
         Ok(self.update_digest(reference.digest))
     }
 
@@ -1905,7 +1909,10 @@ impl TreeEditor {
         storage: Arc<dyn LoadStoreValue + Send + Sync>,
     ) -> Result<BlobDigest> {
         info!("Storing empty file");
-        match storage.store_value(Arc::new(Value::new(ValueBlob::empty(), Vec::new()))) {
+        match storage.store_value(&HashedValue::from(Arc::new(Value::new(
+            ValueBlob::empty(),
+            Vec::new(),
+        )))) {
             Ok(success) => Ok(success.digest),
             Err(error) => Err(Error::Storage(error)),
         }
@@ -2247,7 +2254,7 @@ mod tests {
     impl StoreValue for NeverUsedStorage {
         fn store_value(
             &self,
-            _value: Arc<astraea::tree::Value>,
+            _value: &HashedValue,
         ) -> std::result::Result<astraea::tree::Reference, StoreError> {
             panic!()
         }
