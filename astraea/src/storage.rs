@@ -2,12 +2,11 @@ use crate::tree::{
     BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob,
     VALUE_BLOB_MAX_LENGTH,
 };
-use rusqlite::Transaction;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum StoreError {
@@ -81,13 +80,37 @@ impl LoadValue for InMemoryValueStorage {
 
 impl LoadStoreValue for InMemoryValueStorage {}
 
+struct SQLiteState {
+    connection: rusqlite::Connection,
+    is_in_transaction: bool,
+}
+
+impl SQLiteState {
+    fn require_transaction(&mut self) -> std::result::Result<(), rusqlite::Error> {
+        match self.is_in_transaction {
+            true => Ok(()),
+            false => {
+                info!("BEGIN TRANSACTION");
+                self.connection.execute("BEGIN TRANSACTION;", ())?;
+                self.is_in_transaction = true;
+                Ok(())
+            }
+        }
+    }
+}
+
 pub struct SQLiteStorage {
-    connection: Mutex<rusqlite::Connection>,
+    state: Mutex<SQLiteState>,
 }
 
 impl SQLiteStorage {
-    pub fn new(connection: Mutex<rusqlite::Connection>) -> Self {
-        Self { connection }
+    pub fn new(connection: rusqlite::Connection) -> Self {
+        Self {
+            state: Mutex::new(SQLiteState {
+                connection,
+                is_in_transaction: false,
+            }),
+        }
     }
 
     pub fn create_schema(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
@@ -144,8 +167,9 @@ impl SQLiteStorage {
 }
 
 impl StoreValue for SQLiteStorage {
+    //#[instrument(skip_all)]
     fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
-        let connection_locked = self.connection.lock().unwrap();
+        let mut state_locked = self.state.lock().unwrap();
         let reference = Reference::new(*value.digest());
         debug!(
             "Store {} bytes as {}",
@@ -153,7 +177,8 @@ impl StoreValue for SQLiteStorage {
             &reference.digest,
         );
         let origin_digest: [u8; 64] = reference.digest.into();
-        let transaction = Transaction::new_unchecked(&connection_locked, rusqlite::TransactionBehavior::Deferred).unwrap(/*TODO*/);
+        state_locked.require_transaction().unwrap(/*TODO*/);
+        let connection_locked = &state_locked.connection;
         let existing_count: i64 = connection_locked
             .query_row_and_then(
                 "SELECT COUNT(*) FROM value WHERE digest = ?",
@@ -178,20 +203,21 @@ impl StoreValue for SQLiteStorage {
                 (&inserted_value_rowid, &index, &target_digest),
             ).unwrap(/*TODO*/);
         }
-        transaction.commit().unwrap(/*TODO*/);
         Ok(reference)
     }
 }
 
 impl LoadValue for SQLiteStorage {
+    #[instrument(skip_all)]
     fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
-        let connection_locked = self.connection.lock().unwrap();
+        let state_locked = self.state.lock().unwrap();
+        let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = reference.digest.into();
         let (id, value_blob) = connection_locked.query_row_and_then("SELECT id, value_blob FROM value WHERE digest = ?1", 
         (&digest, ),
          |row| -> rusqlite::Result<_> {
             let id : i64 = row.get(0).unwrap(/*TODO*/);
-            let value_blob_raw : Vec<u8>= row.get(1).unwrap(/*TODO*/);
+            let value_blob_raw : Vec<u8> = row.get(1).unwrap(/*TODO*/);
             let value_blob = ValueBlob::try_from(value_blob_raw.into()).unwrap(/*TODO*/);
             Ok((id, value_blob))
          } ).unwrap(/*TODO*/);
@@ -233,9 +259,12 @@ impl LoadValue for SQLiteStorage {
 impl LoadStoreValue for SQLiteStorage {}
 
 impl UpdateRoot for SQLiteStorage {
+    #[instrument(skip_all)]
     fn update_root(&self, name: &str, target: &BlobDigest) {
         info!("Update root {} to {}", name, target);
-        let connection_locked = self.connection.lock().unwrap();
+        let mut state_locked = self.state.lock().unwrap();
+        state_locked.require_transaction().unwrap(/*TODO*/);
+        let connection_locked = &state_locked.connection;
         let target_array: [u8; 64] = (*target).into();
         connection_locked.execute(
             "INSERT INTO root (name, target) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET target = ?2;",
@@ -245,9 +274,11 @@ impl UpdateRoot for SQLiteStorage {
 }
 
 impl LoadRoot for SQLiteStorage {
+    #[instrument(skip_all)]
     fn load_root(&self, name: &str) -> Option<BlobDigest> {
         use rusqlite::OptionalExtension;
-        let connection_locked = self.connection.lock().unwrap();
+        let state_locked = self.state.lock().unwrap();
+        let connection_locked = &state_locked.connection;
         let maybe_target: Option<[u8; 64]> = connection_locked.query_row("SELECT target FROM root WHERE name = ?1", 
         (&name, ),
          |row| -> rusqlite::Result<_> {
@@ -260,5 +291,25 @@ impl LoadRoot for SQLiteStorage {
             None => info!("Could not find root {}", name),
         }
         result
+    }
+}
+
+pub trait CommitChanges {
+    fn commit_changes(&self) -> Result<(), rusqlite::Error>;
+}
+
+impl CommitChanges for SQLiteStorage {
+    #[instrument(skip_all)]
+    fn commit_changes(&self) -> Result<(), rusqlite::Error> {
+        let mut state_locked = self.state.lock().unwrap();
+        match state_locked.is_in_transaction {
+            true => {
+                state_locked.is_in_transaction = false;
+                info!("COMMIT");
+                state_locked.connection.execute("COMMIT;", ())?;
+                Ok(())
+            }
+            false => Ok(()),
+        }
     }
 }

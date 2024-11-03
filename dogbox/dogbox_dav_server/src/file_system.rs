@@ -52,7 +52,10 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
             return dav_server::fs::FsError::GeneralFailure;
         }
         dogbox_tree_editor::Error::CannotRename => FsError::Forbidden,
-        dogbox_tree_editor::Error::MissingValue(_) => todo!(),
+        dogbox_tree_editor::Error::MissingValue(missing) => {
+            error!("Missing value for digest: {:?}", missing);
+            return dav_server::fs::FsError::GeneralFailure;
+        }
         dogbox_tree_editor::Error::Storage(_) => todo!(),
     };
 }
@@ -459,7 +462,6 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         })
     }
 
-    #[instrument(skip(self))]
     fn have_props<'a>(
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
@@ -467,7 +469,6 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         Box::pin(std::future::ready(true))
     }
 
-    #[instrument(skip(self))]
     fn patch_props<'a>(
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
@@ -476,7 +477,6 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         Box::pin(core::future::ready(Err(FsError::NotImplemented)))
     }
 
-    #[instrument(skip(self))]
     fn get_props<'a>(
         &'a self,
         _path: &'a dav_server::davpath::DavPath,

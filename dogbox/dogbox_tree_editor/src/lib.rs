@@ -1587,7 +1587,7 @@ impl OpenFileContentBuffer {
     ) -> Result<()> {
         let loaded = self.require_loaded(storage.clone()).await?;
 
-        if loaded.number_of_bytes_written_since_last_save >= 5_000_000 {
+        if loaded.number_of_bytes_written_since_last_save >= (VALUE_BLOB_MAX_LENGTH as u64 * 200) {
             info!(
                 "Saving data before writing more ({} unsaved bytes)",
                 loaded.number_of_bytes_written_since_last_save
@@ -1768,7 +1768,7 @@ impl OpenFile {
     }
 
     pub async fn request_save(&self) -> std::result::Result<OpenFileStatus, StoreError> {
-        info!("Requesting save on an open file. Will try to flush it.");
+        debug!("Requesting save on an open file. Will try to flush it.");
         self.flush().await
     }
 

@@ -3,16 +3,13 @@ mod tests {
     use bytes::Bytes;
 
     use crate::{
-        storage::{LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
+        storage::{CommitChanges, LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
         tree::{BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob},
     };
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    // TODO: solve OpenSSL rebuild issues on Windows
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_sqlcipher_encryption() {
-        use crate::storage::StoreError;
         let temporary_directory = tempfile::tempdir().unwrap();
         let database_file_name = temporary_directory.path().join("test.sqlite");
         let expected_reference = BlobDigest::new(&[
@@ -22,23 +19,27 @@ mod tests {
             1, 117, 133, 134, 40, 29, 205, 38,
         ]);
         let correct_key = "test1234";
-        let incorrect_key = "test12345";
         {
             let connection1 = rusqlite::Connection::open(&database_file_name).unwrap();
             connection1.pragma_update(None, "key", correct_key).unwrap();
             SQLiteStorage::create_schema(&connection1).unwrap();
-            let storage = SQLiteStorage::new(Mutex::new(connection1));
+            let storage = SQLiteStorage::new(connection1);
             let reference = storage
                 .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
                 .unwrap();
             assert_eq!(expected_reference, reference.digest);
+            storage.commit_changes().unwrap();
         }
+        // TODO: solve OpenSSL rebuild issues on Windows
+        #[cfg(target_os = "linux")]
         {
+            use crate::storage::StoreError;
+            let incorrect_key = "test12345";
             let connection2 = rusqlite::Connection::open(&database_file_name).unwrap();
             connection2
                 .pragma_update(None, "key", incorrect_key)
                 .unwrap();
-            let storage = SQLiteStorage::new(Mutex::new(connection2));
+            let storage = SQLiteStorage::new(connection2);
             let result = storage.store_value(&HashedValue::from(Arc::new(Value::from_unit())));
             let expected : std::result::Result<Reference, StoreError> =
               Err(StoreError::Rusqlite("SqliteFailure(Error { code: NotADatabase, extended_code: 26 }, Some(\"file is not a database\"))".to_string()));
@@ -47,7 +48,7 @@ mod tests {
         {
             let connection3 = rusqlite::Connection::open(&database_file_name).unwrap();
             connection3.pragma_update(None, "key", correct_key).unwrap();
-            let storage = SQLiteStorage::new(Mutex::new(connection3));
+            let storage = SQLiteStorage::new(connection3);
             let loaded_back = storage
                 .load_value(&Reference::new(expected_reference))
                 .unwrap();
@@ -65,7 +66,7 @@ mod tests {
     fn test_store_unit_first_time() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let storage = SQLiteStorage::new(connection);
         let reference = storage
             .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
             .unwrap();
@@ -80,13 +81,18 @@ mod tests {
         );
         let loaded_back = storage.load_value(&reference).unwrap();
         assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
+
+        storage.commit_changes().unwrap();
+
+        let loaded_back = storage.load_value(&reference).unwrap();
+        assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
     }
 
     #[test]
     fn test_store_unit_again() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let storage = SQLiteStorage::new(connection);
         let reference_1 = storage
             .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
             .unwrap();
@@ -107,13 +113,18 @@ mod tests {
 
         let loaded_back = storage.load_value(&reference_1).unwrap();
         assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
+
+        storage.commit_changes().unwrap();
+
+        let loaded_back = storage.load_value(&reference_1).unwrap();
+        assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
     }
 
     #[test]
     fn test_store_blob() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let storage = SQLiteStorage::new(connection);
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
             vec![],
@@ -130,15 +141,21 @@ mod tests {
             ]),
             reference.digest
         );
+        let expected = HashedValue::from(value);
         let loaded_back = storage.load_value(&reference).unwrap();
-        assert_eq!(HashedValue::from(value), loaded_back);
+        assert_eq!(expected, loaded_back);
+
+        storage.commit_changes().unwrap();
+
+        let loaded_back = storage.load_value(&reference).unwrap();
+        assert_eq!(expected, loaded_back);
     }
 
     #[test]
     fn test_store_reference() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let storage = SQLiteStorage::new(connection);
         let referenced_digest = BlobDigest::hash(b"ref");
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
@@ -159,15 +176,21 @@ mod tests {
             ]),
             reference.digest
         );
+        let expected = HashedValue::from(value);
         let loaded_back = storage.load_value(&reference).unwrap();
-        assert_eq!(HashedValue::from(value), loaded_back);
+        assert_eq!(expected, loaded_back);
+
+        storage.commit_changes().unwrap();
+
+        let loaded_back = storage.load_value(&reference).unwrap();
+        assert_eq!(expected, loaded_back);
     }
 
     #[test]
     fn test_store_two_references() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let storage = SQLiteStorage::new(connection);
         let referenced_digests = [b"a".as_slice(), b"ab"]
             .into_iter()
             .map(|element: &[u8]| BlobDigest::hash(element))
@@ -184,15 +207,21 @@ mod tests {
             BlobDigest::parse_hex_string("7a94d90a60e67e6f1eaa209b308250e7260824a0e1b44f28afbdec93ba48ce674ebc68535a375b63589e99c1e1333a99402f039be481163501b3ff21d6d5f095").unwrap(),
             reference.digest
         );
+        let expected = HashedValue::from(value);
         let loaded_back = storage.load_value(&reference).unwrap();
-        assert_eq!(HashedValue::from(value), loaded_back);
+        assert_eq!(expected, loaded_back);
+
+        storage.commit_changes().unwrap();
+
+        let loaded_back = storage.load_value(&reference).unwrap();
+        assert_eq!(expected, loaded_back);
     }
 
     #[test]
     fn test_store_three_references() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let storage = SQLiteStorage::new(connection);
         let referenced_digests = [b"a".as_slice(), b"ab", b"abc"]
             .into_iter()
             .map(|element: &[u8]| BlobDigest::hash(element))
@@ -209,15 +238,21 @@ mod tests {
             BlobDigest::parse_hex_string("28ce0d016af6bdd104fe0f1fbc5c7a8802d3c2d4b50fee71dd3041b69ae9766dbaea94ef1e82666deece16748e1e3ad720e9b260e2a82a9836a4c05336eec93c").unwrap(),
             reference.digest
         );
+        let expected = HashedValue::from(value);
         let loaded_back = storage.load_value(&reference).unwrap();
-        assert_eq!(HashedValue::from(value), loaded_back);
+        assert_eq!(expected, loaded_back);
+
+        storage.commit_changes().unwrap();
+
+        let loaded_back = storage.load_value(&reference).unwrap();
+        assert_eq!(expected, loaded_back);
     }
 
     #[test]
     fn test_update_root() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let storage = SQLiteStorage::new(connection);
         let reference_1 = storage
             .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
             .unwrap();
@@ -233,13 +268,16 @@ mod tests {
         assert_eq!(Some(reference_1.digest), storage.load_root(name));
         storage.update_root(name, &reference_2.digest);
         assert_eq!(Some(reference_2.digest), storage.load_root(name));
+
+        storage.commit_changes().unwrap();
+        assert_eq!(Some(reference_2.digest), storage.load_root(name));
     }
 
     #[test]
     fn test_roots_may_be_equal() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(Mutex::new(connection));
+        let storage = SQLiteStorage::new(connection);
         let reference_1 = storage
             .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
             .unwrap();
@@ -249,6 +287,10 @@ mod tests {
         storage.update_root(name_1, &reference_1.digest);
         assert_eq!(Some(reference_1.digest), storage.load_root(name_1));
         storage.update_root(name_2, &reference_1.digest);
+        assert_eq!(Some(reference_1.digest), storage.load_root(name_1));
+
+        storage.commit_changes().unwrap();
+        assert_eq!(Some(reference_1.digest), storage.load_root(name_1));
         assert_eq!(Some(reference_1.digest), storage.load_root(name_1));
     }
 }

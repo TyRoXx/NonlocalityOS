@@ -1,15 +1,12 @@
-use astraea::storage::{LoadRoot, SQLiteStorage, UpdateRoot};
+use astraea::{
+    storage::{CommitChanges, LoadRoot, SQLiteStorage, UpdateRoot},
+    tree::VALUE_BLOB_MAX_LENGTH,
+};
 use dav_server::{fakels::FakeLs, DavHandler};
 use dogbox_tree_editor::{OpenDirectory, OpenDirectoryStatus, WallClock};
 use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
-use std::{
-    convert::Infallible,
-    net::SocketAddr,
-    path::Path,
-    pin::Pin,
-    sync::{Arc, Mutex},
-};
+use std::{convert::Infallible, net::SocketAddr, path::Path, pin::Pin, sync::Arc};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{debug, error, info};
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -28,7 +25,7 @@ async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
     };
     let io = TokioIo::new(stream);
     if let Err(err) = http1::Builder::new()
-        .max_buf_size(5_000_000)
+        .max_buf_size(VALUE_BLOB_MAX_LENGTH * 200)
         .serve_connection(io, hyper::service::service_fn(make_service))
         .await
     {
@@ -84,7 +81,8 @@ async fn save_root_regularly(root: Arc<OpenDirectory>, minimum_delay: std::time:
 async fn persist_root_on_change(
     root: Arc<OpenDirectory>,
     root_name: &str,
-    blob_storage: &(dyn UpdateRoot + Sync),
+    blob_storage_update: &(dyn UpdateRoot + Sync),
+    blob_storage_commit: &(dyn CommitChanges + Sync),
     save_status_sender: tokio::sync::mpsc::Sender<SaveStatus>,
 ) {
     let mut number_of_no_changes_in_a_row: u64 = 0;
@@ -99,7 +97,13 @@ async fn persist_root_on_change(
         } else {
             info!("Root changed: {:?}", &root_status);
             number_of_no_changes_in_a_row = 0;
-            blob_storage.update_root(root_name, &root_status.digest.last_known_digest);
+            if previous_root_status.digest.last_known_digest == root_status.digest.last_known_digest
+            {
+                info!("Root status changed, but the last known digest stays the same.");
+            } else {
+                blob_storage_update.update_root(root_name, &root_status.digest.last_known_digest);
+                blob_storage_commit.commit_changes().unwrap(/*TODO*/);
+            }
             let save_status = if root_status.digest.is_digest_up_to_date {
                 assert!(root_status.bytes_unflushed_count == 0);
                 assert!(root_status.files_unflushed_count == 0);
@@ -172,7 +176,7 @@ async fn run_dav_server(
             }
         }
     }
-    let blob_storage = Arc::new(SQLiteStorage::new(Mutex::new(sqlite_connection)));
+    let blob_storage = Arc::new(SQLiteStorage::new(sqlite_connection));
     let root_name = "latest";
     let root = match blob_storage.load_root(&root_name) {
         Some(found) => {
@@ -201,8 +205,14 @@ async fn run_dav_server(
                 Ok(())
             },
             async move {
-                persist_root_on_change(root_cloned, &root_name, &*blob_storage, save_status_sender)
-                    .await;
+                persist_root_on_change(
+                    root_cloned,
+                    &root_name,
+                    &*blob_storage,
+                    &*blob_storage,
+                    save_status_sender,
+                )
+                .await;
                 Ok(())
             },
             async move {
@@ -242,8 +252,7 @@ mod tests {
             &database_file_name,
             modified_default,
             clock,
-            /*TODO: reduce to ZERO after fixing the save/check race condition in these tests*/
-            std::time::Duration::from_millis(500),
+            std::time::Duration::ZERO,
         )
         .await
         .unwrap();
@@ -393,7 +402,11 @@ mod tests {
         match entity {
             reqwest_dav::list_cmd::ListEntity::File(file) => {
                 assert_eq!(name, file.href, "File names do not match");
-                assert_eq!(content.len() as i64, file.content_length, "File content length does not match");
+                assert_eq!(
+                    content.len() as i64,
+                    file.content_length,
+                    "File content length does not match"
+                );
                 assert_eq!(content_type, file.content_type, "File type does not match");
                 //TODO: check tag value
                 assert_eq!(true, file.tag.is_some(), "File has no tags");
@@ -403,7 +416,9 @@ mod tests {
                 let response_content = response.bytes().await.unwrap().to_vec();
                 assert_eq!(*content, response_content, "File content is wrong");
             }
-            reqwest_dav::list_cmd::ListEntity::Folder(_folder) => panic!("Asserting that a folder is a file"),
+            reqwest_dav::list_cmd::ListEntity::Folder(_folder) => {
+                panic!("Asserting that a folder is a file")
+            }
         }
     }
 
@@ -1006,13 +1021,25 @@ mod tests {
                         }
                         reqwest_dav::Error::Decode(decode_error) => {
                             match decode_error {
-                                reqwest_dav::DecodeError::DigestAuth(_error) => panic!("DigestAuth error"),
-                                reqwest_dav::DecodeError::NoAuthHeaderInResponse => panic!("No auth header in response"),
-                                reqwest_dav::DecodeError::SerdeXml(_error) => panic!("XML decoding error"),
-                                reqwest_dav::DecodeError::FieldNotSupported(field_error) => panic!("{:?}" , field_error),
-                                reqwest_dav::DecodeError::FieldNotFound(field_error) => panic!("{:?}" , field_error),
-                                reqwest_dav::DecodeError::StatusMismatched(status_mismatched_error) => panic!("{:?}" , status_mismatched_error),
-                                reqwest_dav::DecodeError::Server(_server_error) => {},
+                                reqwest_dav::DecodeError::DigestAuth(_error) => {
+                                    panic!("DigestAuth error")
+                                }
+                                reqwest_dav::DecodeError::NoAuthHeaderInResponse => {
+                                    panic!("No auth header in response")
+                                }
+                                reqwest_dav::DecodeError::SerdeXml(_error) => {
+                                    panic!("XML decoding error")
+                                }
+                                reqwest_dav::DecodeError::FieldNotSupported(field_error) => {
+                                    panic!("{:?}", field_error)
+                                }
+                                reqwest_dav::DecodeError::FieldNotFound(field_error) => {
+                                    panic!("{:?}", field_error)
+                                }
+                                reqwest_dav::DecodeError::StatusMismatched(
+                                    status_mismatched_error,
+                                ) => panic!("{:?}", status_mismatched_error),
+                                reqwest_dav::DecodeError::Server(_server_error) => {}
                             };
                         }
                         reqwest_dav::Error::MissingAuthContext => {
