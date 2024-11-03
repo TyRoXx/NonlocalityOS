@@ -98,15 +98,17 @@ pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ValueBlob {
-    pub content: Vec<u8>,
+    pub content: bytes::Bytes,
 }
 
 impl ValueBlob {
     pub fn empty() -> ValueBlob {
-        Self { content: vec![] }
+        Self {
+            content: bytes::Bytes::new(),
+        }
     }
 
-    pub fn try_from(content: Vec<u8>) -> Option<ValueBlob> {
+    pub fn try_from(content: bytes::Bytes) -> Option<ValueBlob> {
         if content.len() > VALUE_BLOB_MAX_LENGTH {
             return None;
         }
@@ -114,7 +116,7 @@ impl ValueBlob {
     }
 
     pub fn as_slice<'t>(&'t self) -> &'t [u8] {
-        self.content.as_slice()
+        &self.content
     }
 }
 
@@ -133,7 +135,7 @@ impl Value {
     }
 
     pub fn from_string(value: &str) -> Option<Value> {
-        ValueBlob::try_from(value.as_bytes().to_vec()).map(|blob| Value {
+        ValueBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes())).map(|blob| Value {
             blob,
             references: Vec::new(),
         })
@@ -418,7 +420,8 @@ pub fn make_seconds(amount: u64) -> TypedValue {
     TypedValue::new(
         TypeId(5),
         Value {
-            blob: ValueBlob::try_from(amount.to_be_bytes().to_vec()).unwrap(),
+            blob: ValueBlob::try_from(bytes::Bytes::copy_from_slice(&amount.to_be_bytes()))
+                .unwrap(),
             references: Vec::new(),
         },
     )
@@ -912,7 +915,7 @@ impl CompilerOutput {
     }
 
     pub fn to_value(self) -> Option<Value> {
-        ValueBlob::try_from(postcard::to_allocvec(&self.errors).unwrap())
+        ValueBlob::try_from(postcard::to_allocvec(&self.errors).unwrap().into())
             .map(|value_blob| Value::new(value_blob, vec![self.entry_point]))
     }
 }

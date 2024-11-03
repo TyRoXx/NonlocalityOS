@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use crate::{
         storage::{LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
         tree::{BlobDigest, Reference, TypeId, TypedReference, Value, ValueBlob},
@@ -104,7 +106,7 @@ mod tests {
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::new(Mutex::new(connection));
         let value = Arc::new(Value::new(
-            ValueBlob::try_from(b"test 123".to_vec()).unwrap(),
+            ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
             vec![],
         ));
         let reference = storage.store_value(value.clone()).unwrap();
@@ -128,7 +130,7 @@ mod tests {
         let storage = SQLiteStorage::new(Mutex::new(connection));
         let referenced_digest = BlobDigest::hash(b"ref");
         let value = Arc::new(Value::new(
-            ValueBlob::try_from(b"test 123".to_vec()).unwrap(),
+            ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
             vec![TypedReference::new(
                 TypeId(0),
                 Reference::new(referenced_digest),
@@ -156,7 +158,7 @@ mod tests {
         let reference_1 = storage.store_value(Arc::new(Value::from_unit())).unwrap();
         let reference_2 = storage
             .store_value(Arc::new(Value::new(
-                ValueBlob::try_from(b"test 123".to_vec()).unwrap(),
+                ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
                 vec![],
             )))
             .unwrap();

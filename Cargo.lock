@@ -160,6 +160,7 @@ name = "astraea"
 version = "0.1.0"
 dependencies = [
  "async-stream",
+ "bytes 1.8.0",
  "futures",
  "futures-core",
  "futures-util",

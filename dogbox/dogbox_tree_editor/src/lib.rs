@@ -560,12 +560,12 @@ impl OpenDirectory {
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
         clock: WallClock,
     ) -> Result<OpenDirectory> {
-        let value_blob = ValueBlob::try_from(
+        let value_blob = ValueBlob::try_from(bytes::Bytes::from(
             postcard::to_allocvec(&DirectoryTree {
                 children: BTreeMap::new(),
             })
             .unwrap(),
-        )
+        ))
         .unwrap();
         info!("Storing empty directory");
         let empty_directory_digest =
@@ -960,12 +960,12 @@ impl OpenDirectory {
         } else {
             info!("Saving directory: {:?}", &serialization_children);
         }
-        let maybe_value_blob = ValueBlob::try_from(
+        let maybe_value_blob = ValueBlob::try_from(bytes::Bytes::from(
             postcard::to_allocvec(&DirectoryTree {
                 children: serialization_children,
             })
             .unwrap(),
-        );
+        ));
         match maybe_value_blob {
             Some(value_blob) => storage
                 .store_value(Arc::new(Value::new(value_blob, serialization_references)))
@@ -1196,7 +1196,7 @@ impl OpenFileContentBlock {
                 debug!("Storing content block of size {}", size);
                 let result = storage
                     .store_value(Arc::new(Value::new(
-                        ValueBlob::try_from( vec.clone()).unwrap(/*TODO*/),
+                        ValueBlob::try_from( bytes::Bytes::from(vec.clone())).unwrap(/*TODO*/),
                         vec![],
                     )))
                     .map(|success| {
@@ -1269,7 +1269,7 @@ impl OpenFileContentBufferLoaded {
             size_in_bytes: self.size,
         };
         let value = Value::new(
-            ValueBlob::try_from(postcard::to_allocvec(&info).unwrap()).unwrap(),
+            ValueBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap())).unwrap(),
             blocks_stored,
         );
         let reference = storage.store_value(Arc::new(value))?;

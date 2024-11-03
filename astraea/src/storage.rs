@@ -189,7 +189,8 @@ impl LoadValue for SQLiteStorage {
         (&digest, )       ,
          |row| -> rusqlite::Result<_> {
             let id : i64 = row.get(0).unwrap(/*TODO*/);
-            let value_blob = ValueBlob::try_from(row.get(1).unwrap(/*TODO*/)).unwrap(/*TODO*/);
+            let value_blob_raw :Vec<u8>= row.get(1).unwrap(/*TODO*/);
+            let value_blob = ValueBlob::try_from(value_blob_raw.into()).unwrap(/*TODO*/);
             Ok((id, value_blob))
          } ).unwrap(/*TODO*/);
         let mut statement = connection_locked.prepare("SELECT zero_based_index, target FROM reference WHERE origin = ? ORDER BY zero_based_index ASC").unwrap(/*TODO*/);
