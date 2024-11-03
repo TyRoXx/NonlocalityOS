@@ -1105,16 +1105,22 @@ impl WriteResult {
 }
 
 #[derive(Debug)]
+pub enum LoadedBlock {
+    KnownDigest(HashedValue),
+    UnknownDigest(Vec<u8>),
+}
+
+#[derive(Debug)]
 pub enum OpenFileContentBlock {
     NotLoaded(BlobDigest, u16),
-    Loaded(Option<BlobDigest>, Vec<u8>),
+    Loaded(LoadedBlock),
 }
 
 impl OpenFileContentBlock {
     pub async fn access_content_for_reading<'t>(
         &'t mut self,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
-    ) -> Result<&'t Vec<u8>> {
+    ) -> Result<&'t [u8]> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
                 let loaded = match storage.load_value(&Reference::new(*blob_digest)) {
@@ -1129,16 +1135,16 @@ impl OpenFileContentBlock {
                     );
                     return Err(Error::FileSizeMismatch);
                 }
-                *self = OpenFileContentBlock::Loaded(
-                    Some(*blob_digest),
-                    /*TODO: avoid cloning*/ loaded.value().blob().as_slice().to_vec(),
-                );
+                *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(loaded));
             }
-            OpenFileContentBlock::Loaded(_blob_digest, _vec) => {}
+            OpenFileContentBlock::Loaded(_) => {}
         }
         Ok(match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
-            OpenFileContentBlock::Loaded(_blob_digest, vec) => vec,
+            OpenFileContentBlock::Loaded(loaded) => match loaded {
+                LoadedBlock::KnownDigest(hashed_value) => hashed_value.value().blob().as_slice(),
+                LoadedBlock::UnknownDigest(vec) => vec,
+            },
         })
     }
 
@@ -1149,10 +1155,22 @@ impl OpenFileContentBlock {
         self.access_content_for_reading(storage).await?;
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
-            OpenFileContentBlock::Loaded(blob_digest, vec) => {
-                *blob_digest = None;
-                Ok(vec)
-            }
+            OpenFileContentBlock::Loaded(loaded) => match loaded {
+                LoadedBlock::KnownDigest(hashed_value) => {
+                    *loaded =
+                        LoadedBlock::UnknownDigest(hashed_value.value().blob().as_slice().to_vec());
+                }
+                LoadedBlock::UnknownDigest(_vec) => {}
+            },
+        }
+        match self {
+            OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
+            OpenFileContentBlock::Loaded(loaded) => match loaded {
+                LoadedBlock::KnownDigest(_hashed_value) => {
+                    panic!()
+                }
+                LoadedBlock::UnknownDigest(vec) => Ok(vec),
+            },
         }
     }
 
@@ -1191,25 +1209,39 @@ impl OpenFileContentBlock {
     ) -> std::result::Result<BlobDigest, StoreError> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, _) => Ok(*blob_digest),
-            OpenFileContentBlock::Loaded(blob_digest, vec) => {
-                if let Some(stored) = blob_digest {
-                    return Ok(*stored);
+            OpenFileContentBlock::Loaded(loaded) => {
+                match loaded {
+                    LoadedBlock::KnownDigest(hashed_value) => {
+                        debug!(
+                            "Storing content block of size {}",
+                            hashed_value.value().blob().len()
+                        );
+                        let result = storage
+                            .store_value(&hashed_value)
+                            .map(|success| success.digest)?;
+                        // free the memory
+                        *self = OpenFileContentBlock::NotLoaded(
+                            result,
+                            hashed_value.value().blob().len(),
+                        );
+                        Ok(result)
+                    }
+                    LoadedBlock::UnknownDigest(vec) => {
+                        assert!(vec.len() <= VALUE_BLOB_MAX_LENGTH);
+                        let hashed_value = HashedValue::from(Arc::new(Value::new(
+                            ValueBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
+                            vec![],
+                        )));
+                        let size = vec.len() as u16;
+                        debug!("Storing content block of size {}", size);
+                        let result = storage
+                            .store_value(&hashed_value)
+                            .map(|success| success.digest)?;
+                        // free the memory
+                        *self = OpenFileContentBlock::NotLoaded(result, size);
+                        Ok(result)
+                    }
                 }
-                assert!(vec.len() <= VALUE_BLOB_MAX_LENGTH);
-                let size = vec.len() as u16;
-                debug!("Storing content block of size {}", size);
-                let result = storage
-                    .store_value(&HashedValue::from(Arc::new(Value::new(
-                        ValueBlob::try_from( bytes::Bytes::from(vec.clone())).unwrap(/*TODO*/),
-                        vec![],
-                    ))))
-                    .map(|success| {
-                        *blob_digest = Some(success.digest);
-                        success.digest
-                    })?;
-                // free the memory
-                *self = OpenFileContentBlock::NotLoaded(result, size);
-                Ok(result)
             }
         }
     }
@@ -1217,7 +1249,10 @@ impl OpenFileContentBlock {
     pub fn size(&self) -> u16 {
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, size) => *size,
-            OpenFileContentBlock::Loaded(_blob_digest, vec) => vec.len() as u16,
+            OpenFileContentBlock::Loaded(loaded) => match loaded {
+                LoadedBlock::KnownDigest(hashed_value) => hashed_value.value().blob().len(),
+                LoadedBlock::UnknownDigest(vec) => vec.len() as u16,
+            },
         }
     }
 }
@@ -1300,13 +1335,13 @@ pub struct OptimizedWriteBuffer {
     // less than VALUE_BLOB_MAX_LENGTH
     prefix: bytes::Bytes,
     // each one is exactly VALUE_BLOB_MAX_LENGTH
-    full_blocks: Vec<bytes::Bytes>,
+    full_blocks: Vec<HashedValue>,
     // less than VALUE_BLOB_MAX_LENGTH
     suffix: bytes::Bytes,
 }
 
 impl OptimizedWriteBuffer {
-    pub fn from_bytes(write_position: u64, content: bytes::Bytes) -> OptimizedWriteBuffer {
+    pub async fn from_bytes(write_position: u64, content: bytes::Bytes) -> OptimizedWriteBuffer {
         let first_block_offset = (write_position % VALUE_BLOB_MAX_LENGTH as u64) as usize;
         let first_block_capacity = VALUE_BLOB_MAX_LENGTH - first_block_offset;
         let mut block_aligned_content = content.clone();
@@ -1337,8 +1372,13 @@ impl OptimizedWriteBuffer {
                 return result;
             }
             let next = block_aligned_content.split_to(VALUE_BLOB_MAX_LENGTH);
-            // TODO: hash the full blocks here before taking any locks on the file, and in parallel
-            full_blocks.push(next);
+            let blocking_task = tokio::task::spawn_blocking(|| {
+                HashedValue::from(Arc::new(Value::new(
+                    ValueBlob::try_from(next).unwrap(),
+                    vec![],
+                )))
+            });
+            full_blocks.push(blocking_task.await.unwrap());
         }
     }
 
@@ -1372,7 +1412,9 @@ impl OpenFileContentBuffer {
             let size = data.len() as u64;
             Some(Self::Loaded(OpenFileContentBufferLoaded {
                 size: size,
-                blocks: vec![OpenFileContentBlock::Loaded(None, data)],
+                blocks: vec![OpenFileContentBlock::Loaded(LoadedBlock::UnknownDigest(
+                    data,
+                ))],
                 digest: DigestStatus::new(last_known_digest, false),
                 last_known_digest_file_size,
                 number_of_bytes_written_since_last_save: size,
@@ -1570,11 +1612,19 @@ impl OpenFileContentBuffer {
                 loaded.number_of_bytes_written_since_last_save += write_result.growth as u64;
             }
             while first_block_index >= (loaded.blocks.len() as u64) {
-                let filler = vec![0u8; VALUE_BLOB_MAX_LENGTH];
-                loaded.number_of_bytes_written_since_last_save += filler.len() as u64;
+                // TODO: make this a static constant
+                let filler = HashedValue::from(Arc::new(Value::new(
+                    ValueBlob::try_from(bytes::Bytes::from(vec![0u8; VALUE_BLOB_MAX_LENGTH]))
+                        .unwrap(),
+                    vec![],
+                )));
+                loaded.number_of_bytes_written_since_last_save +=
+                    filler.value().blob().as_slice().len() as u64;
                 loaded
                     .blocks
-                    .push(OpenFileContentBlock::Loaded(None, filler));
+                    .push(OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
+                        filler,
+                    )));
             }
         }
 
@@ -1589,7 +1639,9 @@ impl OpenFileContentBuffer {
                 if next_block_index == loaded.blocks.len() {
                     loaded
                         .blocks
-                        .push(OpenFileContentBlock::Loaded(None, buf.prefix.to_vec()));
+                        .push(OpenFileContentBlock::Loaded(LoadedBlock::UnknownDigest(
+                            buf.prefix.to_vec(),
+                        )));
                 } else {
                     let block = &mut loaded.blocks[next_block_index];
                     assert!(buf.prefix.len() < VALUE_BLOB_MAX_LENGTH);
@@ -1610,18 +1662,18 @@ impl OpenFileContentBuffer {
             if next_block_index == loaded.blocks.len() {
                 loaded
                     .blocks
-                    .push(OpenFileContentBlock::Loaded(None, full_block.to_vec()));
+                    .push(OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
+                        full_block,
+                    )));
             } else {
                 let existing_block = &mut loaded.blocks[next_block_index];
                 match existing_block {
                     OpenFileContentBlock::NotLoaded(_blob_digest, _) => {
-                        *existing_block = OpenFileContentBlock::Loaded(None, full_block.to_vec());
+                        *existing_block =
+                            OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(full_block));
                     }
-                    OpenFileContentBlock::Loaded(blob_digest, vec) => {
-                        *blob_digest = None;
-                        // reuse the memory
-                        vec.clear();
-                        vec.extend_from_slice(&full_block);
+                    OpenFileContentBlock::Loaded(loaded) => {
+                        *loaded = LoadedBlock::KnownDigest(full_block);
                     }
                 }
             }
@@ -1632,7 +1684,9 @@ impl OpenFileContentBuffer {
             if next_block_index == loaded.blocks.len() {
                 loaded
                     .blocks
-                    .push(OpenFileContentBlock::Loaded(None, buf.suffix.to_vec()));
+                    .push(OpenFileContentBlock::Loaded(LoadedBlock::UnknownDigest(
+                        buf.suffix.to_vec(),
+                    )));
             } else {
                 let block = &mut loaded.blocks[next_block_index];
                 let write_result = block.write(0, buf.suffix, storage.clone()).await.unwrap(/*TODO: somehow recover and fix loaded.size*/);
@@ -1773,7 +1827,7 @@ impl OpenFile {
         ));
         debug!("Write at {}: {} bytes", position, buf.len());
         Box::pin(async move {
-            let write_buffer = OptimizedWriteBuffer::from_bytes(position, buf);
+            let write_buffer = OptimizedWriteBuffer::from_bytes(position, buf).await;
             let mut content_locked = self.content.lock().await;
             let write_result = content_locked
                 .write(position, write_buffer, self.storage.clone())

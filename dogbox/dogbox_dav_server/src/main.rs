@@ -492,6 +492,11 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
+    async fn test_create_file_random_two_blocks() {
+        test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH * 2)).await
+    }
+
+    #[test_log::test(tokio::test)]
     async fn test_create_file_random_ten_blocks() {
         test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH * 10)).await
     }

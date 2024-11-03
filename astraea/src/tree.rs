@@ -143,6 +143,10 @@ impl ValueBlob {
     pub fn as_slice<'t>(&'t self) -> &'t [u8] {
         &self.content
     }
+
+    pub fn len(&self) -> u16 {
+        self.content.len() as u16
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
