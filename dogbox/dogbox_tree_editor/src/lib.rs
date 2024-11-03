@@ -626,31 +626,31 @@ impl OpenDirectory {
     }
 
     pub async fn copy(
-        &self,
+        self: Arc<OpenDirectory>,
         name_here: &str,
         there: &OpenDirectory,
         name_there: &str,
     ) -> Result<()> {
-        let names_locked: MutexGuard<'_, BTreeMap<String, NamedEntry>>;
-        let names_there_locked: Option<MutexGuard<'_, BTreeMap<String, NamedEntry>>>;
+        let mut state_locked: MutexGuard<'_, _>;
+        let state_there_locked: Option<MutexGuard<'_, _>>;
 
-        let comparison = std::ptr::from_ref(self).cmp(&std::ptr::from_ref(there));
+        let comparison = std::ptr::from_ref(&*self).cmp(&std::ptr::from_ref(there));
         match comparison {
             std::cmp::Ordering::Less => {
-                names_locked = self.names.lock().await;
-                names_there_locked = Some(there.names.lock().await);
+                state_locked = self.state.lock().await;
+                state_there_locked = Some(there.state.lock().await);
             }
             std::cmp::Ordering::Equal => {
-                names_locked = self.names.lock().await;
-                names_there_locked = None;
+                state_locked = self.state.lock().await;
+                state_there_locked = None;
             }
             std::cmp::Ordering::Greater => {
-                names_there_locked = Some(there.names.lock().await);
-                names_locked = self.names.lock().await;
+                state_there_locked = Some(there.state.lock().await);
+                state_locked = self.state.lock().await;
             }
         }
 
-        match names_locked.get(name_here) {
+        match state_locked.names.get(name_here) {
             Some(_) => {}
             None => return Err(Error::NotFound(name_here.to_string())),
         }
@@ -660,16 +660,16 @@ impl OpenDirectory {
             name_here, name_there
         );
 
-        if names_there_locked.is_some() {
-            there.change_event_sender.send(()).unwrap();
+        if state_there_locked.is_some() {
+            Self::notify_about_change(&self.change_event_sender, &mut state_there_locked.unwrap());
         } else {
-            self.change_event_sender.send(()).unwrap();
+            Self::notify_about_change(&self.change_event_sender, &mut state_locked);
         }
 
-        let entry = names_locked.get(name_here).unwrap().clone();
-        match names_there_locked {
-            Some(value) => Self::write_into_directory(value, name_there, entry),
-            None => Self::write_into_directory(names_locked, name_there, entry),
+        let entry = state_locked.names.get(name_here).unwrap().clone();
+        match state_there_locked {
+            Some(value) => Self::write_into_directory(self, &mut value, name_there, entry),
+            None => Self::write_into_directory(self, &mut state_locked, name_there, entry),
         }
         Ok(())
     }
