@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: on
+  RUST_BACKTRACE: 1
 
 jobs:
   build:
