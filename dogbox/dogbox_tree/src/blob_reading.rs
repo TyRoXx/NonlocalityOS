@@ -76,7 +76,7 @@ mod tests {
                 Some(exists) => Ok(exists.clone()),
                 None => match self.read_blob.load_value(&Reference::new(self.digest)) {
                     Some(blob_content) => {
-                        match parse_directory_blob(blob_content.blob.as_slice()) {
+                        match parse_directory_blob(blob_content.blob().as_slice()) {
                             Some(parsed) => {
                                 let result = Arc::new(parsed);
                                 *tree_locked = Some(result.clone());

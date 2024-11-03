@@ -122,8 +122,8 @@ impl ValueBlob {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Value {
-    pub blob: ValueBlob,
-    pub references: Vec<TypedReference>,
+    blob: ValueBlob,
+    references: Vec<TypedReference>,
 }
 
 impl Value {
@@ -132,6 +132,14 @@ impl Value {
             blob,
             references: references,
         }
+    }
+
+    pub fn blob(&self) -> &ValueBlob {
+        &self.blob
+    }
+
+    pub fn references(&self) -> &[TypedReference] {
+        &self.references
     }
 
     pub fn from_string(value: &str) -> Option<Value> {

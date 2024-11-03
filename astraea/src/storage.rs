@@ -147,7 +147,7 @@ impl StoreValue for SQLiteStorage {
         let reference = calculate_reference(&value);
         debug!(
             "Store {} bytes as {}",
-            value.blob.content.len(),
+            value.blob().content.len(),
             &reference.digest,
         );
         let origin_digest: [u8; 64] = reference.digest.into();
@@ -166,10 +166,10 @@ impl StoreValue for SQLiteStorage {
         }
         connection_locked.execute(
             "INSERT INTO value (digest, value_blob) VALUES (?1, ?2)",
-            (&origin_digest, value.blob.as_slice()),
+            (&origin_digest, value.blob().as_slice()),
         ).unwrap(/*TODO*/);
         let inserted_value_rowid = connection_locked.last_insert_rowid();
-        for (index, reference) in value.references.iter().enumerate() {
+        for (index, reference) in value.references().iter().enumerate() {
             let target_digest: [u8; 64] = reference.reference.digest.into();
             connection_locked.execute(
                 "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",
