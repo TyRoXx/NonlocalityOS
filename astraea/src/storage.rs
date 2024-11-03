@@ -186,10 +186,10 @@ impl LoadValue for SQLiteStorage {
         let connection_locked = self.connection.lock().unwrap();
         let digest: [u8; 64] = reference.digest.into();
         let (id, value_blob) = connection_locked.query_row_and_then("SELECT id, value_blob FROM value WHERE digest = ?1", 
-        (&digest, )       ,
+        (&digest, ),
          |row| -> rusqlite::Result<_> {
             let id : i64 = row.get(0).unwrap(/*TODO*/);
-            let value_blob_raw :Vec<u8>= row.get(1).unwrap(/*TODO*/);
+            let value_blob_raw : Vec<u8>= row.get(1).unwrap(/*TODO*/);
             let value_blob = ValueBlob::try_from(value_blob_raw.into()).unwrap(/*TODO*/);
             Ok((id, value_blob))
          } ).unwrap(/*TODO*/);
@@ -238,7 +238,7 @@ impl LoadRoot for SQLiteStorage {
         use rusqlite::OptionalExtension;
         let connection_locked = self.connection.lock().unwrap();
         let maybe_target: Option<[u8; 64]> = connection_locked.query_row("SELECT target FROM root WHERE name = ?1", 
-        (&name, )       ,
+        (&name, ),
          |row| -> rusqlite::Result<_> {
             let target = row.get(0).unwrap(/*TODO*/);
             Ok(target)
