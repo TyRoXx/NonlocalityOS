@@ -15,7 +15,7 @@ use std::{
     u64,
 };
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -1341,6 +1341,7 @@ pub struct OptimizedWriteBuffer {
 }
 
 impl OptimizedWriteBuffer {
+    #[instrument(skip(content))]
     pub async fn from_bytes(write_position: u64, content: bytes::Bytes) -> OptimizedWriteBuffer {
         let first_block_offset = (write_position % VALUE_BLOB_MAX_LENGTH as u64) as usize;
         let first_block_capacity = VALUE_BLOB_MAX_LENGTH - first_block_offset;
@@ -1357,9 +1358,14 @@ impl OptimizedWriteBuffer {
                 prefix
             }
         };
-        let mut full_blocks = Vec::new();
+        let mut full_block_hashing: Vec<tokio::task::JoinHandle<HashedValue>> = Vec::new();
         loop {
             if block_aligned_content.len() < VALUE_BLOB_MAX_LENGTH {
+                let mut full_blocks = Vec::new();
+                full_blocks.reserve(full_block_hashing.len());
+                for handle in full_block_hashing.into_iter() {
+                    full_blocks.push(handle.await.unwrap());
+                }
                 let result = OptimizedWriteBuffer {
                     prefix: prefix,
                     full_blocks: full_blocks,
@@ -1372,13 +1378,16 @@ impl OptimizedWriteBuffer {
                 return result;
             }
             let next = block_aligned_content.split_to(VALUE_BLOB_MAX_LENGTH);
+
+            // Calculating the SHA-3 digest of 64 KB of data can take surprisingly long, especially in Debug mode.
+            // Parallelizing the computations should save a lot of time.
             let blocking_task = tokio::task::spawn_blocking(|| {
                 HashedValue::from(Arc::new(Value::new(
                     ValueBlob::try_from(next).unwrap(),
                     vec![],
                 )))
             });
-            full_blocks.push(blocking_task.await.unwrap());
+            full_block_hashing.push(blocking_task);
         }
     }
 
