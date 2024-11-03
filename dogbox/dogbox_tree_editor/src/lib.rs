@@ -39,13 +39,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub type Future<'a, T> = Pin<Box<dyn core::future::Future<Output = Result<T>> + Send + 'a>>;
 pub type Stream<T> = Pin<Box<dyn futures_core::stream::Stream<Item = T> + Send>>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 pub enum DirectoryEntryKind {
     Directory,
     File(u64),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 pub struct DirectoryEntryMetaData {
     pub kind: DirectoryEntryKind,
     pub modified: std::time::SystemTime,
@@ -449,7 +449,8 @@ impl OpenDirectory {
         mut entry: NamedEntry,
     ) {
         self.watch_new_entry(&mut entry);
-        state.names.insert(name, entry);
+        let previous_entry = state.names.insert(name, entry);
+        assert!(previous_entry.is_none());
     }
 
     pub async fn load_directory(
@@ -632,7 +633,7 @@ impl OpenDirectory {
         name_there: &str,
     ) -> Result<()> {
         let mut state_locked: MutexGuard<'_, _>;
-        let state_there_locked: Option<MutexGuard<'_, _>>;
+        let mut state_there_locked: Option<MutexGuard<'_, _>>;
 
         let comparison = std::ptr::from_ref(&*self).cmp(&std::ptr::from_ref(there));
         match comparison {
@@ -660,18 +661,50 @@ impl OpenDirectory {
             name_here, name_there
         );
 
-        if state_there_locked.is_some() {
-            Self::notify_about_change(&self.change_event_sender, &mut state_there_locked.unwrap());
-        } else {
-            Self::notify_about_change(&self.change_event_sender, &mut state_locked);
+        let old_entry = state_locked.names.get(name_here).unwrap();
+        let new_entry = Self::copy_named_entry(old_entry, self.clock)
+            .await
+            .map_err(|error| Error::Storage(error))?;
+        match state_there_locked {
+            Some(ref mut value) => {
+                Self::write_into_directory(self.clone(), value, name_there, new_entry)
+            }
+            None => {
+                Self::write_into_directory(self.clone(), &mut state_locked, name_there, new_entry)
+            }
         }
 
-        let entry = state_locked.names.get(name_here).unwrap().clone();
-        match state_there_locked {
-            Some(value) => Self::write_into_directory(self, &mut value, name_there, entry),
-            None => Self::write_into_directory(self, &mut state_locked, name_there, entry),
+        if state_there_locked.is_some() {
+            Self::notify_about_change(&self.change_event_sender, &mut state_there_locked.unwrap())
+                .await;
+        } else {
+            Self::notify_about_change(&self.change_event_sender, &mut state_locked).await;
         }
         Ok(())
+    }
+
+    async fn copy_named_entry(
+        original: &NamedEntry,
+        clock: WallClock,
+    ) -> std::result::Result<NamedEntry, StoreError> {
+        match original {
+            NamedEntry::NotOpen(directory_entry_meta_data, blob_digest) => Ok(NamedEntry::NotOpen(
+                *directory_entry_meta_data,
+                *blob_digest,
+            )),
+            NamedEntry::OpenRegularFile(open_file, _receiver) => {
+                let status = open_file.flush().await?;
+                assert!(status.digest.is_digest_up_to_date);
+                Ok(NamedEntry::NotOpen(
+                    DirectoryEntryMetaData::new(
+                        DirectoryEntryKind::File(status.last_known_digest_file_size),
+                        clock(),
+                    ),
+                    status.digest.last_known_digest,
+                ))
+            }
+            NamedEntry::OpenSubdirectory(_arc, _receiver) => todo!(),
+        }
     }
 
     pub async fn rename(

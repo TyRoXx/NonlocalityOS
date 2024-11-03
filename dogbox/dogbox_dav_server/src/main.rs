@@ -222,10 +222,8 @@ mod tests {
     use dogbox_tree_editor::WallClock;
     use hyper::{header::HeaderValue, HeaderMap, Method, StatusCode};
     use reqwest_dav::{
-        list_cmd::ListEntity, list_cmd::ListEntity, re_exports::url::Url, Auth, Auth, Client,
-        Client, ClientBuilder, ClientBuilder, Depth, Depth,
+        list_cmd::ListEntity, re_exports::url::Url, Auth, Client, ClientBuilder, Depth,
     };
-    use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin};
     use std::{future::Future, net::SocketAddr, pin::Pin};
     use tokio::net::TcpListener;
     use tracing::info;
@@ -389,7 +387,7 @@ mod tests {
     }
 
     async fn expect_file(
-        client: Client,
+        client: &Client,
         entity: &ListEntity,
         name: &str,
         content: &[u8],
@@ -406,7 +404,7 @@ mod tests {
 
                 let response = client.get(&name).await.unwrap();
                 let response_content = response.bytes().await.unwrap().to_vec();
-                assert_eq!(*content, response_content);
+                assert_eq!(*content, response_content, "file content is wrong");
             }
             reqwest_dav::list_cmd::ListEntity::Folder(_folder) => panic!(),
         }
@@ -482,7 +480,7 @@ mod tests {
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
                 expect_file(
-                    client,
+                    &client,
                     &listed[1],
                     &format!("/{}", file_name),
                     &content_cloned,
@@ -710,7 +708,7 @@ mod tests {
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
                 expect_file(
-                    client,
+                    &client,
                     &listed[1],
                     "/B",
                     content_a.as_bytes(),
@@ -737,7 +735,7 @@ mod tests {
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
                 expect_file(
-                    client,
+                    &client,
                     &listed[1],
                     "/B",
                     content.as_bytes(),
@@ -785,7 +783,7 @@ mod tests {
                 expect_directory(&root_listed[0], "/");
                 expect_directory(&root_listed[1], "/A/");
                 expect_file(
-                    client.clone(),
+                    &client,
                     &root_listed[2],
                     "/B.txt",
                     content.as_bytes(),
@@ -821,7 +819,7 @@ mod tests {
                 assert_eq!(2, a_listed.len());
                 expect_directory(&a_listed[0], "/A/");
                 expect_file(
-                    client,
+                    &client,
                     &a_listed[1],
                     "/A/foo.txt",
                     content.as_bytes(),
@@ -868,10 +866,10 @@ mod tests {
     #[test_log::test(tokio::test)]
     async fn test_copy_file() {
         let content = "content";
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.put("A.txt", content).await.unwrap();
-                assert_eq!(client_copy(client, "A.txt", "B.txt").await, 201);
+                client.cp("A.txt", "B.txt").await.unwrap();
             })
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -883,30 +881,68 @@ mod tests {
                     &client,
                     &root_listed[1],
                     "/A.txt",
-                    content.len() as i64,
+                    content.as_bytes(),
                     "text/plain",
-                );
+                )
+                .await;
                 expect_file(
                     &client,
                     &root_listed[2],
                     "/B.txt",
-                    content.len() as i64,
+                    content.as_bytes(),
                     "text/plain",
-                );
+                )
+                .await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file_independent_content() {
+        let content_1 = "1";
+        let content_2 = "2";
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content_1).await.unwrap();
+                client.cp("A.txt", "B.txt").await.unwrap();
+                client.put("A.txt", content_2).await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content_2.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+                expect_file(
+                    &client,
+                    &root_listed[2],
+                    "/B.txt",
+                    content_1.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+            })
+        };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
     async fn test_copy_file_into_different_folder() {
         let content = "content";
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.put("A.txt", content).await.unwrap();
                 client.mkcol("/foo").await.unwrap();
-
-                assert_eq!(client_copy(client, "A.txt", "/foo/B.txt").await, 201);
+                client.cp("A.txt", "/foo/B.txt").await.unwrap();
             })
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -918,9 +954,10 @@ mod tests {
                     &client,
                     &root_listed[1],
                     "/A.txt",
-                    content.len() as i64,
+                    content.as_bytes(),
                     "text/plain",
-                );
+                )
+                .await;
 
                 let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
                 expect_directory(&foo_listed[0], "/foo/");
@@ -928,19 +965,20 @@ mod tests {
                     &client,
                     &foo_listed[1],
                     "/foo/B.txt",
-                    content.len() as i64,
+                    content.as_bytes(),
                     "text/plain",
-                );
+                )
+                .await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
     async fn test_copy_file_to_already_existing_target() {
         let content = "content";
         let other_content = "some other content";
-        let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 client.put("A.txt", content).await.unwrap();
                 client.mkcol("/foo").await.unwrap();
@@ -960,7 +998,8 @@ mod tests {
                     "/A.txt",
                     content.as_bytes(),
                     "text/plain",
-                );
+                )
+                .await;
 
                 let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
                 expect_directory(&foo_listed[0], "/foo/");
@@ -970,10 +1009,38 @@ mod tests {
                     "/foo/B.txt",
                     content.as_bytes(),
                     "text/plain",
-                );
+                )
+                .await;
             })
         };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_copy_file_to_itself() {
+        let content = "content";
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put("A.txt", content).await.unwrap();
+                assert_eq!(client_copy(client, "A.txt", "A.txt").await, 403);
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(2, root_listed.len());
+                expect_directory(&root_listed[0], "/");
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+            })
+        };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 
     #[test_log::test(tokio::test)]
@@ -986,7 +1053,7 @@ mod tests {
         };
         let verify_changes =
             move |_client: Client| -> Pin<Box<dyn Future<Output = ()>>> { Box::pin(async move {}) };
-        test_fresh_dav_server(change_files, &verify_changes).await
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
     }
 }
 
