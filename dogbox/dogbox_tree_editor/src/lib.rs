@@ -1732,7 +1732,7 @@ impl OpenFile {
                 true
             }
         }) {
-            info!("Sending file status: {:?}", &status);
+            info!("Sending changed file status: {:?}", &status);
         } else {
             debug!(
                 "Not sending file status because it didn't change: {:?}",

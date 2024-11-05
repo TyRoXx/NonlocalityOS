@@ -1,3 +1,5 @@
+[![Coverage Status](https://coveralls.io/repos/github/TyRoXx/NonlocalityOS/badge.svg)](https://coveralls.io/github/TyRoXx/NonlocalityOS)
+
 # Setup
 
 * install Rust: <https://www.rust-lang.org/learn/get-started> (tested with Rust 1.84.0)

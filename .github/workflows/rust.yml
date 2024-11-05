@@ -67,15 +67,20 @@ jobs:
           ~/.cargo/registry/index/
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
+          ~/.cargo/.crates.toml
+          ~/.cargo/.crates2.json
           target/
           target-coverage/
-        key: cargo-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'install_*.sh') }}
-
-    - name: Install cargo-tarpaulin
-      run: ./install_cargo-tarpaulin.sh
+        key: cargo-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'install_cargo-tarpaulin.sh') }}
 
     - name: Run tests
       run: ./coverage.sh
 
     - name: sccache stats
       run: sccache --show-adv-stats
+
+    - name: Coveralls
+      uses: coverallsapp/github-action@v2
+      with:
+        file: target-coverage/lcov.info
+        format: lcov
