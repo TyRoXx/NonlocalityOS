@@ -1,8 +1,5 @@
 #!/usr/bin/env sh
-./install_sccache.sh || exit 1
-
-export RUSTC_WRAPPER=sccache
-cargo install --version 0.31.2 --locked cargo-tarpaulin || exit 1
+./install_cargo-tarpaulin.sh || exit 1
 
 sccache --zero-stats || exit 1
 

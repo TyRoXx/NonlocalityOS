@@ -68,10 +68,14 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: cargo-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          target-coverage/
+        key: cargo-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'install_*.sh') }}
+
+    - name: Install cargo-tarpaulin
+      run: ./install_cargo-tarpaulin.sh
 
     - name: Run tests
-      run: cargo test --verbose
+      run: ./coverage.sh
 
     - name: sccache stats
       run: sccache --show-adv-stats
