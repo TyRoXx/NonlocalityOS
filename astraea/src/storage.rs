@@ -219,39 +219,45 @@ impl StoreValue for SQLiteStorage {
 impl LoadValue for SQLiteStorage {
     #[instrument(skip_all)]
     fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
-        let state_locked = self.state.lock().unwrap();
-        let connection_locked = &state_locked.connection;
-        let digest: [u8; 64] = reference.digest.into();
-        let (id, value_blob) = connection_locked.query_row_and_then("SELECT id, value_blob FROM value WHERE digest = ?1", 
-        (&digest, ),
-         |row| -> rusqlite::Result<_> {
-            let id : i64 = row.get(0).unwrap(/*TODO*/);
-            let value_blob_raw : Vec<u8> = row.get(1).unwrap(/*TODO*/);
-            let value_blob = ValueBlob::try_from(value_blob_raw.into()).unwrap(/*TODO*/);
-            Ok((id, value_blob))
-         } ).unwrap(/*TODO*/);
-        let mut statement = connection_locked.prepare("SELECT zero_based_index, target FROM reference WHERE origin = ? ORDER BY zero_based_index ASC").unwrap(/*TODO*/);
-        let results = statement.query_map([&id], |row| {
-            let index : i64 = row.get(0)?;
-            let target : [u8; 64] = row.get(1)?;
-            Ok((index, TypedReference::new(TypeId(0), Reference::new(BlobDigest::new(&target)))))
-        }).unwrap(/*TODO*/);
-        let references: Vec<crate::tree::TypedReference> = results
-            .enumerate()
-            .map(|(expected_index, maybe_tuple)| {
-                let tuple = maybe_tuple.unwrap(/*YOLO*/);
-                let reference = tuple.1;
-                let actual_index = tuple.0;
-                // TODO: handle mismatch properly
-                assert_eq!(expected_index as i64, actual_index);
-                reference
-            })
-            .collect();
-        debug!(
-            "Load {} bytes as {}",
-            value_blob.content.len(),
-            &reference.digest,
-        );
+        let value_blob;
+        let references: Vec<crate::tree::TypedReference>;
+        {
+            let state_locked = self.state.lock().unwrap();
+            let connection_locked = &state_locked.connection;
+            let digest: [u8; 64] = reference.digest.into();
+            let id;
+            (id, value_blob) = connection_locked.query_row_and_then("SELECT id, value_blob FROM value WHERE digest = ?1", 
+                (&digest, ),
+                |row| -> rusqlite::Result<_> {
+                    let id : i64 = row.get(0).unwrap(/*TODO*/);
+                    let value_blob_raw : Vec<u8> = row.get(1).unwrap(/*TODO*/);
+                    let value_blob = ValueBlob::try_from(value_blob_raw.into()).unwrap(/*TODO*/);
+                    Ok((id, value_blob))
+                } ).unwrap(/*TODO*/);
+            let mut statement = connection_locked.prepare("SELECT zero_based_index, target FROM reference WHERE origin = ? ORDER BY zero_based_index ASC").unwrap(/*TODO*/);
+            let results = statement.query_map([&id], |row| {
+                let index : i64 = row.get(0)?;
+                let target : [u8; 64] = row.get(1)?;
+                Ok((index, TypedReference::new(TypeId(0), Reference::new(BlobDigest::new(&target)))))
+                }).unwrap(/*TODO*/);
+            references = results
+                .enumerate()
+                .map(|(expected_index, maybe_tuple)| {
+                    let tuple = maybe_tuple.unwrap(/*YOLO*/);
+                    let reference = tuple.1;
+                    let actual_index = tuple.0;
+                    // TODO: handle mismatch properly
+                    assert_eq!(expected_index as i64, actual_index);
+                    reference
+                })
+                .collect();
+            debug!(
+                "Load {} bytes as {}",
+                value_blob.content.len(),
+                &reference.digest,
+            );
+            // drop the lock before the expensive digest computation below
+        }
         let result = HashedValue::from(Arc::new(Value::new(value_blob, references)));
         if *result.digest() != reference.digest {
             error!(
