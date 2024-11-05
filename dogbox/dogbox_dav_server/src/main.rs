@@ -182,17 +182,23 @@ async fn run_dav_server(
         Some(found) => {
             OpenDirectory::load_directory(blob_storage.clone(), &found, modified_default, clock).await.unwrap(/*TODO*/)
         }
-        None => Arc::new(
-            OpenDirectory::create_directory(blob_storage.clone(), clock)
+        None => {
+            let dir = Arc::new(
+                OpenDirectory::create_directory(blob_storage.clone(), clock)
                 .await
                 .unwrap(/*TODO*/),
-        ),
+            );
+            let status = dir.request_save().await.unwrap();
+            assert!(status.digest.is_digest_up_to_date);
+            blob_storage.update_root(root_name, &status.digest.last_known_digest);
+            blob_storage.commit_changes().unwrap();
+            dir
+        }
     };
+    let tree_editor = dogbox_tree_editor::TreeEditor::new(root.clone(), None);
     let dav_server = Arc::new(
         DavHandler::builder()
-            .filesystem(Box::new(DogBoxFileSystem::new(
-                dogbox_tree_editor::TreeEditor::new(root.clone(), None),
-            )))
+            .filesystem(Box::new(DogBoxFileSystem::new(tree_editor)))
             .locksystem(FakeLs::new())
             .build_handler(),
     );
