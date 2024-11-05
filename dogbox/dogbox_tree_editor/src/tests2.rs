@@ -6,7 +6,143 @@ mod tests {
         tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
     };
     use pretty_assertions::assert_eq;
-    use std::{collections::BTreeSet, sync::Arc};
+    use std::{
+        collections::{BTreeSet, VecDeque},
+        sync::Arc,
+    };
+
+    #[tokio::test]
+    async fn optimized_write_buffer_empty() {
+        for write_position in [0, 1, 10, 100, 1000, u64::MAX] {
+            let buffer =
+                OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::new()).await;
+            assert_eq!(bytes::Bytes::new(), buffer.prefix());
+            assert_eq!(Vec::<HashedValue>::new(), *buffer.full_blocks());
+            assert_eq!(bytes::Bytes::new(), buffer.suffix());
+        }
+    }
+
+    #[tokio::test]
+    async fn optimized_write_buffer_prefix_only() {
+        for write_position in [
+            0,
+            1,
+            10,
+            100,
+            1000,
+            VALUE_BLOB_MAX_LENGTH as u64,
+            VALUE_BLOB_MAX_LENGTH as u64 - 1,
+            VALUE_BLOB_MAX_LENGTH as u64 + 1,
+            u64::MAX - 1,
+        ] {
+            let buffer = OptimizedWriteBuffer::from_bytes(
+                write_position,
+                bytes::Bytes::copy_from_slice(&[b'x']),
+            )
+            .await;
+            assert_eq!(bytes::Bytes::copy_from_slice(&[b'x']), buffer.prefix());
+            assert_eq!(Vec::<HashedValue>::new(), *buffer.full_blocks());
+            assert_eq!(bytes::Bytes::new(), buffer.suffix());
+        }
+    }
+
+    #[tokio::test]
+    async fn optimized_write_buffer_prefix_and_suffix_only() {
+        for block_index in [0, 1, 10, 100, 1000] {
+            for prefix_length in [1, 10, 100, 1000, VALUE_BLOB_MAX_LENGTH as u64 - 1] {
+                for suffix_length in [1, 10, 100, 1000, VALUE_BLOB_MAX_LENGTH as u64 - 1] {
+                    let position_in_block: u64 = VALUE_BLOB_MAX_LENGTH as u64 - prefix_length;
+                    let write_position =
+                        (block_index * VALUE_BLOB_MAX_LENGTH as u64) + position_in_block;
+                    let prefix =
+                        bytes::Bytes::from_iter(std::iter::repeat_n(b'p', prefix_length as usize));
+                    let suffix =
+                        bytes::Bytes::from_iter(std::iter::repeat_n(b's', suffix_length as usize));
+                    let write_data = bytes::Bytes::from_iter(
+                        prefix.clone().into_iter().chain(suffix.clone().into_iter()),
+                    );
+                    let buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data).await;
+                    assert_eq!(prefix, buffer.prefix());
+                    assert_eq!(Vec::<HashedValue>::new(), *buffer.full_blocks());
+                    assert_eq!(suffix, buffer.suffix());
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn optimized_write_buffer_full_blocks() {
+        //TODO: reduce nesting
+        futures::future::join_all([1, 10, VALUE_BLOB_MAX_LENGTH as u64 - 1].iter().map(
+            |&prefix_length| {
+                tokio::task::spawn(async move {
+                    //TODO: use more interesting content for prefix
+                    let prefix =
+                        bytes::Bytes::from_iter(std::iter::repeat_n(b'p', prefix_length as usize));
+                    futures::future::join_all(
+                        [1, 10, VALUE_BLOB_MAX_LENGTH as u64 - 1]
+                            .iter()
+                            .map(|&suffix_length| {
+                                tokio::task::spawn({
+                                    let prefix = prefix.clone();
+                                    async move {
+                                        {
+                                            //TODO: use more interesting content for suffix
+                                            let suffix = bytes::Bytes::from_iter(
+                                                std::iter::repeat_n(b's', suffix_length as usize),
+                                            );
+                                            for full_block_count in [1, 2, 5] {
+                                                let position_in_block: u64 =
+                                                    VALUE_BLOB_MAX_LENGTH as u64 - prefix_length;
+                                                let write_data = bytes::Bytes::from_iter(
+                                                    prefix
+                                                        .clone()
+                                                        .into_iter()
+                                                        //TODO: use more interesting content for full_blocks
+                                                        .chain(std::iter::repeat_n(
+                                                            b'f',
+                                                            (full_block_count
+                                                                * VALUE_BLOB_MAX_LENGTH)
+                                                                as usize,
+                                                        ))
+                                                        .chain(suffix.clone().into_iter()),
+                                                );
+                                                for block_index in [0, 100] {
+                                                    let write_position = (block_index
+                                                        * VALUE_BLOB_MAX_LENGTH as u64)
+                                                        + position_in_block;
+                                                    let buffer = OptimizedWriteBuffer::from_bytes(
+                                                        write_position,
+                                                        write_data.clone(),
+                                                    )
+                                                    .await;
+                                                    assert_eq!(prefix, buffer.prefix());
+                                                    assert_eq!(
+                                                        full_block_count,
+                                                        buffer.full_blocks().len()
+                                                    );
+                                                    assert!(buffer.full_blocks().iter().all(
+                                                        |full_block| full_block
+                                                            .value()
+                                                            .blob()
+                                                            .as_slice()
+                                                            .iter()
+                                                            .all(|&byte| byte == b'f')
+                                                    ));
+                                                    assert_eq!(suffix, buffer.suffix());
+                                                }
+                                            }
+                                        }
+                                    }
+                                })
+                            }),
+                    )
+                    .await;
+                })
+            },
+        ))
+        .await;
+    }
 
     #[tokio::test]
     async fn open_file_content_buffer_write_fill_zero_block() {
@@ -43,8 +179,7 @@ mod tests {
                 is_digest_up_to_date: false,
             },
             last_known_digest_file_size: last_known_digest_file_size as u64,
-            number_of_bytes_written_since_last_save: VALUE_BLOB_MAX_LENGTH as u64
-                + write_data.len() as u64,
+            dirty_blocks: VecDeque::from([0, 0, 1]),
         });
         assert_eq!(expected_buffer, buffer);
         assert_eq!(BTreeSet::new(), storage.digests());
@@ -91,8 +226,7 @@ mod tests {
                 is_digest_up_to_date: false,
             },
             last_known_digest_file_size: last_known_digest_file_size as u64,
-            number_of_bytes_written_since_last_save: last_known_digest_file_size as u64
-                + write_data.len() as u64,
+            dirty_blocks: VecDeque::from([0, 0]),
         });
         assert_eq!(expected_buffer, buffer);
         assert_eq!(BTreeSet::new(), storage.digests());
@@ -118,7 +252,7 @@ mod tests {
             .write(write_position, write_buffer, storage.clone())
             .await
             .unwrap();
-        buffer.store(storage.clone()).await.unwrap();
+        buffer.store_all(storage.clone()).await.unwrap();
         let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
             size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
             blocks: vec![
@@ -136,7 +270,7 @@ mod tests {
                 is_digest_up_to_date: true
             },
             last_known_digest_file_size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
-            number_of_bytes_written_since_last_save:  0,
+            dirty_blocks: VecDeque::new(),
         });
         assert_eq!(expected_buffer, buffer);
 

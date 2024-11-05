@@ -238,9 +238,9 @@ mod tests {
             // cargo fmt silently refuses to format this for an unknown reason:
             let expected_digests =
             BTreeSet::from_iter ([
-                "4ac7930be1b7c6d59f4463dce9f0f69341d73a1d8d8a7f57dea0924d3e2209600f67eba45a0ec8e24e873bb427c1d872672b3cb71242d5b50fd9f342ae7a0674",
+                "66d414061d3fea735e6e9e1cc7fe9cc68e89a46ab46c4a2aaa07d15c093cb8953e20a6552604a3f4875d7c53ead8ce64447242719dad24eac781feccbf67aca6",
         "36708536177e3b63fe3cc7a9ab2e93c26394d2e00933b243c9f3ab93c245a8253a731314365fbd5094ad33d64a083bf1b63b8471c55aab7a7efb4702d7e75459"
-        ,           "9ece086e9bac491fac5c1d1046ca11d737b92a2b2ebd93f005d7b710110c0a678288166e7fbe796883a4f2e9b3ca9f484f521d0ce464345cc1aec96779149c14"
+        ,           "f38a4f0c3e8e5eec4322ad6c1b4718f7731db33e5af24bd1acf660e8685056b84d9d654a473ab558fc7b32c1a9cbafa61a471ed887b51b511f804a93e3bf2097"
         ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
             assert_eq!(expected_digests, storage.digests());
         }

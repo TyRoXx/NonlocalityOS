@@ -165,7 +165,7 @@ impl NamedEntry {
                                         &previous_status
                                     );
                                 } else {
-                                    info!(
+                                    debug!(
                                         "Open file status changed from {:?} to {:?}",
                                         &previous_status, &current_status
                                     );
@@ -889,7 +889,7 @@ impl OpenDirectory {
                 bytes_unflushed_count,
             );
             if *last_status == status {
-                info!(
+                debug!(
                     "Not sending directory status because it didn't change: {:?}",
                     &status
                 );
@@ -1086,13 +1086,12 @@ impl OpenFileStatus {
 
 #[derive(Debug)]
 pub struct WriteResult {
-    growth: u16,
     remaining: bytes::Bytes,
 }
 
 impl WriteResult {
-    pub fn new(growth: u16, remaining: bytes::Bytes) -> Self {
-        Self { growth, remaining }
+    pub fn new(remaining: bytes::Bytes) -> Self {
+        Self { remaining }
     }
 }
 
@@ -1204,20 +1203,24 @@ impl OpenFileContentBlock {
         let extension_size = usize::min(for_extending.len(), remaining_capacity as usize);
         let rest = for_extending.split_off(extension_size);
         data.extend(for_extending);
-        Ok(WriteResult::new(extension_size as u16, rest))
+        Ok(WriteResult::new(rest))
     }
 
-    pub async fn store(
+    pub async fn try_store(
         &mut self,
+        is_allowed_to_calculate_digest: bool,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
-    ) -> std::result::Result<BlobDigest, StoreError> {
+    ) -> std::result::Result<Option<BlobDigest>, StoreError> {
         match self {
-            OpenFileContentBlock::NotLoaded(blob_digest, _) => Ok(*blob_digest),
+            OpenFileContentBlock::NotLoaded(blob_digest, _) => Ok(Some(*blob_digest)),
             OpenFileContentBlock::Loaded(loaded) => {
                 let hashed_value = match loaded {
                     LoadedBlock::KnownDigest(hashed_value) => hashed_value.clone(),
                     LoadedBlock::UnknownDigest(vec) => {
                         assert!(vec.len() <= VALUE_BLOB_MAX_LENGTH);
+                        if !is_allowed_to_calculate_digest {
+                            return Ok(None);
+                        }
                         info!("Calculating unknown digest of size {}", vec.len());
                         let hashed_value = HashedValue::from(Arc::new(Value::new(
                             ValueBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
@@ -1232,7 +1235,7 @@ impl OpenFileContentBlock {
                     .map(|success| success.digest)?;
                 // free the memory
                 *self = OpenFileContentBlock::NotLoaded(result, size);
-                Ok(result)
+                Ok(Some(result))
             }
         }
     }
@@ -1254,7 +1257,7 @@ pub struct OpenFileContentBufferLoaded {
     blocks: Vec<OpenFileContentBlock>,
     digest: DigestStatus,
     last_known_digest_file_size: u64,
-    number_of_bytes_written_since_last_save: u64,
+    dirty_blocks: VecDeque<usize>,
 }
 
 impl OpenFileContentBufferLoaded {
@@ -1263,14 +1266,14 @@ impl OpenFileContentBufferLoaded {
         blocks: Vec<OpenFileContentBlock>,
         digest: DigestStatus,
         last_known_digest_file_size: u64,
-        number_of_bytes_written_since_last_save: u64,
+        dirty_blocks: VecDeque<usize>,
     ) -> Self {
         Self {
             size,
             blocks,
             digest,
             last_known_digest_file_size,
-            number_of_bytes_written_since_last_save,
+            dirty_blocks,
         }
     }
 
@@ -1278,16 +1281,51 @@ impl OpenFileContentBufferLoaded {
         self.digest
     }
 
-    pub async fn store(
+    #[instrument(skip_all)]
+    pub async fn store_cheap_blocks(
+        &mut self,
+        storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    ) -> std::result::Result<(), StoreError> {
+        info!(
+            "store_cheap_blocks, {} dirty blocks",
+            self.dirty_blocks.len()
+        );
+        let mut skipped = 0;
+        loop {
+            let index = match self.dirty_blocks.get(skipped) {
+                Some(index) => *index,
+                None => break,
+            };
+            let block = &mut self.blocks[index];
+            let block_stored: Option<BlobDigest> = block.try_store(false, storage.clone()).await?;
+            match block_stored {
+                Some(_) => {
+                    self.dirty_blocks.pop_front();
+                }
+                None => {
+                    skipped += 1;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub async fn store_all(
         &mut self,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> std::result::Result<StoreChanges, StoreError> {
+        info!("store_all, {} dirty blocks", self.dirty_blocks.len());
+
         let mut blocks_stored = Vec::new();
-        // TODO(KWI): find unsaved blocks faster than O(N)
         for block in self.blocks.iter_mut() {
-            let block_stored = block.store(storage.clone()).await?;
-            blocks_stored.push(TypedReference::new(TypeId(0), Reference::new(block_stored)));
+            let block_stored = block.try_store(true, storage.clone()).await?;
+            blocks_stored.push(TypedReference::new(
+                TypeId(0),
+                Reference::new(block_stored.unwrap()),
+            ));
         }
+        self.dirty_blocks.clear();
         assert!(blocks_stored.len() >= 1);
         if blocks_stored.len() == 1 {
             return Ok(self.update_digest(blocks_stored[0].reference.digest));
@@ -1307,7 +1345,6 @@ impl OpenFileContentBufferLoaded {
         let old_digest = self.digest;
         self.digest = DigestStatus::new(new_digest, true);
         self.last_known_digest_file_size = self.size;
-        self.number_of_bytes_written_since_last_save = 0;
         if old_digest == self.digest {
             StoreChanges::NoChanges
         } else {
@@ -1332,22 +1369,35 @@ pub struct OptimizedWriteBuffer {
 }
 
 impl OptimizedWriteBuffer {
+    pub fn prefix(&self) -> &bytes::Bytes {
+        &self.prefix
+    }
+
+    pub fn full_blocks(&self) -> &Vec<HashedValue> {
+        &self.full_blocks
+    }
+
+    pub fn suffix(&self) -> &bytes::Bytes {
+        &self.suffix
+    }
+
     #[instrument(skip(content))]
     pub async fn from_bytes(write_position: u64, content: bytes::Bytes) -> OptimizedWriteBuffer {
         let first_block_offset = (write_position % VALUE_BLOB_MAX_LENGTH as u64) as usize;
         let first_block_capacity = VALUE_BLOB_MAX_LENGTH - first_block_offset;
         let mut block_aligned_content = content.clone();
-        let prefix = match first_block_offset {
-            0 => bytes::Bytes::new(),
-            _ => {
-                let prefix = block_aligned_content.split_to(std::cmp::min(
-                    block_aligned_content.len(),
-                    first_block_capacity,
-                ));
-                assert!(prefix.len() <= first_block_capacity);
-                assert!((first_block_offset + prefix.len()) <= VALUE_BLOB_MAX_LENGTH);
-                prefix
-            }
+        let prefix = if (first_block_offset == 0)
+            && (block_aligned_content.len() >= VALUE_BLOB_MAX_LENGTH)
+        {
+            bytes::Bytes::new()
+        } else {
+            let prefix = block_aligned_content.split_to(std::cmp::min(
+                block_aligned_content.len(),
+                first_block_capacity,
+            ));
+            assert!(prefix.len() <= first_block_capacity);
+            assert!((first_block_offset + prefix.len()) <= VALUE_BLOB_MAX_LENGTH);
+            prefix
         };
         let mut full_block_hashing: Vec<tokio::task::JoinHandle<HashedValue>> = Vec::new();
         loop {
@@ -1417,7 +1467,7 @@ impl OpenFileContentBuffer {
                 ))],
                 digest: DigestStatus::new(last_known_digest, false),
                 last_known_digest_file_size,
-                number_of_bytes_written_since_last_save: size,
+                dirty_blocks: vec![0].into(),
             }))
         }
     }
@@ -1430,12 +1480,12 @@ impl OpenFileContentBuffer {
                 blocks: _,
                 digest: _,
                 last_known_digest_file_size: _,
-                number_of_bytes_written_since_last_save: _,
+                dirty_blocks: _,
             }) => *size,
         }
     }
 
-    pub fn unsaved_bytes(&self) -> u64 {
+    pub fn unsaved_blocks(&self) -> u64 {
         match self {
             OpenFileContentBuffer::NotLoaded { digest: _, size: _ } => 0,
             OpenFileContentBuffer::Loaded(OpenFileContentBufferLoaded {
@@ -1443,8 +1493,8 @@ impl OpenFileContentBuffer {
                 blocks: _,
                 digest: _,
                 last_known_digest_file_size: _,
-                number_of_bytes_written_since_last_save,
-            }) => *number_of_bytes_written_since_last_save,
+                dirty_blocks,
+            }) => dirty_blocks.len() as u64,
         }
     }
 
@@ -1529,7 +1579,7 @@ impl OpenFileContentBuffer {
                     blocks: blocks,
                     digest: DigestStatus::new(*digest, true),
                     last_known_digest_file_size: *size,
-                    number_of_bytes_written_since_last_save: 0,
+                    dirty_blocks: VecDeque::new(),
                 });
             }
             OpenFileContentBuffer::Loaded(_loaded) => {}
@@ -1576,18 +1626,40 @@ impl OpenFileContentBuffer {
         buf: OptimizedWriteBuffer,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<()> {
+        info!(
+            "Write prefix {}, full blocks {}, suffix {}",
+            buf.prefix.len(),
+            buf.full_blocks.len(),
+            buf.suffix.len()
+        );
         let loaded = self.require_loaded(storage.clone()).await?;
 
-        if loaded.number_of_bytes_written_since_last_save >= (VALUE_BLOB_MAX_LENGTH as u64 * 200) {
+        let write_buffer_in_blocks = 200;
+        if loaded.dirty_blocks.len() >= write_buffer_in_blocks {
             info!(
-                "Saving data before writing more ({} unsaved bytes)",
-                loaded.number_of_bytes_written_since_last_save
+                "Saving data before writing more ({} dirty blocks)",
+                loaded.dirty_blocks.len()
             );
+
             loaded
-                .store(storage.clone())
+                .store_cheap_blocks(storage.clone())
                 .await
                 .map_err(|error| Error::Storage(error))?;
-            assert_eq!(0, loaded.number_of_bytes_written_since_last_save);
+
+            if loaded.dirty_blocks.len() >= (write_buffer_in_blocks / 2) {
+                info!(
+                    "Still {} dirty blocks after the cheap stores. Will have to calculate some digests.",
+                    loaded.dirty_blocks.len()
+                );
+
+                loaded
+                    .store_all(storage.clone())
+                    .await
+                    .map_err(|error| Error::Storage(error))?;
+                assert_eq!(0, loaded.dirty_blocks.len());
+            }
+        } else {
+            debug!("Only {} dirty blocks?", loaded.dirty_blocks.len());
         }
 
         // Consider the digest outdated because any write is very likely to change the digest.
@@ -1609,7 +1681,7 @@ impl OpenFileContentBuffer {
                     )
                     .await.unwrap(/*TODO: somehow recover and fix loaded.size*/);
                 assert!(write_result.remaining.is_empty());
-                loaded.number_of_bytes_written_since_last_save += write_result.growth as u64;
+                loaded.dirty_blocks.push_back(loaded.blocks.len() - 1);
             }
             while first_block_index > (loaded.blocks.len() as u64) {
                 // TODO: make this a static constant
@@ -1618,8 +1690,7 @@ impl OpenFileContentBuffer {
                         .unwrap(),
                     vec![],
                 )));
-                loaded.number_of_bytes_written_since_last_save +=
-                    filler.value().blob().as_slice().len() as u64;
+                loaded.dirty_blocks.push_back(loaded.blocks.len());
                 loaded
                     .blocks
                     .push(OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
@@ -1628,19 +1699,27 @@ impl OpenFileContentBuffer {
             }
         }
 
-        loaded.number_of_bytes_written_since_last_save += buf.len() as u64;
         let mut next_block_index = first_block_index as usize;
         {
             let position_in_block = (position % (VALUE_BLOB_MAX_LENGTH as u64)) as u16;
             if buf.prefix.is_empty() {
                 assert_eq!(0, position_in_block);
             } else {
-                assert_ne!(0, position_in_block);
+                assert!((position_in_block != 0) || (buf.prefix.len() < VALUE_BLOB_MAX_LENGTH));
                 if next_block_index == loaded.blocks.len() {
+                    let block_content: Vec<u8> =
+                        std::iter::repeat_n(0u8, position_in_block as usize)
+                            .chain(buf.prefix)
+                            .collect();
+                    assert!(block_content.len() < VALUE_BLOB_MAX_LENGTH);
+                    info!(
+                        "Writing prefix creates an unknown digest block at {}",
+                        next_block_index
+                    );
                     loaded
                         .blocks
                         .push(OpenFileContentBlock::Loaded(LoadedBlock::UnknownDigest(
-                            buf.prefix.to_vec(),
+                            block_content,
                         )));
                 } else {
                     let block = &mut loaded.blocks[next_block_index];
@@ -1654,6 +1733,7 @@ impl OpenFileContentBuffer {
                         .await.unwrap(/*TODO: somehow recover and fix loaded.size*/);
                     assert_eq!(0, write_result.remaining.len());
                 }
+                loaded.dirty_blocks.push_back(next_block_index);
                 next_block_index += 1;
             }
         }
@@ -1670,11 +1750,16 @@ impl OpenFileContentBuffer {
                 *existing_block =
                     OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(full_block));
             }
+            loaded.dirty_blocks.push_back(next_block_index);
             next_block_index += 1;
         }
 
         if !buf.suffix.is_empty() {
             if next_block_index == loaded.blocks.len() {
+                info!(
+                    "Writing suffix creates an unknown digest block at {}",
+                    next_block_index
+                );
                 loaded
                     .blocks
                     .push(OpenFileContentBlock::Loaded(LoadedBlock::UnknownDigest(
@@ -1685,17 +1770,22 @@ impl OpenFileContentBuffer {
                 let write_result = block.write(0, buf.suffix, storage.clone()).await.unwrap(/*TODO: somehow recover and fix loaded.size*/);
                 assert_eq!(0, write_result.remaining.len());
             }
+            loaded.dirty_blocks.push_back(next_block_index);
         }
         Ok(())
     }
 
-    pub async fn store(
+    pub async fn store_all(
         &mut self,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> std::result::Result<StoreChanges, StoreError> {
         match self {
             OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
-                open_file_content_buffer_loaded.store(storage).await
+                debug!(
+                    "Only {} dirty blocks?",
+                    open_file_content_buffer_loaded.dirty_blocks.len()
+                );
+                open_file_content_buffer_loaded.store_all(storage).await
             }
             OpenFileContentBuffer::NotLoaded { digest: _, size: _ } => Ok(StoreChanges::NoChanges),
         }
@@ -1772,7 +1862,7 @@ impl OpenFile {
             content.size(),
             last_known_digest_file_size,
             is_open_for_writing,
-            content.unsaved_bytes(),
+            content.unsaved_blocks() * (VALUE_BLOB_MAX_LENGTH as u64),
         );
         if change_event_sender.send_if_modified(|last_status| {
             if *last_status == status {
@@ -1854,9 +1944,11 @@ impl OpenFile {
         })
     }
 
+    #[instrument(skip(self))]
     pub async fn flush(&self) -> std::result::Result<OpenFileStatus, StoreError> {
+        info!("Flushing open file");
         let mut content_locked = self.content.lock().await;
-        match content_locked.store(self.storage.clone()).await? {
+        match content_locked.store_all(self.storage.clone()).await? {
             StoreChanges::SomeChanges => {
                 Self::update_status(
                     &self.change_event_sender,
