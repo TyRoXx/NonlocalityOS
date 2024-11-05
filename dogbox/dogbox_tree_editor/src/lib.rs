@@ -1686,15 +1686,8 @@ impl OpenFileContentBuffer {
                     )));
             } else {
                 let existing_block = &mut loaded.blocks[next_block_index];
-                match existing_block {
-                    OpenFileContentBlock::NotLoaded(_blob_digest, _) => {
-                        *existing_block =
-                            OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(full_block));
-                    }
-                    OpenFileContentBlock::Loaded(loaded) => {
-                        *loaded = LoadedBlock::KnownDigest(full_block);
-                    }
-                }
+                *existing_block =
+                    OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(full_block));
             }
             next_block_index += 1;
         }

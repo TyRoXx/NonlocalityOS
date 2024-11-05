@@ -3,7 +3,7 @@ mod tests {
     use crate::{OpenFileContentBlock, OpenFileContentBuffer, OptimizedWriteBuffer};
     use astraea::{
         storage::InMemoryValueStorage,
-        tree::{BlobDigest, VALUE_BLOB_MAX_LENGTH},
+        tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
     };
     use pretty_assertions::assert_eq;
     use std::{collections::BTreeSet, sync::Arc};
@@ -44,6 +44,54 @@ mod tests {
             },
             last_known_digest_file_size: last_known_digest_file_size as u64,
             number_of_bytes_written_since_last_save: VALUE_BLOB_MAX_LENGTH as u64
+                + write_data.len() as u64,
+        });
+        assert_eq!(expected_buffer, buffer);
+        assert_eq!(BTreeSet::new(), storage.digests());
+    }
+
+    fn random_bytes(len: usize) -> Vec<u8> {
+        use rand::rngs::SmallRng;
+        use rand::Rng;
+        use rand::SeedableRng;
+        let mut small_rng = SmallRng::from_entropy();
+        (0..len).map(|_| small_rng.gen()).collect()
+    }
+
+    #[tokio::test]
+    async fn open_file_content_buffer_overwrite_full_block() {
+        let data = random_bytes(VALUE_BLOB_MAX_LENGTH);
+        let last_known_digest = BlobDigest::hash(&data);
+        let last_known_digest_file_size = data.len();
+        let mut buffer = OpenFileContentBuffer::from_data(
+            data,
+            last_known_digest,
+            last_known_digest_file_size as u64,
+        )
+        .unwrap();
+        let write_position = 0 as u64;
+        let write_data = bytes::Bytes::from(random_bytes(last_known_digest_file_size));
+        let write_buffer =
+            OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
+        let storage = Arc::new(InMemoryValueStorage::empty());
+        let _write_result: () = buffer
+            .write(write_position, write_buffer, storage.clone())
+            .await
+            .unwrap();
+        let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
+            size: last_known_digest_file_size as u64,
+            blocks: vec![OpenFileContentBlock::Loaded(
+                crate::LoadedBlock::KnownDigest(HashedValue::from(Arc::new(Value::new(
+                    ValueBlob::try_from(write_data.clone()).unwrap(),
+                    Vec::new(),
+                )))),
+            )],
+            digest: crate::DigestStatus {
+                last_known_digest: last_known_digest,
+                is_digest_up_to_date: false,
+            },
+            last_known_digest_file_size: last_known_digest_file_size as u64,
+            number_of_bytes_written_since_last_save: last_known_digest_file_size as u64
                 + write_data.len() as u64,
         });
         assert_eq!(expected_buffer, buffer);
