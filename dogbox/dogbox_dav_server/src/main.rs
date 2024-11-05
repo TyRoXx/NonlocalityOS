@@ -105,15 +105,15 @@ async fn persist_root_on_change(
                 blob_storage_commit.commit_changes().unwrap(/*TODO*/);
             }
             let save_status = if root_status.digest.is_digest_up_to_date {
-                assert!(root_status.bytes_unflushed_count == 0);
-                assert!(root_status.files_unflushed_count == 0);
-                assert!(root_status.directories_unsaved_count == 0);
+                assert_eq!(0, root_status.bytes_unflushed_count);
+                assert_eq!(0, root_status.files_unflushed_count);
+                assert_eq!(0, root_status.directories_unsaved_count);
                 info!("Root digest is up to date.");
                 SaveStatus::Saved {
                     files_open_for_writing_count: root_status.files_open_for_writing_count,
                 }
             } else {
-                assert!(root_status.directories_unsaved_count != 0);
+                assert_ne!(0, root_status.directories_unsaved_count);
                 debug!("Root digest is not up to date.");
                 SaveStatus::Saving
             };

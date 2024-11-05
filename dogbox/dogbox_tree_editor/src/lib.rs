@@ -1,4 +1,3 @@
-#[cfg(test)]
 mod tests2;
 use astraea::{
     storage::{LoadStoreValue, StoreError},
@@ -884,10 +883,7 @@ impl OpenDirectory {
         change_event_sender.send_if_modified(|last_status| {
             let digest = match new_digest {
                 Some(new_digest) => DigestStatus::new(new_digest, is_up_to_date),
-                None => DigestStatus::new(
-                    last_status.digest.last_known_digest,
-                    last_status.digest.is_digest_up_to_date && is_up_to_date,
-                ),
+                None => DigestStatus::new(last_status.digest.last_known_digest, is_up_to_date),
             };
             let status = OpenDirectoryStatus::new(
                 digest,
