@@ -1220,38 +1220,25 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, _) => Ok(*blob_digest),
             OpenFileContentBlock::Loaded(loaded) => {
-                match loaded {
-                    LoadedBlock::KnownDigest(hashed_value) => {
-                        debug!(
-                            "Storing content block of size {}",
-                            hashed_value.value().blob().len()
-                        );
-                        let result = storage
-                            .store_value(&hashed_value)
-                            .map(|success| success.digest)?;
-                        // free the memory
-                        *self = OpenFileContentBlock::NotLoaded(
-                            result,
-                            hashed_value.value().blob().len(),
-                        );
-                        Ok(result)
-                    }
+                let hashed_value = match loaded {
+                    LoadedBlock::KnownDigest(hashed_value) => hashed_value.clone(),
                     LoadedBlock::UnknownDigest(vec) => {
                         assert!(vec.len() <= VALUE_BLOB_MAX_LENGTH);
+                        info!("Calculating unknown digest of size {}", vec.len());
                         let hashed_value = HashedValue::from(Arc::new(Value::new(
                             ValueBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
                             vec![],
                         )));
-                        let size = vec.len() as u16;
-                        debug!("Storing content block of size {}", size);
-                        let result = storage
-                            .store_value(&hashed_value)
-                            .map(|success| success.digest)?;
-                        // free the memory
-                        *self = OpenFileContentBlock::NotLoaded(result, size);
-                        Ok(result)
+                        hashed_value
                     }
-                }
+                };
+                let size = hashed_value.value().blob().len();
+                let result = storage
+                    .store_value(&hashed_value)
+                    .map(|success| success.digest)?;
+                // free the memory
+                *self = OpenFileContentBlock::NotLoaded(result, size);
+                Ok(result)
             }
         }
     }
