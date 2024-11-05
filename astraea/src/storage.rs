@@ -3,7 +3,7 @@ use crate::tree::{
     VALUE_BLOB_MAX_LENGTH,
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 use tracing::{debug, error, info, instrument};
@@ -57,6 +57,15 @@ impl InMemoryValueStorage {
 
     pub fn len(&self) -> usize {
         self.reference_to_value.lock().unwrap().len()
+    }
+
+    pub fn digests(&self) -> BTreeSet<BlobDigest> {
+        self.reference_to_value
+            .lock()
+            .unwrap()
+            .keys()
+            .map(|v| v.digest)
+            .collect()
     }
 }
 

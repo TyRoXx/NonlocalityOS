@@ -121,7 +121,7 @@ impl TypedReference {
 
 pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq)]
 pub struct ValueBlob {
     pub content: bytes::Bytes,
 }
@@ -146,6 +146,14 @@ impl ValueBlob {
 
     pub fn len(&self) -> u16 {
         self.content.len() as u16
+    }
+}
+
+impl std::fmt::Debug for ValueBlob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ValueBlob")
+            .field("content.len()", &self.content.len())
+            .finish()
     }
 }
 

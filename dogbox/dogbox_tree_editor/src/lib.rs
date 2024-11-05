@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod tests2;
 use astraea::{
     storage::{LoadStoreValue, StoreError},
     tree::{
@@ -1104,13 +1106,25 @@ impl WriteResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq)]
 pub enum LoadedBlock {
     KnownDigest(HashedValue),
     UnknownDigest(Vec<u8>),
 }
 
-#[derive(Debug)]
+impl std::fmt::Debug for LoadedBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::KnownDigest(arg0) => f.debug_tuple("KnownDigest").field(arg0).finish(),
+            Self::UnknownDigest(arg0) => f
+                .debug_tuple("UnknownDigest.0.len()")
+                .field(&arg0.len())
+                .finish(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum OpenFileContentBlock {
     NotLoaded(BlobDigest, u16),
     Loaded(LoadedBlock),
@@ -1257,7 +1271,7 @@ impl OpenFileContentBlock {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct OpenFileContentBufferLoaded {
     size: u64,
     blocks: Vec<OpenFileContentBlock>,
@@ -1396,7 +1410,7 @@ impl OptimizedWriteBuffer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum OpenFileContentBuffer {
     NotLoaded { digest: BlobDigest, size: u64 },
     Loaded(OpenFileContentBufferLoaded),
@@ -1620,7 +1634,7 @@ impl OpenFileContentBuffer {
                 assert!(write_result.remaining.is_empty());
                 loaded.number_of_bytes_written_since_last_save += write_result.growth as u64;
             }
-            while first_block_index >= (loaded.blocks.len() as u64) {
+            while first_block_index > (loaded.blocks.len() as u64) {
                 // TODO: make this a static constant
                 let filler = HashedValue::from(Arc::new(Value::new(
                     ValueBlob::try_from(bytes::Bytes::from(vec![0u8; VALUE_BLOB_MAX_LENGTH]))
