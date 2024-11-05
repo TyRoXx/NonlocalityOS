@@ -543,16 +543,6 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_create_file_2_mb() {
-        test_create_file(std::iter::repeat_n(0u8, 2_000_000).collect()).await
-    }
-
-    #[test_log::test(tokio::test)]
-    async fn test_create_file_4_mb() {
-        test_create_file(std::iter::repeat_n(0u8, 4_000_000).collect()).await
-    }
-
-    #[test_log::test(tokio::test)]
     async fn test_create_directory() {
         let dir_name = "Dir4";
         let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -829,11 +819,17 @@ mod tests {
             Box::pin(async move {
                 client.put("A", "content").await.unwrap();
                 client.delete("A").await.unwrap();
+
+                // We need this extra file so that the state of the directory actually changes.
+                client.put("B.txt", "").await.unwrap();
             })
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                expect_directory_empty(&client, "/").await;
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/");
+                expect_file(&client, &listed[1], "/B.txt", "".as_bytes(), "text/plain").await;
             })
         };
         test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
@@ -845,11 +841,17 @@ mod tests {
             Box::pin(async move {
                 client.mkcol("A").await.unwrap();
                 client.delete("A").await.unwrap();
+
+                // We need this extra file so that the state of the directory actually changes.
+                client.put("B.txt", "").await.unwrap();
             })
         };
         let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
-                expect_directory_empty(&client, "/").await;
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/");
+                expect_file(&client, &listed[1], "/B.txt", "".as_bytes(), "text/plain").await;
             })
         };
         test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await

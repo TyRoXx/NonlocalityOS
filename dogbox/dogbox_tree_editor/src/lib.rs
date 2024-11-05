@@ -425,7 +425,7 @@ impl OpenDirectory {
                     name.to_string(),
                     NamedEntry::OpenRegularFile(open_file.clone(), receiver),
                 );
-                Self::notify_about_change(&self.change_event_sender, &mut state_locked).await;
+                Self::notify_about_change(&mut state_locked).await;
                 Ok(open_file)
             }
         }
@@ -437,7 +437,7 @@ impl OpenDirectory {
             let self2 = self.clone();
             Box::pin(async move {
                 let mut state_locked = self2.state.lock().await;
-                Self::notify_about_change(&self2.change_event_sender, &mut state_locked).await;
+                Self::notify_about_change(&mut state_locked).await;
                 Ok(())
             })
         }));
@@ -611,7 +611,7 @@ impl OpenDirectory {
                     name,
                     NamedEntry::OpenSubdirectory(directory, receiver),
                 );
-                Self::notify_about_change(&self.change_event_sender, &mut state_locked).await;
+                Self::notify_about_change(&mut state_locked).await;
                 Ok(())
             }
         }
@@ -624,7 +624,7 @@ impl OpenDirectory {
         }
 
         state_locked.names.remove(name_here);
-        Self::notify_about_change(&self.change_event_sender, &mut state_locked).await;
+        Self::notify_about_change(&mut state_locked).await;
         Ok(())
     }
 
@@ -677,11 +677,9 @@ impl OpenDirectory {
         }
 
         if state_there_locked.is_some() {
-            Self::notify_about_change(&self.change_event_sender, &mut state_there_locked.unwrap())
-                .await;
-        } else {
-            Self::notify_about_change(&self.change_event_sender, &mut state_locked).await;
+            Self::notify_about_change(&mut state_there_locked.unwrap()).await;
         }
+        Self::notify_about_change(&mut state_locked).await;
         Ok(())
     }
 
@@ -752,9 +750,9 @@ impl OpenDirectory {
                 .write_into_directory(&mut state_locked, name_there, entry),
         }
 
-        Self::notify_about_change(&self.change_event_sender, &mut state_locked).await;
+        Self::notify_about_change(&mut state_locked).await;
         if let Some(ref mut state_there) = state_there_locked {
-            Self::notify_about_change(&there.change_event_sender, state_there).await;
+            Self::notify_about_change(state_there).await;
         }
         Ok(())
     }
@@ -789,15 +787,11 @@ impl OpenDirectory {
         })
     }
 
-    async fn notify_about_change(
-        change_event_sender: &tokio::sync::watch::Sender<OpenDirectoryStatus>,
-        state_locked: &mut OpenDirectoryMutableState,
-    ) -> OpenDirectoryStatus {
+    async fn notify_about_change(state_locked: &mut OpenDirectoryMutableState) {
         if !state_locked.has_unsaved_changes {
             info!("Directory has unsaved changes now.");
             state_locked.has_unsaved_changes = true;
         }
-        Self::update_status(change_event_sender, state_locked, None).await
     }
 
     async fn consider_saving_and_updating_status(
@@ -895,7 +889,7 @@ impl OpenDirectory {
                 bytes_unflushed_count,
             );
             if *last_status == status {
-                debug!(
+                info!(
                     "Not sending directory status because it didn't change: {:?}",
                     &status
                 );
@@ -2080,7 +2074,6 @@ impl TreeEditor {
         };
         return Box::pin(async move {
             let directory = opening_directory.0.await?;
-
             directory.remove(&opening_directory.1).await
         });
     }
