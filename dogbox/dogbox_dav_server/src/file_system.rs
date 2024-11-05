@@ -150,10 +150,25 @@ impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
 }
 
 #[derive(Debug)]
-struct DogBoxOpenFile {
+pub(crate) struct DogBoxOpenFile {
     handle: Arc<OpenFile>,
     write_permission: Option<Arc<OpenFileWritePermission>>,
     cursor: u64,
+}
+
+impl DogBoxOpenFile {
+    #[cfg(test)]
+    pub(crate) fn new(
+        handle: Arc<OpenFile>,
+        write_permission: Option<Arc<OpenFileWritePermission>>,
+        cursor: u64,
+    ) -> Self {
+        Self {
+            handle,
+            write_permission,
+            cursor,
+        }
+    }
 }
 
 impl dav_server::fs::DavFile for DogBoxOpenFile {
@@ -171,7 +186,15 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
 
     fn write_bytes(&mut self, buf: bytes::Bytes) -> dav_server::fs::FsFuture<()> {
         let write_at = self.cursor;
-        self.cursor += buf.len() as u64;
+        let maybe_new_cursor = self.cursor.checked_add(buf.len() as u64);
+        match maybe_new_cursor {
+            Some(new_cursor) => self.cursor = new_cursor,
+            None => {
+                return Box::pin(async move {
+                    return Err(FsError::TooLarge);
+                })
+            }
+        }
         let open_file = self.handle.clone();
         Box::pin(async move {
             match &self.write_permission {

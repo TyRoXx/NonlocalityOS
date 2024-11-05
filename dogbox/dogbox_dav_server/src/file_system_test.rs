@@ -1,15 +1,17 @@
 #[cfg(test)]
 mod tests {
-    use crate::file_system::DogBoxFileSystem;
-    use astraea::storage::InMemoryValueStorage;
-    use dav_server::{fakels::FakeLs, DavHandler};
-    use dogbox_tree_editor::OpenDirectory;
+    use crate::file_system::{DogBoxFileSystem, DogBoxOpenFile};
+    use astraea::{storage::InMemoryValueStorage, tree::BlobDigest};
+    use dav_server::{fakels::FakeLs, fs::DavFile, DavHandler};
+    use dogbox_tree_editor::{OpenDirectory, OpenFile};
     use hyper::{body, server::conn::http1, Request};
     use hyper_util::rt::TokioIo;
+    use pretty_assertions::assert_eq;
     use reqwest_dav::{Auth, ClientBuilder, Depth};
     use std::{
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         convert::Infallible,
+        io::SeekFrom,
         net::SocketAddr,
         sync::{Arc, Mutex},
     };
@@ -110,6 +112,187 @@ mod tests {
             }
             _ = run_client => {
             }
+        }
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_seek_operations() {
+        let data = Vec::new();
+        let last_known_digest = BlobDigest::hash(&data);
+        let last_known_digest_file_size = data.len() as u64;
+        let storage = Arc::new(InMemoryValueStorage::empty());
+        {
+            let handle = Arc::new(OpenFile::new(
+                dogbox_tree_editor::OpenFileContentBuffer::from_data(
+                    data,
+                    last_known_digest,
+                    last_known_digest_file_size,
+                )
+                .unwrap(),
+                storage.clone(),
+                test_clock(),
+            ));
+            let mut file = DogBoxOpenFile::new(handle, None, 0);
+            assert_eq!(0, file.seek(SeekFrom::Start(0)).await.unwrap());
+            assert_eq!(1, file.seek(SeekFrom::Start(1)).await.unwrap());
+            assert_eq!(2, file.seek(SeekFrom::Current(1)).await.unwrap());
+            assert_eq!(1, file.seek(SeekFrom::Current(-1)).await.unwrap());
+            assert_eq!(1, file.seek(SeekFrom::End(1)).await.unwrap());
+            assert_eq!(0, file.seek(SeekFrom::End(-1)).await.unwrap());
+            assert_eq!(
+                u64::MAX,
+                file.seek(SeekFrom::Start(u64::MAX)).await.unwrap()
+            );
+            assert_eq!(
+                (u64::MAX - 1),
+                file.seek(SeekFrom::Current(-1)).await.unwrap()
+            );
+            assert_eq!(u64::MAX, file.seek(SeekFrom::Current(2)).await.unwrap());
+            assert_eq!(
+                u64::MAX,
+                file.seek(SeekFrom::Current(i64::MAX)).await.unwrap()
+            );
+            assert_eq!(
+                9223372036854775807,
+                file.seek(SeekFrom::Current(i64::MIN)).await.unwrap()
+            );
+            assert_eq!(0, file.seek(SeekFrom::Current(i64::MIN)).await.unwrap());
+        }
+        assert_eq!(BTreeSet::new(), storage.digests());
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_seek_and_write() {
+        let data = Vec::new();
+        let last_known_digest = BlobDigest::hash(&data);
+        let last_known_digest_file_size = data.len() as u64;
+        let storage = Arc::new(InMemoryValueStorage::empty());
+        {
+            let handle = Arc::new(OpenFile::new(
+                dogbox_tree_editor::OpenFileContentBuffer::from_data(
+                    data,
+                    last_known_digest,
+                    last_known_digest_file_size,
+                )
+                .unwrap(),
+                storage.clone(),
+                test_clock(),
+            ));
+            let mut file =
+                DogBoxOpenFile::new(handle.clone(), Some(handle.get_write_permission()), 0);
+            file.write_bytes(bytes::Bytes::from("test")).await.unwrap();
+            let new_size = 4;
+            assert_eq!(new_size, file.seek(SeekFrom::Current(0)).await.unwrap());
+            assert_eq!(new_size, handle.size().await);
+            assert_eq!(BTreeSet::new(), storage.digests());
+
+            assert_eq!(1, file.seek(SeekFrom::Current(-3)).await.unwrap());
+            file.write_bytes(bytes::Bytes::from("E")).await.unwrap();
+            assert_eq!(2, file.seek(SeekFrom::Current(0)).await.unwrap());
+            assert_eq!(new_size, handle.size().await);
+            assert_eq!(BTreeSet::new(), storage.digests());
+
+            file.flush().await.unwrap();
+            // cargo fmt silently refuses to format this for an unknown reason:
+            let expected_digests =
+            BTreeSet::from_iter ([
+                "b200e4afa7118a3d238d374dd657cc9bf667634e9f811dc5db071ae26e1b7b43ae085c659946f7d46c20a802d94a327ddc53ae5d11970e34d9dc68ae4da76be3"
+          ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
+            assert_eq!(expected_digests, storage.digests());
+        }
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_seek_beyond_the_end() {
+        let data = Vec::new();
+        let last_known_digest = BlobDigest::hash(&data);
+        let last_known_digest_file_size = data.len() as u64;
+        let storage = Arc::new(InMemoryValueStorage::empty());
+        {
+            let handle = Arc::new(OpenFile::new(
+                dogbox_tree_editor::OpenFileContentBuffer::from_data(
+                    data,
+                    last_known_digest,
+                    last_known_digest_file_size,
+                )
+                .unwrap(),
+                storage.clone(),
+                test_clock(),
+            ));
+            let mut file =
+                DogBoxOpenFile::new(handle.clone(), Some(handle.get_write_permission()), 0);
+            assert_eq!(
+                1_000_000,
+                file.seek(SeekFrom::Start(1_000_000)).await.unwrap()
+            );
+            let write_data = "test";
+            file.write_bytes(bytes::Bytes::from(write_data))
+                .await
+                .unwrap();
+            let new_size = 1_000_000 + write_data.len() as u64;
+            assert_eq!(new_size, file.seek(SeekFrom::Current(0)).await.unwrap());
+            assert_eq!(new_size, handle.size().await);
+            assert_eq!(BTreeSet::new(), storage.digests());
+
+            file.flush().await.unwrap();
+            // cargo fmt silently refuses to format this for an unknown reason:
+            let expected_digests =
+            BTreeSet::from_iter ([
+                "4ac7930be1b7c6d59f4463dce9f0f69341d73a1d8d8a7f57dea0924d3e2209600f67eba45a0ec8e24e873bb427c1d872672b3cb71242d5b50fd9f342ae7a0674",
+        "36708536177e3b63fe3cc7a9ab2e93c26394d2e00933b243c9f3ab93c245a8253a731314365fbd5094ad33d64a083bf1b63b8471c55aab7a7efb4702d7e75459"
+        ,           "9ece086e9bac491fac5c1d1046ca11d737b92a2b2ebd93f005d7b710110c0a678288166e7fbe796883a4f2e9b3ca9f484f521d0ce464345cc1aec96779149c14"
+        ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
+            assert_eq!(expected_digests, storage.digests());
+        }
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_write_out_of_bounds() {
+        let data = Vec::new();
+        let last_known_digest = BlobDigest::hash(&data);
+        let last_known_digest_file_size = data.len() as u64;
+        let storage = Arc::new(InMemoryValueStorage::empty());
+        {
+            let handle = Arc::new(OpenFile::new(
+                dogbox_tree_editor::OpenFileContentBuffer::from_data(
+                    data,
+                    last_known_digest,
+                    last_known_digest_file_size,
+                )
+                .unwrap(),
+                storage.clone(),
+                test_clock(),
+            ));
+            let mut file =
+                DogBoxOpenFile::new(handle.clone(), Some(handle.get_write_permission()), 0);
+
+            assert_eq!(
+                i64::MAX as u64,
+                file.seek(SeekFrom::Current(i64::MAX)).await.unwrap()
+            );
+            let cursor_before_write = (i64::MAX as u64) * 2;
+            assert_eq!(
+                cursor_before_write,
+                file.seek(SeekFrom::Current(i64::MAX)).await.unwrap()
+            );
+            assert_eq!(
+                Err(dav_server::fs::FsError::TooLarge),
+                file.write_bytes(bytes::Bytes::from("test")).await
+            );
+            assert_eq!(
+                cursor_before_write,
+                file.seek(SeekFrom::Current(0)).await.unwrap()
+            );
+            assert_eq!(last_known_digest_file_size, handle.size().await);
+            assert_eq!(BTreeSet::new(), storage.digests());
+
+            file.flush().await.unwrap();
+            // cargo fmt silently refuses to format this for an unknown reason:
+            let expected_digests =
+            BTreeSet::from_iter ([
+                "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+          ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
+            assert_eq!(expected_digests, storage.digests());
         }
     }
 }
