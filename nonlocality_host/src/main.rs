@@ -17,8 +17,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> std::io::Result<()> {
+async fn run_host() -> std::io::Result<()> {
     let test_console: Arc<dyn ReduceExpression> = Arc::new(ActualConsole {});
     let delay_service: Arc<dyn ReduceExpression> = Arc::new(DelayService {});
     let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
@@ -73,4 +72,14 @@ async fn main() -> std::io::Result<()> {
     .await
     .unwrap();
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_run_host() -> std::io::Result<()> {
+    run_host().await
+}
+
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> std::io::Result<()> {
+    run_host().await
 }
