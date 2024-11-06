@@ -2,7 +2,7 @@
 mod tests {
     use crate::{OpenFileContentBlock, OpenFileContentBuffer, OptimizedWriteBuffer};
     use astraea::{
-        storage::InMemoryValueStorage,
+        storage::{InMemoryValueStorage, LoadStoreValue},
         tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
     };
     use pretty_assertions::assert_eq;
@@ -10,6 +10,8 @@ mod tests {
         collections::{BTreeSet, VecDeque},
         sync::Arc,
     };
+    use test_case::test_case;
+    use tokio::runtime::Runtime;
 
     #[tokio::test]
     async fn optimized_write_buffer_empty() {
@@ -291,5 +293,57 @@ mod tests {
     ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
 
         assert_eq!(expected_digests, storage.digests());
+    }
+
+    async fn check_open_file_content_buffer(
+        buffer: &mut OpenFileContentBuffer,
+        expected_content: bytes::Bytes,
+        storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    ) {
+        let mut checked = 0;
+        while checked < expected_content.len() {
+            let read_result = buffer
+                .read(
+                    checked as u64,
+                    expected_content.len() - checked,
+                    storage.clone(),
+                )
+                .await;
+            let read_bytes = read_result.unwrap();
+            let expected_piece = expected_content.slice(checked..(checked + read_bytes.len()));
+            assert_eq!(expected_piece, read_bytes);
+            checked += read_bytes.len();
+        }
+        assert_eq!(expected_content.len(), checked);
+    }
+
+    #[test_case(0)]
+    #[test_case(1)]
+    #[test_case(20)]
+    #[test_case(2_000)]
+    #[test_case(200_000)]
+    fn open_file_content_buffer_sizes(size: usize) {
+        Runtime::new().unwrap().block_on(async {
+            let initial_content = Vec::new();
+            let last_known_digest = BlobDigest::hash(&initial_content);
+            let last_known_digest_file_size = initial_content.len();
+            let mut buffer = OpenFileContentBuffer::from_data(
+                initial_content,
+                last_known_digest,
+                last_known_digest_file_size as u64,
+            )
+            .unwrap();
+            let new_content = bytes::Bytes::from(random_bytes(size));
+            let storage = Arc::new(InMemoryValueStorage::empty());
+            buffer
+                .write(
+                    0,
+                    OptimizedWriteBuffer::from_bytes(0, new_content.clone()).await,
+                    storage.clone(),
+                )
+                .await
+                .unwrap();
+            check_open_file_content_buffer(&mut buffer, new_content, storage).await;
+        });
     }
 }
