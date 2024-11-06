@@ -179,6 +179,7 @@ async fn run_dav_server(
                 >,
             >,
         >,
+        Arc<OpenDirectory>,
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
@@ -226,32 +227,41 @@ async fn run_dav_server(
             .build_handler(),
     );
     let (save_status_sender, save_status_receiver) = tokio::sync::mpsc::channel(6);
-    let result = async move {
-        let root_cloned = root.clone();
-        let join_result = tokio::try_join!(
-            async move {
-                save_root_regularly(root, minimum_save_delay).await;
-                Ok(())
-            },
-            async move {
-                persist_root_on_change(
-                    root_cloned,
-                    &root_name,
-                    &*blob_storage,
-                    &*blob_storage,
-                    save_status_sender,
-                )
-                .await;
-                Ok(())
-            },
-            async move {
-                handle_tcp_connections(listener, dav_server).await.unwrap();
-                Ok(())
-            }
-        );
-        join_result.map(|_| ())
+    let result = {
+        let root = root.clone();
+        async move {
+            let root = root.clone();
+            let join_result = tokio::try_join!(
+                {
+                    let root = root.clone();
+                    async move {
+                        save_root_regularly(root.clone(), minimum_save_delay).await;
+                        Ok(())
+                    }
+                },
+                {
+                    let root = root.clone();
+                    async move {
+                        persist_root_on_change(
+                            root,
+                            &root_name,
+                            &*blob_storage,
+                            &*blob_storage,
+                            save_status_sender,
+                        )
+                        .await;
+                        Ok(())
+                    }
+                },
+                async move {
+                    handle_tcp_connections(listener, dav_server).await.unwrap();
+                    Ok(())
+                }
+            );
+            join_result.map(|_| ())
+        }
     };
-    Ok((save_status_receiver, Box::pin(result)))
+    Ok((save_status_receiver, Box::pin(result), root))
 }
 
 #[cfg(test)]
@@ -276,12 +286,13 @@ mod tests {
         let listener = TcpListener::bind(address).await.unwrap();
         let actual_address = listener.local_addr().unwrap();
         let server_url = format!("http://{}", actual_address);
-        let (mut save_status_receiver, server) = run_dav_server(
+        let (mut save_status_receiver, server, root_directory) = run_dav_server(
             listener,
             &database_file_name,
             modified_default,
             clock,
-            std::time::Duration::ZERO,
+            // disable automatic saving to make the tests more deterministic
+            std::time::Duration::from_secs(3600),
         )
         .await
         .unwrap();
@@ -335,6 +346,15 @@ mod tests {
         };
         let testing = async {
             client_side_testing.await;
+            {
+                let status = root_directory.request_save().await.unwrap();
+                assert!(status.digest.is_digest_up_to_date);
+                assert_eq!(0, status.files_open_for_writing_count);
+                assert_eq!(0, status.bytes_unflushed_count);
+                assert!(status.directories_open_count >= 1);
+                assert_eq!(0, status.directories_unsaved_count);
+                assert_eq!(0, status.files_unflushed_count);
+            }
             waiting_for_saved.await;
         };
         tokio::select! {
@@ -561,8 +581,13 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_create_file_1_mb() {
+    async fn test_create_file_zeroes_1_mb() {
         test_create_file(std::iter::repeat_n(0u8, 1_000_000).collect()).await
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_create_file_random_1_mb() {
+        test_create_file(random_bytes(1_000_000)).await
     }
 
     #[test_log::test(tokio::test)]
@@ -1147,7 +1172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "Last modification time defaults to {:#?}",
         &modified_default
     );
-    let (mut save_status_receiver, server) = run_dav_server(
+    let (mut save_status_receiver, server, root_directory) = run_dav_server(
         listener,
         &database_file_name,
         modified_default,
@@ -1161,5 +1186,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         Ok(())
     })?;
+    root_directory.request_save().await.unwrap();
     Ok(())
 }

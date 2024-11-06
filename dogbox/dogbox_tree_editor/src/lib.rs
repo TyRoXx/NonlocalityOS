@@ -1293,6 +1293,7 @@ impl OpenFileContentBufferLoaded {
             "store_cheap_blocks, {} dirty blocks",
             self.dirty_blocks.len()
         );
+        self.verify_integrity();
         let mut skipped = 0;
         loop {
             let index = match self.dirty_blocks.get(skipped) {
@@ -1310,7 +1311,18 @@ impl OpenFileContentBufferLoaded {
                 }
             }
         }
+        self.verify_integrity();
         Ok(())
+    }
+
+    fn verify_integrity(&self) {
+        let length = self.blocks.len();
+        for (index, block) in self.blocks.iter().enumerate() {
+            assert!(block.size() <= VALUE_BLOB_MAX_LENGTH as u16);
+            if index < (length - 1) {
+                assert_eq!(VALUE_BLOB_MAX_LENGTH as u16, block.size());
+            }
+        }
     }
 
     #[instrument(skip_all)]
@@ -1321,6 +1333,7 @@ impl OpenFileContentBufferLoaded {
         info!("store_all, {} dirty blocks", self.dirty_blocks.len());
 
         let mut blocks_stored = Vec::new();
+        self.verify_integrity();
         for block in self.blocks.iter_mut() {
             let block_stored = block.try_store(true, storage.clone()).await?;
             blocks_stored.push(TypedReference::new(
@@ -1328,6 +1341,7 @@ impl OpenFileContentBufferLoaded {
                 Reference::new(block_stored.unwrap()),
             ));
         }
+        self.verify_integrity();
         self.dirty_blocks.clear();
         assert!(blocks_stored.len() >= 1);
         if blocks_stored.len() == 1 {
@@ -1941,10 +1955,12 @@ impl OpenFile {
         debug!("Read at {}: Up to {} bytes", position, count);
         Box::pin(async move {
             let mut content_locked = self.content.lock().await;
-            content_locked
+            let read_result = content_locked
                 .read(position, count, self.storage.clone())
                 .await
-                .inspect(|bytes_read| debug!("Read {} bytes", bytes_read.len()))
+                .inspect(|bytes_read| debug!("Read {} bytes", bytes_read.len()))?;
+            assert!(read_result.len() <= count);
+            return Ok(read_result);
         })
     }
 
