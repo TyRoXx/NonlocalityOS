@@ -571,6 +571,39 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
+    async fn test_create_file_truncate() {
+        let file_name = "test.txt";
+        let long_content = "looooooong";
+        let short_content = "short";
+        let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                client.put(file_name, long_content).await.unwrap();
+                assert!(
+                    short_content.len() < long_content.len(),
+                    "Test is not valid, short content is not shorter than long content"
+                );
+                client.put(file_name, short_content).await.unwrap();
+            })
+        };
+        let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/");
+                expect_file(
+                    &client,
+                    &listed[1],
+                    &format!("/{}", file_name),
+                    short_content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+            })
+        };
+        test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    }
+
+    #[test_log::test(tokio::test)]
     async fn test_create_directory() {
         let dir_name = "Dir4";
         let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {

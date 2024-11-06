@@ -309,18 +309,24 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 Ok(success) => success,
                 Err(_error) => todo!(),
             };
-            if (open_file.size().await > 0) && options.truncate {
-                warn!("options.truncate not supported yet");
-            }
             let write_permission = match options.write {
                 true => Some(open_file.get_write_permission()),
                 false => None,
             };
-            Ok(Box::new(DogBoxOpenFile {
+            if options.truncate {
+                match &write_permission {
+                    Some(writeable) => {
+                        open_file.truncate(&writeable).await.map_err(handle_error)?
+                    }
+                    None => return Err(FsError::Forbidden),
+                }
+            }
+            let result = Box::new(DogBoxOpenFile {
                 handle: open_file,
                 cursor: 0,
                 write_permission,
-            }) as Box<dyn dav_server::fs::DavFile>)
+            });
+            Ok(result as Box<dyn dav_server::fs::DavFile>)
         })
     }
 

@@ -1916,16 +1916,20 @@ impl OpenFile {
         });
     }
 
+    fn assert_write_permission(&self, write_permission: &OpenFileWritePermission) {
+        assert!(std::ptr::eq(
+            self.write_permission.as_ref(),
+            write_permission
+        ));
+    }
+
     pub fn write_bytes(
         &self,
         write_permission: &OpenFileWritePermission,
         position: u64,
         buf: bytes::Bytes,
     ) -> Future<()> {
-        assert!(std::ptr::eq(
-            self.write_permission.as_ref(),
-            write_permission
-        ));
+        self.assert_write_permission(write_permission);
         debug!("Write at {}: {} bytes", position, buf.len());
         Box::pin(async move {
             let write_buffer = OptimizedWriteBuffer::from_bytes(position, buf).await;
@@ -1983,6 +1987,30 @@ impl OpenFile {
 
     pub async fn watch(&self) -> tokio::sync::watch::Receiver<OpenFileStatus> {
         self.change_event_sender.subscribe()
+    }
+
+    pub async fn truncate(
+        &self,
+        write_permission: &OpenFileWritePermission,
+    ) -> std::result::Result<(), Error> {
+        self.assert_write_permission(write_permission);
+        info!("Truncating a file sends a change event for this file.");
+        let mut content_locked = self.content.lock().await;
+        let (last_known_digest, last_known_digest_file_size) = content_locked.last_known_digest();
+        *content_locked = OpenFileContentBuffer::from_data(
+            Vec::new(),
+            last_known_digest.last_known_digest,
+            last_known_digest_file_size,
+        )
+        .unwrap();
+        let _update_result = Self::update_status(
+            &self.change_event_sender,
+            &mut content_locked,
+            &self.write_permission,
+        )
+        .await
+        .map_err(|error| Error::Storage(error))?;
+        Ok(())
     }
 }
 
