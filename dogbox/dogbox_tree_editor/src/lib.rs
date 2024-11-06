@@ -1184,24 +1184,26 @@ impl OpenFileContentBlock {
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<WriteResult> {
         let data = self.access_content_for_writing(storage).await?;
-        let mut for_extending = match data.split_at_mut_checked(position_in_block as usize) {
-            Some((_, overwriting)) => {
-                let can_overwrite = usize::min(overwriting.len(), buf.len());
-                let mut for_overwriting = buf;
-                let for_extending = for_overwriting.split_off(can_overwrite);
-                for_overwriting.copy_to_slice(overwriting.split_at_mut(can_overwrite).0);
-                for_extending
-            }
-            None => {
-                let previous_content_length = data.len();
-                let zeroes = position_in_block as usize - (previous_content_length as usize);
-                data.extend(std::iter::repeat(0u8).take(zeroes));
-                buf
-            }
-        };
+        let (mut for_extending, overwritten) =
+            match data.split_at_mut_checked(position_in_block as usize) {
+                Some((_, overwriting)) => {
+                    let can_overwrite = usize::min(overwriting.len(), buf.len());
+                    let mut for_overwriting = buf.clone();
+                    let for_extending = for_overwriting.split_off(can_overwrite);
+                    for_overwriting.copy_to_slice(overwriting.split_at_mut(can_overwrite).0);
+                    (for_extending, can_overwrite)
+                }
+                None => {
+                    let previous_content_length = data.len();
+                    let zeroes = position_in_block as usize - (previous_content_length as usize);
+                    data.extend(std::iter::repeat(0u8).take(zeroes));
+                    (buf.clone(), 0)
+                }
+            };
         let remaining_capacity: u16 = (VALUE_BLOB_MAX_LENGTH as u16 - (data.len() as u16)) as u16;
         let extension_size = usize::min(for_extending.len(), remaining_capacity as usize);
         let rest = for_extending.split_off(extension_size);
+        assert_eq!(buf.len(), (overwritten + extension_size + rest.len()));
         data.extend(for_extending);
         Ok(WriteResult::new(rest))
     }
@@ -1233,6 +1235,7 @@ impl OpenFileContentBlock {
                 let result = storage
                     .store_value(&hashed_value)
                     .map(|success| success.digest)?;
+                assert_eq!(hashed_value.digest(), &result);
                 // free the memory
                 *self = OpenFileContentBlock::NotLoaded(result, size);
                 Ok(Some(result))
