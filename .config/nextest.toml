@@ -1,5 +1,10 @@
 # https://nexte.st/docs/configuration/
 
 [profile.default]
-slow-timeout = { period = "5s", terminate-after = 4 }
+slow-timeout = { period = "3s", terminate-after = 3 }
+fail-fast = true
+retries = 3
+
+[profile.ci]
+# Do not cancel the test run on the first failure.
 fail-fast = false

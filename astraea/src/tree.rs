@@ -141,10 +141,12 @@ impl ValueBlob {
     }
 
     pub fn as_slice<'t>(&'t self) -> &'t [u8] {
+        assert!(self.content.len() <= VALUE_BLOB_MAX_LENGTH);
         &self.content
     }
 
     pub fn len(&self) -> u16 {
+        assert!(self.content.len() <= VALUE_BLOB_MAX_LENGTH);
         self.content.len() as u16
     }
 }
@@ -154,6 +156,27 @@ impl std::fmt::Debug for ValueBlob {
         f.debug_struct("ValueBlob")
             .field("content.len()", &self.content.len())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tree::{ValueBlob, VALUE_BLOB_MAX_LENGTH};
+    use proptest::proptest;
+    proptest! {
+        #[test]
+        fn value_blob_try_from_success(length in 0usize..VALUE_BLOB_MAX_LENGTH) {
+            let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, length));
+            let value_blob = ValueBlob::try_from(content.clone()).unwrap();
+            assert_eq!(content, value_blob.content);
+        }
+
+        #[test]
+        fn value_blob_try_from_failure(length in (VALUE_BLOB_MAX_LENGTH + 1)..(VALUE_BLOB_MAX_LENGTH * 3) /*We don't want to allocate too much memory here.*/) {
+            let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, length));
+            let result = ValueBlob::try_from(content.clone());
+            assert_eq!(None, result);
+        }
     }
 }
 
