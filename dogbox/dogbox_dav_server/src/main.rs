@@ -109,8 +109,26 @@ async fn persist_root_on_change(
                 assert_eq!(0, root_status.files_unflushed_count);
                 assert_eq!(0, root_status.directories_unsaved_count);
                 info!("Root digest is up to date.");
-                SaveStatus::Saved {
-                    files_open_for_writing_count: root_status.files_open_for_writing_count,
+
+                match root.request_save().await {
+                    Ok(double_checked_status) => {
+                        if double_checked_status.digest.is_digest_up_to_date {
+                            assert_eq!(0, double_checked_status.bytes_unflushed_count);
+                            assert_eq!(0, double_checked_status.files_unflushed_count);
+                            assert_eq!(0, double_checked_status.directories_unsaved_count);
+                            SaveStatus::Saved {
+                                files_open_for_writing_count: root_status
+                                    .files_open_for_writing_count,
+                            }
+                        } else {
+                            info!("It turned out we are in fact saving again.");
+                            SaveStatus::Saving
+                        }
+                    }
+                    Err(error) => {
+                        error!("Status check failed: {:?}", &error);
+                        SaveStatus::Saving
+                    }
                 }
             } else {
                 assert_ne!(0, root_status.directories_unsaved_count);
