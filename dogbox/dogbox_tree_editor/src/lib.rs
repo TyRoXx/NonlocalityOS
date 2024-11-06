@@ -1634,7 +1634,8 @@ impl OpenFileContentBuffer {
         );
         let loaded = self.require_loaded(storage.clone()).await?;
 
-        let write_buffer_in_blocks = 200;
+        // TODO: fix the data corruption bugs and increase this constant after
+        let write_buffer_in_blocks = 1;
         if loaded.dirty_blocks.len() >= write_buffer_in_blocks {
             info!(
                 "Saving data before writing more ({} dirty blocks)",
@@ -1646,7 +1647,7 @@ impl OpenFileContentBuffer {
                 .await
                 .map_err(|error| Error::Storage(error))?;
 
-            if loaded.dirty_blocks.len() >= (write_buffer_in_blocks / 2) {
+            if (loaded.dirty_blocks.len() * 2) >= write_buffer_in_blocks {
                 info!(
                     "Still {} dirty blocks after the cheap stores. Will have to calculate some digests.",
                     loaded.dirty_blocks.len()

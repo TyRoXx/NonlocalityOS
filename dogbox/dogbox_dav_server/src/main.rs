@@ -498,7 +498,7 @@ mod tests {
         use rand::rngs::SmallRng;
         use rand::Rng;
         use rand::SeedableRng;
-        let mut small_rng = SmallRng::from_entropy();
+        let mut small_rng = SmallRng::seed_from_u64(123);
         (0..len).map(|_| small_rng.gen()).collect()
     }
 
