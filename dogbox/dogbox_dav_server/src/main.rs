@@ -116,9 +116,14 @@ async fn persist_root_on_change(
                             assert_eq!(0, double_checked_status.bytes_unflushed_count);
                             assert_eq!(0, double_checked_status.files_unflushed_count);
                             assert_eq!(0, double_checked_status.directories_unsaved_count);
-                            SaveStatus::Saved {
-                                files_open_for_writing_count: root_status
-                                    .files_open_for_writing_count,
+                            if double_checked_status == root_status {
+                                SaveStatus::Saved {
+                                    files_open_for_writing_count: root_status
+                                        .files_open_for_writing_count,
+                                }
+                            } else {
+                                info!("It turned out the status has changed in the meantime.");
+                                SaveStatus::Saving
                             }
                         } else {
                             info!("It turned out we are in fact saving again.");
