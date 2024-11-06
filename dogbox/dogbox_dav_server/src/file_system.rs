@@ -296,8 +296,8 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         if options.checksum.is_some() {
             todo!()
         }
-        if options.size.is_some() {
-            warn!("options.size not supported yet");
+        if let Some(size) = options.size {
+            info!("Ignoring size hint ({} B)", size);
         }
         Box::pin(async move {
             let converted_path = convert_path(&path)?;

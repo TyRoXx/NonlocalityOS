@@ -3,7 +3,7 @@
 [profile.default]
 slow-timeout = { period = "3s", terminate-after = 3 }
 fail-fast = true
-retries = 3
+retries = 2
 
 [profile.ci]
 # Do not cancel the test run on the first failure.

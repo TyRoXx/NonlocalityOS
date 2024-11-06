@@ -70,7 +70,7 @@ command = ["cargo", "nextest", "run", "--color", "always", "--profile", "default
 need_stdout = true
 analyzer = "nextest"
 on_change_strategy = "wait_then_restart"
-background = false
+background = true
 
 [jobs.doc]
 command = ["cargo", "doc", "--color", "always", "--no-deps"]
