@@ -47,7 +47,7 @@ async fn run_host() -> std::io::Result<()> {
         .unwrap()
         .add_type(TypeId(2));
     let duration = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_seconds(3).value)))
+        .store_value(&HashedValue::from(Arc::new(make_seconds(0).value)))
         .unwrap()
         .add_type(TypeId(5));
     let delay = value_storage

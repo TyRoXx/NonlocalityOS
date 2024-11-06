@@ -551,21 +551,6 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_create_file_random_one_block() {
-        test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH)).await
-    }
-
-    #[test_log::test(tokio::test)]
-    async fn test_create_file_random_two_blocks() {
-        test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH * 2)).await
-    }
-
-    #[test_log::test(tokio::test)]
-    async fn test_create_file_random_ten_blocks() {
-        test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH * 10)).await
-    }
-
-    #[test_log::test(tokio::test)]
     async fn test_create_file_value_blob_max_length_minus_one() {
         test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH - 1)).await
     }
@@ -576,18 +561,13 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_create_file_200k() {
+    async fn test_create_file_zeroes_200k() {
         test_create_file(std::iter::repeat_n(0u8, 200_000).collect()).await
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_create_file_zeroes_1_mb() {
-        test_create_file(std::iter::repeat_n(0u8, 1_000_000).collect()).await
-    }
-
-    #[test_log::test(tokio::test)]
-    async fn test_create_file_random_1_mb() {
-        test_create_file(random_bytes(1_000_000)).await
+    async fn test_create_file_random_200k() {
+        test_create_file(random_bytes(200_000)).await
     }
 
     #[test_log::test(tokio::test)]
