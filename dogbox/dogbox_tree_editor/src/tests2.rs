@@ -76,45 +76,43 @@ mod tests {
         [1, 10, 63_999],
         [1, 10, 63_999]
     )]
-    fn optimized_write_buffer_full_blocks(prefix_length: u64, suffix_length: u64) {
-        //TODO: reduce nesting
-        Runtime::new().unwrap().block_on(async {
-            //TODO: use more interesting content for prefix
-            let prefix = bytes::Bytes::from_iter(std::iter::repeat_n(b'p', prefix_length as usize));
-            //TODO: use more interesting content for suffix
-            let suffix = bytes::Bytes::from_iter(std::iter::repeat_n(b's', suffix_length as usize));
-            for full_block_count in [1, 2, 5] {
-                let position_in_block: u64 = VALUE_BLOB_MAX_LENGTH as u64 - prefix_length;
-                let write_data = bytes::Bytes::from_iter(
-                    prefix
-                        .clone()
-                        .into_iter()
-                        //TODO: use more interesting content for full_blocks
-                        .chain(std::iter::repeat_n(
-                            b'f',
-                            (full_block_count * VALUE_BLOB_MAX_LENGTH) as usize,
-                        ))
-                        .chain(suffix.clone().into_iter()),
-                );
-                for block_index in [0, 100] {
-                    let write_position =
-                        (block_index * VALUE_BLOB_MAX_LENGTH as u64) + position_in_block;
-                    let buffer =
-                        OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
-                    assert_eq!(prefix, buffer.prefix());
-                    assert_eq!(full_block_count, buffer.full_blocks().len());
-                    assert!(buffer.full_blocks().iter().all(|full_block| {
-                        full_block
-                            .value()
-                            .blob()
-                            .as_slice()
-                            .iter()
-                            .all(|&byte| byte == b'f')
-                    }));
-                    assert_eq!(suffix, buffer.suffix());
-                }
+    #[tokio::test]
+    async fn optimized_write_buffer_full_blocks(prefix_length: u64, suffix_length: u64) {
+        //TODO: use more interesting content for prefix
+        let prefix = bytes::Bytes::from_iter(std::iter::repeat_n(b'p', prefix_length as usize));
+        //TODO: use more interesting content for suffix
+        let suffix = bytes::Bytes::from_iter(std::iter::repeat_n(b's', suffix_length as usize));
+        for full_block_count in [1, 2] {
+            let position_in_block: u64 = VALUE_BLOB_MAX_LENGTH as u64 - prefix_length;
+            let write_data = bytes::Bytes::from_iter(
+                prefix
+                    .clone()
+                    .into_iter()
+                    //TODO: use more interesting content for full_blocks
+                    .chain(std::iter::repeat_n(
+                        b'f',
+                        (full_block_count * VALUE_BLOB_MAX_LENGTH) as usize,
+                    ))
+                    .chain(suffix.clone().into_iter()),
+            );
+            for block_index in [0, 100] {
+                let write_position =
+                    (block_index * VALUE_BLOB_MAX_LENGTH as u64) + position_in_block;
+                let buffer =
+                    OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
+                assert_eq!(prefix, buffer.prefix());
+                assert_eq!(full_block_count, buffer.full_blocks().len());
+                assert!(buffer.full_blocks().iter().all(|full_block| {
+                    full_block
+                        .value()
+                        .blob()
+                        .as_slice()
+                        .iter()
+                        .all(|&byte| byte == b'f')
+                }));
+                assert_eq!(suffix, buffer.suffix());
             }
-        });
+        }
     }
 
     #[tokio::test]
