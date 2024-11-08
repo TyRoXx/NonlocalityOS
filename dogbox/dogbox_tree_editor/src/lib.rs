@@ -1718,42 +1718,37 @@ impl OpenFileContentBuffer {
         }
 
         let mut next_block_index = first_block_index as usize;
-        {
-            let position_in_block = (position % (VALUE_BLOB_MAX_LENGTH as u64)) as u16;
-            if buf.prefix.is_empty() {
-                assert_eq!(0, position_in_block);
+        let position_in_block = (position % (VALUE_BLOB_MAX_LENGTH as u64)) as u16;
+        if buf.prefix.is_empty() && (position_in_block == 0) {
+            // special case where we do nothing
+        } else {
+            assert!((position_in_block != 0) || (buf.prefix.len() < VALUE_BLOB_MAX_LENGTH));
+            if next_block_index == loaded.blocks.len() {
+                let block_content: Vec<u8> = std::iter::repeat_n(0u8, position_in_block as usize)
+                    .chain(buf.prefix)
+                    .collect();
+                assert!(block_content.len() < VALUE_BLOB_MAX_LENGTH);
+                info!(
+                    "Writing prefix creates an unknown digest block at {}",
+                    next_block_index
+                );
+                loaded
+                    .blocks
+                    .push(OpenFileContentBlock::Loaded(LoadedBlock::UnknownDigest(
+                        block_content,
+                    )));
             } else {
-                assert!((position_in_block != 0) || (buf.prefix.len() < VALUE_BLOB_MAX_LENGTH));
-                if next_block_index == loaded.blocks.len() {
-                    let block_content: Vec<u8> =
-                        std::iter::repeat_n(0u8, position_in_block as usize)
-                            .chain(buf.prefix)
-                            .collect();
-                    assert!(block_content.len() < VALUE_BLOB_MAX_LENGTH);
-                    info!(
-                        "Writing prefix creates an unknown digest block at {}",
-                        next_block_index
-                    );
-                    loaded
-                        .blocks
-                        .push(OpenFileContentBlock::Loaded(LoadedBlock::UnknownDigest(
-                            block_content,
-                        )));
-                } else {
-                    let block = &mut loaded.blocks[next_block_index];
-                    assert!(buf.prefix.len() < VALUE_BLOB_MAX_LENGTH);
-                    assert!((position_in_block as usize) < VALUE_BLOB_MAX_LENGTH);
-                    assert!(
-                        (position_in_block as usize + buf.prefix.len()) <= VALUE_BLOB_MAX_LENGTH
-                    );
-                    let write_result = block
+                let block = &mut loaded.blocks[next_block_index];
+                assert!(buf.prefix.len() < VALUE_BLOB_MAX_LENGTH);
+                assert!((position_in_block as usize) < VALUE_BLOB_MAX_LENGTH);
+                assert!((position_in_block as usize + buf.prefix.len()) <= VALUE_BLOB_MAX_LENGTH);
+                let write_result = block
                         .write(position_in_block, buf.prefix, storage.clone())
                         .await.unwrap(/*TODO: somehow recover and fix loaded.size*/);
-                    assert_eq!(0, write_result.remaining.len());
-                }
-                loaded.dirty_blocks.push_back(next_block_index);
-                next_block_index += 1;
+                assert_eq!(0, write_result.remaining.len());
             }
+            loaded.dirty_blocks.push_back(next_block_index);
+            next_block_index += 1;
         }
 
         for full_block in buf.full_blocks {

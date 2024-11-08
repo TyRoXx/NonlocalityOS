@@ -212,6 +212,42 @@ mod tests {
         assert_eq!(expected_digests, storage.digests());
     }
 
+    #[test_case(0)]
+    #[test_case(1)]
+    #[test_case(2_000)]
+    #[test_case(64_000)]
+    #[test_case(200_000)]
+    fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
+        Runtime::new().unwrap().block_on(async {
+            let original_content = random_bytes(VALUE_BLOB_MAX_LENGTH);
+            let last_known_digest = BlobDigest::hash(&original_content);
+            let last_known_digest_file_size = original_content.len();
+            let mut buffer = OpenFileContentBuffer::from_data(
+                original_content.clone(),
+                last_known_digest,
+                last_known_digest_file_size as u64,
+            )
+            .unwrap();
+            let write_data = bytes::Bytes::new();
+            let write_buffer =
+                OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
+            let storage = Arc::new(InMemoryValueStorage::empty());
+            let _write_result: () = buffer
+                .write(write_position, write_buffer, storage.clone())
+                .await
+                .unwrap();
+            let expected_size = std::cmp::max(write_position, last_known_digest_file_size as u64);
+            assert_eq!(expected_size, buffer.size());
+            let zeroes = expected_size as usize - original_content.len();
+            let expected_content = bytes::Bytes::from_iter(
+                original_content
+                    .into_iter()
+                    .chain(std::iter::repeat_n(0u8, zeroes)),
+            );
+            check_open_file_content_buffer(&mut buffer, expected_content, storage).await;
+        });
+    }
+
     #[tokio::test]
     async fn open_file_content_buffer_store() {
         let data = Vec::new();

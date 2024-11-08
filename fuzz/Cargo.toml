@@ -1,0 +1,28 @@
+[package]
+name = "nonlocality-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+dogbox_tree_editor = { path ="../dogbox/dogbox_tree_editor" }
+dogbox_tree = { path ="../dogbox/dogbox_tree" }
+astraea = { path ="../astraea" }
+tokio = { version = "1", features = ["full"] }
+bytes = "1"
+postcard = {version = "1", features = ["alloc"]}
+tracing = "0"
+serde = "1"
+tokio-macros = "2"
+rand = { version = "0", features = [ "small_rng" ]}
+
+[[bin]]
+name = "write-read-large-files"
+path = "fuzz_targets/write-read-large-files.rs"
+test = false
+doc = false
+bench = false
