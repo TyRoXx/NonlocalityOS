@@ -1,7 +1,7 @@
 #![no_main]
 use astraea::{
-    storage::InMemoryValueStorage,
-    tree::{BlobDigest, VALUE_BLOB_MAX_LENGTH},
+    storage::{InMemoryValueStorage, StoreValue},
+    tree::{HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use dogbox_tree_editor::{OpenFileContentBuffer, OptimizedWriteBuffer};
 use libfuzzer_sys::{fuzz_target, Corpus};
@@ -136,12 +136,19 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
         let mut small_rng = SmallRng::seed_from_u64(123);
 
         let initial_content: Vec<u8> = Vec::new();
-        let last_known_digest = BlobDigest::hash(&initial_content);
         let last_known_digest_file_size = initial_content.len();
         let mut buffers: Vec<_> = std::iter::repeat_n((), 3)
             .map(|_| {
+                let storage = Arc::new(InMemoryValueStorage::empty());
+                let last_known_digest = storage
+                    .store_value(&HashedValue::from(Arc::new(Value::new(
+                        ValueBlob::empty(),
+                        Vec::new(),
+                    ))))
+                    .unwrap()
+                    .digest;
                 BufferState::new(
-                    Arc::new(InMemoryValueStorage::empty()),
+                    storage,
                     OpenFileContentBuffer::from_data(
                         initial_content.clone(),
                         last_known_digest,
