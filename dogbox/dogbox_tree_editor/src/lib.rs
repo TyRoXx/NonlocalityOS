@@ -34,6 +34,7 @@ pub enum Error {
     CannotRename,
     MissingValue(BlobDigest),
     Storage(StoreError),
+    TooManyReferences(BlobDigest),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -1126,17 +1127,31 @@ impl OpenFileContentBlock {
     ) -> Result<&'t [u8]> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
-                let loaded = match storage.load_value(&Reference::new(*blob_digest)) {
-                    Some(success) => success,
-                    None => return Err(Error::MissingValue(*blob_digest)),
+                let loaded = if *size == 0 {
+                    // there is nothing to load
+                    HashedValue::from(Arc::new(Value::new(ValueBlob::empty(), Vec::new())))
+                } else {
+                    match storage.load_value(&Reference::new(*blob_digest)) {
+                        Some(success) => success,
+                        None => return Err(Error::MissingValue(*blob_digest)),
+                    }
                 };
                 if loaded.value().blob().as_slice().len() != *size as usize {
                     error!(
-                        "Loaded blob of size {}, but it was expected to be {} long",
+                        "Loaded blob {:?} of size {}, but it was expected to be {} long",
+                        &*blob_digest,
                         loaded.value().blob().as_slice().len(),
                         *size
                     );
                     return Err(Error::FileSizeMismatch);
+                }
+                if !loaded.value().references().is_empty() {
+                    error!(
+                        "Loaded blob {:?} of size {}, and its size was correct, but it had unexpected references (number: {}).",
+                        &*blob_digest,
+                        *size, loaded.value().references().len()
+                    );
+                    return Err(Error::TooManyReferences(*blob_digest));
                 }
                 *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(loaded));
             }
