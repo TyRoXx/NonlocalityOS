@@ -1633,7 +1633,7 @@ impl OpenFileContentBuffer {
         let block_size = VALUE_BLOB_MAX_LENGTH;
         let first_block_index = position / (block_size as u64);
         if first_block_index >= (blocks.len() as u64) {
-            todo!()
+            return Ok(bytes::Bytes::new());
         }
         let next_block_index = first_block_index as usize;
         let block = &mut blocks[next_block_index];

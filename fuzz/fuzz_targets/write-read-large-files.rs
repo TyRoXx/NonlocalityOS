@@ -129,11 +129,11 @@ async fn save_all_buffers(buffers: &mut [BufferState]) {
 
 fn run_generated_test(test: GeneratedTest) -> Corpus {
     Runtime::new().unwrap().block_on(async move {
-        let max_tested_file_size = VALUE_BLOB_MAX_LENGTH * 32;
+        let max_tested_file_size = VALUE_BLOB_MAX_LENGTH * 64;
         use rand::rngs::SmallRng;
         use rand::Rng;
         use rand::SeedableRng;
-        let mut small_rng = SmallRng::seed_from_u64(123);
+        let mut small_rng = SmallRng::seed_from_u64(1234);
 
         let initial_content: Vec<u8> = Vec::new();
         let last_known_digest_file_size = initial_content.len();
@@ -250,8 +250,14 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
 }
 
 fuzz_target!(|data: &[u8]| -> libfuzzer_sys::Corpus {
-    let generated_test = match postcard::from_bytes(data) {
-        Ok(parsed) => parsed,
+    let generated_test = match postcard::take_from_bytes(data) {
+        Ok((parsed, rest)) => {
+            if rest.is_empty() {
+                parsed
+            } else {
+                return libfuzzer_sys::Corpus::Reject;
+            }
+        }
         Err(_) => return libfuzzer_sys::Corpus::Reject,
     };
     println!("{:?}", &generated_test);
