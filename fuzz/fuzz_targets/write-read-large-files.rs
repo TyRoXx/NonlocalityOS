@@ -140,6 +140,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
             })
             .collect();
 
+        // TODO: separate storage per buffer
         let storage = Arc::new(InMemoryValueStorage::empty());
 
         for operation in test.operations {

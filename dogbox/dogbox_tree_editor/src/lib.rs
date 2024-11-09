@@ -1727,7 +1727,7 @@ impl OpenFileContentBuffer {
                 let block_content: Vec<u8> = std::iter::repeat_n(0u8, position_in_block as usize)
                     .chain(buf.prefix)
                     .collect();
-                assert!(block_content.len() < VALUE_BLOB_MAX_LENGTH);
+                assert!(block_content.len() <= VALUE_BLOB_MAX_LENGTH);
                 info!(
                     "Writing prefix creates an unknown digest block at {}",
                     next_block_index
