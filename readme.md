@@ -93,3 +93,8 @@ Configure your system once:
 You will have to explicitly mount the filesystem after starting your DAV server. When it asks for username and password, you can just hit return. The server requires no username or password at the moment.
 
 * `sudo mount /mnt/dogbox_localhost`
+
+# Fuzzing (Linux only)
+
+* `./fuzz.sh`
+* `./fuzzing_coverage.sh`
