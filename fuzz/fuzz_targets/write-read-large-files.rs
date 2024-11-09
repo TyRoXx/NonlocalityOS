@@ -162,7 +162,9 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
         for operation in test.operations {
             // buffers[2] is recreated from storage before every operation.
             {
-                let (digest, size) = buffers[1].buffer.last_known_digest();
+                let storage = buffers[2].storage.clone();
+                buffers[2].buffer.store_all(storage).await.unwrap();
+                let (digest, size) = buffers[2].buffer.last_known_digest();
                 buffers[2].buffer =
                     OpenFileContentBuffer::from_storage(digest.last_known_digest, size);
             }
