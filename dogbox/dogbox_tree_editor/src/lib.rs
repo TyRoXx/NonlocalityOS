@@ -1042,7 +1042,7 @@ fn test_normalized_path_new() {
     );
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, PartialOrd, Ord, Eq)]
 pub struct DigestStatus {
     pub last_known_digest: BlobDigest,
     pub is_digest_up_to_date: bool,

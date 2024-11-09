@@ -6,7 +6,7 @@ use astraea::{
 use dogbox_tree_editor::{OpenFileContentBuffer, OptimizedWriteBuffer};
 use libfuzzer_sys::{fuzz_target, Corpus};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 use tokio::runtime::Runtime;
 
 async fn compare_buffers(
@@ -52,6 +52,14 @@ enum FileOperation {
         size: u16, /*TODO: bigger writes*/
     },
     Nothing,
+    WriteWholeBlockOfRandomData {
+        block_index: u16,
+    },
+    CopyBlock {
+        from_block_index: u16,
+        to_block_index: u16,
+    },
+    SaveToStorage,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -75,6 +83,39 @@ async fn write_to_all_buffers(
             .await
             .unwrap();
     }
+}
+
+async fn read_from_all_buffers(
+    buffers: &mut [OpenFileContentBuffer],
+    position: u64,
+    count: usize,
+    storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+) -> Option<bytes::Bytes> {
+    let mut all_data_read = BTreeSet::new();
+    for buffer in buffers {
+        let data_read = buffer.read(position, count, storage.clone()).await.unwrap();
+        assert!(data_read.len() <= count);
+        all_data_read.insert(data_read);
+    }
+    assert_eq!(1, all_data_read.len());
+    let read = all_data_read.into_iter().next().unwrap();
+    if read.len() == count {
+        Some(read)
+    } else {
+        None
+    }
+}
+
+async fn save_all_buffers(
+    buffers: &mut [OpenFileContentBuffer],
+    storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+) {
+    let mut status = BTreeSet::new();
+    for buffer in buffers {
+        buffer.store_all(storage.clone()).await.unwrap();
+        status.insert(buffer.last_known_digest());
+    }
+    assert_eq!(1, status.len());
 }
 
 fn run_generated_test(test: GeneratedTest) -> Corpus {
@@ -127,6 +168,58 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                     write_to_all_buffers(&mut buffers, position, &data, storage.clone()).await;
                 }
                 FileOperation::Nothing => {}
+                FileOperation::WriteWholeBlockOfRandomData { block_index } => {
+                    if ((*block_index as u64 + 1) * VALUE_BLOB_MAX_LENGTH as u64)
+                        > max_tested_file_size as u64
+                    {
+                        return Corpus::Reject;
+                    }
+                    let data = bytes::Bytes::from_iter(
+                        (0..VALUE_BLOB_MAX_LENGTH).map(|_| small_rng.gen()),
+                    );
+                    let position = *block_index as u64 * VALUE_BLOB_MAX_LENGTH as u64;
+                    write_to_all_buffers(&mut buffers, position, &data, storage.clone()).await;
+                }
+                FileOperation::CopyBlock {
+                    from_block_index,
+                    to_block_index,
+                } => {
+                    if ((*from_block_index as u64 + 1) * VALUE_BLOB_MAX_LENGTH as u64)
+                        > max_tested_file_size as u64
+                    {
+                        return Corpus::Reject;
+                    }
+                    if ((*to_block_index as u64 + 1) * VALUE_BLOB_MAX_LENGTH as u64)
+                        > max_tested_file_size as u64
+                    {
+                        return Corpus::Reject;
+                    }
+                    let read_position = *from_block_index as u64 * VALUE_BLOB_MAX_LENGTH as u64;
+                    let maybe_data = read_from_all_buffers(
+                        &mut buffers,
+                        read_position,
+                        VALUE_BLOB_MAX_LENGTH,
+                        storage.clone(),
+                    )
+                    .await;
+                    match maybe_data {
+                        Some(data) => {
+                            let write_position =
+                                *to_block_index as u64 * VALUE_BLOB_MAX_LENGTH as u64;
+                            write_to_all_buffers(
+                                &mut buffers,
+                                write_position,
+                                &data,
+                                storage.clone(),
+                            )
+                            .await;
+                        }
+                        None => {}
+                    }
+                }
+                FileOperation::SaveToStorage => {
+                    save_all_buffers(&mut buffers, storage.clone()).await;
+                }
             }
 
             // nothing special happens with buffers[0].
@@ -136,6 +229,9 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
 
             compare_buffers(&mut buffers, storage.clone()).await;
         }
+
+        save_all_buffers(&mut buffers, storage.clone()).await;
+        compare_buffers(&mut buffers, storage.clone()).await;
         Corpus::Keep
     })
 }
