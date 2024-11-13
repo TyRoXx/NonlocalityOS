@@ -23,7 +23,7 @@ mod tests {
             let connection1 = rusqlite::Connection::open(&database_file_name).unwrap();
             connection1.pragma_update(None, "key", correct_key).unwrap();
             SQLiteStorage::create_schema(&connection1).unwrap();
-            let storage = SQLiteStorage::new(connection1);
+            let storage = SQLiteStorage::from(connection1).unwrap();
             let reference = storage
                 .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
                 .unwrap();
@@ -33,22 +33,25 @@ mod tests {
         // TODO: solve OpenSSL rebuild issues on Windows
         #[cfg(target_os = "linux")]
         {
-            use crate::storage::StoreError;
             let incorrect_key = "test12345";
             let connection2 = rusqlite::Connection::open(&database_file_name).unwrap();
             connection2
                 .pragma_update(None, "key", incorrect_key)
                 .unwrap();
-            let storage = SQLiteStorage::new(connection2);
-            let result = storage.store_value(&HashedValue::from(Arc::new(Value::from_unit())));
-            let expected : std::result::Result<Reference, StoreError> =
-              Err(StoreError::Rusqlite("SqliteFailure(Error { code: NotADatabase, extended_code: 26 }, Some(\"file is not a database\"))".to_string()));
+            let result = SQLiteStorage::from(connection2).err();
+            let expected = Some(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ErrorCode::NotADatabase,
+                    extended_code: 26,
+                },
+                Some("file is not a database".to_string()),
+            ));
             assert_eq!(&expected, &result);
         }
         {
             let connection3 = rusqlite::Connection::open(&database_file_name).unwrap();
             connection3.pragma_update(None, "key", correct_key).unwrap();
-            let storage = SQLiteStorage::new(connection3);
+            let storage = SQLiteStorage::from(connection3).unwrap();
             let loaded_back = storage
                 .load_value(&Reference::new(expected_reference))
                 .unwrap();
@@ -66,7 +69,7 @@ mod tests {
     fn test_store_unit_first_time() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(connection);
+        let storage = SQLiteStorage::from(connection).unwrap();
         let reference = storage
             .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
             .unwrap();
@@ -92,7 +95,7 @@ mod tests {
     fn test_store_unit_again() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(connection);
+        let storage = SQLiteStorage::from(connection).unwrap();
         let reference_1 = storage
             .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
             .unwrap();
@@ -124,7 +127,7 @@ mod tests {
     fn test_store_blob() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(connection);
+        let storage = SQLiteStorage::from(connection).unwrap();
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
             vec![],
@@ -155,7 +158,7 @@ mod tests {
     fn test_store_reference() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(connection);
+        let storage = SQLiteStorage::from(connection).unwrap();
         let referenced_digest = BlobDigest::hash(b"ref");
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
@@ -190,7 +193,7 @@ mod tests {
     fn test_store_two_references() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(connection);
+        let storage = SQLiteStorage::from(connection).unwrap();
         let referenced_digests = [b"a".as_slice(), b"ab"]
             .into_iter()
             .map(|element: &[u8]| BlobDigest::hash(element))
@@ -221,7 +224,7 @@ mod tests {
     fn test_store_three_references() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(connection);
+        let storage = SQLiteStorage::from(connection).unwrap();
         let referenced_digests = [b"a".as_slice(), b"ab", b"abc"]
             .into_iter()
             .map(|element: &[u8]| BlobDigest::hash(element))
@@ -252,7 +255,7 @@ mod tests {
     fn test_update_root() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(connection);
+        let storage = SQLiteStorage::from(connection).unwrap();
         let reference_1 = storage
             .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
             .unwrap();
@@ -277,7 +280,7 @@ mod tests {
     fn test_roots_may_be_equal() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::new(connection);
+        let storage = SQLiteStorage::from(connection).unwrap();
         let reference_1 = storage
             .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
             .unwrap();

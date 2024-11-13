@@ -200,7 +200,7 @@ async fn run_dav_server(
             }
         }
     }
-    let blob_storage = Arc::new(SQLiteStorage::new(sqlite_connection));
+    let blob_storage = Arc::new(SQLiteStorage::from(sqlite_connection)?);
     let root_name = "latest";
     let root = match blob_storage.load_root(&root_name) {
         Some(found) => {

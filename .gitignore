@@ -3,5 +3,8 @@
 /coverage
 /.idea
 /dogbox_dav_server.sqlite
+/dogbox_dav_server.sqlite-shm
+/dogbox_dav_server.sqlite-wal
 /dogbox_dav_server.sqlite-journal
 /build_rs_cov.profraw
+/profile.json
