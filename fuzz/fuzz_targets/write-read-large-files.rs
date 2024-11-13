@@ -58,7 +58,7 @@ enum FileOperation {
     },
     WriteRandomData {
         position: u32,
-        size: u16, /*TODO: bigger writes*/
+        size: u32,
     },
     Nothing,
     WriteWholeBlockOfRandomData {
@@ -74,6 +74,7 @@ enum FileOperation {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GeneratedTest {
     operations: Vec<FileOperation>,
+    write_buffer_in_blocks: u8,
 }
 
 async fn write_to_all_buffers(buffers: &mut [BufferState], position: u64, data: &bytes::Bytes) {
@@ -129,14 +130,12 @@ async fn save_all_buffers(buffers: &mut [BufferState]) {
 
 fn run_generated_test(test: GeneratedTest) -> Corpus {
     Runtime::new().unwrap().block_on(async move {
-        let max_tested_file_size = VALUE_BLOB_MAX_LENGTH * 64;
+        let max_tested_file_size = VALUE_BLOB_MAX_LENGTH * 128;
         use rand::rngs::SmallRng;
         use rand::Rng;
         use rand::SeedableRng;
-        let mut small_rng = SmallRng::seed_from_u64(1234);
+        let mut small_rng = SmallRng::seed_from_u64(12345);
 
-        // TODO: fuzz this value
-        let write_buffer_in_blocks = 1;
         let initial_content: Vec<u8> = Vec::new();
         let last_known_digest_file_size = initial_content.len();
         let mut buffers: Vec<_> = std::iter::repeat_n((), 3)
@@ -155,7 +154,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                         initial_content.clone(),
                         last_known_digest,
                         last_known_digest_file_size as u64,
-                        write_buffer_in_blocks,
+                        test.write_buffer_in_blocks as usize,
                     )
                     .unwrap(),
                 )
@@ -171,7 +170,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                 buffers[2].buffer = OpenFileContentBuffer::from_storage(
                     digest.last_known_digest,
                     size,
-                    write_buffer_in_blocks,
+                    test.write_buffer_in_blocks as usize,
                 );
             }
 
