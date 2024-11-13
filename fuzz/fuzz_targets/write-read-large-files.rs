@@ -135,6 +135,8 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
         use rand::SeedableRng;
         let mut small_rng = SmallRng::seed_from_u64(1234);
 
+        // TODO: fuzz this value
+        let write_buffer_in_blocks = 1;
         let initial_content: Vec<u8> = Vec::new();
         let last_known_digest_file_size = initial_content.len();
         let mut buffers: Vec<_> = std::iter::repeat_n((), 3)
@@ -153,6 +155,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                         initial_content.clone(),
                         last_known_digest,
                         last_known_digest_file_size as u64,
+                        write_buffer_in_blocks,
                     )
                     .unwrap(),
                 )
@@ -165,8 +168,11 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                 let storage = buffers[2].storage.clone();
                 buffers[2].buffer.store_all(storage).await.unwrap();
                 let (digest, size) = buffers[2].buffer.last_known_digest();
-                buffers[2].buffer =
-                    OpenFileContentBuffer::from_storage(digest.last_known_digest, size);
+                buffers[2].buffer = OpenFileContentBuffer::from_storage(
+                    digest.last_known_digest,
+                    size,
+                    write_buffer_in_blocks,
+                );
             }
 
             println!("{:?}", &operation);

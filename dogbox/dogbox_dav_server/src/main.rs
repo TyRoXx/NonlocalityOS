@@ -25,7 +25,7 @@ async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
     };
     let io = TokioIo::new(stream);
     if let Err(err) = http1::Builder::new()
-        .max_buf_size(VALUE_BLOB_MAX_LENGTH * 200)
+        .max_buf_size(VALUE_BLOB_MAX_LENGTH * 500)
         .serve_connection(io, hyper::service::service_fn(make_service))
         .await
     {
@@ -202,13 +202,15 @@ async fn run_dav_server(
     }
     let blob_storage = Arc::new(SQLiteStorage::from(sqlite_connection)?);
     let root_name = "latest";
+    let open_file_write_buffer_in_blocks = 200;
     let root = match blob_storage.load_root(&root_name) {
         Some(found) => {
-            OpenDirectory::load_directory(blob_storage.clone(), &found, modified_default, clock).await.unwrap(/*TODO*/)
+            OpenDirectory::load_directory(blob_storage.clone(), &found, modified_default, clock,open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
         }
         None => {
             let dir = Arc::new(
-                OpenDirectory::create_directory(blob_storage.clone(), clock)
+                OpenDirectory::create_directory(blob_storage.clone(), clock,
+                open_file_write_buffer_in_blocks)
                 .await
                 .unwrap(/*TODO*/),
             );

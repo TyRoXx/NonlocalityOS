@@ -125,6 +125,7 @@ mod tests {
             data,
             last_known_digest,
             last_known_digest_file_size as u64,
+            1,
         )
         .unwrap();
         let write_position = VALUE_BLOB_MAX_LENGTH as u64;
@@ -152,6 +153,7 @@ mod tests {
             },
             last_known_digest_file_size: last_known_digest_file_size as u64,
             dirty_blocks: VecDeque::from([0, 1]),
+            write_buffer_in_blocks: 1,
         });
         assert_eq!(expected_buffer, buffer);
         // cargo fmt silently refuses to format this for an unknown reason:
@@ -178,6 +180,7 @@ mod tests {
             data,
             last_known_digest,
             last_known_digest_file_size as u64,
+            1,
         )
         .unwrap();
         let write_position = 0 as u64;
@@ -203,6 +206,7 @@ mod tests {
             },
             last_known_digest_file_size: last_known_digest_file_size as u64,
             dirty_blocks: VecDeque::from([0]),
+            write_buffer_in_blocks: 1,
         });
         assert_eq!(expected_buffer, buffer);
         // cargo fmt silently refuses to format this for an unknown reason:
@@ -226,6 +230,7 @@ mod tests {
                 original_content.clone(),
                 last_known_digest,
                 last_known_digest_file_size as u64,
+                1,
             )
             .unwrap();
             let write_data = bytes::Bytes::new();
@@ -257,6 +262,7 @@ mod tests {
             data,
             last_known_digest,
             last_known_digest_file_size as u64,
+            1,
         )
         .unwrap();
         let write_position = VALUE_BLOB_MAX_LENGTH as u64;
@@ -287,6 +293,7 @@ mod tests {
             },
             last_known_digest_file_size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
             dirty_blocks: VecDeque::new(),
+            write_buffer_in_blocks:1,
         });
         assert_eq!(expected_buffer, buffer);
 
@@ -338,6 +345,7 @@ mod tests {
                 initial_content,
                 last_known_digest,
                 last_known_digest_file_size as u64,
+                1,
             )
             .unwrap();
             let new_content = bytes::Bytes::from(random_bytes(size));
@@ -366,6 +374,7 @@ mod tests {
                 original_content.clone(),
                 last_known_digest,
                 last_known_digest_file_size as u64,
+                1,
             )
             .unwrap();
             let write_size = VALUE_BLOB_MAX_LENGTH - write_position as usize;
@@ -402,6 +411,7 @@ mod tests {
                 original_content.clone(),
                 last_known_digest,
                 last_known_digest_file_size as u64,
+                1,
             )
             .unwrap();
             let write_size = VALUE_BLOB_MAX_LENGTH - write_position as usize;

@@ -28,7 +28,7 @@ mod tests {
             .filesystem(Box::new(DogBoxFileSystem::new(
                 dogbox_tree_editor::TreeEditor::new(
                     Arc::new(
-                        OpenDirectory::create_directory(blob_storage, test_clock)
+                        OpenDirectory::create_directory(blob_storage, test_clock, 1)
                             .await
                             .unwrap(),
                     ),
@@ -127,6 +127,7 @@ mod tests {
                     data,
                     last_known_digest,
                     last_known_digest_file_size,
+                    1,
                 )
                 .unwrap(),
                 storage.clone(),
@@ -173,6 +174,7 @@ mod tests {
                     data,
                     last_known_digest,
                     last_known_digest_file_size,
+                    1,
                 )
                 .unwrap(),
                 storage.clone(),
@@ -222,6 +224,7 @@ mod tests {
                     data,
                     last_known_digest,
                     last_known_digest_file_size,
+                    1,
                 )
                 .unwrap(),
                 storage.clone(),
@@ -277,6 +280,7 @@ mod tests {
                     data,
                     last_known_digest,
                     last_known_digest_file_size,
+                    1,
                 )
                 .unwrap(),
                 storage.clone(),

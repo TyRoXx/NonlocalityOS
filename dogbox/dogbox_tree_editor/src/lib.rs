@@ -302,6 +302,7 @@ pub struct OpenDirectory {
     _change_event_receiver: tokio::sync::watch::Receiver<OpenDirectoryStatus>,
     modified: std::time::SystemTime,
     clock: WallClock,
+    open_file_write_buffer_in_blocks: usize,
 }
 
 impl OpenDirectory {
@@ -311,6 +312,7 @@ impl OpenDirectory {
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
         modified: std::time::SystemTime,
         clock: WallClock,
+        open_file_write_buffer_in_blocks: usize,
     ) -> Self {
         let (change_event_sender, change_event_receiver) =
             tokio::sync::watch::channel(OpenDirectoryStatus::new(digest, 1, 0, 0, 0, 0, 0));
@@ -321,6 +323,7 @@ impl OpenDirectory {
             _change_event_receiver: change_event_receiver,
             modified,
             clock,
+            open_file_write_buffer_in_blocks,
         }
     }
 
@@ -330,6 +333,7 @@ impl OpenDirectory {
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
         modified: std::time::SystemTime,
         clock: WallClock,
+        open_file_write_buffer_in_blocks: usize,
     ) -> OpenDirectory {
         let names = BTreeMap::from_iter(entries.iter().map(|entry| {
             (
@@ -340,7 +344,14 @@ impl OpenDirectory {
                 ),
             )
         }));
-        OpenDirectory::new(digest, names, storage.clone(), modified, clock)
+        OpenDirectory::new(
+            digest,
+            names,
+            storage.clone(),
+            modified,
+            clock,
+            open_file_write_buffer_in_blocks,
+        )
     }
 
     pub fn get_storage(&self) -> Arc<dyn LoadStoreValue + Send + Sync> {
@@ -398,7 +409,11 @@ impl OpenDirectory {
                             length, digest
                         );
                         let open_file = Arc::new(OpenFile::new(
-                            OpenFileContentBuffer::from_storage(digest.clone(), length),
+                            OpenFileContentBuffer::from_storage(
+                                digest.clone(),
+                                length,
+                                self.open_file_write_buffer_in_blocks,
+                            ),
                             self.storage.clone(),
                             self.modified,
                         ));
@@ -415,7 +430,11 @@ impl OpenDirectory {
             },
             None => {
                 let open_file = Arc::new(OpenFile::new(
-                    OpenFileContentBuffer::from_storage(*empty_file_digest, 0),
+                    OpenFileContentBuffer::from_storage(
+                        *empty_file_digest,
+                        0,
+                        self.open_file_write_buffer_in_blocks,
+                    ),
                     self.storage.clone(),
                     (self.clock)(),
                 ));
@@ -460,6 +479,7 @@ impl OpenDirectory {
         digest: &BlobDigest,
         modified: std::time::SystemTime,
         clock: WallClock,
+        open_file_write_buffer_in_blocks: usize,
     ) -> Result<Arc<OpenDirectory>> {
         match storage.load_value(&Reference::new(*digest)) {
             Some(loaded) => {
@@ -502,6 +522,7 @@ impl OpenDirectory {
                     storage,
                     modified,
                     clock,
+                    open_file_write_buffer_in_blocks,
                 )))
             }
             None => todo!(),
@@ -522,6 +543,7 @@ impl OpenDirectory {
                             digest,
                             self.modified,
                             self.clock,
+                            self.open_file_write_buffer_in_blocks,
                         )
                         .await?;
                         let receiver = subdirectory.watch().await;
@@ -561,6 +583,7 @@ impl OpenDirectory {
     pub async fn create_directory(
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
         clock: WallClock,
+        open_file_write_buffer_in_blocks: usize,
     ) -> Result<OpenDirectory> {
         let value_blob = ValueBlob::try_from(bytes::Bytes::from(
             postcard::to_allocvec(&DirectoryTree {
@@ -583,6 +606,7 @@ impl OpenDirectory {
             storage,
             (clock)(),
             clock,
+            open_file_write_buffer_in_blocks,
         ))
     }
 
@@ -604,6 +628,7 @@ impl OpenDirectory {
                     &empty_directory_digest,
                     (self.clock)(),
                     self.clock,
+                    self.open_file_write_buffer_in_blocks,
                 )
                 .await?;
                 let receiver = directory.watch().await;
@@ -1276,6 +1301,7 @@ pub struct OpenFileContentBufferLoaded {
     digest: DigestStatus,
     last_known_digest_file_size: u64,
     dirty_blocks: VecDeque<usize>,
+    write_buffer_in_blocks: usize,
 }
 
 impl OpenFileContentBufferLoaded {
@@ -1285,6 +1311,7 @@ impl OpenFileContentBufferLoaded {
         digest: DigestStatus,
         last_known_digest_file_size: u64,
         dirty_blocks: VecDeque<usize>,
+        write_buffer_in_blocks: usize,
     ) -> Self {
         Self {
             size,
@@ -1292,6 +1319,7 @@ impl OpenFileContentBufferLoaded {
             digest,
             last_known_digest_file_size,
             dirty_blocks,
+            write_buffer_in_blocks,
         }
     }
 
@@ -1471,15 +1499,20 @@ impl OptimizedWriteBuffer {
 
 #[derive(Debug, PartialEq)]
 pub enum OpenFileContentBuffer {
-    NotLoaded { digest: BlobDigest, size: u64 },
+    NotLoaded {
+        digest: BlobDigest,
+        size: u64,
+        write_buffer_in_blocks: usize,
+    },
     Loaded(OpenFileContentBufferLoaded),
 }
 
 impl OpenFileContentBuffer {
-    pub fn from_storage(digest: BlobDigest, size: u64) -> Self {
+    pub fn from_storage(digest: BlobDigest, size: u64, write_buffer_in_blocks: usize) -> Self {
         Self::NotLoaded {
             digest: digest,
             size: size,
+            write_buffer_in_blocks,
         }
     }
 
@@ -1487,6 +1520,7 @@ impl OpenFileContentBuffer {
         data: Vec<u8>,
         last_known_digest: BlobDigest,
         last_known_digest_file_size: u64,
+        write_buffer_in_blocks: usize,
     ) -> Option<Self> {
         if data.len() > VALUE_BLOB_MAX_LENGTH {
             None
@@ -1500,41 +1534,54 @@ impl OpenFileContentBuffer {
                 digest: DigestStatus::new(last_known_digest, false),
                 last_known_digest_file_size,
                 dirty_blocks: vec![0].into(),
+                write_buffer_in_blocks,
             }))
         }
     }
 
     pub fn size(&self) -> u64 {
         match self {
-            OpenFileContentBuffer::NotLoaded { digest: _, size } => *size,
+            OpenFileContentBuffer::NotLoaded {
+                digest: _,
+                size,
+                write_buffer_in_blocks: _,
+            } => *size,
             OpenFileContentBuffer::Loaded(OpenFileContentBufferLoaded {
                 size,
                 blocks: _,
                 digest: _,
                 last_known_digest_file_size: _,
                 dirty_blocks: _,
+                write_buffer_in_blocks: _,
             }) => *size,
         }
     }
 
     pub fn unsaved_blocks(&self) -> u64 {
         match self {
-            OpenFileContentBuffer::NotLoaded { digest: _, size: _ } => 0,
+            OpenFileContentBuffer::NotLoaded {
+                digest: _,
+                size: _,
+                write_buffer_in_blocks: _,
+            } => 0,
             OpenFileContentBuffer::Loaded(OpenFileContentBufferLoaded {
                 size: _,
                 blocks: _,
                 digest: _,
                 last_known_digest_file_size: _,
                 dirty_blocks,
+                write_buffer_in_blocks: _,
             }) => dirty_blocks.len() as u64,
         }
     }
 
     pub fn last_known_digest(&self) -> (DigestStatus, u64) {
         match self {
-            OpenFileContentBuffer::NotLoaded { digest, size } => {
-                (DigestStatus::new(*digest, true), *size)
-            }
+            OpenFileContentBuffer::NotLoaded {
+                digest,
+                size,
+                write_buffer_in_blocks: _,
+            } => (DigestStatus::new(*digest, true), *size),
             OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => (
                 open_file_content_buffer_loaded.last_known_digest(),
                 open_file_content_buffer_loaded.last_known_digest_file_size,
@@ -1557,7 +1604,11 @@ impl OpenFileContentBuffer {
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<&'t mut OpenFileContentBufferLoaded> {
         match self {
-            OpenFileContentBuffer::NotLoaded { digest, size } => {
+            OpenFileContentBuffer::NotLoaded {
+                digest,
+                size,
+                write_buffer_in_blocks,
+            } => {
                 let blocks = if *size <= VALUE_BLOB_MAX_LENGTH as u64 {
                     vec![OpenFileContentBlock::NotLoaded(*digest, *size as u16)]
                 } else {
@@ -1612,12 +1663,17 @@ impl OpenFileContentBuffer {
                     digest: DigestStatus::new(*digest, true),
                     last_known_digest_file_size: *size,
                     dirty_blocks: VecDeque::new(),
+                    write_buffer_in_blocks: *write_buffer_in_blocks,
                 });
             }
             OpenFileContentBuffer::Loaded(_loaded) => {}
         }
         match self {
-            OpenFileContentBuffer::NotLoaded { digest: _, size: _ } => panic!(),
+            OpenFileContentBuffer::NotLoaded {
+                digest: _,
+                size: _,
+                write_buffer_in_blocks: _,
+            } => panic!(),
             OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
                 Ok(open_file_content_buffer_loaded)
             }
@@ -1666,9 +1722,7 @@ impl OpenFileContentBuffer {
         );
         let loaded = self.require_loaded(storage.clone()).await?;
 
-        // TODO: fix the data corruption bugs and increase this constant after
-        let write_buffer_in_blocks = 1;
-        if loaded.dirty_blocks.len() >= write_buffer_in_blocks {
+        if loaded.dirty_blocks.len() >= loaded.write_buffer_in_blocks {
             info!(
                 "Saving data before writing more ({} dirty blocks)",
                 loaded.dirty_blocks.len()
@@ -1679,7 +1733,7 @@ impl OpenFileContentBuffer {
                 .await
                 .map_err(|error| Error::Storage(error))?;
 
-            if (loaded.dirty_blocks.len() * 2) >= write_buffer_in_blocks {
+            if (loaded.dirty_blocks.len() * 2) >= loaded.write_buffer_in_blocks {
                 info!(
                     "Still {} dirty blocks after the cheap stores. Will have to calculate some digests.",
                     loaded.dirty_blocks.len()
@@ -1815,7 +1869,11 @@ impl OpenFileContentBuffer {
                 );
                 open_file_content_buffer_loaded.store_all(storage).await
             }
-            OpenFileContentBuffer::NotLoaded { digest: _, size: _ } => Ok(StoreChanges::NoChanges),
+            OpenFileContentBuffer::NotLoaded {
+                digest: _,
+                size: _,
+                write_buffer_in_blocks: _,
+            } => Ok(StoreChanges::NoChanges),
         }
     }
 }
@@ -2006,11 +2064,22 @@ impl OpenFile {
         self.assert_write_permission(write_permission);
         info!("Truncating a file sends a change event for this file.");
         let mut content_locked = self.content.lock().await;
+        let write_buffer_in_blocks = match &*content_locked {
+            OpenFileContentBuffer::NotLoaded {
+                digest: _,
+                size: _,
+                write_buffer_in_blocks,
+            } => *write_buffer_in_blocks,
+            OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
+                open_file_content_buffer_loaded.write_buffer_in_blocks
+            }
+        };
         let (last_known_digest, last_known_digest_file_size) = content_locked.last_known_digest();
         *content_locked = OpenFileContentBuffer::from_data(
             Vec::new(),
             last_known_digest.last_known_digest,
             last_known_digest_file_size,
+            write_buffer_in_blocks,
         )
         .unwrap();
         let _update_result = Self::update_status(
@@ -2089,9 +2158,12 @@ impl TreeEditor {
         match *empty_directory_digest_locked {
             Some(exists) => Ok(exists),
             None => {
-                let directory =
-                    OpenDirectory::create_directory(self.root.get_storage(), self.root.get_clock())
-                        .await?;
+                let directory = OpenDirectory::create_directory(
+                    self.root.get_storage(),
+                    self.root.get_clock(),
+                    1,
+                )
+                .await?;
                 let status = directory.latest_status();
                 assert!(status.digest.is_digest_up_to_date);
                 let result = status.digest.last_known_digest;
@@ -2261,6 +2333,7 @@ mod tests {
             Arc::new(NeverUsedStorage {}),
             modified,
             test_clock,
+            1,
         );
         let meta_data = directory.get_meta_data("test.txt").await.unwrap();
         assert_eq!(expected, meta_data);
@@ -2280,6 +2353,7 @@ mod tests {
             storage.clone(),
             modified,
             test_clock,
+            1,
         );
         let mut receiver = directory.watch().await;
         let result =
@@ -2319,6 +2393,7 @@ mod tests {
             storage.clone(),
             modified,
             test_clock,
+            1,
         ));
         let file_name = "test.txt";
         let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
@@ -2354,6 +2429,7 @@ mod tests {
             storage.clone(),
             modified,
             test_clock,
+            1,
         ));
         let file_name = "test.txt";
         let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
@@ -2390,6 +2466,7 @@ mod tests {
             storage.clone(),
             modified,
             test_clock,
+            1,
         ));
         let file_name = "test.txt";
         let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
@@ -2424,6 +2501,7 @@ mod tests {
                 Arc::new(NeverUsedStorage {}),
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
@@ -2467,6 +2545,7 @@ mod tests {
                 Arc::new(NeverUsedStorage {}),
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
@@ -2490,6 +2569,7 @@ mod tests {
                 Arc::new(NeverUsedStorage {}),
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
@@ -2512,6 +2592,7 @@ mod tests {
                 Arc::new(NeverUsedStorage {}),
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
@@ -2534,6 +2615,7 @@ mod tests {
                 Arc::new(NeverUsedStorage {}),
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
@@ -2560,6 +2642,7 @@ mod tests {
                 Arc::new(NeverUsedStorage {}),
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
@@ -2592,6 +2675,7 @@ mod tests {
                 storage,
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
@@ -2623,6 +2707,7 @@ mod tests {
                 storage,
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
@@ -2660,6 +2745,7 @@ mod tests {
                 storage,
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
@@ -2688,6 +2774,7 @@ mod tests {
                 storage,
                 modified,
                 test_clock,
+                1,
             )),
             None,
         );
