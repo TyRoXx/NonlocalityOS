@@ -1,5 +1,5 @@
 use astraea::{
-    storage::{CommitChanges, LoadRoot, SQLiteStorage, UpdateRoot},
+    storage::{CommitChanges, LoadCache, LoadRoot, LoadStoreValue, SQLiteStorage, UpdateRoot},
     tree::VALUE_BLOB_MAX_LENGTH,
 };
 use dav_server::{fakels::FakeLs, DavHandler};
@@ -200,24 +200,26 @@ async fn run_dav_server(
             }
         }
     }
-    let blob_storage = Arc::new(SQLiteStorage::from(sqlite_connection)?);
+    let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);
+    let blob_storage_cache: Arc<(dyn LoadStoreValue + Send + Sync)> =
+        Arc::new(LoadCache::new(blob_storage_database.clone()));
     let root_name = "latest";
     let open_file_write_buffer_in_blocks = 200;
-    let root = match blob_storage.load_root(&root_name) {
+    let root = match blob_storage_database.load_root(&root_name) {
         Some(found) => {
-            OpenDirectory::load_directory(blob_storage.clone(), &found, modified_default, clock,open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
+            OpenDirectory::load_directory(blob_storage_cache.clone(), &found, modified_default, clock,open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
         }
         None => {
             let dir = Arc::new(
-                OpenDirectory::create_directory(blob_storage.clone(), clock,
+                OpenDirectory::create_directory(blob_storage_cache.clone(), clock,
                 open_file_write_buffer_in_blocks)
                 .await
                 .unwrap(/*TODO*/),
             );
             let status = dir.request_save().await.unwrap();
             assert!(status.digest.is_digest_up_to_date);
-            blob_storage.update_root(root_name, &status.digest.last_known_digest);
-            blob_storage.commit_changes().unwrap();
+            blob_storage_database.update_root(root_name, &status.digest.last_known_digest);
+            blob_storage_database.commit_changes().unwrap();
             dir
         }
     };
@@ -247,8 +249,8 @@ async fn run_dav_server(
                         persist_root_on_change(
                             root,
                             &root_name,
-                            &*blob_storage,
-                            &*blob_storage,
+                            &*blob_storage_database,
+                            &*blob_storage_database,
                             save_status_sender,
                         )
                         .await;

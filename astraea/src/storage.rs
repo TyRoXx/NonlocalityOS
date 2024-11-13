@@ -67,6 +67,18 @@ impl InMemoryValueStorage {
             .map(|v| v.digest)
             .collect()
     }
+
+    pub fn remove_random_element(&self) {
+        let mut reference_to_value_locked = self.reference_to_value.lock().unwrap();
+        match reference_to_value_locked.first_entry() {
+            Some(found) => {
+                let key = (*found.key()).clone();
+                drop(found);
+                reference_to_value_locked.remove(&key);
+            }
+            None => {}
+        }
+    }
 }
 
 impl StoreValue for InMemoryValueStorage {
@@ -334,3 +346,43 @@ impl CommitChanges for SQLiteStorage {
         }
     }
 }
+
+pub struct LoadCache {
+    next: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    entries: InMemoryValueStorage,
+}
+
+impl LoadCache {
+    pub fn new(next: Arc<(dyn LoadStoreValue + Send + Sync)>) -> Self {
+        Self {
+            next,
+            entries: InMemoryValueStorage::new(Mutex::new(BTreeMap::new())),
+        }
+    }
+}
+
+impl LoadValue for LoadCache {
+    fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
+        match self.entries.load_value(reference) {
+            Some(found) => return Some(found),
+            None => {}
+        }
+        let loaded = match self.next.load_value(reference) {
+            Some(loaded) => loaded,
+            None => return None,
+        };
+        while self.entries.len() >= 1000 {
+            self.entries.remove_random_element();
+        }
+        self.entries.store_value(&loaded).unwrap();
+        Some(loaded)
+    }
+}
+
+impl StoreValue for LoadCache {
+    fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
+        self.next.store_value(value)
+    }
+}
+
+impl LoadStoreValue for LoadCache {}
