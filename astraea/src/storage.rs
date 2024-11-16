@@ -21,6 +21,7 @@ pub trait StoreValue {
 
 pub trait LoadValue {
     fn load_value(&self, reference: &Reference) -> Option<HashedValue>;
+    fn approximate_value_count(&self) -> std::result::Result<u64, StoreError>;
 }
 
 pub trait LoadStoreValue: LoadValue + StoreValue {}
@@ -97,6 +98,11 @@ impl LoadValue for InMemoryValueStorage {
     fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
         let lock = self.reference_to_value.lock().unwrap();
         lock.get(reference).cloned()
+    }
+
+    fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+        let lock = self.reference_to_value.lock().unwrap();
+        Ok(lock.len() as u64)
     }
 }
 
@@ -288,6 +294,21 @@ impl LoadValue for SQLiteStorage {
         }
         Some(result)
     }
+
+    fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+        let state_locked = self.state.lock().unwrap();
+        let connection_locked = &state_locked.connection;
+        connection_locked
+            .query_row_and_then(
+                "SELECT COUNT(*) FROM value",
+                (),
+                |row| -> rusqlite::Result<_> {
+                    let count: u64 = row.get(0).unwrap(/*TODO*/);
+                    Ok(count)
+                },
+            )
+            .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))
+    }
 }
 
 impl LoadStoreValue for SQLiteStorage {}
@@ -377,6 +398,10 @@ impl LoadValue for LoadCache {
         let mut entries_locked = self.entries.lock().unwrap();
         entries_locked.cache_set(reference.digest, loaded.clone());
         Some(loaded)
+    }
+
+    fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+        self.next.approximate_value_count()
     }
 }
 

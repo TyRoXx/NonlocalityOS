@@ -29,11 +29,21 @@ mod tests {
         (0..len).map(|_| small_rng.gen()).collect()
     }
 
-    #[bench]
-    fn sqlite_in_memory_load_value(b: &mut Bencher) {
+    fn sqlite_in_memory_load_value(b: &mut Bencher, value_count_in_database: usize) {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
+        for index in 0..(value_count_in_database as u64) {
+            let stored_value = HashedValue::from(Arc::new(Value::new(
+                ValueBlob::try_from(bytes::Bytes::copy_from_slice(&index.to_be_bytes())).unwrap(),
+                vec![],
+            )));
+            let _reference = storage.store_value(&stored_value).unwrap();
+        }
+        assert_eq!(
+            Ok(value_count_in_database as u64),
+            storage.approximate_value_count()
+        );
         let stored_value = HashedValue::from(Arc::new(Value::new(
             ValueBlob::try_from(bytes::Bytes::from(random_bytes(VALUE_BLOB_MAX_LENGTH))).unwrap(),
             vec![],
@@ -46,5 +56,19 @@ mod tests {
             let loaded = storage.load_value(&reference).unwrap();
             assert_eq!(stored_value.digest(), loaded.digest());
         });
+        assert_eq!(
+            Ok(value_count_in_database as u64 + 1),
+            storage.approximate_value_count()
+        );
+    }
+
+    #[bench]
+    fn sqlite_in_memory_load_value_small_database(b: &mut Bencher) {
+        sqlite_in_memory_load_value(b, 0);
+    }
+
+    #[bench]
+    fn sqlite_in_memory_load_value_large_database(b: &mut Bencher) {
+        sqlite_in_memory_load_value(b, 100_000);
     }
 }

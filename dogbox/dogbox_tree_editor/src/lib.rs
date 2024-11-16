@@ -2522,6 +2522,10 @@ mod tests {
         ) -> Option<astraea::tree::HashedValue> {
             panic!()
         }
+
+        fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+            panic!()
+        }
     }
 
     impl StoreValue for NeverUsedStorage {
