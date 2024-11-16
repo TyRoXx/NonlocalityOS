@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
     }
 
-    #[test_log::test(tokio::test)]
+    #[test_log::test(tokio::test(flavor = "multi_thread"))]
     async fn test_store_unit_again() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();

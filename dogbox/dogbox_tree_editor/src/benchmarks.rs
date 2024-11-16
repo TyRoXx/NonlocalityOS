@@ -128,4 +128,12 @@ mod tests {
     fn read_large_file_sqlite_in_memory_storage_hot(b: &mut Bencher) {
         read_large_file(b, true, make_sqlite_in_memory_storage());
     }
+
+    #[test]
+    fn read_large_file_test() {
+        super::test::bench::run_once(|b| {
+            Ok(read_large_file(b, false, make_sqlite_in_memory_storage()))
+        })
+        .unwrap();
+    }
 }

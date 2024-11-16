@@ -11,6 +11,7 @@ use astraea::{
 use async_stream::stream;
 use bytes::Buf;
 use dogbox_tree::serialization::{self, DirectoryTree, FileName, SegmentedBlob};
+use futures::future::join_all;
 use std::{
     collections::{BTreeMap, VecDeque},
     pin::Pin,
@@ -1151,43 +1152,83 @@ pub enum OpenFileContentBlock {
 }
 
 impl OpenFileContentBlock {
+    pub fn prepare_for_reading<'t>(
+        &self,
+        storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    ) -> Option<Future<'t, HashedValue>> {
+        match self {
+            OpenFileContentBlock::NotLoaded(blob_digest, size) => {
+                let blob_digest = *blob_digest;
+                let size = *size;
+                Some(Box::pin(async move {
+                    Self::load(&blob_digest, size, storage).await
+                }))
+            }
+            OpenFileContentBlock::Loaded(_loaded_block) => None,
+        }
+    }
+
+    pub fn set_prepare_for_reading_result(&mut self, prepared: HashedValue) {
+        match self {
+            OpenFileContentBlock::NotLoaded(blob_digest, _size) => {
+                assert_eq!(blob_digest, prepared.digest())
+            }
+            OpenFileContentBlock::Loaded(loaded) => match loaded {
+                LoadedBlock::KnownDigest(_hashed_value) => assert!(false),
+                LoadedBlock::UnknownDigest(_vec) => assert!(false),
+            },
+        }
+        *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(prepared));
+    }
+
+    async fn load(
+        blob_digest: &BlobDigest,
+        size: u16,
+        storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    ) -> Result<HashedValue> {
+        let loaded = if size == 0 {
+            // there is nothing to load
+            HashedValue::from(Arc::new(Value::new(ValueBlob::empty(), Vec::new())))
+        } else {
+            let delayed = match storage.load_value(&Reference::new(*blob_digest)).await {
+                Some(success) => success,
+                None => return Err(Error::MissingValue(*blob_digest)),
+            };
+            let hashed = tokio::task::spawn_blocking(move || delayed.hash())
+                .await
+                .unwrap();
+            match hashed {
+                Some(success) => success,
+                None => return Err(Error::MissingValue(*blob_digest)),
+            }
+        };
+        if loaded.value().blob().as_slice().len() != size as usize {
+            error!(
+                "Loaded blob {:?} of size {}, but it was expected to be {} long",
+                blob_digest,
+                loaded.value().blob().as_slice().len(),
+                size
+            );
+            return Err(Error::FileSizeMismatch);
+        }
+        if !loaded.value().references().is_empty() {
+            error!(
+                "Loaded blob {:?} of size {}, and its size was correct, but it had unexpected references (number: {}).",
+                blob_digest,
+                size, loaded.value().references().len()
+            );
+            return Err(Error::TooManyReferences(*blob_digest));
+        }
+        Ok(loaded)
+    }
+
     pub async fn access_content_for_reading<'t>(
         &'t mut self,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<&'t [u8]> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
-                let loaded = if *size == 0 {
-                    // there is nothing to load
-                    HashedValue::from(Arc::new(Value::new(ValueBlob::empty(), Vec::new())))
-                } else {
-                    let delayed = match storage.load_value(&Reference::new(*blob_digest)).await {
-                        Some(success) => success,
-                        None => return Err(Error::MissingValue(*blob_digest)),
-                    };
-                    let hashed = delayed.hash();
-                    match hashed {
-                        Some(success) => success,
-                        None => return Err(Error::MissingValue(*blob_digest)),
-                    }
-                };
-                if loaded.value().blob().as_slice().len() != *size as usize {
-                    error!(
-                        "Loaded blob {:?} of size {}, but it was expected to be {} long",
-                        &*blob_digest,
-                        loaded.value().blob().as_slice().len(),
-                        *size
-                    );
-                    return Err(Error::FileSizeMismatch);
-                }
-                if !loaded.value().references().is_empty() {
-                    error!(
-                        "Loaded blob {:?} of size {}, and its size was correct, but it had unexpected references (number: {}).",
-                        &*blob_digest,
-                        *size, loaded.value().references().len()
-                    );
-                    return Err(Error::TooManyReferences(*blob_digest));
-                }
+                let loaded = Self::load(&blob_digest, *size, storage).await?;
                 *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(loaded));
             }
             OpenFileContentBlock::Loaded(_) => {}
@@ -1716,8 +1757,49 @@ impl OpenFileContentBuffer {
         if first_block_index >= (blocks.len() as u64) {
             return Ok(bytes::Bytes::new());
         }
-        let next_block_index = first_block_index as usize;
-        let block = &mut blocks[next_block_index];
+        let last_block_index = std::cmp::min(
+            (position + count as u64 - 1) / (block_size as u64),
+            blocks.len() as u64 - 1,
+        );
+
+        if let Some(first_needs_preparation) =
+            blocks[first_block_index as usize].prepare_for_reading(storage.clone())
+        {
+            let mut futures: Vec<Future<(u64, Result<HashedValue>)>> = ((first_block_index + 1)
+                ..=last_block_index)
+                .map(|block_index| {
+                    let block = &mut blocks[block_index as usize];
+                    let result: Option<Future<(u64, Result<HashedValue>)>> = block
+                        .prepare_for_reading(storage.clone())
+                        .map(|future: Future<HashedValue>| {
+                            let result2: Future<(u64, Result<HashedValue>)> =
+                                Box::pin(async move { Ok((block_index, future.await)) });
+                            result2
+                        });
+                    result
+                })
+                .filter_map(|maybe_future| maybe_future)
+                .collect();
+
+            if !futures.is_empty() {
+                futures.push(Box::pin(async move {
+                    Ok((first_block_index, first_needs_preparation.await))
+                }));
+
+                let joined: Vec<Result<(u64, Result<HashedValue>)>> = join_all(futures).await;
+                for join_result in joined.into_iter() {
+                    let (block_index, prepare_result) = join_result.unwrap();
+                    let prepared = match prepare_result {
+                        Ok(success) => success,
+                        Err(_) => todo!(),
+                    };
+                    let block = &mut blocks[block_index as usize];
+                    block.set_prepare_for_reading_result(prepared);
+                }
+            }
+        }
+
+        let block = &mut blocks[first_block_index as usize];
         let data = block.access_content_for_reading(storage).await?;
         let position_in_block = (position % VALUE_BLOB_MAX_LENGTH as u64) as usize;
         match data.split_at_checked(position_in_block) {
