@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{OpenFileContentBlock, OpenFileContentBuffer, OptimizedWriteBuffer};
+    use crate::{OpenFileContentBlock, OpenFileContentBuffer, OptimizedWriteBuffer, Prefetcher};
     use astraea::{
         storage::{InMemoryValueStorage, LoadStoreValue},
         tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
@@ -154,6 +154,7 @@ mod tests {
             last_known_digest_file_size: last_known_digest_file_size as u64,
             dirty_blocks: VecDeque::from([0, 1]),
             write_buffer_in_blocks: 1,
+            prefetcher: Prefetcher::new(),
         });
         assert_eq!(expected_buffer, buffer);
         let expected_digests = BTreeSet::from_iter(
@@ -211,6 +212,7 @@ mod tests {
             last_known_digest_file_size: last_known_digest_file_size as u64,
             dirty_blocks: VecDeque::from([0]),
             write_buffer_in_blocks: 1,
+            prefetcher: Prefetcher::new(),
         });
         assert_eq!(expected_buffer, buffer);
         let expected_digests = BTreeSet::from_iter(
@@ -306,6 +308,7 @@ mod tests {
             last_known_digest_file_size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
             dirty_blocks: VecDeque::new(),
             write_buffer_in_blocks: 1,
+            prefetcher: Prefetcher::new(),
         });
         assert_eq!(expected_buffer, buffer);
 

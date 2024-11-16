@@ -1355,6 +1355,60 @@ impl OpenFileContentBlock {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct Prefetcher {}
+
+impl Prefetcher {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub async fn fetch(
+        &mut self,
+        blocks: &mut Vec<OpenFileContentBlock>,
+        first_block_index: u64,
+        last_block_index: u64,
+        storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    ) {
+        if let Some(first_needs_preparation) =
+            blocks[first_block_index as usize].prepare_for_reading(storage.clone())
+        {
+            let mut futures: Vec<Future<(u64, Result<HashedValue>)>> = ((first_block_index + 1)
+                ..=last_block_index)
+                .map(|block_index| {
+                    let block = &mut blocks[block_index as usize];
+                    let result: Option<Future<(u64, Result<HashedValue>)>> = block
+                        .prepare_for_reading(storage.clone())
+                        .map(|future: Future<HashedValue>| {
+                            let result2: Future<(u64, Result<HashedValue>)> =
+                                Box::pin(async move { Ok((block_index, future.await)) });
+                            result2
+                        });
+                    result
+                })
+                .filter_map(|maybe_future| maybe_future)
+                .collect();
+
+            if !futures.is_empty() {
+                futures.push(Box::pin(async move {
+                    Ok((first_block_index, first_needs_preparation.await))
+                }));
+
+                let joined: Vec<Result<(u64, Result<HashedValue>)>> = join_all(futures).await;
+                for join_result in joined.into_iter() {
+                    let (block_index, prepare_result) = join_result.unwrap();
+                    let prepared = match prepare_result {
+                        Ok(success) => success,
+                        Err(_) => todo!(),
+                    };
+                    let block = &mut blocks[block_index as usize];
+                    block.set_prepare_for_reading_result(prepared);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct OpenFileContentBufferLoaded {
     size: u64,
     blocks: Vec<OpenFileContentBlock>,
@@ -1362,6 +1416,7 @@ pub struct OpenFileContentBufferLoaded {
     last_known_digest_file_size: u64,
     dirty_blocks: VecDeque<usize>,
     write_buffer_in_blocks: usize,
+    prefetcher: Prefetcher,
 }
 
 impl OpenFileContentBufferLoaded {
@@ -1372,6 +1427,7 @@ impl OpenFileContentBufferLoaded {
         last_known_digest_file_size: u64,
         dirty_blocks: VecDeque<usize>,
         write_buffer_in_blocks: usize,
+        prefetcher: Prefetcher,
     ) -> Self {
         Self {
             size,
@@ -1380,6 +1436,7 @@ impl OpenFileContentBufferLoaded {
             last_known_digest_file_size,
             dirty_blocks,
             write_buffer_in_blocks,
+            prefetcher,
         }
     }
 
@@ -1598,6 +1655,7 @@ impl OpenFileContentBuffer {
                 last_known_digest_file_size,
                 dirty_blocks: vec![0].into(),
                 write_buffer_in_blocks,
+                prefetcher: Prefetcher::new(),
             }))
         }
     }
@@ -1616,6 +1674,7 @@ impl OpenFileContentBuffer {
                 last_known_digest_file_size: _,
                 dirty_blocks: _,
                 write_buffer_in_blocks: _,
+                prefetcher: _,
             }) => *size,
         }
     }
@@ -1634,6 +1693,7 @@ impl OpenFileContentBuffer {
                 last_known_digest_file_size: _,
                 dirty_blocks,
                 write_buffer_in_blocks: _,
+                prefetcher: _,
             }) => dirty_blocks.len() as u64,
         }
     }
@@ -1658,8 +1718,8 @@ impl OpenFileContentBuffer {
         count: usize,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<bytes::Bytes> {
-        let loaded = self.require_loaded(storage.clone()).await?;
-        Self::read_from_blocks(&mut loaded.blocks, position, count, storage).await
+        let mut loaded = self.require_loaded(storage.clone()).await?;
+        Self::read_from_blocks(&mut loaded, position, count, storage).await
     }
 
     async fn require_loaded<'t>(
@@ -1738,6 +1798,7 @@ impl OpenFileContentBuffer {
                     last_known_digest_file_size: *size,
                     dirty_blocks: VecDeque::new(),
                     write_buffer_in_blocks: *write_buffer_in_blocks,
+                    prefetcher: Prefetcher::new(),
                 });
             }
             OpenFileContentBuffer::Loaded(_loaded) => {}
@@ -1755,13 +1816,14 @@ impl OpenFileContentBuffer {
     }
 
     async fn read_from_blocks(
-        blocks: &mut Vec<OpenFileContentBlock>,
+        loaded: &mut OpenFileContentBufferLoaded,
         position: u64,
         count: usize,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<bytes::Bytes> {
         let block_size = VALUE_BLOB_MAX_LENGTH;
         let first_block_index = position / (block_size as u64);
+        let blocks = &mut loaded.blocks;
         if first_block_index >= (blocks.len() as u64) {
             return Ok(bytes::Bytes::new());
         }
@@ -1770,42 +1832,10 @@ impl OpenFileContentBuffer {
             blocks.len() as u64 - 1,
         );
 
-        if let Some(first_needs_preparation) =
-            blocks[first_block_index as usize].prepare_for_reading(storage.clone())
-        {
-            let mut futures: Vec<Future<(u64, Result<HashedValue>)>> = ((first_block_index + 1)
-                ..=last_block_index)
-                .map(|block_index| {
-                    let block = &mut blocks[block_index as usize];
-                    let result: Option<Future<(u64, Result<HashedValue>)>> = block
-                        .prepare_for_reading(storage.clone())
-                        .map(|future: Future<HashedValue>| {
-                            let result2: Future<(u64, Result<HashedValue>)> =
-                                Box::pin(async move { Ok((block_index, future.await)) });
-                            result2
-                        });
-                    result
-                })
-                .filter_map(|maybe_future| maybe_future)
-                .collect();
-
-            if !futures.is_empty() {
-                futures.push(Box::pin(async move {
-                    Ok((first_block_index, first_needs_preparation.await))
-                }));
-
-                let joined: Vec<Result<(u64, Result<HashedValue>)>> = join_all(futures).await;
-                for join_result in joined.into_iter() {
-                    let (block_index, prepare_result) = join_result.unwrap();
-                    let prepared = match prepare_result {
-                        Ok(success) => success,
-                        Err(_) => todo!(),
-                    };
-                    let block = &mut blocks[block_index as usize];
-                    block.set_prepare_for_reading_result(prepared);
-                }
-            }
-        }
+        loaded
+            .prefetcher
+            .fetch(blocks, first_block_index, last_block_index, storage.clone())
+            .await;
 
         let block = &mut blocks[first_block_index as usize];
         let mut data = block.access_content_for_reading(storage).await?;
