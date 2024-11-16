@@ -7,7 +7,79 @@ mod tests {
         BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob,
         VALUE_BLOB_MAX_LENGTH,
     };
+    use rand::rngs::SmallRng;
+    use rand::Rng;
+    use rand::SeedableRng;
     use std::sync::Arc;
+
+    fn make_test_value() -> Value {
+        let mut small_rng = SmallRng::seed_from_u64(123);
+        Value::new(
+            ValueBlob::try_from(bytes::Bytes::from_iter(
+                (0..VALUE_BLOB_MAX_LENGTH).map(|_| small_rng.gen()),
+            ))
+            .unwrap(),
+            vec![],
+        )
+    }
+
+    fn calculate_digest_fixed<D>(b: &mut Bencher)
+    where
+        D: sha3::Digest,
+    {
+        let referenced = make_test_value();
+        b.iter(|| crate::tree::calculate_digest_fixed::<D>(&referenced));
+    }
+
+    fn calculate_digest_extendable<D>(b: &mut Bencher)
+    where
+        D: core::default::Default + sha3::digest::Update + sha3::digest::ExtendableOutput,
+    {
+        let referenced = make_test_value();
+        b.iter(|| crate::tree::calculate_digest_extendable::<D>(&referenced));
+    }
+
+    #[bench]
+    fn calculate_digest_sha3_224(b: &mut Bencher) {
+        calculate_digest_fixed::<sha3::Sha3_224>(b);
+    }
+
+    #[bench]
+    fn calculate_digest_sha3_256(b: &mut Bencher) {
+        calculate_digest_fixed::<sha3::Sha3_256>(b);
+    }
+
+    #[bench]
+    fn calculate_digest_sha3_384(b: &mut Bencher) {
+        calculate_digest_fixed::<sha3::Sha3_384>(b);
+    }
+
+    #[bench]
+    fn calculate_digest_sha3_512(b: &mut Bencher) {
+        calculate_digest_fixed::<sha3::Sha3_512>(b);
+    }
+
+    #[bench]
+    fn calculate_digest_shake_128(b: &mut Bencher) {
+        calculate_digest_extendable::<sha3::Shake128>(b);
+    }
+
+    #[bench]
+    fn calculate_digest_shake_256(b: &mut Bencher) {
+        calculate_digest_extendable::<sha3::Shake256>(b);
+    }
+
+    /*
+        #[bench]
+        fn calculate_digest_turbo_shake_128(b: &mut Bencher) {
+            calculate_digest_extendable::<sha3::TurboShake128>(b);
+        }
+
+        #[bench]
+        fn calculate_digest_turbo_shake_256(b: &mut Bencher) {
+            calculate_digest_extendable::<sha3::TurboShake256>(b);
+        }
+    */
 
     fn hashed_value_from(
         b: &mut Bencher,
@@ -15,9 +87,6 @@ mod tests {
         reference_count: usize,
         expected_digest: &BlobDigest,
     ) {
-        use rand::rngs::SmallRng;
-        use rand::Rng;
-        use rand::SeedableRng;
         let mut small_rng = SmallRng::seed_from_u64(123);
         let value = Arc::new(Value::new(
             ValueBlob::try_from(bytes::Bytes::from_iter(

@@ -406,16 +406,38 @@ impl ReduceExpression for Identity {
     }
 }
 
-//#[instrument(skip_all)]
-pub fn calculate_reference(referenced: &Value) -> Reference {
-    let mut hasher = Sha3_512::new();
+pub fn calculate_digest_fixed<D>(referenced: &Value) -> sha3::digest::Output<D>
+where
+    D: sha3::Digest,
+{
+    let mut hasher = D::new();
     hasher.update(referenced.blob.as_slice());
     for item in &referenced.references {
-        hasher.update(item.type_id.0.to_be_bytes());
-        hasher.update(item.reference.digest.0 .0);
-        hasher.update(item.reference.digest.0 .1);
+        hasher.update(&item.type_id.0.to_be_bytes());
+        hasher.update(&item.reference.digest.0 .0);
+        hasher.update(&item.reference.digest.0 .1);
     }
-    let result = hasher.finalize().into();
+    hasher.finalize()
+}
+
+pub fn calculate_digest_extendable<D>(
+    referenced: &Value,
+) -> <D as sha3::digest::ExtendableOutput>::Reader
+where
+    D: core::default::Default + sha3::digest::Update + sha3::digest::ExtendableOutput,
+{
+    let mut hasher = D::default();
+    hasher.update(referenced.blob.as_slice());
+    for item in &referenced.references {
+        hasher.update(&item.type_id.0.to_be_bytes());
+        hasher.update(&item.reference.digest.0 .0);
+        hasher.update(&item.reference.digest.0 .1);
+    }
+    hasher.finalize_xof()
+}
+
+pub fn calculate_reference(referenced: &Value) -> Reference {
+    let result: [u8; 64] = calculate_digest_fixed::<sha3::Sha3_512>(referenced).into();
     Reference {
         digest: BlobDigest::new(&result),
     }

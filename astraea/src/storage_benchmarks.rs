@@ -69,6 +69,6 @@ mod tests {
 
     #[bench]
     fn sqlite_in_memory_load_value_large_database(b: &mut Bencher) {
-        sqlite_in_memory_load_value(b, 100_000);
+        sqlite_in_memory_load_value(b, 10_000);
     }
 }
