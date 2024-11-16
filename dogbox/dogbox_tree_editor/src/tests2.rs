@@ -156,10 +156,14 @@ mod tests {
             write_buffer_in_blocks: 1,
         });
         assert_eq!(expected_buffer, buffer);
-        // cargo fmt silently refuses to format this for an unknown reason:
-        let expected_digests =
-        BTreeSet::from_iter (["a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26",
-       ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
+        let expected_digests = BTreeSet::from_iter(
+            [concat!(
+                "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6",
+                "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+            )]
+            .map(BlobDigest::parse_hex_string)
+            .map(Option::unwrap),
+        );
         assert_eq!(expected_digests, storage.digests().await);
     }
 
@@ -209,10 +213,14 @@ mod tests {
             write_buffer_in_blocks: 1,
         });
         assert_eq!(expected_buffer, buffer);
-        // cargo fmt silently refuses to format this for an unknown reason:
-        let expected_digests =
-        BTreeSet::from_iter (["23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e393cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25",
-       ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
+        let expected_digests = BTreeSet::from_iter(
+            [concat!(
+                "23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e3",
+                "93cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25"
+            )]
+            .map(BlobDigest::parse_hex_string)
+            .map(Option::unwrap),
+        );
         assert_eq!(expected_digests, storage.digests().await);
     }
 
@@ -280,30 +288,49 @@ mod tests {
             blocks: vec![
                 OpenFileContentBlock::NotLoaded(
                     BlobDigest::hash(&vec![0; VALUE_BLOB_MAX_LENGTH]),
-                    VALUE_BLOB_MAX_LENGTH as u16
+                    VALUE_BLOB_MAX_LENGTH as u16,
                 ),
                 OpenFileContentBlock::NotLoaded(
                     BlobDigest::hash(write_data.as_bytes()),
-                    write_data.len() as u16
-                )
+                    write_data.len() as u16,
+                ),
             ],
             digest: crate::DigestStatus {
-                last_known_digest: BlobDigest::parse_hex_string("842a5f571599b6ccaa2b5aee1fc46e95ffd32a8392e33c1c6b6aabfe78392a0c0bb3c1fa29056b093f784c4a1bd9eb6a6d30494d9e5105a1b8131214be40eae5").unwrap(),
-                is_digest_up_to_date: true
+                last_known_digest: BlobDigest::parse_hex_string(concat!(
+                    "842a5f571599b6ccaa2b5aee1fc46e95ffd32a8392e33c1c6b6aabfe78392a0c",
+                    "0bb3c1fa29056b093f784c4a1bd9eb6a6d30494d9e5105a1b8131214be40eae5"
+                ))
+                .unwrap(),
+                is_digest_up_to_date: true,
             },
             last_known_digest_file_size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
             dirty_blocks: VecDeque::new(),
-            write_buffer_in_blocks:1,
+            write_buffer_in_blocks: 1,
         });
         assert_eq!(expected_buffer, buffer);
 
-        // cargo fmt silently refuses to format this for an unknown reason:
-        let expected_digests =
-        BTreeSet::from_iter (["697f2d856172cb8309d6b8b97dac4de344b549d4dee61edfb4962d8698b7fa803f4f93ff24393586e28b5b957ac3d1d369420ce53332712f997bd336d09ab02a",
-    "36708536177e3b63fe3cc7a9ab2e93c26394d2e00933b243c9f3ab93c245a8253a731314365fbd5094ad33d64a083bf1b63b8471c55aab7a7efb4702d7e75459"    ,
-       "842a5f571599b6ccaa2b5aee1fc46e95ffd32a8392e33c1c6b6aabfe78392a0c0bb3c1fa29056b093f784c4a1bd9eb6a6d30494d9e5105a1b8131214be40eae5",
-       "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26",
-    ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
+        let expected_digests = BTreeSet::from_iter(
+            [
+                concat!(
+                    "697f2d856172cb8309d6b8b97dac4de344b549d4dee61edfb4962d8698b7fa80",
+                    "3f4f93ff24393586e28b5b957ac3d1d369420ce53332712f997bd336d09ab02a"
+                ),
+                concat!(
+                    "36708536177e3b63fe3cc7a9ab2e93c26394d2e00933b243c9f3ab93c245a825",
+                    "3a731314365fbd5094ad33d64a083bf1b63b8471c55aab7a7efb4702d7e75459"
+                ),
+                concat!(
+                    "842a5f571599b6ccaa2b5aee1fc46e95ffd32a8392e33c1c6b6aabfe78392a0c",
+                    "0bb3c1fa29056b093f784c4a1bd9eb6a6d30494d9e5105a1b8131214be40eae5"
+                ),
+                concat!(
+                    "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6",
+                    "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+                ),
+            ]
+            .map(BlobDigest::parse_hex_string)
+            .map(Option::unwrap),
+        );
 
         assert_eq!(expected_digests, storage.digests().await);
     }
