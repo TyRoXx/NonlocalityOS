@@ -1225,7 +1225,7 @@ impl OpenFileContentBlock {
     pub async fn access_content_for_reading<'t>(
         &'t mut self,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
-    ) -> Result<&'t [u8]> {
+    ) -> Result<bytes::Bytes> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
                 let loaded = Self::load(&blob_digest, *size, storage).await?;
@@ -1236,8 +1236,10 @@ impl OpenFileContentBlock {
         Ok(match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(hashed_value) => hashed_value.value().blob().as_slice(),
-                LoadedBlock::UnknownDigest(vec) => vec,
+                LoadedBlock::KnownDigest(hashed_value) => {
+                    hashed_value.value().blob().content.clone()
+                }
+                LoadedBlock::UnknownDigest(vec) => bytes::Bytes::copy_from_slice(&vec),
             },
         })
     }
@@ -1246,7 +1248,13 @@ impl OpenFileContentBlock {
         &'t mut self,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<&'t mut Vec<u8>> {
-        self.access_content_for_reading(storage).await?;
+        match self {
+            OpenFileContentBlock::NotLoaded(blob_digest, size) => {
+                let loaded = Self::load(&blob_digest, *size, storage).await?;
+                *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(loaded));
+            }
+            OpenFileContentBlock::Loaded(_) => {}
+        }
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
@@ -1800,19 +1808,19 @@ impl OpenFileContentBuffer {
         }
 
         let block = &mut blocks[first_block_index as usize];
-        let data = block.access_content_for_reading(storage).await?;
+        let mut data = block.access_content_for_reading(storage).await?;
         let position_in_block = (position % VALUE_BLOB_MAX_LENGTH as u64) as usize;
-        match data.split_at_checked(position_in_block) {
-            Some((_, from_position)) => {
-                return Ok(bytes::Bytes::copy_from_slice(
-                    match from_position.split_at_checked(count) {
-                        Some((result, _)) => result,
-                        None => from_position,
-                    },
-                ))
+        Ok(if position_in_block > data.len() {
+            bytes::Bytes::new()
+        } else {
+            let mut result = data.split_off(position_in_block);
+            if result.len() > count {
+                result.truncate(count);
+                result
+            } else {
+                result
             }
-            None => todo!(),
-        }
+        })
     }
 
     pub async fn write(
