@@ -1424,9 +1424,28 @@ impl Prefetcher {
         }
     }
 
-    pub fn add_explicitly_requested_block(&mut self, requested_block_index: u64) {
+    pub fn max_number_of_blocks_tracked(&self) -> usize {
+        self.last_explicitly_requested_blocks
+            .cache_capacity()
+            .unwrap()
+    }
+
+    pub fn add_explicitly_requested_block(&mut self, requested_block_index: u64) -> bool {
+        if self
+            .last_explicitly_requested_blocks
+            .cache_get(&requested_block_index)
+            .is_some()
+        {
+            return false;
+        }
         self.last_explicitly_requested_blocks
             .cache_set(requested_block_index, ());
+        return true;
+    }
+
+    pub fn get_prefetch_length_from_streak_length(streak_length: usize) -> usize {
+        let max_prefetch_length = 12;
+        std::cmp::min(max_prefetch_length, streak_length * 3)
     }
 
     pub fn analyze_streak(
@@ -1440,7 +1459,7 @@ impl Prefetcher {
             StreakDirection::Down => {
                 let lowest_block_index_in_streak =
                     highest_block_index_in_streak + 1 - streak_order.len() as u64;
-                for offset in 0..(streak_order.len()) {
+                for offset in 0..Self::get_prefetch_length_from_streak_length(streak_order.len()) {
                     match u64::checked_sub(lowest_block_index_in_streak, (offset + 1) as u64) {
                         Some(prefetched) => {
                             blocks_to_prefetch.insert(prefetched);
@@ -1450,7 +1469,7 @@ impl Prefetcher {
                 }
             }
             StreakDirection::Up => {
-                for offset in 0..(streak_order.len()) {
+                for offset in 0..Self::get_prefetch_length_from_streak_length(streak_order.len()) {
                     match u64::checked_add(highest_block_index_in_streak, (offset + 1) as u64) {
                         Some(prefetched) => {
                             if prefetched >= total_block_count {
@@ -1532,6 +1551,11 @@ impl Prefetcher {
             .filter_map(|maybe_future| maybe_future)
             .collect();
 
+        let start_prefetching_at_number_of_blocks = 1;
+        if futures.len() < start_prefetching_at_number_of_blocks {
+            return;
+        }
+
         let joined: Vec<Result<(u64, Result<HashedValue>)>> = join_all(futures).await;
         for join_result in joined.into_iter() {
             let (block_index, prepare_result) = join_result.unwrap();
@@ -1556,17 +1580,17 @@ fn test_find_blocks_to_prefetch_up() {
     );
     prefetcher.add_explicitly_requested_block(1);
     assert_eq!(
-        BTreeSet::from([0, 1, 2, 3]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(2);
     assert_eq!(
-        BTreeSet::from([0, 1, 2, 3, 4, 5]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(3);
     assert_eq!(
-        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(4);
@@ -1597,17 +1621,17 @@ fn test_find_blocks_to_prefetch_down() {
     );
     prefetcher.add_explicitly_requested_block(8);
     assert_eq!(
-        BTreeSet::from([9, 8, 7, 6]),
+        BTreeSet::from([2, 3, 4, 5, 6, 7, 8, 9]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(7);
     assert_eq!(
-        BTreeSet::from([9, 8, 7, 6, 5, 4]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(6);
     assert_eq!(
-        BTreeSet::from([9, 8, 7, 6, 5, 4, 3, 2]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(5);
@@ -1643,27 +1667,27 @@ fn test_find_blocks_to_prefetch_two_streaks() {
     );
     prefetcher.add_explicitly_requested_block(1);
     assert_eq!(
-        BTreeSet::from([0, 1, 2, 3, 9]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 9]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(8);
     assert_eq!(
-        BTreeSet::from([0, 1, 2, 3, 6, 7, 8, 9]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(4);
     assert_eq!(
-        BTreeSet::from([0, 1, 2, 3, 4, 6, 7, 8, 9]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(5);
     assert_eq!(
-        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(7);
     assert_eq!(
-        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
     prefetcher.add_explicitly_requested_block(6);
@@ -1674,6 +1698,21 @@ fn test_find_blocks_to_prefetch_two_streaks() {
     prefetcher.add_explicitly_requested_block(3);
     assert_eq!(
         BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(10);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(11);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(12);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]),
         prefetcher.find_blocks_to_prefetch(total_block_count)
     );
 }
@@ -2097,22 +2136,24 @@ impl OpenFileContentBuffer {
         if first_block_index >= (blocks.len() as u64) {
             return Ok(bytes::Bytes::new());
         }
-        {
+        let is_prefetching_necessary = {
             let last_block_index = std::cmp::min(
                 (position + count as u64 - 1) / (block_size as u64),
                 blocks.len() as u64 - 1,
             );
-
-            for index in first_block_index..last_block_index {
-                loaded.prefetcher.add_explicitly_requested_block(index);
+            let mut has_changed = false;
+            for index in (first_block_index..=last_block_index)
+                .take(loaded.prefetcher.max_number_of_blocks_tracked())
+            {
+                if loaded.prefetcher.add_explicitly_requested_block(index) {
+                    has_changed = true;
+                }
             }
-        }
+            has_changed
+        };
 
-        {
-            let block = &mut blocks[first_block_index as usize];
-            if let Some(_first_block_needs_loading) = block.prepare_for_reading(storage.clone()) {
-                loaded.prefetcher.prefetch(blocks, storage.clone()).await;
-            }
+        if is_prefetching_necessary {
+            loaded.prefetcher.prefetch(blocks, storage.clone()).await;
         }
 
         let block = &mut blocks[first_block_index as usize];
