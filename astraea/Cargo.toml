@@ -25,6 +25,7 @@ cached = "0"
 
 [dev-dependencies]
 proptest = "1"
+rand = { version = "0", features = [ "small_rng" ]}
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rusqlite = {version = "0", features = ["bundled-sqlcipher"]}

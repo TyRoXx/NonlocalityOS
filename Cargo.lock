@@ -170,6 +170,7 @@ dependencies = [
  "lazy_static",
  "postcard",
  "proptest",
+ "rand",
  "rusqlite",
  "serde",
  "sha3",
