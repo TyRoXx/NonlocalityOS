@@ -23,11 +23,10 @@ mod tests {
     ) {
         let mut checked = 0;
         while checked < expected_content.len() {
-            let max_read_size = VALUE_BLOB_MAX_LENGTH * 10;
             let read_result = buffer
                 .read(
                     checked as u64,
-                    std::cmp::min(max_read_size, expected_content.len() - checked),
+                    expected_content.len() - checked,
                     storage.clone(),
                 )
                 .await;
@@ -127,13 +126,5 @@ mod tests {
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_hot(b: &mut Bencher) {
         read_large_file(b, true, make_sqlite_in_memory_storage());
-    }
-
-    #[test]
-    fn read_large_file_test() {
-        super::test::bench::run_once(|b| {
-            Ok(read_large_file(b, false, make_sqlite_in_memory_storage()))
-        })
-        .unwrap();
     }
 }
