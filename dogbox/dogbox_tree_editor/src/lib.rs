@@ -1,3 +1,5 @@
+#![feature(test)]
+mod benchmarks;
 mod tests2;
 use astraea::{
     storage::{LoadStoreValue, StoreError},
@@ -1424,6 +1426,7 @@ impl OpenFileContentBufferLoaded {
     }
 }
 
+#[derive(PartialEq, Debug)]
 pub enum StoreChanges {
     SomeChanges,
     NoChanges,

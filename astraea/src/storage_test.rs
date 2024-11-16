@@ -1,11 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use bytes::Bytes;
-
     use crate::{
         storage::{CommitChanges, LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
         tree::{BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob},
     };
+    use bytes::Bytes;
     use std::sync::Arc;
 
     #[test_log::test(tokio::test)]

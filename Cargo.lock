@@ -999,6 +999,7 @@ dependencies = [
  "pretty_assertions",
  "rand",
  "relative-path",
+ "rusqlite",
  "test-case",
  "tokio",
  "tracing",
