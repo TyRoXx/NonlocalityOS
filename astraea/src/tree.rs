@@ -317,7 +317,7 @@ pub async fn reduce_expression_from_reference(
     loader: &dyn LoadValue,
     storage: &dyn StoreValue,
 ) -> std::result::Result<ReferencedValue, ReductionError> {
-    let argument_value = match loader.load_value(&argument.reference) {
+    let argument_value = match loader.load_value(&argument.reference).await {
         Some(loaded) => loaded,
         None => return Err(ReductionError::UnknownReference(argument.reference)),
     }
@@ -337,6 +337,7 @@ pub async fn reduce_expression_from_reference(
     Ok(ReferencedValue::new(
         storage
             .store_value(&HashedValue::from(arc_value.clone()))
+            .await
             .map_err(|error| ReductionError::Io(error))?
             .add_type(value.type_id),
         arc_value,
@@ -447,12 +448,12 @@ pub fn calculate_reference(referenced: &Value) -> Reference {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_reduce_expression() {
+    use tokio::sync::Mutex;
     let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
     let services = ServiceRegistry {
         services: BTreeMap::from([(TypeId(0), identity.clone()), (TypeId(1), identity)]),
     };
-    let value_storage =
-        crate::storage::InMemoryValueStorage::new(std::sync::Mutex::new(BTreeMap::new()));
+    let value_storage = crate::storage::InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let result = reduce_expression_without_storing_the_final_result(
         TypedValue::new(TypeId(0), Value::from_string("hello, world!\n").unwrap()),
         &services,
@@ -497,6 +498,7 @@ pub fn make_effect(cause: TypedReference) -> TypedValue {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_effect() {
+    use tokio::sync::Mutex;
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let test_console: Arc<dyn ReduceExpression> = Arc::new(TestConsole { writer: sender });
     let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
@@ -509,16 +511,17 @@ async fn test_effect() {
         ]),
     };
 
-    let value_storage =
-        crate::storage::InMemoryValueStorage::new(std::sync::Mutex::new(BTreeMap::new()));
+    let value_storage = crate::storage::InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let past = value_storage
         .store_value(&HashedValue::from(Arc::new(make_beginning_of_time())))
+        .await
         .unwrap()
         .add_type(TypeId(3));
     let message = value_storage
         .store_value(&HashedValue::from(Arc::new(
             Value::from_string("hello, world!\n").unwrap(),
         )))
+        .await
         .unwrap()
         .add_type(TypeId(0));
     let text_in_console = make_text_in_console(past, message);
@@ -598,23 +601,26 @@ impl ReduceExpression for SumService {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_sum() {
+    use tokio::sync::Mutex;
     let sum_service: Arc<dyn ReduceExpression> = Arc::new(SumService {});
     let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
     let services = ServiceRegistry {
         services: BTreeMap::from([(TypeId(5), identity), (TypeId(6), sum_service)]),
     };
-    let value_storage =
-        crate::storage::InMemoryValueStorage::new(std::sync::Mutex::new(BTreeMap::new()));
+    let value_storage = crate::storage::InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let a = value_storage
         .store_value(&HashedValue::from(Arc::new(make_seconds(1).value)))
+        .await
         .unwrap()
         .add_type(TypeId(5));
     let b = value_storage
         .store_value(&HashedValue::from(Arc::new(make_seconds(2).value)))
+        .await
         .unwrap()
         .add_type(TypeId(5));
     let sum = value_storage
         .store_value(&HashedValue::from(Arc::new(make_sum(vec![a, b]).value)))
+        .await
         .unwrap()
         .add_type(TypeId(6));
     let result = reduce_expression_from_reference(&sum, &services, &value_storage, &value_storage)
@@ -625,25 +631,28 @@ async fn test_sum() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_nested_sum() {
+    use tokio::sync::Mutex;
     let sum_service: Arc<dyn ReduceExpression> = Arc::new(SumService {});
     let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
     let services = ServiceRegistry {
         services: BTreeMap::from([(TypeId(5), identity), (TypeId(6), sum_service)]),
     };
-    let value_storage =
-        crate::storage::InMemoryValueStorage::new(std::sync::Mutex::new(BTreeMap::new()));
+    let value_storage = crate::storage::InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let a = value_storage
         .store_value(&HashedValue::from(Arc::new(make_seconds(1).value)))
+        .await
         .unwrap()
         .add_type(TypeId(5));
     let b = value_storage
         .store_value(&HashedValue::from(Arc::new(make_seconds(2).value)))
+        .await
         .unwrap()
         .add_type(TypeId(5));
     let c = value_storage
         .store_value(&HashedValue::from(Arc::new(
             make_sum(vec![a.clone(), b]).value,
         )))
+        .await
         .unwrap()
         .add_type(TypeId(6));
     let sum = make_sum(vec![a.clone(), a, c]);
@@ -698,6 +707,7 @@ impl ReduceExpression for DelayService {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_delay() {
+    use tokio::sync::Mutex;
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let test_console: Arc<dyn ReduceExpression> = Arc::new(TestConsole { writer: sender });
     let delay_service: Arc<dyn ReduceExpression> = Arc::new(DelayService {});
@@ -713,28 +723,31 @@ async fn test_delay() {
         ]),
     };
 
-    let value_storage =
-        crate::storage::InMemoryValueStorage::new(std::sync::Mutex::new(BTreeMap::new()));
+    let value_storage = crate::storage::InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let past = value_storage
         .store_value(&HashedValue::from(Arc::new(make_beginning_of_time())))
+        .await
         .unwrap()
         .add_type(TypeId(3));
     let duration = value_storage
         .store_value(&HashedValue::from(Arc::new(
             make_seconds(/*can't waste time here*/ 0).value,
         )))
+        .await
         .unwrap()
         .add_type(TypeId(5));
     let delay = value_storage
         .store_value(&HashedValue::from(Arc::new(
             make_delay(past.clone(), duration).value,
         )))
+        .await
         .unwrap()
         .add_type(TypeId(4));
     let message = value_storage
         .store_value(&HashedValue::from(Arc::new(
             Value::from_string("hello, world!\n").unwrap(),
         )))
+        .await
         .unwrap()
         .add_type(TypeId(0));
     let text_in_console = make_text_in_console(delay, message);
@@ -750,6 +763,7 @@ async fn test_delay() {
         make_effect(
             value_storage
                 .store_value(&HashedValue::from(Arc::new(make_effect(past).value)))
+                .await
                 .unwrap()
                 .add_type(TypeId(3))
         ),
@@ -857,14 +871,19 @@ pub fn to_lambda_application(value: Value) -> Option<LambdaApplication> {
     ))
 }
 
-fn replace_variable_recursively(
+async fn replace_variable_recursively(
     body: &TypedReference,
     variable: &Reference,
     argument: &TypedReference,
     loader: &dyn LoadValue,
     storage: &dyn StoreValue,
 ) -> Option<TypedValue> {
-    let body_loaded = loader.load_value(&body.reference).unwrap().hash().unwrap();
+    let body_loaded = loader
+        .load_value(&body.reference)
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     let mut references = Vec::new();
     let mut has_replaced_something = false;
     for child in &body_loaded.value().references {
@@ -872,12 +891,14 @@ fn replace_variable_recursively(
             references.push(argument.clone());
             has_replaced_something = true;
         } else {
-            if let Some(replaced) =
-                replace_variable_recursively(child, variable, argument, loader, storage)
+            if let Some(replaced) = Box::pin(replace_variable_recursively(
+                child, variable, argument, loader, storage,
+            ))
+            .await
             {
                 let stored = storage
                     .store_value(&HashedValue::from(Arc::new(replaced.value)))
-                    .unwrap(/*TODO*/)
+                    .await  .unwrap(/*TODO*/)
                     .add_type(replaced.type_id);
                 references.push(stored);
                 has_replaced_something = true;
@@ -906,44 +927,49 @@ impl ReduceExpression for LambdaApplicationService {
         storage: &'t dyn StoreValue,
     ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
         let lambda_application = to_lambda_application(argument.value).unwrap();
-        let argument = &lambda_application.argument;
-        let function = to_lambda(
-            (**loader
-                .load_value(&lambda_application.function.reference)
-                .unwrap()
-                .hash()
-                .unwrap()
-                .value())
-            .clone(),
-        )
-        .unwrap();
-        let variable = &function.variable;
-        Box::pin(std::future::ready(
+        Box::pin(async move {
+            let argument = &lambda_application.argument;
+            let function = to_lambda(
+                (**loader
+                    .load_value(&lambda_application.function.reference)
+                    .await
+                    .unwrap()
+                    .hash()
+                    .unwrap()
+                    .value())
+                .clone(),
+            )
+            .unwrap();
+            let variable = &function.variable;
             match replace_variable_recursively(
                 &function.body,
                 &variable.reference,
                 argument,
                 loader,
                 storage,
-            ) {
+            )
+            .await
+            {
                 Some(replaced) => replaced,
                 None => TypedValue::new(
                     function.body.type_id,
                     (**loader
                         .load_value(&function.body.reference)
+                        .await
                         .unwrap()
                         .hash()
                         .unwrap()
                         .value())
                     .clone(),
                 ),
-            },
-        ))
+            }
+        })
     }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_lambda() {
+    use tokio::sync::Mutex;
     let lambda_application_service: Arc<dyn ReduceExpression> =
         Arc::new(LambdaApplicationService {});
     let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
@@ -956,36 +982,41 @@ async fn test_lambda() {
             (TypeId(8), lambda_application_service),
         ]),
     };
-    let value_storage =
-        crate::storage::InMemoryValueStorage::new(std::sync::Mutex::new(BTreeMap::new()));
+    let value_storage = crate::storage::InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let arg = value_storage
         .store_value(&HashedValue::from(Arc::new(
             Value::from_string("arg").unwrap(),
         )))
+        .await
         .unwrap()
         .add_type(TypeId(0));
     let one = value_storage
         .store_value(&HashedValue::from(Arc::new(make_seconds(1).value)))
+        .await
         .unwrap()
         .add_type(TypeId(5));
     let sum = value_storage
         .store_value(&HashedValue::from(Arc::new(make_sum(vec![one, arg]).value)))
+        .await
         .unwrap()
         .add_type(TypeId(6));
     let plus_one = value_storage
         .store_value(&HashedValue::from(Arc::new(
             make_lambda(Lambda::new(arg, sum)).value,
         )))
+        .await
         .unwrap()
         .add_type(TypeId(7));
     let two = value_storage
         .store_value(&HashedValue::from(Arc::new(make_seconds(2).value)))
+        .await
         .unwrap()
         .add_type(TypeId(5));
     let call = value_storage
         .store_value(&HashedValue::from(Arc::new(
             make_lambda_application(plus_one, two).value,
         )))
+        .await
         .unwrap()
         .add_type(TypeId(8));
     // When we apply a function to an argument we receive the body with the variable replaced.
@@ -1071,17 +1102,18 @@ impl ReduceExpression for CompiledReducer {
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
     ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
-        let source_ref = argument.value.references[0];
-        let source_value = loader
-            .load_value(&source_ref.reference)
-            .unwrap()
-            .hash()
-            .unwrap();
-        let source_string = source_value.value().to_string().unwrap();
-        let compiler_output: CompilerOutput = crate::compiler::compile(&source_string, storage);
-        Box::pin(std::future::ready(TypedValue::new(
-            TypeId(10),
-            compiler_output.to_value().unwrap(/*TODO*/),
-        )))
+        Box::pin(async move {
+            let source_ref = argument.value.references[0];
+            let source_value = loader
+                .load_value(&source_ref.reference)
+                .await
+                .unwrap()
+                .hash()
+                .unwrap();
+            let source_string = source_value.value().to_string().unwrap();
+            let compiler_output: CompilerOutput =
+                crate::compiler::compile(&source_string, storage).await;
+            TypedValue::new(TypeId(10), compiler_output.to_value().unwrap(/*TODO*/))
+        })
     }
 }

@@ -15,7 +15,7 @@ use astraea::tree::TypeId;
 use astraea::tree::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 async fn run_host() -> std::io::Result<()> {
     let test_console: Arc<dyn ReduceExpression> = Arc::new(ActualConsole {});
@@ -32,34 +32,40 @@ async fn run_host() -> std::io::Result<()> {
     let value_storage = InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let past = value_storage
         .store_value(&HashedValue::from(Arc::new(make_beginning_of_time())))
+        .await
         .unwrap()
         .add_type(TypeId(3));
     let message_1 = value_storage
         .store_value(&HashedValue::from(Arc::new(
             Value::from_string("hello, ").unwrap(),
         )))
+        .await
         .unwrap()
         .add_type(TypeId(0));
     let text_in_console_1 = value_storage
         .store_value(&HashedValue::from(Arc::new(
             make_text_in_console(past, message_1).value,
         )))
+        .await
         .unwrap()
         .add_type(TypeId(2));
     let duration = value_storage
         .store_value(&HashedValue::from(Arc::new(make_seconds(0).value)))
+        .await
         .unwrap()
         .add_type(TypeId(5));
     let delay = value_storage
         .store_value(&HashedValue::from(Arc::new(
             make_delay(text_in_console_1, duration).value,
         )))
+        .await
         .unwrap()
         .add_type(TypeId(4));
     let message_2 = value_storage
         .store_value(&HashedValue::from(Arc::new(
             Value::from_string("world!\n").unwrap(),
         )))
+        .await
         .unwrap()
         .add_type(TypeId(0));
     let text_in_console_2 = make_text_in_console(delay, message_2);

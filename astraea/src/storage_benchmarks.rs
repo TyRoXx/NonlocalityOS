@@ -8,6 +8,7 @@ mod tests {
         tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
     };
     use std::sync::Arc;
+    use tokio::runtime::Runtime;
 
     #[bench]
     fn sqlite_in_memory_store_value(b: &mut Bencher) {
@@ -15,8 +16,11 @@ mod tests {
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
         let stored_value = HashedValue::from(Arc::new(Value::from_unit()));
+        let runtime = Runtime::new().unwrap();
         b.iter(|| {
-            let reference = storage.store_value(&stored_value).unwrap();
+            let reference = runtime
+                .block_on(storage.store_value(&stored_value))
+                .unwrap();
             assert_eq!(BlobDigest::hash(&[]), reference.digest);
             reference
         });
@@ -34,33 +38,47 @@ mod tests {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
+        let runtime = Runtime::new().unwrap();
         for index in 0..(value_count_in_database as u64) {
             let stored_value = HashedValue::from(Arc::new(Value::new(
                 ValueBlob::try_from(bytes::Bytes::copy_from_slice(&index.to_be_bytes())).unwrap(),
                 vec![],
             )));
-            let _reference = storage.store_value(&stored_value).unwrap();
+            let _reference = runtime
+                .block_on(storage.store_value(&stored_value))
+                .unwrap();
         }
         assert_eq!(
             Ok(value_count_in_database as u64),
-            storage.approximate_value_count()
+            runtime.block_on(storage.approximate_value_count())
         );
         let stored_value = HashedValue::from(Arc::new(Value::new(
             ValueBlob::try_from(bytes::Bytes::from(random_bytes(VALUE_BLOB_MAX_LENGTH))).unwrap(),
             vec![],
         )));
-        let reference = storage.store_value(&stored_value).unwrap();
-        assert_eq!(BlobDigest::parse_hex_string(
-            "23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e393cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25").unwrap(),
-            reference.digest);
+        let reference = runtime
+            .block_on(storage.store_value(&stored_value))
+            .unwrap();
+        assert_eq!(
+            BlobDigest::parse_hex_string(concat!(
+                "23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e3",
+                "93cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25"
+            ))
+            .unwrap(),
+            reference.digest
+        );
         b.iter(|| {
-            let loaded = storage.load_value(&reference).unwrap().hash().unwrap();
+            let loaded = runtime
+                .block_on(storage.load_value(&reference))
+                .unwrap()
+                .hash()
+                .unwrap();
             assert_eq!(stored_value.digest(), loaded.digest());
             *loaded.digest()
         });
         assert_eq!(
             Ok(value_count_in_database as u64 + 1),
-            storage.approximate_value_count()
+            runtime.block_on(storage.approximate_value_count())
         );
     }
 

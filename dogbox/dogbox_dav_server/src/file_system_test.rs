@@ -13,9 +13,9 @@ mod tests {
         convert::Infallible,
         io::SeekFrom,
         net::SocketAddr,
-        sync::{Arc, Mutex},
+        sync::Arc,
     };
-    use tokio::net::TcpListener;
+    use tokio::{net::TcpListener, sync::Mutex};
 
     fn test_clock() -> std::time::SystemTime {
         std::time::SystemTime::UNIX_EPOCH
@@ -159,7 +159,7 @@ mod tests {
             );
             assert_eq!(0, file.seek(SeekFrom::Current(i64::MIN)).await.unwrap());
         }
-        assert_eq!(BTreeSet::new(), storage.digests());
+        assert_eq!(BTreeSet::new(), storage.digests().await);
     }
 
     #[test_log::test(tokio::test)]
@@ -194,7 +194,7 @@ mod tests {
                 "9ece086e9bac491fac5c1d1046ca11d737b92a2b2ebd93f005d7b710110c0a678288166e7fbe796883a4f2e9b3ca9f484f521d0ce464345cc1aec96779149c14",
                 "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
           ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
-            assert_eq!(expected_digests, storage.digests());
+            assert_eq!(expected_digests, storage.digests().await);
 
             assert_eq!(1, file.seek(SeekFrom::Current(-3)).await.unwrap());
             file.write_bytes(bytes::Bytes::from("E")).await.unwrap();
@@ -208,7 +208,7 @@ mod tests {
                 "9ece086e9bac491fac5c1d1046ca11d737b92a2b2ebd93f005d7b710110c0a678288166e7fbe796883a4f2e9b3ca9f484f521d0ce464345cc1aec96779149c14",
                 "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
           ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
-            assert_eq!(expected_digests, storage.digests());
+            assert_eq!(expected_digests, storage.digests().await);
         }
     }
 
@@ -253,7 +253,7 @@ mod tests {
                 "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26",
                 "36708536177e3b63fe3cc7a9ab2e93c26394d2e00933b243c9f3ab93c245a8253a731314365fbd5094ad33d64a083bf1b63b8471c55aab7a7efb4702d7e75459",
           ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
-            assert_eq!(expected_digests, storage.digests());
+            assert_eq!(expected_digests, storage.digests().await);
 
             file.flush().await.unwrap();
             // cargo fmt silently refuses to format this for an unknown reason:
@@ -264,7 +264,7 @@ mod tests {
                 "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26",
                    "f38a4f0c3e8e5eec4322ad6c1b4718f7731db33e5af24bd1acf660e8685056b84d9d654a473ab558fc7b32c1a9cbafa61a471ed887b51b511f804a93e3bf2097"
         ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
-            assert_eq!(expected_digests, storage.digests());
+            assert_eq!(expected_digests, storage.digests().await);
         }
     }
 
@@ -307,7 +307,7 @@ mod tests {
                 file.seek(SeekFrom::Current(0)).await.unwrap()
             );
             assert_eq!(last_known_digest_file_size, handle.size().await);
-            assert_eq!(BTreeSet::new(), storage.digests());
+            assert_eq!(BTreeSet::new(), storage.digests().await);
 
             file.flush().await.unwrap();
             // cargo fmt silently refuses to format this for an unknown reason:
@@ -315,7 +315,7 @@ mod tests {
             BTreeSet::from_iter ([
                 "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
           ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
-            assert_eq!(expected_digests, storage.digests());
+            assert_eq!(expected_digests, storage.digests().await);
         }
     }
 }

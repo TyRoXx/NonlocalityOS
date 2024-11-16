@@ -576,8 +576,8 @@ fn expect_dot(tokens: &mut std::slice::Iter<Token>) {
     }
 }
 
-fn parse_expression(
-    tokens: &mut std::slice::Iter<Token>,
+async fn parse_expression<'t>(
+    tokens: &mut std::slice::Iter<'t, Token>,
     storage: &dyn StoreValue,
 ) -> TypedReference {
     match pop_next_non_whitespace_token(tokens) {
@@ -587,6 +587,7 @@ fn parse_expression(
                 .store_value(&HashedValue::from(Arc::new(
                     Value::from_string(&identifier).unwrap(/*TODO*/),
                 )))
+                .await
                 .unwrap()
                 .add_type(TypeId(0)),
             TokenContent::Assign => todo!(),
@@ -599,7 +600,10 @@ fn parse_expression(
     }
 }
 
-fn parse_lambda(tokens: &mut std::slice::Iter<Token>, storage: &dyn StoreValue) -> TypedReference {
+async fn parse_lambda<'t>(
+    tokens: &mut std::slice::Iter<'t, Token>,
+    storage: &dyn StoreValue,
+) -> TypedReference {
     let parameter_name = match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
@@ -616,21 +620,23 @@ fn parse_lambda(tokens: &mut std::slice::Iter<Token>, storage: &dyn StoreValue) 
         .store_value(&HashedValue::from(Arc::new(
             Value::from_string(parameter_name).unwrap(/*TODO*/),
         )))
+        .await
         .unwrap()
         .add_type(TypeId(0));
     expect_dot(tokens);
-    let body = parse_expression(tokens, storage);
+    let body = parse_expression(tokens, storage).await;
     let result = storage
         .store_value(&HashedValue::from(Arc::new(
             crate::tree::make_lambda(crate::tree::Lambda::new(parameter, body)).value,
         )))
+        .await
         .unwrap()
         .add_type(TypeId(7));
     result
 }
 
-pub fn parse_entry_point_lambda(
-    tokens: &mut std::slice::Iter<Token>,
+pub async fn parse_entry_point_lambda<'t>(
+    tokens: &mut std::slice::Iter<'t, Token>,
     storage: &dyn StoreValue,
 ) -> CompilerOutput {
     let mut errors = Vec::new();
@@ -640,7 +646,7 @@ pub fn parse_entry_point_lambda(
             TokenContent::Identifier(_) => todo!(),
             TokenContent::Assign => todo!(),
             TokenContent::Caret => {
-                let entry_point = parse_lambda(tokens, storage);
+                let entry_point = parse_lambda(tokens, storage).await;
                 CompilerOutput::new(entry_point, errors)
             }
             TokenContent::LeftParenthesis => todo!(),
@@ -654,6 +660,7 @@ pub fn parse_entry_point_lambda(
             ));
             let entry_point = storage
                 .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+                .await
                 .unwrap()
                 .add_type(TypeId(1));
             CompilerOutput::new(entry_point, errors)
@@ -661,10 +668,10 @@ pub fn parse_entry_point_lambda(
     }
 }
 
-pub fn compile(source: &str, storage: &dyn StoreValue) -> CompilerOutput {
+pub async fn compile(source: &str, storage: &dyn StoreValue) -> CompilerOutput {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter();
-    let mut result = parse_entry_point_lambda(&mut token_iterator, storage);
+    let mut result = parse_entry_point_lambda(&mut token_iterator, storage).await;
     match pop_next_non_whitespace_token(&mut token_iterator) {
         Some(extra_token) => {
             result.errors.push(CompilerError::new(
@@ -679,17 +686,20 @@ pub fn compile(source: &str, storage: &dyn StoreValue) -> CompilerOutput {
 
 #[cfg(test)]
 mod tests2 {
+    use tokio::sync::Mutex;
+
     use super::*;
     use crate::storage::InMemoryValueStorage;
 
-    #[test]
-    fn test_compile_empty_source() {
+    #[test_log::test(tokio::test)]
+    async fn test_compile_empty_source() {
         let value_storage =
-            InMemoryValueStorage::new(std::sync::Mutex::new(std::collections::BTreeMap::new()));
-        let output = compile("", &value_storage);
+            InMemoryValueStorage::new(Mutex::new(std::collections::BTreeMap::new()));
+        let output = compile("", &value_storage).await;
         let expected = CompilerOutput::new(
             value_storage
                 .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+                .await
                 .unwrap()
                 .add_type(TypeId(1)),
             vec![CompilerError::new(
@@ -698,28 +708,30 @@ mod tests2 {
             )],
         );
         assert_eq!(expected, output);
-        assert_eq!(1, value_storage.len());
+        assert_eq!(1, value_storage.len().await);
     }
 
-    #[test]
-    fn test_compile_simple_program() {
+    #[test_log::test(tokio::test)]
+    async fn test_compile_simple_program() {
         let value_storage =
-            InMemoryValueStorage::new(std::sync::Mutex::new(std::collections::BTreeMap::new()));
-        let output = compile(r#"^x . x"#, &value_storage);
+            InMemoryValueStorage::new(Mutex::new(std::collections::BTreeMap::new()));
+        let output = compile(r#"^x . x"#, &value_storage).await;
         let parameter = value_storage
             .store_value(&HashedValue::from(Arc::new(
                 Value::from_string("x").unwrap(),
             )))
+            .await
             .unwrap()
             .add_type(TypeId(0));
         let entry_point = value_storage
             .store_value(&HashedValue::from(Arc::new(
                 crate::tree::make_lambda(crate::tree::Lambda::new(parameter, parameter)).value,
             )))
+            .await
             .unwrap()
             .add_type(TypeId(7));
         let expected = CompilerOutput::new(entry_point, Vec::new());
         assert_eq!(expected, output);
-        assert_eq!(2, value_storage.len());
+        assert_eq!(2, value_storage.len().await);
     }
 }

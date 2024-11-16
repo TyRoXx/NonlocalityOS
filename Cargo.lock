@@ -160,6 +160,7 @@ name = "astraea"
 version = "0.1.0"
 dependencies = [
  "async-stream",
+ "async-trait",
  "bytes 1.8.0",
  "cached",
  "futures",
@@ -175,6 +176,7 @@ dependencies = [
  "serde",
  "sha3",
  "tempfile",
+ "test-log",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -987,6 +989,7 @@ version = "0.1.0"
 dependencies = [
  "astraea",
  "async-stream",
+ "async-trait",
  "bytes 1.8.0",
  "dogbox_tree",
  "futures",

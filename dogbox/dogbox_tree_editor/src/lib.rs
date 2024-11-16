@@ -481,7 +481,7 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<Arc<OpenDirectory>> {
-        match storage.load_value(&Reference::new(*digest)) {
+        match storage.load_value(&Reference::new(*digest)).await {
             Some(delayed_loaded) => {
                 let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
                 let parsed_directory: DirectoryTree =
@@ -596,6 +596,7 @@ impl OpenDirectory {
         info!("Storing empty directory");
         let empty_directory_digest = match storage
             .store_value(&HashedValue::from(Arc::new(Value::new(value_blob, vec![]))))
+            .await
         {
             Ok(success) => success,
             Err(error) => return Err(Error::Storage(error)),
@@ -992,6 +993,7 @@ impl OpenDirectory {
                     value_blob,
                     serialization_references,
                 ))))
+                .await
                 .map(|reference| reference.digest),
             None => todo!(),
         }
@@ -1157,7 +1159,7 @@ impl OpenFileContentBlock {
                     // there is nothing to load
                     HashedValue::from(Arc::new(Value::new(ValueBlob::empty(), Vec::new())))
                 } else {
-                    let delayed = match storage.load_value(&Reference::new(*blob_digest)) {
+                    let delayed = match storage.load_value(&Reference::new(*blob_digest)).await {
                         Some(success) => success,
                         None => return Err(Error::MissingValue(*blob_digest)),
                     };
@@ -1280,6 +1282,7 @@ impl OpenFileContentBlock {
                 let size = hashed_value.value().blob().len();
                 let result = storage
                     .store_value(&hashed_value)
+                    .await
                     .map(|success| success.digest)?;
                 assert_eq!(hashed_value.digest(), &result);
                 // free the memory
@@ -1403,7 +1406,9 @@ impl OpenFileContentBufferLoaded {
             ValueBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap())).unwrap(),
             blocks_stored,
         );
-        let reference = storage.store_value(&HashedValue::from(Arc::new(value)))?;
+        let reference = storage
+            .store_value(&HashedValue::from(Arc::new(value)))
+            .await?;
         Ok(self.update_digest(reference.digest))
     }
 
@@ -1618,10 +1623,11 @@ impl OpenFileContentBuffer {
                 let blocks = if *size <= VALUE_BLOB_MAX_LENGTH as u64 {
                     vec![OpenFileContentBlock::NotLoaded(*digest, *size as u16)]
                 } else {
-                    let delayed_hashed_value = match storage.load_value(&Reference::new(*digest)) {
-                        Some(success) => success,
-                        None => return Err(Error::MissingValue(*digest)),
-                    };
+                    let delayed_hashed_value =
+                        match storage.load_value(&Reference::new(*digest)).await {
+                            Some(success) => success,
+                            None => return Err(Error::MissingValue(*digest)),
+                        };
                     let hashed_value = match delayed_hashed_value.hash() {
                         Some(success) => success,
                         None => return Err(Error::MissingValue(*digest)),
@@ -2193,10 +2199,13 @@ impl TreeEditor {
         storage: Arc<dyn LoadStoreValue + Send + Sync>,
     ) -> Result<BlobDigest> {
         info!("Storing empty file");
-        match storage.store_value(&HashedValue::from(Arc::new(Value::new(
-            ValueBlob::empty(),
-            Vec::new(),
-        )))) {
+        match storage
+            .store_value(&HashedValue::from(Arc::new(Value::new(
+                ValueBlob::empty(),
+                Vec::new(),
+            ))))
+            .await
+        {
             Ok(success) => Ok(success.digest),
             Err(error) => Err(Error::Storage(error)),
         }
@@ -2321,6 +2330,7 @@ impl TreeEditor {
 mod tests {
     use super::*;
     use astraea::storage::{DelayedHashedValue, InMemoryValueStorage, LoadValue, StoreValue};
+    use async_trait::async_trait;
     use lazy_static::lazy_static;
 
     fn test_clock() -> std::time::SystemTime {
@@ -2396,7 +2406,7 @@ mod tests {
             ),
             status
         );
-        assert_eq!(0, storage.len());
+        assert_eq!(0, storage.len().await);
     }
 
     #[tokio::test]
@@ -2531,18 +2541,23 @@ mod tests {
 
     struct NeverUsedStorage {}
 
+    #[async_trait]
     impl LoadValue for NeverUsedStorage {
-        fn load_value(&self, _reference: &astraea::tree::Reference) -> Option<DelayedHashedValue> {
+        async fn load_value(
+            &self,
+            _reference: &astraea::tree::Reference,
+        ) -> Option<DelayedHashedValue> {
             panic!()
         }
 
-        fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+        async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
             panic!()
         }
     }
 
+    #[async_trait]
     impl StoreValue for NeverUsedStorage {
-        fn store_value(
+        async fn store_value(
             &self,
             _value: &HashedValue,
         ) -> std::result::Result<astraea::tree::Reference, StoreError> {

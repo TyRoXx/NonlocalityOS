@@ -22,10 +22,12 @@ hex = "0"
 tracing = "0"
 bytes = "1"
 cached = "0"
+async-trait = "0"
 
 [dev-dependencies]
 proptest = "1"
 rand = { version = "0", features = [ "small_rng" ]}
+test-log = {version = "0", features = ["trace", "log", "color"]}
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rusqlite = {version = "0", features = ["bundled-sqlcipher"]}

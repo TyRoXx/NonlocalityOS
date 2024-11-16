@@ -101,8 +101,10 @@ async fn persist_root_on_change(
             {
                 info!("Root status changed, but the last known digest stays the same.");
             } else {
-                blob_storage_update.update_root(root_name, &root_status.digest.last_known_digest);
-                blob_storage_commit.commit_changes().unwrap(/*TODO*/);
+                blob_storage_update
+                    .update_root(root_name, &root_status.digest.last_known_digest)
+                    .await;
+                blob_storage_commit.commit_changes().await.unwrap(/*TODO*/);
             }
             let save_status = if root_status.digest.is_digest_up_to_date {
                 assert_eq!(0, root_status.bytes_unflushed_count);
@@ -205,7 +207,7 @@ async fn run_dav_server(
         Arc::new(LoadCache::new(blob_storage_database.clone(), 1000));
     let root_name = "latest";
     let open_file_write_buffer_in_blocks = 200;
-    let root = match blob_storage_database.load_root(&root_name) {
+    let root = match blob_storage_database.load_root(&root_name).await {
         Some(found) => {
             OpenDirectory::load_directory(blob_storage_cache.clone(), &found, modified_default, clock,open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
         }
@@ -218,8 +220,10 @@ async fn run_dav_server(
             );
             let status = dir.request_save().await.unwrap();
             assert!(status.digest.is_digest_up_to_date);
-            blob_storage_database.update_root(root_name, &status.digest.last_known_digest);
-            blob_storage_database.commit_changes().unwrap();
+            blob_storage_database
+                .update_root(root_name, &status.digest.last_known_digest)
+                .await;
+            blob_storage_database.commit_changes().await.unwrap();
             dir
         }
     };

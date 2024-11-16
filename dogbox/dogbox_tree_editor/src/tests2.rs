@@ -160,7 +160,7 @@ mod tests {
         let expected_digests =
         BTreeSet::from_iter (["a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26",
        ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
-        assert_eq!(expected_digests, storage.digests());
+        assert_eq!(expected_digests, storage.digests().await);
     }
 
     fn random_bytes(len: usize) -> Vec<u8> {
@@ -213,7 +213,7 @@ mod tests {
         let expected_digests =
         BTreeSet::from_iter (["23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e393cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25",
        ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
-        assert_eq!(expected_digests, storage.digests());
+        assert_eq!(expected_digests, storage.digests().await);
     }
 
     #[test_case(0)]
@@ -305,7 +305,7 @@ mod tests {
        "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26",
     ].map(BlobDigest::parse_hex_string).map(Option::unwrap));
 
-        assert_eq!(expected_digests, storage.digests());
+        assert_eq!(expected_digests, storage.digests().await);
     }
 
     async fn check_open_file_content_buffer(

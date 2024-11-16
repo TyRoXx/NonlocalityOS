@@ -2,11 +2,13 @@ use crate::tree::{
     BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob,
     VALUE_BLOB_MAX_LENGTH,
 };
+use async_trait::async_trait;
 use cached::Cached;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
+use tokio::sync::Mutex;
 use tracing::{debug, info, instrument};
 
 #[derive(Clone, PartialEq, Debug)]
@@ -15,8 +17,9 @@ pub enum StoreError {
     Rusqlite(String),
 }
 
+#[async_trait::async_trait]
 pub trait StoreValue {
-    fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError>;
+    async fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError>;
 }
 
 enum DelayedHashedValueAlternatives {
@@ -56,9 +59,10 @@ impl DelayedHashedValue {
     }
 }
 
+#[async_trait::async_trait]
 pub trait LoadValue {
-    fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue>;
-    fn approximate_value_count(&self) -> std::result::Result<u64, StoreError>;
+    async fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue>;
+    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError>;
 }
 
 pub trait LoadStoreValue: LoadValue + StoreValue {}
@@ -69,12 +73,14 @@ impl std::fmt::Debug for dyn LoadStoreValue + Send + Sync {
     }
 }
 
+#[async_trait]
 pub trait UpdateRoot {
-    fn update_root(&self, name: &str, target: &BlobDigest);
+    async fn update_root(&self, name: &str, target: &BlobDigest);
 }
 
+#[async_trait]
 pub trait LoadRoot {
-    fn load_root(&self, name: &str) -> Option<BlobDigest>;
+    async fn load_root(&self, name: &str) -> Option<BlobDigest>;
 }
 
 pub struct InMemoryValueStorage {
@@ -94,35 +100,24 @@ impl InMemoryValueStorage {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.reference_to_value.lock().unwrap().len()
+    pub async fn len(&self) -> usize {
+        self.reference_to_value.lock().await.len()
     }
 
-    pub fn digests(&self) -> BTreeSet<BlobDigest> {
+    pub async fn digests(&self) -> BTreeSet<BlobDigest> {
         self.reference_to_value
             .lock()
-            .unwrap()
+            .await
             .keys()
             .map(|v| v.digest)
             .collect()
     }
-
-    pub fn remove_random_element(&self) {
-        let mut reference_to_value_locked = self.reference_to_value.lock().unwrap();
-        match reference_to_value_locked.first_entry() {
-            Some(found) => {
-                let key = (*found.key()).clone();
-                drop(found);
-                reference_to_value_locked.remove(&key);
-            }
-            None => {}
-        }
-    }
 }
 
+#[async_trait]
 impl StoreValue for InMemoryValueStorage {
-    fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
-        let mut lock = self.reference_to_value.lock().unwrap();
+    async fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
+        let mut lock = self.reference_to_value.lock().await;
         let reference = Reference::new(*value.digest());
         if !lock.contains_key(&reference) {
             lock.insert(reference.clone(), value.clone());
@@ -131,15 +126,16 @@ impl StoreValue for InMemoryValueStorage {
     }
 }
 
+#[async_trait]
 impl LoadValue for InMemoryValueStorage {
-    fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
-        let lock = self.reference_to_value.lock().unwrap();
+    async fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
+        let lock = self.reference_to_value.lock().await;
         lock.get(reference)
             .map(|found| DelayedHashedValue::immediate(found.clone()))
     }
 
-    fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
-        let lock = self.reference_to_value.lock().unwrap();
+    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+        let lock = self.reference_to_value.lock().await;
         Ok(lock.len() as u64)
     }
 }
@@ -166,7 +162,7 @@ impl SQLiteState {
 }
 
 pub struct SQLiteStorage {
-    state: Mutex<SQLiteState>,
+    state: tokio::sync::Mutex<SQLiteState>,
 }
 
 impl SQLiteStorage {
@@ -238,10 +234,11 @@ impl SQLiteStorage {
     }
 }
 
+#[async_trait]
 impl StoreValue for SQLiteStorage {
     //#[instrument(skip_all)]
-    fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
-        let mut state_locked = self.state.lock().unwrap();
+    async fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
+        let mut state_locked = self.state.lock().await;
         let reference = Reference::new(*value.digest());
         debug!(
             "Store {} bytes as {}",
@@ -279,13 +276,14 @@ impl StoreValue for SQLiteStorage {
     }
 }
 
+#[async_trait]
 impl LoadValue for SQLiteStorage {
     #[instrument(skip_all)]
-    fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
+    async fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
         let value_blob;
         let references: Vec<crate::tree::TypedReference>;
         {
-            let state_locked = self.state.lock().unwrap();
+            let state_locked = self.state.lock().await;
             let connection_locked = &state_locked.connection;
             let digest: [u8; 64] = reference.digest.into();
             let id;
@@ -327,8 +325,8 @@ impl LoadValue for SQLiteStorage {
         ))
     }
 
-    fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
-        let state_locked = self.state.lock().unwrap();
+    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+        let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         connection_locked
             .query_row_and_then(
@@ -345,11 +343,12 @@ impl LoadValue for SQLiteStorage {
 
 impl LoadStoreValue for SQLiteStorage {}
 
+#[async_trait]
 impl UpdateRoot for SQLiteStorage {
     #[instrument(skip_all)]
-    fn update_root(&self, name: &str, target: &BlobDigest) {
+    async fn update_root(&self, name: &str, target: &BlobDigest) {
         info!("Update root {} to {}", name, target);
-        let mut state_locked = self.state.lock().unwrap();
+        let mut state_locked = self.state.lock().await;
         state_locked.require_transaction().unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
         let target_array: [u8; 64] = (*target).into();
@@ -360,11 +359,12 @@ impl UpdateRoot for SQLiteStorage {
     }
 }
 
+#[async_trait]
 impl LoadRoot for SQLiteStorage {
     #[instrument(skip_all)]
-    fn load_root(&self, name: &str) -> Option<BlobDigest> {
+    async fn load_root(&self, name: &str) -> Option<BlobDigest> {
         use rusqlite::OptionalExtension;
-        let state_locked = self.state.lock().unwrap();
+        let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         let maybe_target: Option<[u8; 64]> = connection_locked.query_row("SELECT target FROM root WHERE name = ?1", 
         (&name, ),
@@ -381,14 +381,16 @@ impl LoadRoot for SQLiteStorage {
     }
 }
 
+#[async_trait]
 pub trait CommitChanges {
-    fn commit_changes(&self) -> Result<(), rusqlite::Error>;
+    async fn commit_changes(&self) -> Result<(), rusqlite::Error>;
 }
 
+#[async_trait]
 impl CommitChanges for SQLiteStorage {
     #[instrument(skip_all)]
-    fn commit_changes(&self) -> Result<(), rusqlite::Error> {
-        let mut state_locked = self.state.lock().unwrap();
+    async fn commit_changes(&self) -> Result<(), rusqlite::Error> {
+        let mut state_locked = self.state.lock().await;
         match state_locked.is_in_transaction {
             true => {
                 state_locked.is_in_transaction = false;
@@ -415,34 +417,39 @@ impl LoadCache {
     }
 }
 
+#[async_trait]
 impl LoadValue for LoadCache {
-    fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
+    async fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
         {
-            let mut entries_locked = self.entries.lock().unwrap();
+            let mut entries_locked = self.entries.lock().await;
             if let Some(found) = entries_locked.cache_get(&reference.digest) {
                 return Some(DelayedHashedValue::immediate(found.clone()));
             }
         }
-        let loaded = match self.next.load_value(reference) {
+        let loaded = match self.next.load_value(reference).await {
             Some(loaded) => loaded,
             None => return None,
         };
         let hashed_value = loaded.hash();
-        hashed_value.map(|success| {
-            let mut entries_locked = self.entries.lock().unwrap();
-            entries_locked.cache_set(reference.digest, success.clone());
-            DelayedHashedValue::immediate(success)
-        })
+        match hashed_value {
+            Some(success) => {
+                let mut entries_locked = self.entries.lock().await;
+                entries_locked.cache_set(reference.digest, success.clone());
+                Some(DelayedHashedValue::immediate(success))
+            }
+            None => None,
+        }
     }
 
-    fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
-        self.next.approximate_value_count()
+    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+        self.next.approximate_value_count().await
     }
 }
 
+#[async_trait]
 impl StoreValue for LoadCache {
-    fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
-        self.next.store_value(value)
+    async fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
+        self.next.store_value(value).await
     }
 }
 
