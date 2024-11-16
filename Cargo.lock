@@ -992,6 +992,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bytes 1.8.0",
+ "cached",
  "dogbox_tree",
  "futures",
  "futures-core",

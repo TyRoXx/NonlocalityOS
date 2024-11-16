@@ -10,10 +10,11 @@ use astraea::{
 };
 use async_stream::stream;
 use bytes::Buf;
+use cached::Cached;
 use dogbox_tree::serialization::{self, DirectoryTree, FileName, SegmentedBlob};
 use futures::future::join_all;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     pin::Pin,
     sync::Arc,
     u64,
@@ -1355,57 +1356,326 @@ impl OpenFileContentBlock {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Prefetcher {}
+enum StreakDirection {
+    Up,
+    Down,
+    Neither,
+}
+
+impl StreakDirection {
+    fn saturated_sum(size: &[usize]) -> usize {
+        size.iter()
+            .fold(0usize, |left, right| usize::saturating_add(left, *right))
+    }
+
+    fn detect_from_block_access_order(block_access_order: &[usize]) -> StreakDirection {
+        let (left, mut right) = block_access_order.split_at(block_access_order.len() / 2);
+        if right.len() > left.len() {
+            right = right.split_at(1).1;
+        }
+        assert_eq!(left.len(), right.len());
+        let left_sum = Self::saturated_sum(left);
+        let right_sum = Self::saturated_sum(right);
+        match left_sum.cmp(&right_sum) {
+            std::cmp::Ordering::Less => StreakDirection::Down,
+            std::cmp::Ordering::Equal => StreakDirection::Neither,
+            std::cmp::Ordering::Greater => StreakDirection::Up,
+        }
+    }
+}
+
+#[test]
+fn test_streak_direction() {
+    assert_eq!(
+        StreakDirection::Neither,
+        StreakDirection::detect_from_block_access_order(&[])
+    );
+    assert_eq!(
+        StreakDirection::Neither,
+        StreakDirection::detect_from_block_access_order(&[0])
+    );
+    assert_eq!(
+        StreakDirection::Up,
+        StreakDirection::detect_from_block_access_order(&[1, 0])
+    );
+    assert_eq!(
+        StreakDirection::Down,
+        StreakDirection::detect_from_block_access_order(&[0, 1])
+    );
+    assert_eq!(
+        StreakDirection::Up,
+        StreakDirection::detect_from_block_access_order(&[2, 1, 0])
+    );
+    assert_eq!(
+        StreakDirection::Up,
+        StreakDirection::detect_from_block_access_order(&[3, 1, 0, 2])
+    );
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Prefetcher {
+    last_explicitly_requested_blocks: cached::stores::SizedCache<u64, ()>,
+}
 
 impl Prefetcher {
     pub fn new() -> Self {
-        Self {}
-    }
-
-    pub async fn fetch(
-        &mut self,
-        blocks: &mut Vec<OpenFileContentBlock>,
-        first_block_index: u64,
-        last_block_index: u64,
-        storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
-    ) {
-        if let Some(first_needs_preparation) =
-            blocks[first_block_index as usize].prepare_for_reading(storage.clone())
-        {
-            let mut futures: Vec<Future<(u64, Result<HashedValue>)>> = ((first_block_index + 1)
-                ..=last_block_index)
-                .map(|block_index| {
-                    let block = &mut blocks[block_index as usize];
-                    let result: Option<Future<(u64, Result<HashedValue>)>> = block
-                        .prepare_for_reading(storage.clone())
-                        .map(|future: Future<HashedValue>| {
-                            let result2: Future<(u64, Result<HashedValue>)> =
-                                Box::pin(async move { Ok((block_index, future.await)) });
-                            result2
-                        });
-                    result
-                })
-                .filter_map(|maybe_future| maybe_future)
-                .collect();
-
-            if !futures.is_empty() {
-                futures.push(Box::pin(async move {
-                    Ok((first_block_index, first_needs_preparation.await))
-                }));
-
-                let joined: Vec<Result<(u64, Result<HashedValue>)>> = join_all(futures).await;
-                for join_result in joined.into_iter() {
-                    let (block_index, prepare_result) = join_result.unwrap();
-                    let prepared = match prepare_result {
-                        Ok(success) => success,
-                        Err(_) => todo!(),
-                    };
-                    let block = &mut blocks[block_index as usize];
-                    block.set_prepare_for_reading_result(prepared);
-                }
-            }
+        Self {
+            last_explicitly_requested_blocks: cached::stores::SizedCache::with_size(16),
         }
     }
+
+    pub fn add_explicitly_requested_block(&mut self, requested_block_index: u64) {
+        self.last_explicitly_requested_blocks
+            .cache_set(requested_block_index, ());
+    }
+
+    pub fn analyze_streak(
+        highest_block_index_in_streak: u64,
+        streak_order: &[usize],
+        total_block_count: u64,
+    ) -> BTreeSet<u64> {
+        let mut blocks_to_prefetch = BTreeSet::new();
+        let streak_direction = StreakDirection::detect_from_block_access_order(streak_order);
+        match streak_direction {
+            StreakDirection::Down => {
+                let lowest_block_index_in_streak =
+                    highest_block_index_in_streak + 1 - streak_order.len() as u64;
+                for offset in 0..(streak_order.len()) {
+                    match u64::checked_sub(lowest_block_index_in_streak, (offset + 1) as u64) {
+                        Some(prefetched) => {
+                            blocks_to_prefetch.insert(prefetched);
+                        }
+                        None => break,
+                    }
+                }
+            }
+            StreakDirection::Up => {
+                for offset in 0..(streak_order.len()) {
+                    match u64::checked_add(highest_block_index_in_streak, (offset + 1) as u64) {
+                        Some(prefetched) => {
+                            if prefetched >= total_block_count {
+                                break;
+                            }
+                            blocks_to_prefetch.insert(prefetched);
+                        }
+                        None => break,
+                    }
+                }
+            }
+            StreakDirection::Neither => {}
+        }
+        blocks_to_prefetch
+    }
+
+    pub fn find_blocks_to_prefetch(&self, total_block_count: u64) -> BTreeSet<u64> {
+        let recently_read_blocks = BTreeMap::from_iter(
+            self.last_explicitly_requested_blocks
+                .key_order()
+                .copied()
+                .enumerate()
+                .map(|(order, block_index)| (block_index, order)),
+        );
+        assert_eq!(
+            self.last_explicitly_requested_blocks.cache_size(),
+            recently_read_blocks.len()
+        );
+        let mut blocks_to_prefetch =
+            BTreeSet::from_iter(self.last_explicitly_requested_blocks.key_order().copied());
+        let mut maybe_previous_block_index = None;
+        let mut streak_order = Vec::new();
+        for (block_index, order) in recently_read_blocks {
+            match maybe_previous_block_index {
+                Some(previous_block_index) => {
+                    if previous_block_index + 1 != block_index {
+                        blocks_to_prefetch.append(&mut Self::analyze_streak(
+                            previous_block_index,
+                            &streak_order,
+                            total_block_count,
+                        ));
+                        streak_order.clear();
+                    }
+                }
+                None => {}
+            }
+            streak_order.push(order);
+            maybe_previous_block_index = Some(block_index);
+        }
+        if let Some(previous_block_index) = maybe_previous_block_index {
+            blocks_to_prefetch.append(&mut Self::analyze_streak(
+                previous_block_index,
+                &streak_order,
+                total_block_count,
+            ));
+        }
+        blocks_to_prefetch
+    }
+
+    pub async fn prefetch(
+        &mut self,
+        blocks: &mut Vec<OpenFileContentBlock>,
+        storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    ) {
+        let futures: Vec<Future<(u64, Result<HashedValue>)>> = self
+            .find_blocks_to_prefetch(blocks.len() as u64)
+            .into_iter()
+            .map(|block_index| {
+                let block = &mut blocks[block_index as usize];
+                let result: Option<Future<(u64, Result<HashedValue>)>> = block
+                    .prepare_for_reading(storage.clone())
+                    .map(|future: Future<HashedValue>| {
+                        let result2: Future<(u64, Result<HashedValue>)> =
+                            Box::pin(async move { Ok((block_index, future.await)) });
+                        result2
+                    });
+                result
+            })
+            .filter_map(|maybe_future| maybe_future)
+            .collect();
+
+        let joined: Vec<Result<(u64, Result<HashedValue>)>> = join_all(futures).await;
+        for join_result in joined.into_iter() {
+            let (block_index, prepare_result) = join_result.unwrap();
+            let prepared = match prepare_result {
+                Ok(success) => success,
+                Err(_) => todo!(),
+            };
+            let block = &mut blocks[block_index as usize];
+            block.set_prepare_for_reading_result(prepared);
+        }
+    }
+}
+
+#[test]
+fn test_find_blocks_to_prefetch_up() {
+    let mut prefetcher = Prefetcher::new();
+    let total_block_count: u64 = 10;
+    prefetcher.add_explicitly_requested_block(0);
+    assert_eq!(
+        BTreeSet::from([0]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(1);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(2);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(3);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(4);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(5);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(6);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+}
+
+#[test]
+fn test_find_blocks_to_prefetch_down() {
+    let mut prefetcher = Prefetcher::new();
+    let total_block_count: u64 = 10;
+    prefetcher.add_explicitly_requested_block(9);
+    assert_eq!(
+        BTreeSet::from([9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(8);
+    assert_eq!(
+        BTreeSet::from([9, 8, 7, 6]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(7);
+    assert_eq!(
+        BTreeSet::from([9, 8, 7, 6, 5, 4]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(6);
+    assert_eq!(
+        BTreeSet::from([9, 8, 7, 6, 5, 4, 3, 2]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(5);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(4);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(3);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+}
+
+#[test]
+fn test_find_blocks_to_prefetch_two_streaks() {
+    let mut prefetcher = Prefetcher::new();
+    let total_block_count: u64 = 20;
+    prefetcher.add_explicitly_requested_block(0);
+    assert_eq!(
+        BTreeSet::from([0]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(9);
+    assert_eq!(
+        BTreeSet::from([0, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(1);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(8);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(4);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(5);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(7);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(6);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(3);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
 }
 
 #[derive(Debug, PartialEq)]
@@ -1827,15 +2097,23 @@ impl OpenFileContentBuffer {
         if first_block_index >= (blocks.len() as u64) {
             return Ok(bytes::Bytes::new());
         }
-        let last_block_index = std::cmp::min(
-            (position + count as u64 - 1) / (block_size as u64),
-            blocks.len() as u64 - 1,
-        );
+        {
+            let last_block_index = std::cmp::min(
+                (position + count as u64 - 1) / (block_size as u64),
+                blocks.len() as u64 - 1,
+            );
 
-        loaded
-            .prefetcher
-            .fetch(blocks, first_block_index, last_block_index, storage.clone())
-            .await;
+            for index in first_block_index..last_block_index {
+                loaded.prefetcher.add_explicitly_requested_block(index);
+            }
+        }
+
+        {
+            let block = &mut blocks[first_block_index as usize];
+            if let Some(_first_block_needs_loading) = block.prepare_for_reading(storage.clone()) {
+                loaded.prefetcher.prefetch(blocks, storage.clone()).await;
+            }
+        }
 
         let block = &mut blocks[first_block_index as usize];
         let mut data = block.access_content_for_reading(storage).await?;
