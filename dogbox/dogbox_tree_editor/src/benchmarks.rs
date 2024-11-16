@@ -19,18 +19,19 @@ mod tests {
     async fn check_open_file_content_buffer(
         buffer: &mut OpenFileContentBuffer,
         expected_content: &[u8],
+        max_read_size: usize,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) {
+        assert_ne!(0, max_read_size);
         let mut checked = 0;
         while checked < expected_content.len() {
+            let read_count = std::cmp::min(max_read_size, expected_content.len() - checked);
             let read_result = buffer
-                .read(
-                    checked as u64,
-                    expected_content.len() - checked,
-                    storage.clone(),
-                )
+                .read(checked as u64, read_count, storage.clone())
                 .await;
             let read_bytes = read_result.unwrap();
+            assert_ne!(0, read_bytes.len());
+            assert!(read_bytes.len() <= read_count);
             for byte in read_bytes.iter() {
                 let expected_byte = expected_content[checked];
                 assert_eq!(expected_byte, *byte);
@@ -54,6 +55,7 @@ mod tests {
     fn read_large_file(
         b: &mut Bencher,
         is_buffer_hot: bool,
+        max_read_size: usize,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) {
         let runtime = Runtime::new().unwrap();
@@ -103,28 +105,62 @@ mod tests {
             runtime.block_on(check_open_file_content_buffer(
                 &mut buffer,
                 &content,
+                max_read_size,
                 storage.clone(),
             ));
         });
     }
 
+    const UNREALISTICALLY_LARGE_READ_SIZE: usize = usize::MAX;
+    const WINDOWS_WEBDAV_READ_SIZE: usize = 16384;
+
     #[bench]
     fn read_large_file_in_memory_storage_cold(b: &mut Bencher) {
-        read_large_file(b, false, make_in_memory_storage());
+        read_large_file(
+            b,
+            false,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            make_in_memory_storage(),
+        );
     }
 
     #[bench]
     fn read_large_file_in_memory_storage_hot(b: &mut Bencher) {
-        read_large_file(b, true, make_in_memory_storage());
+        read_large_file(
+            b,
+            true,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            make_in_memory_storage(),
+        );
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_cold(b: &mut Bencher) {
-        read_large_file(b, false, make_sqlite_in_memory_storage());
+        read_large_file(
+            b,
+            false,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            make_sqlite_in_memory_storage(),
+        );
+    }
+
+    #[bench]
+    fn read_large_file_sqlite_in_memory_storage_cold_realistic_read_size(b: &mut Bencher) {
+        read_large_file(
+            b,
+            false,
+            WINDOWS_WEBDAV_READ_SIZE,
+            make_sqlite_in_memory_storage(),
+        );
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_hot(b: &mut Bencher) {
-        read_large_file(b, true, make_sqlite_in_memory_storage());
+        read_large_file(
+            b,
+            true,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            make_sqlite_in_memory_storage(),
+        );
     }
 }
