@@ -7,7 +7,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum StoreError {
@@ -19,8 +19,45 @@ pub trait StoreValue {
     fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError>;
 }
 
+enum DelayedHashedValueAlternatives {
+    Delayed(Arc<Value>, BlobDigest),
+    Immediate(HashedValue),
+}
+
+pub struct DelayedHashedValue {
+    alternatives: DelayedHashedValueAlternatives,
+}
+
+impl DelayedHashedValue {
+    pub fn delayed(value: Arc<Value>, expected_digest: BlobDigest) -> Self {
+        Self {
+            alternatives: DelayedHashedValueAlternatives::Delayed(value, expected_digest),
+        }
+    }
+
+    pub fn immediate(value: HashedValue) -> Self {
+        Self {
+            alternatives: DelayedHashedValueAlternatives::Immediate(value),
+        }
+    }
+
+    pub fn hash(self) -> Option<HashedValue> {
+        match self.alternatives {
+            DelayedHashedValueAlternatives::Delayed(value, expected_digest) => {
+                let hashed_value = HashedValue::from(value);
+                if hashed_value.digest() == &expected_digest {
+                    Some(hashed_value)
+                } else {
+                    None
+                }
+            }
+            DelayedHashedValueAlternatives::Immediate(hashed_value) => Some(hashed_value),
+        }
+    }
+}
+
 pub trait LoadValue {
-    fn load_value(&self, reference: &Reference) -> Option<HashedValue>;
+    fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue>;
     fn approximate_value_count(&self) -> std::result::Result<u64, StoreError>;
 }
 
@@ -95,9 +132,10 @@ impl StoreValue for InMemoryValueStorage {
 }
 
 impl LoadValue for InMemoryValueStorage {
-    fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
+    fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
         let lock = self.reference_to_value.lock().unwrap();
-        lock.get(reference).cloned()
+        lock.get(reference)
+            .map(|found| DelayedHashedValue::immediate(found.clone()))
     }
 
     fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
@@ -243,7 +281,7 @@ impl StoreValue for SQLiteStorage {
 
 impl LoadValue for SQLiteStorage {
     #[instrument(skip_all)]
-    fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
+    fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
         let value_blob;
         let references: Vec<crate::tree::TypedReference>;
         {
@@ -283,16 +321,10 @@ impl LoadValue for SQLiteStorage {
             );
             // drop the lock before the expensive digest computation below
         }
-        let result = HashedValue::from(Arc::new(Value::new(value_blob, references)));
-        if *result.digest() != reference.digest {
-            error!(
-                "Tried to load {} from the database, but the digest of what we actually received back from the database is {}. The database appears to have been corrupted.",
-                &reference.digest,
-                result.digest()
-            );
-            return None;
-        }
-        Some(result)
+        Some(DelayedHashedValue::delayed(
+            Arc::new(Value::new(value_blob, references)),
+            reference.digest,
+        ))
     }
 
     fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
@@ -384,20 +416,23 @@ impl LoadCache {
 }
 
 impl LoadValue for LoadCache {
-    fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
+    fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
         {
             let mut entries_locked = self.entries.lock().unwrap();
             if let Some(found) = entries_locked.cache_get(&reference.digest) {
-                return Some(found.clone());
+                return Some(DelayedHashedValue::immediate(found.clone()));
             }
         }
         let loaded = match self.next.load_value(reference) {
             Some(loaded) => loaded,
             None => return None,
         };
-        let mut entries_locked = self.entries.lock().unwrap();
-        entries_locked.cache_set(reference.digest, loaded.clone());
-        Some(loaded)
+        let hashed_value = loaded.hash();
+        hashed_value.map(|success| {
+            let mut entries_locked = self.entries.lock().unwrap();
+            entries_locked.cache_set(reference.digest, success.clone());
+            DelayedHashedValue::immediate(success)
+        })
     }
 
     fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {

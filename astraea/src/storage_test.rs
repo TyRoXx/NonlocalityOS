@@ -54,6 +54,8 @@ mod tests {
             let storage = SQLiteStorage::from(connection3).unwrap();
             let loaded_back = storage
                 .load_value(&Reference::new(expected_reference))
+                .unwrap()
+                .hash()
                 .unwrap();
             assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
         }
@@ -82,12 +84,12 @@ mod tests {
             ]),
             reference.digest
         );
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
 
         storage.commit_changes().unwrap();
 
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
     }
 
@@ -114,12 +116,12 @@ mod tests {
             .unwrap();
         assert_eq!(reference_1.digest, reference_2.digest);
 
-        let loaded_back = storage.load_value(&reference_1).unwrap();
+        let loaded_back = storage.load_value(&reference_1).unwrap().hash().unwrap();
         assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
 
         storage.commit_changes().unwrap();
 
-        let loaded_back = storage.load_value(&reference_1).unwrap();
+        let loaded_back = storage.load_value(&reference_1).unwrap().hash().unwrap();
         assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
     }
 
@@ -145,12 +147,12 @@ mod tests {
             reference.digest
         );
         let expected = HashedValue::from(value);
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(expected, loaded_back);
 
         storage.commit_changes().unwrap();
 
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(expected, loaded_back);
     }
 
@@ -180,12 +182,12 @@ mod tests {
             reference.digest
         );
         let expected = HashedValue::from(value);
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(expected, loaded_back);
 
         storage.commit_changes().unwrap();
 
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(expected, loaded_back);
     }
 
@@ -211,12 +213,12 @@ mod tests {
             reference.digest
         );
         let expected = HashedValue::from(value);
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(expected, loaded_back);
 
         storage.commit_changes().unwrap();
 
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(expected, loaded_back);
     }
 
@@ -242,12 +244,12 @@ mod tests {
             reference.digest
         );
         let expected = HashedValue::from(value);
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(expected, loaded_back);
 
         storage.commit_changes().unwrap();
 
-        let loaded_back = storage.load_value(&reference).unwrap();
+        let loaded_back = storage.load_value(&reference).unwrap().hash().unwrap();
         assert_eq!(expected, loaded_back);
     }
 

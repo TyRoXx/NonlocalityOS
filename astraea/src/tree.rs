@@ -320,7 +320,9 @@ pub async fn reduce_expression_from_reference(
     let argument_value = match loader.load_value(&argument.reference) {
         Some(loaded) => loaded,
         None => return Err(ReductionError::UnknownReference(argument.reference)),
-    };
+    }
+    .hash()
+    .unwrap();
     let value = reduce_expression_without_storing_the_final_result(
         TypedValue::new(
             argument.type_id,
@@ -862,7 +864,7 @@ fn replace_variable_recursively(
     loader: &dyn LoadValue,
     storage: &dyn StoreValue,
 ) -> Option<TypedValue> {
-    let body_loaded = loader.load_value(&body.reference).unwrap();
+    let body_loaded = loader.load_value(&body.reference).unwrap().hash().unwrap();
     let mut references = Vec::new();
     let mut has_replaced_something = false;
     for child in &body_loaded.value().references {
@@ -909,6 +911,8 @@ impl ReduceExpression for LambdaApplicationService {
             (**loader
                 .load_value(&lambda_application.function.reference)
                 .unwrap()
+                .hash()
+                .unwrap()
                 .value())
             .clone(),
         )
@@ -925,7 +929,13 @@ impl ReduceExpression for LambdaApplicationService {
                 Some(replaced) => replaced,
                 None => TypedValue::new(
                     function.body.type_id,
-                    (**loader.load_value(&function.body.reference).unwrap().value()).clone(),
+                    (**loader
+                        .load_value(&function.body.reference)
+                        .unwrap()
+                        .hash()
+                        .unwrap()
+                        .value())
+                    .clone(),
                 ),
             },
         ))
@@ -1062,7 +1072,11 @@ impl ReduceExpression for CompiledReducer {
         storage: &'t dyn StoreValue,
     ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
         let source_ref = argument.value.references[0];
-        let source_value = loader.load_value(&source_ref.reference).unwrap();
+        let source_value = loader
+            .load_value(&source_ref.reference)
+            .unwrap()
+            .hash()
+            .unwrap();
         let source_string = source_value.value().to_string().unwrap();
         let compiler_output: CompilerOutput = crate::compiler::compile(&source_string, storage);
         Box::pin(std::future::ready(TypedValue::new(

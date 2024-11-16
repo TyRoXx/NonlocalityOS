@@ -482,7 +482,8 @@ impl OpenDirectory {
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<Arc<OpenDirectory>> {
         match storage.load_value(&Reference::new(*digest)) {
-            Some(loaded) => {
+            Some(delayed_loaded) => {
+                let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
                 let parsed_directory: DirectoryTree =
                     match postcard::from_bytes(loaded.value().blob().as_slice()) {
                         Ok(success) => success,
@@ -1156,7 +1157,12 @@ impl OpenFileContentBlock {
                     // there is nothing to load
                     HashedValue::from(Arc::new(Value::new(ValueBlob::empty(), Vec::new())))
                 } else {
-                    match storage.load_value(&Reference::new(*blob_digest)) {
+                    let delayed = match storage.load_value(&Reference::new(*blob_digest)) {
+                        Some(success) => success,
+                        None => return Err(Error::MissingValue(*blob_digest)),
+                    };
+                    let hashed = delayed.hash();
+                    match hashed {
                         Some(success) => success,
                         None => return Err(Error::MissingValue(*blob_digest)),
                     }
@@ -1612,12 +1618,16 @@ impl OpenFileContentBuffer {
                 let blocks = if *size <= VALUE_BLOB_MAX_LENGTH as u64 {
                     vec![OpenFileContentBlock::NotLoaded(*digest, *size as u16)]
                 } else {
-                    let value = match storage.load_value(&Reference::new(*digest)) {
+                    let delayed_hashed_value = match storage.load_value(&Reference::new(*digest)) {
+                        Some(success) => success,
+                        None => return Err(Error::MissingValue(*digest)),
+                    };
+                    let hashed_value = match delayed_hashed_value.hash() {
                         Some(success) => success,
                         None => return Err(Error::MissingValue(*digest)),
                     };
                     let info: SegmentedBlob =
-                        match postcard::from_bytes(&value.value().blob().as_slice()) {
+                        match postcard::from_bytes(&hashed_value.value().blob().as_slice()) {
                             Ok(success) => success,
                             Err(error) => return Err(Error::Postcard(error)),
                         };
@@ -1628,14 +1638,14 @@ impl OpenFileContentBuffer {
                             directory_entry_size: *size,
                         });
                     }
-                    if value.value().references().len() < 1 {
+                    if hashed_value.value().references().len() < 1 {
                         todo!()
                     }
-                    let full_blocks = value
+                    let full_blocks = hashed_value
                         .value()
                         .references()
                         .iter()
-                        .take(value.value().references().len() - 1)
+                        .take(hashed_value.value().references().len() - 1)
                         .map(|reference| {
                             OpenFileContentBlock::NotLoaded(
                                 reference.reference.digest,
@@ -1652,7 +1662,13 @@ impl OpenFileContentBuffer {
                     }
                     full_blocks
                         .chain(std::iter::once(OpenFileContentBlock::NotLoaded(
-                            value.value().references().last().unwrap().reference.digest,
+                            hashed_value
+                                .value()
+                                .references()
+                                .last()
+                                .unwrap()
+                                .reference
+                                .digest,
                             final_block_size as u16,
                         )))
                         .collect()
@@ -2304,7 +2320,7 @@ impl TreeEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use astraea::storage::{InMemoryValueStorage, LoadValue, StoreValue};
+    use astraea::storage::{DelayedHashedValue, InMemoryValueStorage, LoadValue, StoreValue};
     use lazy_static::lazy_static;
 
     fn test_clock() -> std::time::SystemTime {
@@ -2516,10 +2532,7 @@ mod tests {
     struct NeverUsedStorage {}
 
     impl LoadValue for NeverUsedStorage {
-        fn load_value(
-            &self,
-            _reference: &astraea::tree::Reference,
-        ) -> Option<astraea::tree::HashedValue> {
+        fn load_value(&self, _reference: &astraea::tree::Reference) -> Option<DelayedHashedValue> {
             panic!()
         }
 
