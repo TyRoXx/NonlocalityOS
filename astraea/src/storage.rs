@@ -2,6 +2,7 @@ use crate::tree::{
     BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob,
     VALUE_BLOB_MAX_LENGTH,
 };
+use cached::Cached;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
@@ -349,32 +350,32 @@ impl CommitChanges for SQLiteStorage {
 
 pub struct LoadCache {
     next: Arc<(dyn LoadStoreValue + Send + Sync)>,
-    entries: InMemoryValueStorage,
+    entries: Mutex<cached::stores::SizedCache<BlobDigest, HashedValue>>,
 }
 
 impl LoadCache {
-    pub fn new(next: Arc<(dyn LoadStoreValue + Send + Sync)>) -> Self {
+    pub fn new(next: Arc<(dyn LoadStoreValue + Send + Sync)>, max_entries: usize) -> Self {
         Self {
             next,
-            entries: InMemoryValueStorage::new(Mutex::new(BTreeMap::new())),
+            entries: Mutex::new(cached::stores::SizedCache::with_size(max_entries)),
         }
     }
 }
 
 impl LoadValue for LoadCache {
     fn load_value(&self, reference: &Reference) -> Option<HashedValue> {
-        match self.entries.load_value(reference) {
-            Some(found) => return Some(found),
-            None => {}
+        {
+            let mut entries_locked = self.entries.lock().unwrap();
+            if let Some(found) = entries_locked.cache_get(&reference.digest) {
+                return Some(found.clone());
+            }
         }
         let loaded = match self.next.load_value(reference) {
             Some(loaded) => loaded,
             None => return None,
         };
-        while self.entries.len() >= 1000 {
-            self.entries.remove_random_element();
-        }
-        self.entries.store_value(&loaded).unwrap();
+        let mut entries_locked = self.entries.lock().unwrap();
+        entries_locked.cache_set(reference.digest, loaded.clone());
         Some(loaded)
     }
 }
