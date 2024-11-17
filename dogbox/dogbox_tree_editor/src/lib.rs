@@ -157,9 +157,8 @@ impl NamedEntry {
             NamedEntry::OpenRegularFile(_arc, receiver) => {
                 let mut cloned_receiver = receiver.clone();
                 let mut previous_status = *cloned_receiver.borrow();
-                info!("The previous status was: {:?}", &previous_status);
+                debug!("The previous status was: {:?}", &previous_status);
                 tokio::task::spawn(async move {
-                    debug!("Hello from the spawned task!");
                     loop {
                         match cloned_receiver.changed().await {
                             Ok(_) => {
@@ -189,9 +188,8 @@ impl NamedEntry {
             NamedEntry::OpenSubdirectory(_arc, receiver) => {
                 let mut cloned_receiver = receiver.clone();
                 let mut previous_status = *cloned_receiver.borrow();
-                info!("The previous status was: {:?}", &previous_status);
+                debug!("The previous status was: {:?}", &previous_status);
                 tokio::task::spawn(async move {
-                    debug!("Hello from the spawned task!");
                     loop {
                         match cloned_receiver.changed().await {
                             Ok(_) => {
@@ -494,7 +492,10 @@ impl OpenDirectory {
                         Err(error) => return Err(Error::Postcard(error)),
                     };
                 let mut entries = vec![];
-                info!("Loading directory: {:?}", &parsed_directory.children);
+                info!(
+                    "Loading directory with {} entries",
+                    parsed_directory.children.len()
+                );
                 entries.reserve(parsed_directory.children.len());
                 for maybe_entry in parsed_directory.children.iter().map(|child| {
                     let kind = match child.1.kind {
@@ -597,7 +598,7 @@ impl OpenDirectory {
             .unwrap(),
         ))
         .unwrap();
-        info!("Storing empty directory");
+        debug!("Storing empty directory");
         let empty_directory_digest = match storage
             .store_value(&HashedValue::from(Arc::new(Value::new(value_blob, vec![]))))
             .await
@@ -1323,7 +1324,7 @@ impl OpenFileContentBlock {
                         if !is_allowed_to_calculate_digest {
                             return Ok(None);
                         }
-                        info!("Calculating unknown digest of size {}", vec.len());
+                        debug!("Calculating unknown digest of size {}", vec.len());
                         let hashed_value = HashedValue::from(Arc::new(Value::new(
                             ValueBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
                             vec![],
@@ -1529,6 +1530,7 @@ impl Prefetcher {
         blocks_to_prefetch
     }
 
+    //#[instrument(skip_all)]
     pub async fn prefetch(
         &mut self,
         blocks: &mut Vec<OpenFileContentBlock>,
@@ -1753,12 +1755,12 @@ impl OpenFileContentBufferLoaded {
         self.digest
     }
 
-    #[instrument(skip_all)]
+    //#[instrument(skip_all)]
     pub async fn store_cheap_blocks(
         &mut self,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> std::result::Result<(), StoreError> {
-        info!(
+        debug!(
             "store_cheap_blocks, {} dirty blocks",
             self.dirty_blocks.len()
         );
@@ -1794,12 +1796,12 @@ impl OpenFileContentBufferLoaded {
         }
     }
 
-    #[instrument(skip_all)]
+    //#[instrument(skip_all)]
     pub async fn store_all(
         &mut self,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> std::result::Result<StoreChanges, StoreError> {
-        info!("store_all, {} dirty blocks", self.dirty_blocks.len());
+        debug!("store_all, {} dirty blocks", self.dirty_blocks.len());
 
         let mut blocks_stored = Vec::new();
         self.verify_integrity();
@@ -1870,7 +1872,7 @@ impl OptimizedWriteBuffer {
         &self.suffix
     }
 
-    #[instrument(skip(content))]
+    //#[instrument(skip(content))]
     pub async fn from_bytes(write_position: u64, content: bytes::Bytes) -> OptimizedWriteBuffer {
         let first_block_offset = (write_position % VALUE_BLOB_MAX_LENGTH as u64) as usize;
         let first_block_capacity = VALUE_BLOB_MAX_LENGTH - first_block_offset;
@@ -2178,7 +2180,7 @@ impl OpenFileContentBuffer {
         buf: OptimizedWriteBuffer,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<()> {
-        info!(
+        debug!(
             "Write prefix {}, full blocks {}, suffix {}",
             buf.prefix.len(),
             buf.full_blocks.len(),
@@ -2187,7 +2189,7 @@ impl OpenFileContentBuffer {
         let loaded = self.require_loaded(storage.clone()).await?;
 
         if loaded.dirty_blocks.len() >= loaded.write_buffer_in_blocks {
-            info!(
+            debug!(
                 "Saving data before writing more ({} dirty blocks)",
                 loaded.dirty_blocks.len()
             );
@@ -2198,7 +2200,7 @@ impl OpenFileContentBuffer {
                 .map_err(|error| Error::Storage(error))?;
 
             if (loaded.dirty_blocks.len() * 2) >= loaded.write_buffer_in_blocks {
-                info!(
+                debug!(
                     "Still {} dirty blocks after the cheap stores. Will have to calculate some digests.",
                     loaded.dirty_blocks.len()
                 );
@@ -2261,7 +2263,7 @@ impl OpenFileContentBuffer {
                     .chain(buf.prefix)
                     .collect();
                 assert!(block_content.len() <= VALUE_BLOB_MAX_LENGTH);
-                info!(
+                debug!(
                     "Writing prefix creates an unknown digest block at {}",
                     next_block_index
                 );
@@ -2302,7 +2304,7 @@ impl OpenFileContentBuffer {
 
         if !buf.suffix.is_empty() {
             if next_block_index == loaded.blocks.len() {
-                info!(
+                debug!(
                     "Writing suffix creates an unknown digest block at {}",
                     next_block_index
                 );
@@ -2422,7 +2424,7 @@ impl OpenFile {
                 true
             }
         }) {
-            info!("Sending changed file status: {:?}", &status);
+            debug!("Sending changed file status: {:?}", &status);
         } else {
             debug!(
                 "Not sending file status because it didn't change: {:?}",
@@ -2436,6 +2438,7 @@ impl OpenFile {
         self.write_permission.clone()
     }
 
+    #[instrument(skip_all)]
     pub fn notify_dropped_write_permission(&self) {
         self.change_event_sender.send_if_modified(|status| {
             let is_open_for_writing = Self::is_open_for_writing(&self.write_permission);
@@ -2502,7 +2505,7 @@ impl OpenFile {
 
     #[instrument(skip(self))]
     pub async fn flush(&self) -> std::result::Result<OpenFileStatus, StoreError> {
-        info!("Flushing open file");
+        debug!("Flushing open file");
         let mut content_locked = self.content.lock().await;
         match content_locked.store_all(self.storage.clone()).await? {
             StoreChanges::SomeChanges => {
@@ -2526,7 +2529,7 @@ impl OpenFile {
         write_permission: &OpenFileWritePermission,
     ) -> std::result::Result<(), Error> {
         self.assert_write_permission(write_permission);
-        info!("Truncating a file sends a change event for this file.");
+        debug!("Truncating a file sends a change event for this file.");
         let mut content_locked = self.content.lock().await;
         let write_buffer_in_blocks = match &*content_locked {
             OpenFileContentBuffer::NotLoaded {
@@ -2640,7 +2643,7 @@ impl TreeEditor {
     pub async fn store_empty_file(
         storage: Arc<dyn LoadStoreValue + Send + Sync>,
     ) -> Result<BlobDigest> {
-        info!("Storing empty file");
+        debug!("Storing empty file");
         match storage
             .store_value(&HashedValue::from(Arc::new(Value::new(
                 ValueBlob::empty(),

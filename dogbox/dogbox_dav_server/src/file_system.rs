@@ -298,7 +298,9 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
             todo!()
         }
         if let Some(size) = options.size {
-            info!("Ignoring size hint ({} B)", size);
+            if size != 0 {
+                info!("Ignoring size hint ({} B)", size);
+            }
         }
         Box::pin(async move {
             let converted_path = convert_path(&path)?;
@@ -337,7 +339,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         _meta: dav_server::fs::ReadDirMeta,
     ) -> dav_server::fs::FsFuture<'a, dav_server::fs::FsStream<Box<dyn dav_server::fs::DavDirEntry>>>
     {
-        info!("Read dir {}", path);
+        debug!("Read dir {}", path);
         Box::pin(async move {
             let converted_path = convert_path(&path)?;
             let mut directory = match self
@@ -372,14 +374,11 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 .await
             {
                 Ok(success) => {
-                    info!("Metadata {}: {:?}", path, &success);
+                    debug!("Metadata {}: {:?}", path, &success);
                     Ok(Box::new(DogBoxMetaData { entry: success })
                         as Box<(dyn dav_server::fs::DavMetaData + 'static)>)
                 }
-                Err(error) => {
-                    info!("Metadata failed for {}: {:?}", path, &error);
-                    Err(handle_error(error))
-                }
+                Err(error) => Err(handle_error(error)),
             }
         })
     }

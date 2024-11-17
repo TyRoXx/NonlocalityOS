@@ -278,7 +278,7 @@ impl StoreValue for SQLiteStorage {
 
 #[async_trait]
 impl LoadValue for SQLiteStorage {
-    #[instrument(skip_all)]
+    //#[instrument(skip_all)]
     async fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
         let references: Vec<crate::tree::TypedReference>;
         let state_locked = self.state.lock().await;
