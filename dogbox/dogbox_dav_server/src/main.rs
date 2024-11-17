@@ -118,9 +118,21 @@ async fn persist_root_on_change(
     let mut receiver = root.watch().await;
     let mut previous_root_status: OpenDirectoryStatus = *receiver.borrow();
     loop {
+        debug!("Waiting for root to change.");
+        let maybe_changed = receiver.changed().await;
+        match maybe_changed {
+            Ok(_) => {
+                debug!("changed() event!");
+            }
+            Err(error_) => {
+                error!("Could not wait for change event: {:?}", &error_);
+                return;
+            }
+        }
+
         let root_status = *receiver.borrow();
         if previous_root_status == root_status {
-            info!("Root didn't change");
+            debug!("Root didn't change");
             number_of_no_changes_in_a_row += 1;
             assert_ne!(10, number_of_no_changes_in_a_row);
         } else {
@@ -185,17 +197,6 @@ async fn persist_root_on_change(
             .unwrap()
             .unwrap();
             previous_root_status = root_status;
-        }
-        debug!("Waiting for root to change.");
-        let maybe_changed = receiver.changed().await;
-        match maybe_changed {
-            Ok(_) => {
-                debug!("changed() event!");
-            }
-            Err(error_) => {
-                error!("Could not wait for change event: {:?}", &error_);
-                return;
-            }
         }
     }
 }
@@ -1223,10 +1224,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Serving on http://{}", address);
     let clock = std::time::SystemTime::now;
     let modified_default = clock();
-    info!(
-        "Last modification time defaults to {:#?}",
-        &modified_default
-    );
+    {
+        let time_string = chrono::DateTime::<chrono::Utc>::from(modified_default).to_rfc3339();
+        info!(
+            "Last modification time defaults to {}",
+            &time_string
+        );
+    }
     let (mut save_status_receiver, server, root_directory) = run_dav_server(
         listener,
         &database_file_name,

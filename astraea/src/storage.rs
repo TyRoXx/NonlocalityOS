@@ -152,7 +152,7 @@ impl SQLiteState {
         match self.is_in_transaction {
             true => Ok(()),
             false => {
-                info!("BEGIN TRANSACTION");
+                debug!("BEGIN TRANSACTION");
                 self.connection.execute("BEGIN TRANSACTION;", ())?;
                 self.is_in_transaction = true;
                 Ok(())
@@ -354,7 +354,7 @@ impl LoadStoreValue for SQLiteStorage {}
 
 #[async_trait]
 impl UpdateRoot for SQLiteStorage {
-    #[instrument(skip_all)]
+    //#[instrument(skip_all)]
     async fn update_root(&self, name: &str, target: &BlobDigest) {
         info!("Update root {} to {}", name, target);
         let mut state_locked = self.state.lock().await;
@@ -370,7 +370,7 @@ impl UpdateRoot for SQLiteStorage {
 
 #[async_trait]
 impl LoadRoot for SQLiteStorage {
-    #[instrument(skip_all)]
+    //#[instrument(skip_all)]
     async fn load_root(&self, name: &str) -> Option<BlobDigest> {
         use rusqlite::OptionalExtension;
         let state_locked = self.state.lock().await;
@@ -403,7 +403,7 @@ impl CommitChanges for SQLiteStorage {
         match state_locked.is_in_transaction {
             true => {
                 state_locked.is_in_transaction = false;
-                info!("COMMIT");
+                debug!("COMMIT");
                 state_locked.connection.execute("COMMIT;", ())?;
                 Ok(())
             }

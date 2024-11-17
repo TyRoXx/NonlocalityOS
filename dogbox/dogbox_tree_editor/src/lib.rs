@@ -164,12 +164,12 @@ impl NamedEntry {
                             Ok(_) => {
                                 let current_status = *cloned_receiver.borrow();
                                 if previous_status == current_status {
-                                    info!(
+                                    warn!(
                                         "Open file status received, but it is the same as before: {:?}",
                                         &previous_status
                                     );
                                 } else {
-                                    info!(
+                                    debug!(
                                         "Open file status changed from {:?} to {:?}",
                                         &previous_status, &current_status
                                     );
@@ -288,10 +288,10 @@ struct OpenDirectoryMutableState {
 }
 
 impl OpenDirectoryMutableState {
-    fn new(names: BTreeMap<String, NamedEntry>) -> Self {
+    fn new(names: BTreeMap<String, NamedEntry>, has_unsaved_changes: bool) -> Self {
         Self {
             names,
-            has_unsaved_changes: true,
+            has_unsaved_changes,
         }
     }
 }
@@ -316,10 +316,11 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Self {
+        let has_unsaved_changes = !digest.is_digest_up_to_date;
         let (change_event_sender, change_event_receiver) =
             tokio::sync::watch::channel(OpenDirectoryStatus::new(digest, 1, 0, 0, 0, 0, 0));
         Self {
-            state: Mutex::new(OpenDirectoryMutableState::new(names)),
+            state: Mutex::new(OpenDirectoryMutableState::new(names, has_unsaved_changes)),
             storage,
             change_event_sender,
             _change_event_receiver: change_event_receiver,
@@ -455,11 +456,11 @@ impl OpenDirectory {
 
     fn watch_new_entry(self: Arc<OpenDirectory>, entry: &mut NamedEntry) {
         entry.watch(Box::new(move || {
-            info!("Notifying directory of changes in one of the entries.");
+            debug!("Notifying directory of changes in one of the entries.");
             let self2 = self.clone();
             Box::pin(async move {
                 let mut state_locked = self2.state.lock().await;
-                info!("ACTUALLY Notifying directory of changes in one of the entries.");
+                debug!("ACTUALLY Notifying directory of changes in one of the entries.");
                 Self::notify_about_change(&mut state_locked, &self2.change_event_sender).await;
                 Ok(())
             })
@@ -827,7 +828,7 @@ impl OpenDirectory {
         change_event_sender: &tokio::sync::watch::Sender<OpenDirectoryStatus>,
     ) {
         if state_locked.has_unsaved_changes {
-            warn!("Directory had unsaved changes already.");
+            debug!("Directory had unsaved changes already.");
         } else {
             info!("Directory has unsaved changes now.");
             state_locked.has_unsaved_changes = true;
@@ -857,7 +858,7 @@ impl OpenDirectory {
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<Option<BlobDigest>> {
         if state_locked.has_unsaved_changes {
-            info!("We should save this directory.");
+            debug!("We should save this directory.");
             for entry in state_locked.names.iter() {
                 entry.1.request_save().await?;
             }
@@ -2442,7 +2443,7 @@ impl OpenFile {
                 true
             }
         }) {
-            info!("Sending changed file status: {:?}", &status);
+            debug!("Sending changed file status: {:?}", &status);
         } else {
             debug!(
                 "Not sending file status because it didn't change: {:?}",
