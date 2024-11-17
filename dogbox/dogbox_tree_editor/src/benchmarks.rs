@@ -7,6 +7,7 @@ mod tests {
     use crate::OptimizedWriteBuffer;
     use crate::StoreChanges;
     use astraea::storage::InMemoryValueStorage;
+    use astraea::storage::LoadCache;
     use astraea::storage::LoadStoreValue;
     use astraea::storage::SQLiteStorage;
     use astraea::tree::{BlobDigest, VALUE_BLOB_MAX_LENGTH};
@@ -14,7 +15,7 @@ mod tests {
     use rand::Rng;
     use rand::SeedableRng;
     use std::sync::Arc;
-    use tokio::runtime::Runtime;
+    use tokio::runtime::Builder;
 
     async fn check_open_file_content_buffer(
         buffer: &mut OpenFileContentBuffer,
@@ -52,17 +53,17 @@ mod tests {
         Arc::new(SQLiteStorage::from(connection).unwrap())
     }
 
-    fn read_large_file(
+    fn read_large_file<S: Fn() -> Arc<(dyn LoadStoreValue + Send + Sync)>>(
         b: &mut Bencher,
         is_buffer_hot: bool,
         max_read_size: usize,
-        storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+        create_storage_for_iteration: S,
     ) {
-        let runtime = Runtime::new().unwrap();
+        let runtime = Builder::new_multi_thread().build().unwrap();
         let original_content: Vec<u8> = Vec::new();
         let last_known_digest = BlobDigest::hash(&original_content);
         let last_known_digest_file_size = original_content.len();
-        let file_size_in_blocks = 50;
+        let file_size_in_blocks = 40;
         let write_buffer_in_blocks = file_size_in_blocks;
         let mut buffer = OpenFileContentBuffer::from_data(
             original_content.clone(),
@@ -73,6 +74,7 @@ mod tests {
         .unwrap();
         let mut small_rng = SmallRng::seed_from_u64(123);
         let file_size_in_bytes = file_size_in_blocks * VALUE_BLOB_MAX_LENGTH;
+        let storage = create_storage_for_iteration();
         let content = bytes::Bytes::from_iter((0..file_size_in_bytes).map(|_| small_rng.gen()));
         {
             let write_position = 0;
@@ -93,6 +95,7 @@ mod tests {
         assert!(digest_status.is_digest_up_to_date);
         assert_eq!(file_size_in_bytes as u64, size);
 
+        drop(storage);
         b.iter(move || {
             if !is_buffer_hot {
                 // reload from storage every time
@@ -106,7 +109,7 @@ mod tests {
                 &mut buffer,
                 &content,
                 max_read_size,
-                storage.clone(),
+                create_storage_for_iteration(),
             ));
             buffer.last_known_digest()
         });
@@ -118,51 +121,51 @@ mod tests {
 
     #[bench]
     fn read_large_file_in_memory_storage_cold(b: &mut Bencher) {
-        read_large_file(
-            b,
-            false,
-            UNREALISTICALLY_LARGE_READ_SIZE,
-            make_in_memory_storage(),
-        );
+        let storage = make_in_memory_storage();
+        read_large_file(b, false, UNREALISTICALLY_LARGE_READ_SIZE, || {
+            storage.clone()
+        });
     }
 
     #[bench]
     fn read_large_file_in_memory_storage_hot(b: &mut Bencher) {
-        read_large_file(
-            b,
-            true,
-            UNREALISTICALLY_LARGE_READ_SIZE,
-            make_in_memory_storage(),
-        );
+        let storage = make_in_memory_storage();
+        read_large_file(b, true, UNREALISTICALLY_LARGE_READ_SIZE, || storage.clone());
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_cold(b: &mut Bencher) {
-        read_large_file(
-            b,
-            false,
-            UNREALISTICALLY_LARGE_READ_SIZE,
-            make_sqlite_in_memory_storage(),
-        );
+        let storage = make_sqlite_in_memory_storage();
+        read_large_file(b, false, UNREALISTICALLY_LARGE_READ_SIZE, || {
+            storage.clone()
+        });
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_cold_realistic_read_size(b: &mut Bencher) {
-        read_large_file(
-            b,
-            false,
-            WINDOWS_WEBDAV_READ_SIZE,
-            make_sqlite_in_memory_storage(),
-        );
+        let storage = make_sqlite_in_memory_storage();
+        read_large_file(b, false, WINDOWS_WEBDAV_READ_SIZE, || storage.clone());
+    }
+
+    #[bench]
+    fn read_large_file_sqlite_in_memory_storage_cold_with_load_cache_hot(b: &mut Bencher) {
+        let storage = Arc::new(LoadCache::new(make_sqlite_in_memory_storage(), 1000));
+        read_large_file(b, false, UNREALISTICALLY_LARGE_READ_SIZE, || {
+            storage.clone()
+        });
+    }
+
+    #[bench]
+    fn read_large_file_sqlite_in_memory_storage_cold_with_load_cache_cold(b: &mut Bencher) {
+        let storage = make_sqlite_in_memory_storage();
+        read_large_file(b, false, UNREALISTICALLY_LARGE_READ_SIZE, || {
+            Arc::new(LoadCache::new(storage.clone(), 1000))
+        });
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_hot(b: &mut Bencher) {
-        read_large_file(
-            b,
-            true,
-            UNREALISTICALLY_LARGE_READ_SIZE,
-            make_sqlite_in_memory_storage(),
-        );
+        let storage = make_sqlite_in_memory_storage();
+        read_large_file(b, true, UNREALISTICALLY_LARGE_READ_SIZE, || storage.clone());
     }
 }
