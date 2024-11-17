@@ -35,3 +35,6 @@ rusqlite = {version = "0", features = ["bundled-sqlcipher"]}
 
 [target.'cfg(target_os = "windows")'.dependencies]
 rusqlite = {version = "0", features = ["bundled"]}
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0"
