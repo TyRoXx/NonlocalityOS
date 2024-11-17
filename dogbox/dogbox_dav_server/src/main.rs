@@ -1,5 +1,5 @@
 use astraea::{
-    storage::{CommitChanges, LoadCache, LoadRoot, LoadStoreValue, SQLiteStorage, UpdateRoot},
+    storage::{CommitChanges, LoadRoot, SQLiteStorage, UpdateRoot},
     tree::VALUE_BLOB_MAX_LENGTH,
 };
 use dav_server::{fakels::FakeLs, DavHandler};
@@ -213,18 +213,16 @@ async fn run_dav_server(
             }
         }
     }
-    let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);
-    let blob_storage_cache: Arc<(dyn LoadStoreValue + Send + Sync)> =
-        Arc::new(LoadCache::new(blob_storage_database.clone(), 1000));
+    let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);    
     let root_name = "latest";
     let open_file_write_buffer_in_blocks = 200;
     let root = match blob_storage_database.load_root(&root_name).await {
         Some(found) => {
-            OpenDirectory::load_directory(blob_storage_cache.clone(), &found, modified_default, clock,open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
+            OpenDirectory::load_directory(blob_storage_database.clone(), &found, modified_default, clock,open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
         }
         None => {
             let dir = Arc::new(
-                OpenDirectory::create_directory(blob_storage_cache.clone(), clock,
+                OpenDirectory::create_directory(blob_storage_database.clone(), clock,
                 open_file_write_buffer_in_blocks)
                 .await
                 .unwrap(/*TODO*/),
