@@ -108,6 +108,7 @@ mod tests {
                 max_read_size,
                 storage.clone(),
             ));
+            buffer.last_known_digest()
         });
         b.bytes = size;
     }

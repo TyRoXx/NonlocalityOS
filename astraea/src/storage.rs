@@ -248,17 +248,19 @@ impl StoreValue for SQLiteStorage {
         let origin_digest: [u8; 64] = reference.digest.into();
         state_locked.require_transaction().unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
-        let existing_count: i64 = connection_locked
-            .query_row_and_then(
-                "SELECT COUNT(*) FROM value WHERE digest = ?",
-                (&origin_digest,),
-                |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
-            )
-            .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))?;
-        match existing_count {
-            0 => {}
-            1 => return Ok(reference),
-            _ => panic!(),
+        {
+            let mut statement = connection_locked.prepare_cached("SELECT COUNT(*) FROM value WHERE digest = ?").unwrap(/*TODO*/);
+            let existing_count: i64 = statement
+                .query_row(
+                    (&origin_digest,),
+                    |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
+                )
+                .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))?;
+            match existing_count {
+                0 => {}
+                1 => return Ok(reference),
+                _ => panic!(),
+            }
         }
         connection_locked.execute(
             "INSERT INTO value (digest, value_blob) VALUES (?1, ?2)",

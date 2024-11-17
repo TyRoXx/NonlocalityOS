@@ -29,6 +29,9 @@ mod tests {
     {
         let referenced = make_test_value();
         b.iter(|| crate::tree::calculate_digest_fixed::<D>(&referenced));
+
+        assert!(referenced.references().is_empty());
+        b.bytes = referenced.blob().len() as u64;
     }
 
     fn calculate_digest_extendable<D>(b: &mut Bencher)
@@ -112,6 +115,7 @@ mod tests {
         b.iter(|| {
             let hashed_value = HashedValue::from(value.clone());
             assert_eq!(expected_digest, hashed_value.digest());
+            hashed_value
         });
         b.bytes = value.blob().len() as u64 + value.references().len() as u64 * 64;
     }

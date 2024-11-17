@@ -10,20 +10,38 @@ mod tests {
     use std::sync::Arc;
     use tokio::runtime::Runtime;
 
-    #[bench]
-    fn sqlite_in_memory_store_value(b: &mut Bencher) {
+    fn sqlite_in_memory_store_value(b: &mut Bencher, value_blob_size: usize) {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
-        let stored_value = HashedValue::from(Arc::new(Value::from_unit()));
+        let stored_value = HashedValue::from(Arc::new(Value::new(
+            ValueBlob::try_from(bytes::Bytes::from(random_bytes(value_blob_size))).unwrap(),
+            vec![],
+        )));
         let runtime = Runtime::new().unwrap();
         b.iter(|| {
             let reference = runtime
                 .block_on(storage.store_value(&stored_value))
                 .unwrap();
-            assert_eq!(BlobDigest::hash(&[]), reference.digest);
+            assert_eq!(stored_value.digest(), &reference.digest);
             reference
         });
+        b.bytes = value_blob_size as u64;
+    }
+
+    #[bench]
+    fn sqlite_in_memory_store_value_small(b: &mut Bencher) {
+        sqlite_in_memory_store_value(b, 0);
+    }
+
+    #[bench]
+    fn sqlite_in_memory_store_value_medium(b: &mut Bencher) {
+        sqlite_in_memory_store_value(b, VALUE_BLOB_MAX_LENGTH / 2);
+    }
+
+    #[bench]
+    fn sqlite_in_memory_store_value_large(b: &mut Bencher) {
+        sqlite_in_memory_store_value(b, VALUE_BLOB_MAX_LENGTH);
     }
 
     fn random_bytes(len: usize) -> Vec<u8> {
@@ -74,7 +92,7 @@ mod tests {
                 .hash()
                 .unwrap();
             assert_eq!(stored_value.digest(), loaded.digest());
-            *loaded.digest()
+            loaded
         });
         b.bytes = stored_value.value().blob().len() as u64;
         assert_eq!(
