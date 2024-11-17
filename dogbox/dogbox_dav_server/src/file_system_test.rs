@@ -16,6 +16,7 @@ mod tests {
         sync::Arc,
     };
     use tokio::{net::TcpListener, sync::Mutex};
+    use tracing::info;
 
     fn test_clock() -> std::time::SystemTime {
         std::time::SystemTime::UNIX_EPOCH
@@ -60,7 +61,7 @@ mod tests {
                         .serve_connection(io, hyper::service::service_fn(make_service))
                         .await
                     {
-                        eprintln!("Error serving connection: {:?}", err);
+                        info!("Error serving connection: {:?}", err);
                     }
                 });
             }

@@ -3,7 +3,7 @@ use astraea::{
     tree::VALUE_BLOB_MAX_LENGTH,
 };
 use dav_server::{fakels::FakeLs, DavHandler};
-use dogbox_tree_editor::{OpenDirectory, OpenDirectoryStatus, WallClock};
+use dogbox_tree_editor::{CacheDropStats, OpenDirectory, OpenDirectoryStatus, WallClock};
 use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
 use std::{convert::Infallible, net::SocketAddr, path::Path, pin::Pin, sync::Arc};
@@ -32,7 +32,7 @@ async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
         .serve_connection(io, hyper::service::service_fn(make_service))
         .await
     {
-        error!("Error serving connection: {:?}", err);
+        info!("Error serving connection: {:?}", err);
     }
 }
 
@@ -69,10 +69,7 @@ async fn save_root_regularly(root: Arc<OpenDirectory>, minimum_delay: std::time:
                 } else {
                     next_wait_time = minimum_delay;
                 }
-                next_wait_time = std::cmp::min(
-                    maximum_delay,
-                    next_wait_time ,
-                );
+                next_wait_time = std::cmp::min(maximum_delay, next_wait_time);
                 tokio::time::sleep(next_wait_time).await;
             }
             Err(error_) => {
@@ -80,30 +77,56 @@ async fn save_root_regularly(root: Arc<OpenDirectory>, minimum_delay: std::time:
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             }
         }
+
+        let drop_stats = root.drop_all_read_caches().await;
+        if drop_stats != CacheDropStats::new(0, 0) {
+            info!("Dropped some read caches: {:?}", &drop_stats);
+        }
     }
 }
 
 fn log_differences(old: &OpenDirectoryStatus, new: &OpenDirectoryStatus) {
     if old.digest != new.digest {
-        info!("Root digest changed from {:?} to {:?}", &old.digest, &new.digest);
+        info!(
+            "Root digest changed from {:?} to {:?}",
+            &old.digest, &new.digest
+        );
     }
     if old.bytes_unflushed_count != new.bytes_unflushed_count {
-        info!("Root bytes_unflushed_count changed from {:?} to {:?}", &old.bytes_unflushed_count, &new.bytes_unflushed_count);
+        info!(
+            "Root bytes_unflushed_count changed from {:?} to {:?}",
+            &old.bytes_unflushed_count, &new.bytes_unflushed_count
+        );
     }
     if old.directories_open_count != new.directories_open_count {
-        info!("Root directories_open_count changed from {:?} to {:?}", &old.directories_open_count, &new.directories_open_count);
+        info!(
+            "Root directories_open_count changed from {:?} to {:?}",
+            &old.directories_open_count, &new.directories_open_count
+        );
     }
     if old.directories_unsaved_count != new.directories_unsaved_count {
-        info!("Root directories_unsaved_count changed from {:?} to {:?}", &old.directories_unsaved_count, &new.directories_unsaved_count);
+        info!(
+            "Root directories_unsaved_count changed from {:?} to {:?}",
+            &old.directories_unsaved_count, &new.directories_unsaved_count
+        );
     }
     if old.files_open_count != new.files_open_count {
-        info!("Root files_open_count changed from {:?} to {:?}", &old.files_open_count, &new.files_open_count);
+        info!(
+            "Root files_open_count changed from {:?} to {:?}",
+            &old.files_open_count, &new.files_open_count
+        );
     }
     if old.files_open_for_writing_count != new.files_open_for_writing_count {
-        info!("Root files_open_for_writing_count changed from {:?} to {:?}", &old.files_open_for_writing_count, &new.files_open_for_writing_count);
+        info!(
+            "Root files_open_for_writing_count changed from {:?} to {:?}",
+            &old.files_open_for_writing_count, &new.files_open_for_writing_count
+        );
     }
     if old.files_unflushed_count != new.files_unflushed_count {
-        info!("Root files_unflushed_count changed from {:?} to {:?}", &old.files_unflushed_count, &new.files_unflushed_count);
+        info!(
+            "Root files_unflushed_count changed from {:?} to {:?}",
+            &old.files_unflushed_count, &new.files_unflushed_count
+        );
     }
 }
 
@@ -238,7 +261,7 @@ async fn run_dav_server(
             }
         }
     }
-    let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);    
+    let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);
     let root_name = "latest";
     let open_file_write_buffer_in_blocks = 200;
     let root = match blob_storage_database.load_root(&root_name).await {
@@ -1226,10 +1249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let modified_default = clock();
     {
         let time_string = chrono::DateTime::<chrono::Utc>::from(modified_default).to_rfc3339();
-        info!(
-            "Last modification time defaults to {}",
-            &time_string
-        );
+        info!("Last modification time defaults to {}", &time_string);
     }
     let (mut save_status_receiver, server, root_directory) = run_dav_server(
         listener,

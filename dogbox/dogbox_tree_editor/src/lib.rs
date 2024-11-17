@@ -93,6 +93,26 @@ impl MutableDirectoryEntry {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct CacheDropStats {
+    hashed_values_dropped: usize,
+    open_files_closed: usize,
+}
+
+impl CacheDropStats {
+    pub fn new(hashed_values_dropped: usize, open_files_closed: usize) -> Self {
+        Self {
+            hashed_values_dropped,
+            open_files_closed,
+        }
+    }
+
+    pub fn add(&mut self, other: &CacheDropStats) {
+        self.hashed_values_dropped += other.hashed_values_dropped;
+        self.open_files_closed += other.open_files_closed;
+    }
+}
+
 pub enum OpenNamedEntryStatus {
     Directory(OpenDirectoryStatus),
     File(OpenFileStatus),
@@ -178,7 +198,7 @@ impl NamedEntry {
                                 }
                             }
                             Err(error) => {
-                                info!("No longer watching a file: {}", &error);
+                                debug!("No longer watching a file: {}", &error);
                                 break;
                             }
                         }
@@ -241,6 +261,31 @@ impl NamedEntry {
             NamedEntry::OpenSubdirectory(arc, _receiver) => Ok(NamedEntryStatus::Open(
                 OpenNamedEntryStatus::Directory(arc.request_save().await?),
             )),
+        }
+    }
+
+    async fn drop_all_read_caches(&mut self) -> CacheDropStats {
+        match self {
+            NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {
+                CacheDropStats::new(0, 0)
+            }
+            NamedEntry::OpenRegularFile(arc, _receiver) => {
+                if Arc::strong_count(arc) == 1 {
+                    let (digest, size) = arc.last_known_digest().await;
+                    if digest.is_digest_up_to_date {
+                        let modified = arc.modified();
+                        *self = NamedEntry::NotOpen(
+                            DirectoryEntryMetaData::new(DirectoryEntryKind::File(size), modified),
+                            digest.last_known_digest,
+                        );
+                        return CacheDropStats::new(0, 1);
+                    }
+                }
+                arc.drop_all_read_caches().await
+            }
+            NamedEntry::OpenSubdirectory(arc, _receiver) => {
+                Box::pin(arc.drop_all_read_caches()).await
+            }
         }
     }
 }
@@ -1022,6 +1067,16 @@ impl OpenDirectory {
             None => todo!(),
         }
     }
+
+    //#[instrument(skip_all)]
+    pub async fn drop_all_read_caches(&self) -> CacheDropStats {
+        let mut state_locked = self.state.lock().await;
+        let mut result = CacheDropStats::new(0, 0);
+        for (_name, entry) in state_locked.names.iter_mut() {
+            result.add(&entry.drop_all_read_caches().await);
+        }
+        result
+    }
 }
 
 pub enum PathSplitLeftResult {
@@ -1370,6 +1425,23 @@ impl OpenFileContentBlock {
             OpenFileContentBlock::Loaded(loaded) => match loaded {
                 LoadedBlock::KnownDigest(hashed_value) => hashed_value.value().blob().len(),
                 LoadedBlock::UnknownDigest(vec) => vec.len() as u16,
+            },
+        }
+    }
+
+    async fn drop_all_read_caches(&mut self) -> CacheDropStats {
+        match self {
+            OpenFileContentBlock::NotLoaded(_blob_digest, _) => CacheDropStats::new(0, 0),
+            OpenFileContentBlock::Loaded(loaded_block) => match loaded_block {
+                LoadedBlock::KnownDigest(hashed_value) => {
+                    // free some memory:
+                    *self = OpenFileContentBlock::NotLoaded(
+                        *hashed_value.digest(),
+                        hashed_value.value().blob().len(),
+                    );
+                    CacheDropStats::new(1, 0)
+                }
+                LoadedBlock::UnknownDigest(_vec) => CacheDropStats::new(0, 0),
             },
         }
     }
@@ -1859,6 +1931,15 @@ impl OpenFileContentBufferLoaded {
         } else {
             StoreChanges::SomeChanges
         }
+    }
+
+    async fn drop_all_read_caches(&mut self) -> CacheDropStats {
+        let mut result = CacheDropStats::new(0, 0);
+        for block in self.blocks.iter_mut() {
+            result.add(&block.drop_all_read_caches().await);
+        }
+        assert_eq!(0, result.open_files_closed);
+        result
     }
 }
 
@@ -2361,6 +2442,19 @@ impl OpenFileContentBuffer {
             } => Ok(StoreChanges::NoChanges),
         }
     }
+
+    async fn drop_all_read_caches(&mut self) -> CacheDropStats {
+        match self {
+            OpenFileContentBuffer::NotLoaded {
+                digest: _,
+                size: _,
+                write_buffer_in_blocks: _,
+            } => CacheDropStats::new(0, 0),
+            OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
+                open_file_content_buffer_loaded.drop_all_read_caches().await
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -2415,6 +2509,11 @@ impl OpenFile {
     pub async fn request_save(&self) -> std::result::Result<OpenFileStatus, StoreError> {
         debug!("Requesting save on an open file. Will try to flush it.");
         self.flush().await
+    }
+
+    pub async fn last_known_digest(&self) -> (DigestStatus, u64) {
+        let content_locked = self.content.lock().await;
+        content_locked.last_known_digest()
     }
 
     fn is_open_for_writing(write_permission: &Arc<OpenFileWritePermission>) -> bool {
@@ -2576,6 +2675,11 @@ impl OpenFile {
         .await
         .map_err(|error| Error::Storage(error))?;
         Ok(())
+    }
+
+    async fn drop_all_read_caches(&self) -> CacheDropStats {
+        let mut content_locked = self.content.lock().await;
+        content_locked.drop_all_read_caches().await
     }
 }
 
