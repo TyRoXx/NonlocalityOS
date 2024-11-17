@@ -20,7 +20,7 @@ use std::{
     u64,
 };
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -97,19 +97,26 @@ impl MutableDirectoryEntry {
 pub struct CacheDropStats {
     hashed_values_dropped: usize,
     open_files_closed: usize,
+    open_directories_closed: usize,
 }
 
 impl CacheDropStats {
-    pub fn new(hashed_values_dropped: usize, open_files_closed: usize) -> Self {
+    pub fn new(
+        hashed_values_dropped: usize,
+        open_files_closed: usize,
+        open_directories_closed: usize,
+    ) -> Self {
         Self {
             hashed_values_dropped,
             open_files_closed,
+            open_directories_closed,
         }
     }
 
     pub fn add(&mut self, other: &CacheDropStats) {
         self.hashed_values_dropped += other.hashed_values_dropped;
         self.open_files_closed += other.open_files_closed;
+        self.open_directories_closed += other.open_directories_closed;
     }
 }
 
@@ -215,7 +222,7 @@ impl NamedEntry {
                             Ok(_) => {
                                 let current_status = *cloned_receiver.borrow();
                                 if previous_status == current_status {
-                                    panic!(
+                                    warn!(
                                         "Open directory status received, but it is the same as before: {:?}",
                                         &previous_status
                                     );
@@ -226,7 +233,7 @@ impl NamedEntry {
                                 }
                             }
                             Err(error) => {
-                                info!("No longer watching a directory: {}", &error);
+                                debug!("No longer watching a directory: {}", &error);
                                 break;
                             }
                         }
@@ -267,7 +274,7 @@ impl NamedEntry {
     async fn drop_all_read_caches(&mut self) -> CacheDropStats {
         match self {
             NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {
-                CacheDropStats::new(0, 0)
+                CacheDropStats::new(0, 0, 0)
             }
             NamedEntry::OpenRegularFile(arc, _receiver) => {
                 if Arc::strong_count(arc) == 1 {
@@ -278,12 +285,23 @@ impl NamedEntry {
                             DirectoryEntryMetaData::new(DirectoryEntryKind::File(size), modified),
                             digest.last_known_digest,
                         );
-                        return CacheDropStats::new(0, 1);
+                        return CacheDropStats::new(0, 1, 0);
                     }
                 }
                 arc.drop_all_read_caches().await
             }
             NamedEntry::OpenSubdirectory(arc, _receiver) => {
+                if Arc::strong_count(arc) == 1 {
+                    let status = arc.latest_status();
+                    if status.digest.is_digest_up_to_date {
+                        let modified = arc.modified();
+                        *self = NamedEntry::NotOpen(
+                            DirectoryEntryMetaData::new(DirectoryEntryKind::Directory, modified),
+                            status.digest.last_known_digest,
+                        );
+                        return CacheDropStats::new(0, 0, 1);
+                    }
+                }
                 Box::pin(arc.drop_all_read_caches()).await
             }
         }
@@ -421,7 +439,7 @@ impl OpenDirectory {
     async fn read(&self) -> Stream<MutableDirectoryEntry> {
         let state_locked = self.state.lock().await;
         let snapshot = state_locked.names.clone();
-        info!("Reading directory with {} entries", snapshot.len());
+        debug!("Reading directory with {} entries", snapshot.len());
         Box::pin(stream! {
             for cached_entry in snapshot {
                 let meta_data = cached_entry.1.get_meta_data().await;
@@ -738,7 +756,7 @@ impl OpenDirectory {
             None => return Err(Error::NotFound(name_here.to_string())),
         }
 
-        info!(
+        debug!(
             "Copying from {} to {} sending a change event to the directory.",
             name_here, name_there
         );
@@ -875,7 +893,7 @@ impl OpenDirectory {
         if state_locked.has_unsaved_changes {
             debug!("Directory had unsaved changes already.");
         } else {
-            info!("Directory has unsaved changes now.");
+            debug!("Directory has unsaved changes now.");
             state_locked.has_unsaved_changes = true;
         }
         change_event_sender.send_if_modified(|last_status| {
@@ -944,7 +962,7 @@ impl OpenDirectory {
                         files_unflushed_count += open_directory_status.files_unflushed_count;
                         bytes_unflushed_count += open_directory_status.bytes_unflushed_count;
                         if !open_directory_status.digest.is_digest_up_to_date {
-                            info!("Child directory is not up to date.");
+                            debug!("Child directory is not up to date.");
                             are_children_up_to_date = false;
                         }
                     }
@@ -958,7 +976,7 @@ impl OpenDirectory {
                         }
                         bytes_unflushed_count += open_file_status.bytes_unflushed_count;
                         if !open_file_status.digest.is_digest_up_to_date {
-                            info!("Child file is not up to date.");
+                            debug!("Child file is not up to date.");
                             are_children_up_to_date = false;
                         }
                     }
@@ -967,7 +985,7 @@ impl OpenDirectory {
         }
         let is_up_to_date = are_children_up_to_date && !state_locked.has_unsaved_changes;
         if !is_up_to_date {
-            info!("Some children are not up to date, so this directory has unsaved changes.");
+            debug!("Some children are not up to date, so this directory has unsaved changes.");
             directories_unsaved_count += 1;
             state_locked.has_unsaved_changes = true;
         }
@@ -1071,7 +1089,7 @@ impl OpenDirectory {
     //#[instrument(skip_all)]
     pub async fn drop_all_read_caches(&self) -> CacheDropStats {
         let mut state_locked = self.state.lock().await;
-        let mut result = CacheDropStats::new(0, 0);
+        let mut result = CacheDropStats::new(0, 0, 0);
         for (_name, entry) in state_locked.names.iter_mut() {
             result.add(&entry.drop_all_read_caches().await);
         }
@@ -1431,7 +1449,7 @@ impl OpenFileContentBlock {
 
     async fn drop_all_read_caches(&mut self) -> CacheDropStats {
         match self {
-            OpenFileContentBlock::NotLoaded(_blob_digest, _) => CacheDropStats::new(0, 0),
+            OpenFileContentBlock::NotLoaded(_blob_digest, _) => CacheDropStats::new(0, 0, 0),
             OpenFileContentBlock::Loaded(loaded_block) => match loaded_block {
                 LoadedBlock::KnownDigest(hashed_value) => {
                     // free some memory:
@@ -1439,9 +1457,9 @@ impl OpenFileContentBlock {
                         *hashed_value.digest(),
                         hashed_value.value().blob().len(),
                     );
-                    CacheDropStats::new(1, 0)
+                    CacheDropStats::new(1, 0, 0)
                 }
-                LoadedBlock::UnknownDigest(_vec) => CacheDropStats::new(0, 0),
+                LoadedBlock::UnknownDigest(_vec) => CacheDropStats::new(0, 0, 0),
             },
         }
     }
@@ -1934,11 +1952,12 @@ impl OpenFileContentBufferLoaded {
     }
 
     async fn drop_all_read_caches(&mut self) -> CacheDropStats {
-        let mut result = CacheDropStats::new(0, 0);
+        let mut result = CacheDropStats::new(0, 0, 0);
         for block in self.blocks.iter_mut() {
             result.add(&block.drop_all_read_caches().await);
         }
         assert_eq!(0, result.open_files_closed);
+        assert_eq!(0, result.open_directories_closed);
         result
     }
 }
@@ -2449,7 +2468,7 @@ impl OpenFileContentBuffer {
                 digest: _,
                 size: _,
                 write_buffer_in_blocks: _,
-            } => CacheDropStats::new(0, 0),
+            } => CacheDropStats::new(0, 0, 0),
             OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
                 open_file_content_buffer_loaded.drop_all_read_caches().await
             }
@@ -2556,7 +2575,7 @@ impl OpenFile {
         self.write_permission.clone()
     }
 
-    #[instrument(skip_all)]
+    //#[instrument(skip_all)]
     pub fn notify_dropped_write_permission(&self) {
         self.change_event_sender.send_if_modified(|status| {
             let is_open_for_writing = Self::is_open_for_writing(&self.write_permission);

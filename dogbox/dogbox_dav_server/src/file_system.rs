@@ -10,7 +10,6 @@ use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
-use tracing::instrument;
 use tracing::warn;
 
 #[derive(Clone)]
@@ -467,7 +466,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         })
     }
 
-    #[instrument(skip(self))]
+    //#[instrument(skip(self))]
     fn copy<'a>(
         &'a self,
         from: &'a dav_server::davpath::DavPath,

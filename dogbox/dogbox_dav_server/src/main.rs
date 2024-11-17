@@ -79,7 +79,7 @@ async fn save_root_regularly(root: Arc<OpenDirectory>, minimum_delay: std::time:
         }
 
         let drop_stats = root.drop_all_read_caches().await;
-        if drop_stats != CacheDropStats::new(0, 0) {
+        if drop_stats != CacheDropStats::new(0, 0,0) {
             info!("Dropped some read caches: {:?}", &drop_stats);
         }
     }
