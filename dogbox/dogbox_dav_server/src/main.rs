@@ -54,11 +54,11 @@ enum SaveStatus {
 }
 
 async fn save_root_regularly(root: Arc<OpenDirectory>, minimum_delay: std::time::Duration) {
-    let maximum_delay = std::time::Duration::from_secs(1);
+    let maximum_delay = std::time::Duration::from_secs(5);
     let mut previous_status = None;
     let mut next_wait_time = minimum_delay;
     loop {
-        info!("Time to check if root needs to be saved.");
+        debug!("Time to check if root needs to be saved.");
         let save_result = root.request_save().await;
         match save_result {
             Ok(status) => {
@@ -83,6 +83,30 @@ async fn save_root_regularly(root: Arc<OpenDirectory>, minimum_delay: std::time:
     }
 }
 
+fn log_differences(old: &OpenDirectoryStatus, new: &OpenDirectoryStatus) {
+    if old.digest != new.digest {
+        info!("Root digest changed from {:?} to {:?}", &old.digest, &new.digest);
+    }
+    if old.bytes_unflushed_count != new.bytes_unflushed_count {
+        info!("Root bytes_unflushed_count changed from {:?} to {:?}", &old.bytes_unflushed_count, &new.bytes_unflushed_count);
+    }
+    if old.directories_open_count != new.directories_open_count {
+        info!("Root directories_open_count changed from {:?} to {:?}", &old.directories_open_count, &new.directories_open_count);
+    }
+    if old.directories_unsaved_count != new.directories_unsaved_count {
+        info!("Root directories_unsaved_count changed from {:?} to {:?}", &old.directories_unsaved_count, &new.directories_unsaved_count);
+    }
+    if old.files_open_count != new.files_open_count {
+        info!("Root files_open_count changed from {:?} to {:?}", &old.files_open_count, &new.files_open_count);
+    }
+    if old.files_open_for_writing_count != new.files_open_for_writing_count {
+        info!("Root files_open_for_writing_count changed from {:?} to {:?}", &old.files_open_for_writing_count, &new.files_open_for_writing_count);
+    }
+    if old.files_unflushed_count != new.files_unflushed_count {
+        info!("Root files_unflushed_count changed from {:?} to {:?}", &old.files_unflushed_count, &new.files_unflushed_count);
+    }
+}
+
 async fn persist_root_on_change(
     root: Arc<OpenDirectory>,
     root_name: &str,
@@ -100,11 +124,11 @@ async fn persist_root_on_change(
             number_of_no_changes_in_a_row += 1;
             assert_ne!(10, number_of_no_changes_in_a_row);
         } else {
-            info!("Root changed: {:?}", &root_status);
+            log_differences(&previous_root_status, &root_status);
             number_of_no_changes_in_a_row = 0;
             if previous_root_status.digest.last_known_digest == root_status.digest.last_known_digest
             {
-                info!("Root status changed, but the last known digest stays the same.");
+                debug!("Root status changed, but the last known digest stays the same.");
             } else {
                 blob_storage_update
                     .update_root(root_name, &root_status.digest.last_known_digest)
@@ -121,7 +145,7 @@ async fn persist_root_on_change(
                 assert_eq!(0, root_status.bytes_unflushed_count);
                 assert_eq!(0, root_status.files_unflushed_count);
                 assert_eq!(0, root_status.directories_unsaved_count);
-                info!("Root digest is up to date.");
+                debug!("Root digest is up to date.");
 
                 match root.request_save().await {
                     Ok(double_checked_status) => {
@@ -218,7 +242,7 @@ async fn run_dav_server(
     let open_file_write_buffer_in_blocks = 200;
     let root = match blob_storage_database.load_root(&root_name).await {
         Some(found) => {
-            OpenDirectory::load_directory(blob_storage_database.clone(), &found, modified_default, clock,open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
+            OpenDirectory::load_directory(blob_storage_database.clone(), &found, modified_default, clock, open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
         }
         None => {
             let dir = Arc::new(
@@ -1212,8 +1236,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     )
     .await?;
     tokio::try_join!(server, async move {
+        let mut last_save_status = None;
         while let Some(status) = save_status_receiver.recv().await {
-            info!("Save status: {:?}", status);
+            if last_save_status.as_ref() != Some(&status) {
+                info!("Save status: {:?}", &status);
+                last_save_status = Some(status);
+            }
         }
         Ok(())
     })?;

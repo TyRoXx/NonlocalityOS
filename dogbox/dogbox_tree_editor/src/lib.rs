@@ -866,7 +866,7 @@ impl OpenDirectory {
             state_locked.has_unsaved_changes = false;
             Ok(Some(saved))
         } else {
-            info!("Nothing to save for this directory.");
+            debug!("Nothing to save for this directory.");
             Ok(None)
         }
     }
@@ -940,13 +940,13 @@ impl OpenDirectory {
                 bytes_unflushed_count,
             );
             if *last_status == status {
-                info!(
+                debug!(
                     "Not sending directory status because it didn't change: {:?}",
                     &status
                 );
                 false
             } else {
-                info!("Sending directory status: {:?}", &status);
+                debug!("Sending directory status: {:?}", &status);
                 *last_status = status;
                 true
             }
@@ -2444,7 +2444,7 @@ impl OpenFile {
         }) {
             info!("Sending changed file status: {:?}", &status);
         } else {
-            info!(
+            debug!(
                 "Not sending file status because it didn't change: {:?}",
                 &status
             );

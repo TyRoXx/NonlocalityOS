@@ -287,7 +287,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         path: &'a dav_server::davpath::DavPath,
         options: dav_server::fs::OpenOptions,
     ) -> dav_server::fs::FsFuture<'a, Box<dyn dav_server::fs::DavFile>> {
-        info!("Open {} | {:?}", path, options);
+        info!("Open {} | write: {}", path, options.write);
         if options.append {
             todo!()
         }
@@ -514,7 +514,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         Box::pin(core::future::ready(Ok(vec![])))
     }
 
-    #[instrument(skip(self))]
+    //#[instrument(skip(self))]
     fn get_prop<'a>(
         &'a self,
         _path: &'a dav_server::davpath::DavPath,
@@ -523,7 +523,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         Box::pin(core::future::ready(Err(FsError::NotImplemented)))
     }
 
-    #[instrument(skip(self))]
+    //#[instrument(skip(self))]
     fn get_quota(&self) -> dav_server::fs::FsFuture<(u64, Option<u64>)> {
         Box::pin(core::future::ready(Err(FsError::NotImplemented)))
     }
