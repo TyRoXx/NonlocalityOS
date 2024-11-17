@@ -406,7 +406,7 @@ impl OpenDirectory {
                 NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
                     DirectoryEntryKind::Directory => todo!(),
                     DirectoryEntryKind::File(length) => {
-                        info!(
+                        debug!(
                             "Opening file of size {} and content {} for reading.",
                             length, digest
                         );
@@ -2503,7 +2503,7 @@ impl OpenFile {
         })
     }
 
-    #[instrument(skip(self))]
+    //#[instrument(skip(self))]
     pub async fn flush(&self) -> std::result::Result<OpenFileStatus, StoreError> {
         debug!("Flushing open file");
         let mut content_locked = self.content.lock().await;
