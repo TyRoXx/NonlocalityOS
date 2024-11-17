@@ -291,17 +291,7 @@ impl NamedEntry {
                 arc.drop_all_read_caches().await
             }
             NamedEntry::OpenSubdirectory(arc, _receiver) => {
-                if Arc::strong_count(arc) == 1 {
-                    let status = arc.latest_status();
-                    if status.digest.is_digest_up_to_date {
-                        let modified = arc.modified();
-                        *self = NamedEntry::NotOpen(
-                            DirectoryEntryMetaData::new(DirectoryEntryKind::Directory, modified),
-                            status.digest.last_known_digest,
-                        );
-                        return CacheDropStats::new(0, 0, 1);
-                    }
-                }
+                //TODO: close open directories (correctly)
                 Box::pin(arc.drop_all_read_caches()).await
             }
         }
