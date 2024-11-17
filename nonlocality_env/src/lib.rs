@@ -21,19 +21,19 @@ extern "C" {
 
 // dummy definition to make the linker happy on Linux
 #[cfg(not(target_arch = "wasm32"))]
-unsafe extern "C" fn nonlocality_connect(_interface: i32) -> i32 {
+pub unsafe extern "C" fn nonlocality_connect(_interface: i32) -> i32 {
     panic!()
 }
 
 // dummy definition to make the linker happy on Linux
 #[cfg(not(target_arch = "wasm32"))]
-unsafe extern "C" fn nonlocality_accept() -> u64 {
+pub unsafe extern "C" fn nonlocality_accept() -> u64 {
     panic!()
 }
 
 // dummy definition to make the linker happy on Linux
 #[cfg(not(target_arch = "wasm32"))]
-unsafe extern "C" fn nonlocality_tcp_ssl_handshake(
+pub unsafe extern "C" fn nonlocality_tcp_ssl_handshake(
     _host: *const u8,
     _host_length: i32,
     _port: i32,
