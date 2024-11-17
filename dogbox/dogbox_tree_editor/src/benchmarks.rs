@@ -17,6 +17,10 @@ mod tests {
     use std::sync::Arc;
     use tokio::runtime::Builder;
 
+    fn assert_equal_bytes(expected: &[u8], found: &[u8]) {
+        assert!(expected == found);
+    }
+
     async fn check_open_file_content_buffer(
         buffer: &mut OpenFileContentBuffer,
         expected_content: &[u8],
@@ -33,11 +37,11 @@ mod tests {
             let read_bytes = read_result.unwrap();
             assert_ne!(0, read_bytes.len());
             assert!(read_bytes.len() <= read_count);
-            for byte in read_bytes.iter() {
-                let expected_byte = expected_content[checked];
-                assert_eq!(expected_byte, *byte);
-                checked += 1;
-            }
+            assert_equal_bytes(
+                &expected_content[checked..(checked + read_bytes.len())],
+                &read_bytes,
+            );
+            checked += read_bytes.len();
             assert_eq!(expected_content.len() as u64, buffer.size());
         }
         assert_eq!(expected_content.len(), checked);
