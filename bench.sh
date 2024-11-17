@@ -1,7 +1,9 @@
 #!/usr/bin/env sh
 set -e
+# limit to one package to avoid unnecessary builds of other packages:
 PACKAGE=dogbox_tree_editor
-BENCHMARKS="read_large_file_sqlite_in_memory_storage_cold_realistic_read_size"
+# cargo bench will run all benchmarks that contain any of these identifiers in their names:
+BENCHMARKS="read_large_file_sqlite_in_memory_storage"
 
 ./install_sccache.sh || exit 1
 export RUSTC_WRAPPER=sccache

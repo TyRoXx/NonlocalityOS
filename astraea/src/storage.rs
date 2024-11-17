@@ -284,7 +284,8 @@ impl LoadValue for SQLiteStorage {
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = reference.digest.into();
-        let (id, value_blob) = connection_locked.query_row_and_then("SELECT id, value_blob FROM value WHERE digest = ?1", 
+        let mut statement = connection_locked.prepare_cached("SELECT id, value_blob FROM value WHERE digest = ?1").unwrap(/*TODO*/);
+        let (id, value_blob) = statement.query_row(
             (&digest, ),
             |row| -> rusqlite::Result<_> {
                 let id : i64 = row.get(0).unwrap(/*TODO*/);
@@ -292,7 +293,7 @@ impl LoadValue for SQLiteStorage {
                 let value_blob = ValueBlob::try_from(value_blob_raw.into()).unwrap(/*TODO*/);
                 Ok((id, value_blob))
             } ).unwrap(/*TODO*/);
-        let mut statement = connection_locked.prepare(concat!("SELECT zero_based_index, target FROM reference",
+        let mut statement = connection_locked.prepare_cached(concat!("SELECT zero_based_index, target FROM reference",
             " WHERE origin = ? ORDER BY zero_based_index ASC")).unwrap(/*TODO*/);
         let results = statement.query_map([&id], |row| {
             let index : i64 = row.get(0)?;
