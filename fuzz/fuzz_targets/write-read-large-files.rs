@@ -129,7 +129,8 @@ async fn save_all_buffers(buffers: &mut [BufferState]) {
 }
 
 fn run_generated_test(test: GeneratedTest) -> Corpus {
-    Runtime::new().unwrap().block_on(async move {
+    let runtime = Runtime::new().unwrap();
+    runtime.block_on(async move {
         let max_tested_file_size = VALUE_BLOB_MAX_LENGTH * 128;
         use rand::rngs::SmallRng;
         use rand::Rng;
@@ -138,28 +139,28 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
 
         let initial_content: Vec<u8> = Vec::new();
         let last_known_digest_file_size = initial_content.len();
-        let mut buffers: Vec<_> = std::iter::repeat_n((), 3)
-            .map(|_| {
-                let storage = Arc::new(InMemoryValueStorage::empty());
-                let last_known_digest = storage
-                    .store_value(&HashedValue::from(Arc::new(Value::new(
-                        ValueBlob::empty(),
-                        Vec::new(),
-                    ))))
-                    .unwrap()
-                    .digest;
-                BufferState::new(
-                    storage,
-                    OpenFileContentBuffer::from_data(
-                        initial_content.clone(),
-                        last_known_digest,
-                        last_known_digest_file_size as u64,
-                        test.write_buffer_in_blocks as usize,
-                    )
-                    .unwrap(),
+        let mut buffers = Vec::new();
+        for _ in 0..3 {
+            let storage = Arc::new(InMemoryValueStorage::empty());
+            let last_known_digest = storage
+                .store_value(&HashedValue::from(Arc::new(Value::new(
+                    ValueBlob::empty(),
+                    Vec::new(),
+                ))))
+                .await
+                .unwrap()
+                .digest;
+            buffers.push(BufferState::new(
+                storage,
+                OpenFileContentBuffer::from_data(
+                    initial_content.clone(),
+                    last_known_digest,
+                    last_known_digest_file_size as u64,
+                    test.write_buffer_in_blocks as usize,
                 )
-            })
-            .collect();
+                .unwrap(),
+            ));
+        }
 
         for operation in test.operations {
             // buffers[2] is recreated from storage before every operation.

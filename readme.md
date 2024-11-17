@@ -98,3 +98,15 @@ You will have to explicitly mount the filesystem after starting your DAV server.
 
 * `./fuzz.sh`
 * `./fuzzing_coverage.sh`
+
+# Benchmarks
+
+Example:
+
+* `cargo bench --package dogbox_tree_editor`
+
+# Profiling (Linux only)
+
+* `echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid`
+* edit the env variables in `bench.sh`
+* `./bench.sh`

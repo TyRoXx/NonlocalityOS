@@ -76,6 +76,7 @@ mod tests {
             assert_eq!(stored_value.digest(), loaded.digest());
             *loaded.digest()
         });
+        b.bytes = stored_value.value().blob().len() as u64;
         assert_eq!(
             Ok(value_count_in_database as u64 + 1),
             runtime.block_on(storage.approximate_value_count())

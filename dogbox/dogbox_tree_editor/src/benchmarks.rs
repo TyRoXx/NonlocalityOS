@@ -109,6 +109,7 @@ mod tests {
                 storage.clone(),
             ));
         });
+        b.bytes = size;
     }
 
     const UNREALISTICALLY_LARGE_READ_SIZE: usize = usize::MAX;
