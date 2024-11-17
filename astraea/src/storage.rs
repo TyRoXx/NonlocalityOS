@@ -262,10 +262,11 @@ impl StoreValue for SQLiteStorage {
                 _ => panic!(),
             }
         }
-        connection_locked.execute(
-            "INSERT INTO value (digest, value_blob) VALUES (?1, ?2)",
+        let mut statement = connection_locked.prepare_cached("INSERT INTO value (digest, value_blob) VALUES (?1, ?2)").unwrap(/*TODO*/);
+        let rows_inserted = statement.execute(
             (&origin_digest, value.value().blob().as_slice()),
         ).unwrap(/*TODO*/);
+        assert_eq!(1, rows_inserted);
         let inserted_value_rowid = connection_locked.last_insert_rowid();
         for (index, reference) in value.value().references().iter().enumerate() {
             let target_digest: [u8; 64] = reference.reference.digest.into();
