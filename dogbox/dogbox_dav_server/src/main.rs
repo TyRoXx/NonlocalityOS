@@ -54,23 +54,25 @@ enum SaveStatus {
 }
 
 async fn save_root_regularly(root: Arc<OpenDirectory>, minimum_delay: std::time::Duration) {
-    let maximum_delay = std::time::Duration::from_secs(10) + (2 * minimum_delay);
+    let maximum_delay = std::time::Duration::from_secs(1);
     let mut previous_status = None;
     let mut next_wait_time = minimum_delay;
     loop {
+        info!("Time to check if root needs to be saved.");
         let save_result = root.request_save().await;
         match save_result {
             Ok(status) => {
                 let is_same_as_before = Some(&status) == previous_status.as_ref();
                 previous_status = Some(status);
                 if is_same_as_before {
-                    next_wait_time = std::cmp::min(
-                        maximum_delay,
-                        next_wait_time + std::time::Duration::from_millis(20),
-                    );
+                    next_wait_time = next_wait_time + std::time::Duration::from_millis(20);
                 } else {
                     next_wait_time = minimum_delay;
                 }
+                next_wait_time = std::cmp::min(
+                    maximum_delay,
+                    next_wait_time ,
+                );
                 tokio::time::sleep(next_wait_time).await;
             }
             Err(error_) => {

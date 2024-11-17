@@ -20,7 +20,7 @@ use std::{
     u64,
 };
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -169,7 +169,7 @@ impl NamedEntry {
                                         &previous_status
                                     );
                                 } else {
-                                    debug!(
+                                    info!(
                                         "Open file status changed from {:?} to {:?}",
                                         &previous_status, &current_status
                                     );
@@ -447,7 +447,7 @@ impl OpenDirectory {
                     name.to_string(),
                     NamedEntry::OpenRegularFile(open_file.clone(), receiver),
                 );
-                Self::notify_about_change(&mut state_locked).await;
+                Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
                 Ok(open_file)
             }
         }
@@ -455,11 +455,12 @@ impl OpenDirectory {
 
     fn watch_new_entry(self: Arc<OpenDirectory>, entry: &mut NamedEntry) {
         entry.watch(Box::new(move || {
-            debug!("Notifying directory of changes in one of the entries.");
+            info!("Notifying directory of changes in one of the entries.");
             let self2 = self.clone();
             Box::pin(async move {
                 let mut state_locked = self2.state.lock().await;
-                Self::notify_about_change(&mut state_locked).await;
+                info!("ACTUALLY Notifying directory of changes in one of the entries.");
+                Self::notify_about_change(&mut state_locked, &self2.change_event_sender).await;
                 Ok(())
             })
         }));
@@ -644,7 +645,7 @@ impl OpenDirectory {
                     name,
                     NamedEntry::OpenSubdirectory(directory, receiver),
                 );
-                Self::notify_about_change(&mut state_locked).await;
+                Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
                 Ok(())
             }
         }
@@ -657,7 +658,7 @@ impl OpenDirectory {
         }
 
         state_locked.names.remove(name_here);
-        Self::notify_about_change(&mut state_locked).await;
+        Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
         Ok(())
     }
 
@@ -710,9 +711,10 @@ impl OpenDirectory {
         }
 
         if state_there_locked.is_some() {
-            Self::notify_about_change(&mut state_there_locked.unwrap()).await;
+            Self::notify_about_change(&mut state_there_locked.unwrap(), &there.change_event_sender)
+                .await;
         }
-        Self::notify_about_change(&mut state_locked).await;
+        Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
         Ok(())
     }
 
@@ -783,9 +785,9 @@ impl OpenDirectory {
                 .write_into_directory(&mut state_locked, name_there, entry),
         }
 
-        Self::notify_about_change(&mut state_locked).await;
+        Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
         if let Some(ref mut state_there) = state_there_locked {
-            Self::notify_about_change(state_there).await;
+            Self::notify_about_change(state_there, &there.change_event_sender).await;
         }
         Ok(())
     }
@@ -820,11 +822,25 @@ impl OpenDirectory {
         })
     }
 
-    async fn notify_about_change(state_locked: &mut OpenDirectoryMutableState) {
-        if !state_locked.has_unsaved_changes {
+    async fn notify_about_change(
+        state_locked: &mut OpenDirectoryMutableState,
+        change_event_sender: &tokio::sync::watch::Sender<OpenDirectoryStatus>,
+    ) {
+        if state_locked.has_unsaved_changes {
+            warn!("Directory had unsaved changes already.");
+        } else {
             info!("Directory has unsaved changes now.");
             state_locked.has_unsaved_changes = true;
         }
+        change_event_sender.send_if_modified(|last_status| {
+            if last_status.digest.is_digest_up_to_date {
+                last_status.digest.is_digest_up_to_date = false;
+                last_status.directories_unsaved_count += 1;
+                true
+            } else {
+                false
+            }
+        });
     }
 
     async fn consider_saving_and_updating_status(
@@ -841,6 +857,7 @@ impl OpenDirectory {
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
     ) -> Result<Option<BlobDigest>> {
         if state_locked.has_unsaved_changes {
+            info!("We should save this directory.");
             for entry in state_locked.names.iter() {
                 entry.1.request_save().await?;
             }
@@ -849,7 +866,7 @@ impl OpenDirectory {
             state_locked.has_unsaved_changes = false;
             Ok(Some(saved))
         } else {
-            debug!("Nothing to save for this directory.");
+            info!("Nothing to save for this directory.");
             Ok(None)
         }
     }
@@ -881,7 +898,7 @@ impl OpenDirectory {
                         files_unflushed_count += open_directory_status.files_unflushed_count;
                         bytes_unflushed_count += open_directory_status.bytes_unflushed_count;
                         if !open_directory_status.digest.is_digest_up_to_date {
-                            debug!("Child directory is not up to date.");
+                            info!("Child directory is not up to date.");
                             are_children_up_to_date = false;
                         }
                     }
@@ -895,7 +912,7 @@ impl OpenDirectory {
                         }
                         bytes_unflushed_count += open_file_status.bytes_unflushed_count;
                         if !open_file_status.digest.is_digest_up_to_date {
-                            debug!("Child file is not up to date.");
+                            info!("Child file is not up to date.");
                             are_children_up_to_date = false;
                         }
                     }
@@ -904,6 +921,7 @@ impl OpenDirectory {
         }
         let is_up_to_date = are_children_up_to_date && !state_locked.has_unsaved_changes;
         if !is_up_to_date {
+            info!("Some children are not up to date, so this directory has unsaved changes.");
             directories_unsaved_count += 1;
             state_locked.has_unsaved_changes = true;
         }
@@ -922,7 +940,7 @@ impl OpenDirectory {
                 bytes_unflushed_count,
             );
             if *last_status == status {
-                debug!(
+                info!(
                     "Not sending directory status because it didn't change: {:?}",
                     &status
                 );
@@ -2424,9 +2442,9 @@ impl OpenFile {
                 true
             }
         }) {
-            debug!("Sending changed file status: {:?}", &status);
+            info!("Sending changed file status: {:?}", &status);
         } else {
-            debug!(
+            info!(
                 "Not sending file status because it didn't change: {:?}",
                 &status
             );
