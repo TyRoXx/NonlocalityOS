@@ -249,7 +249,8 @@ impl StoreValue for SQLiteStorage {
         state_locked.require_transaction().unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
         {
-            let mut statement = connection_locked.prepare_cached("SELECT COUNT(*) FROM value WHERE digest = ?").unwrap(/*TODO*/);
+            let mut statement = connection_locked.prepare_cached(
+                "SELECT COUNT(*) FROM value WHERE digest = ?").unwrap(/*TODO*/);
             let existing_count: i64 = statement
                 .query_row(
                     (&origin_digest,),
@@ -262,19 +263,27 @@ impl StoreValue for SQLiteStorage {
                 _ => panic!(),
             }
         }
-        let mut statement = connection_locked.prepare_cached("INSERT INTO value (digest, value_blob) VALUES (?1, ?2)").unwrap(/*TODO*/);
+
+        let mut statement = connection_locked.prepare_cached(
+            "INSERT INTO value (digest, value_blob) VALUES (?1, ?2)").unwrap(/*TODO*/);
         let rows_inserted = statement.execute(
             (&origin_digest, value.value().blob().as_slice()),
         ).unwrap(/*TODO*/);
         assert_eq!(1, rows_inserted);
-        let inserted_value_rowid = connection_locked.last_insert_rowid();
-        for (index, reference) in value.value().references().iter().enumerate() {
-            let target_digest: [u8; 64] = reference.reference.digest.into();
-            connection_locked.execute(
-                "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",
-                (&inserted_value_rowid, &index, &target_digest),
-            ).unwrap(/*TODO*/);
+
+        if !value.value().references().is_empty() {
+            let inserted_value_rowid = connection_locked.last_insert_rowid();
+            let mut statement = connection_locked.prepare_cached(
+                "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",).unwrap(/*TODO*/);
+            for (index, reference) in value.value().references().iter().enumerate() {
+                let target_digest: [u8; 64] = reference.reference.digest.into();
+                let rows_inserted = statement.execute(                
+                    (&inserted_value_rowid, &index, &target_digest),
+                ).unwrap(/*TODO*/);
+                assert_eq!(1, rows_inserted);
+            }
         }
+
         Ok(reference)
     }
 }

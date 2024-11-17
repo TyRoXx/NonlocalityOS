@@ -5,7 +5,10 @@ mod tests {
     use super::test::Bencher;
     use crate::{
         storage::{LoadValue, SQLiteStorage, StoreValue},
-        tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
+        tree::{
+            BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob,
+            VALUE_BLOB_MAX_LENGTH,
+        },
     };
     use std::sync::Arc;
     use tokio::runtime::Runtime;
@@ -44,12 +47,16 @@ mod tests {
         sqlite_in_memory_store_value_redundantly(b, VALUE_BLOB_MAX_LENGTH);
     }
 
-    fn sqlite_in_memory_store_value_newly(b: &mut Bencher, value_blob_size: usize) {
+    fn sqlite_in_memory_store_value_newly(
+        b: &mut Bencher,
+        value_blob_size: usize,
+        reference_count: usize,
+    ) {
         use rand::rngs::SmallRng;
         use rand::Rng;
         use rand::SeedableRng;
         let mut small_rng = SmallRng::seed_from_u64(123);
-        let store_count = 100;
+        let store_count = 70;
         let stored_values: Vec<_> = (0..store_count)
             .map(|_| {
                 HashedValue::from(Arc::new(Value::new(
@@ -57,7 +64,14 @@ mod tests {
                         (0..value_blob_size).map(|_| small_rng.gen()),
                     ))
                     .unwrap(),
-                    vec![],
+                    (0..reference_count)
+                        .map(|_| {
+                            TypedReference::new(
+                                TypeId(0),
+                                Reference::new(BlobDigest::new(&small_rng.gen())),
+                            )
+                        })
+                        .collect(),
                 )))
             })
             .collect();
@@ -74,22 +88,27 @@ mod tests {
             }
             storage
         });
-        b.bytes = store_count as u64 * value_blob_size as u64;
+        b.bytes = store_count as u64 * (value_blob_size as u64 + reference_count as u64 * 64);
     }
 
     #[bench]
     fn sqlite_in_memory_store_value_newly_small(b: &mut Bencher) {
-        sqlite_in_memory_store_value_newly(b, 100);
+        sqlite_in_memory_store_value_newly(b, 100, 0);
     }
 
     #[bench]
     fn sqlite_in_memory_store_value_newly_medium(b: &mut Bencher) {
-        sqlite_in_memory_store_value_newly(b, VALUE_BLOB_MAX_LENGTH / 2);
+        sqlite_in_memory_store_value_newly(b, VALUE_BLOB_MAX_LENGTH / 2, 0);
     }
 
     #[bench]
     fn sqlite_in_memory_store_value_newly_large(b: &mut Bencher) {
-        sqlite_in_memory_store_value_newly(b, VALUE_BLOB_MAX_LENGTH);
+        sqlite_in_memory_store_value_newly(b, VALUE_BLOB_MAX_LENGTH, 0);
+    }
+
+    #[bench]
+    fn sqlite_in_memory_store_value_newly_only_refs(b: &mut Bencher) {
+        sqlite_in_memory_store_value_newly(b, 0, 100);
     }
 
     fn random_bytes(len: usize) -> Vec<u8> {
