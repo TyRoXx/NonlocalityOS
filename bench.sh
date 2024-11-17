@@ -5,7 +5,7 @@ set -e
 PACKAGE="astraea"
 # cargo bench will run all benchmarks that contain any of these identifiers in their names:
 #BENCHMARKS="read_large_file_sqlite_in_memory_storage"
-BENCHMARKS="sqlite_in_memory_store_value_large"
+BENCHMARKS="sqlite_in_memory_store_value"
 
 ./install_sccache.sh || exit 1
 export RUSTC_WRAPPER=sccache
