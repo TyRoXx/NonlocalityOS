@@ -222,7 +222,7 @@ impl NamedEntry {
                             Ok(_) => {
                                 let current_status = *cloned_receiver.borrow();
                                 if previous_status == current_status {
-                                    warn!(
+                                    info!(
                                         "Open directory status received, but it is the same as before: {:?}",
                                         &previous_status
                                     );

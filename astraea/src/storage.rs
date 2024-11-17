@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument};
+use tracing::{debug, info};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum StoreError {
@@ -397,13 +397,13 @@ pub trait CommitChanges {
 
 #[async_trait]
 impl CommitChanges for SQLiteStorage {
-    #[instrument(skip_all)]
+    //#[instrument(skip_all)]
     async fn commit_changes(&self) -> Result<(), rusqlite::Error> {
         let mut state_locked = self.state.lock().await;
         match state_locked.is_in_transaction {
             true => {
                 state_locked.is_in_transaction = false;
-                debug!("COMMIT");
+                info!("COMMIT");
                 state_locked.connection.execute("COMMIT;", ())?;
                 Ok(())
             }
