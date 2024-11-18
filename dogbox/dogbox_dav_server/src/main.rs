@@ -53,33 +53,20 @@ enum SaveStatus {
     Saving,
 }
 
-async fn save_root_regularly(root: Arc<OpenDirectory>, minimum_delay: std::time::Duration) {
-    let maximum_delay = std::time::Duration::from_secs(5);
-    let mut previous_status = None;
-    let mut next_wait_time = minimum_delay;
+async fn save_root_regularly(root: Arc<OpenDirectory>, auto_save_interval: std::time::Duration) {
     loop {
         debug!("Time to check if root needs to be saved.");
         let save_result = root.request_save().await;
         match save_result {
-            Ok(status) => {
-                let is_same_as_before = Some(&status) == previous_status.as_ref();
-                previous_status = Some(status);
-                if is_same_as_before {
-                    next_wait_time = next_wait_time + std::time::Duration::from_millis(20);
-                } else {
-                    next_wait_time = minimum_delay;
-                }
-                next_wait_time = std::cmp::min(maximum_delay, next_wait_time);
-                tokio::time::sleep(next_wait_time).await;
-            }
-            Err(error_) => {
-                error!("request_save failed with {:?}", &error_);
-                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            Ok(_status) => {}
+            Err(error) => {
+                error!("request_save failed with {:?}", &error);
             }
         }
+        tokio::time::sleep(auto_save_interval).await;
 
         let drop_stats = root.drop_all_read_caches().await;
-        if drop_stats != CacheDropStats::new(0, 0,0) {
+        if drop_stats != CacheDropStats::new(0, 0, 0) {
             info!("Dropped some read caches: {:?}", &drop_stats);
         }
     }
@@ -229,7 +216,7 @@ async fn run_dav_server(
     database_file_name: &Path,
     modified_default: std::time::SystemTime,
     clock: WallClock,
-    minimum_save_delay: std::time::Duration,
+    auto_save_interval: Option<std::time::Duration>,
 ) -> Result<
     (
         tokio::sync::mpsc::Receiver<SaveStatus>,
@@ -300,7 +287,9 @@ async fn run_dav_server(
                 {
                     let root = root.clone();
                     async move {
-                        save_root_regularly(root.clone(), minimum_save_delay).await;
+                        if let Some(auto_save_interval) = auto_save_interval {
+                            save_root_regularly(root.clone(), auto_save_interval).await;
+                        }
                         Ok(())
                     }
                 },
@@ -334,11 +323,24 @@ async fn run_dav_server(
 mod tests {
     use crate::run_dav_server;
     use astraea::tree::VALUE_BLOB_MAX_LENGTH;
-    use dogbox_tree_editor::WallClock;
+    use dogbox_tree_editor::{OpenDirectory, WallClock};
     use reqwest_dav::{list_cmd::ListEntity, Auth, Client, ClientBuilder, Depth};
-    use std::{future::Future, net::SocketAddr, pin::Pin};
+    use std::{future::Future, net::SocketAddr, pin::Pin, sync::Arc};
     use tokio::net::TcpListener;
     use tracing::info;
+
+    async fn simulate_auto_save_but_fast(root: Arc<OpenDirectory>) {
+        loop {
+            let status = root.request_save().await.unwrap();
+            if status.digest.is_digest_up_to_date {
+                assert_eq!(0, status.files_open_for_writing_count);
+                assert_eq!(0, status.bytes_unflushed_count);
+                assert_eq!(0, status.directories_unsaved_count);
+                assert_eq!(0, status.files_unflushed_count);
+            }
+            assert!(status.directories_open_count >= 1);
+        }
+    }
 
     async fn run_dav_server_instance<'t>(
         database_file_name: &std::path::Path,
@@ -358,7 +360,7 @@ mod tests {
             modified_default,
             clock,
             // disable automatic saving to make the tests more deterministic
-            std::time::Duration::from_secs(3600),
+            None,
         )
         .await
         .unwrap();
@@ -370,7 +372,7 @@ mod tests {
             // verify again to be extra sure this is deterministic
             verify_changes(create_client(server_url)).await;
         };
-        let waiting_for_saved = async {
+        let waiting_for_saved_status = async {
             if is_saving_expected {
                 info!("Waiting for the save status to become saved.");
                 loop {
@@ -412,16 +414,13 @@ mod tests {
         };
         let testing = async {
             client_side_testing.await;
-            {
-                let status = root_directory.request_save().await.unwrap();
-                assert!(status.digest.is_digest_up_to_date);
-                assert_eq!(0, status.files_open_for_writing_count);
-                assert_eq!(0, status.bytes_unflushed_count);
-                assert!(status.directories_open_count >= 1);
-                assert_eq!(0, status.directories_unsaved_count);
-                assert_eq!(0, status.files_unflushed_count);
-            }
-            waiting_for_saved.await;
+            tokio::select! {
+                _ = simulate_auto_save_but_fast(root_directory.clone()) => {
+                    panic!("simulate_auto_save_but_fast isn't expected to return");
+                }
+                _ = waiting_for_saved_status => {
+                }
+            };
         };
         tokio::select! {
             result = server => {
@@ -1256,7 +1255,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         &database_file_name,
         modified_default,
         clock,
-        std::time::Duration::from_secs(10),
+        Some(std::time::Duration::from_secs(5)),
     )
     .await?;
     tokio::try_join!(server, async move {
