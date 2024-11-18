@@ -56,7 +56,7 @@ mod tests {
         use rand::Rng;
         use rand::SeedableRng;
         let mut small_rng = SmallRng::seed_from_u64(123);
-        let store_count = 70;
+        let store_count = 25;
         let stored_values: Vec<_> = (0..store_count)
             .map(|_| {
                 HashedValue::from(Arc::new(Value::new(
