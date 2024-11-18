@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 astraea = { path ="../astraea" }
+lambda = { path ="../lambda" }
 tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "sync"]}

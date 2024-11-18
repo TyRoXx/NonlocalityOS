@@ -164,7 +164,6 @@ dependencies = [
  "async-trait",
  "bytes 1.8.0",
  "cached",
- "futures",
  "futures-core",
  "futures-util",
  "hex",
@@ -1855,6 +1854,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "lambda"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "bytes 1.8.0",
+ "futures",
+ "hippeus_parser_generator",
+ "lazy_static",
+ "postcard",
+ "rusqlite",
+ "serde",
+ "test-log",
+ "tokio",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2163,6 +2178,7 @@ name = "nonlocality_host"
 version = "0.1.0"
 dependencies = [
  "astraea",
+ "lambda",
  "tokio",
 ]
 

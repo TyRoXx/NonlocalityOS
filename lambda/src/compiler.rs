@@ -1,12 +1,12 @@
-use crate::{
+use astraea::{
     storage::StoreValue,
-    tree::{
-        CompilerError, CompilerOutput, HashedValue, SourceLocation, TypeId, TypedReference, Value,
-    },
+    tree::{HashedValue, TypeId, TypedReference, Value},
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+use crate::expressions::{make_lambda, CompilerError, CompilerOutput, Lambda, SourceLocation};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum TokenContent {
@@ -27,7 +27,7 @@ pub enum TokenContent {
 #[derive(PartialEq, Debug)]
 pub struct Token {
     content: TokenContent,
-    location: crate::tree::SourceLocation,
+    location: SourceLocation,
 }
 
 impl Token {
@@ -627,7 +627,7 @@ async fn parse_lambda<'t>(
     let body = parse_expression(tokens, storage).await;
     let result = storage
         .store_value(&HashedValue::from(Arc::new(
-            crate::tree::make_lambda(crate::tree::Lambda::new(parameter, body)).value,
+            make_lambda(Lambda::new(parameter, body)).value,
         )))
         .await
         .unwrap()
@@ -686,10 +686,9 @@ pub async fn compile(source: &str, storage: &dyn StoreValue) -> CompilerOutput {
 
 #[cfg(test)]
 mod tests2 {
-    use tokio::sync::Mutex;
-
     use super::*;
-    use crate::storage::InMemoryValueStorage;
+    use astraea::storage::InMemoryValueStorage;
+    use tokio::sync::Mutex;
 
     #[test_log::test(tokio::test)]
     async fn test_compile_empty_source() {
@@ -725,7 +724,7 @@ mod tests2 {
             .add_type(TypeId(0));
         let entry_point = value_storage
             .store_value(&HashedValue::from(Arc::new(
-                crate::tree::make_lambda(crate::tree::Lambda::new(parameter, parameter)).value,
+                make_lambda(Lambda::new(parameter, parameter)).value,
             )))
             .await
             .unwrap()

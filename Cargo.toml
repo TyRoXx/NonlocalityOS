@@ -6,6 +6,7 @@ members=[
     "nonlocality_env",
     "nonlocality_build_utils",
     "astraea",
+    "lambda",
     "nonlocality_host",
     "hippeus_parser_generator",
     "totp_example",
