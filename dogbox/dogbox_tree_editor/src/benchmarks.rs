@@ -16,6 +16,7 @@ mod tests {
     use rand::SeedableRng;
     use std::sync::Arc;
     use tokio::runtime::Builder;
+    use tokio::runtime::Runtime;
 
     fn assert_equal_bytes(expected: &[u8], found: &[u8]) {
         assert!(expected == found);
@@ -62,8 +63,8 @@ mod tests {
         is_buffer_hot: bool,
         max_read_size: usize,
         create_storage_for_iteration: S,
+        runtime: Runtime,
     ) {
-        let runtime = Builder::new_multi_thread().build().unwrap();
         let original_content: Vec<u8> = Vec::new();
         let last_known_digest = BlobDigest::hash(&original_content);
         let last_known_digest_file_size = original_content.len();
@@ -123,53 +124,107 @@ mod tests {
     const UNREALISTICALLY_LARGE_READ_SIZE: usize = usize::MAX;
     const WINDOWS_WEBDAV_READ_SIZE: usize = 16384;
 
+    fn make_single_threaded_runtime() -> Runtime {
+        Builder::new_current_thread().build().unwrap()
+    }
+
+    fn make_multi_threaded_runtime() -> Runtime {
+        Builder::new_multi_thread().build().unwrap()
+    }
+
     #[bench]
     fn read_large_file_in_memory_storage_cold(b: &mut Bencher) {
         let storage = make_in_memory_storage();
-        read_large_file(b, false, UNREALISTICALLY_LARGE_READ_SIZE, || {
-            storage.clone()
-        });
+        read_large_file(
+            b,
+            false,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            || storage.clone(),
+            make_multi_threaded_runtime(),
+        );
     }
 
     #[bench]
     fn read_large_file_in_memory_storage_hot(b: &mut Bencher) {
         let storage = make_in_memory_storage();
-        read_large_file(b, true, UNREALISTICALLY_LARGE_READ_SIZE, || storage.clone());
+        read_large_file(
+            b,
+            true,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            || storage.clone(),
+            make_multi_threaded_runtime(),
+        );
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_cold(b: &mut Bencher) {
         let storage = make_sqlite_in_memory_storage();
-        read_large_file(b, false, UNREALISTICALLY_LARGE_READ_SIZE, || {
-            storage.clone()
-        });
+        read_large_file(
+            b,
+            false,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            || storage.clone(),
+            make_multi_threaded_runtime(),
+        );
+    }
+
+    #[bench]
+    fn read_large_file_sqlite_in_memory_storage_cold_single_threaded(b: &mut Bencher) {
+        let storage = make_sqlite_in_memory_storage();
+        read_large_file(
+            b,
+            false,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            || storage.clone(),
+            make_single_threaded_runtime(),
+        );
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_cold_realistic_read_size(b: &mut Bencher) {
         let storage = make_sqlite_in_memory_storage();
-        read_large_file(b, false, WINDOWS_WEBDAV_READ_SIZE, || storage.clone());
+        read_large_file(
+            b,
+            false,
+            WINDOWS_WEBDAV_READ_SIZE,
+            || storage.clone(),
+            make_multi_threaded_runtime(),
+        );
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_cold_with_load_cache_hot(b: &mut Bencher) {
         let storage = Arc::new(LoadCache::new(make_sqlite_in_memory_storage(), 1000));
-        read_large_file(b, false, UNREALISTICALLY_LARGE_READ_SIZE, || {
-            storage.clone()
-        });
+        read_large_file(
+            b,
+            false,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            || storage.clone(),
+            make_multi_threaded_runtime(),
+        );
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_cold_with_load_cache_cold(b: &mut Bencher) {
         let storage = make_sqlite_in_memory_storage();
-        read_large_file(b, false, UNREALISTICALLY_LARGE_READ_SIZE, || {
-            Arc::new(LoadCache::new(storage.clone(), 1000))
-        });
+        read_large_file(
+            b,
+            false,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            || Arc::new(LoadCache::new(storage.clone(), 1000)),
+            make_multi_threaded_runtime(),
+        );
     }
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_hot(b: &mut Bencher) {
         let storage = make_sqlite_in_memory_storage();
-        read_large_file(b, true, UNREALISTICALLY_LARGE_READ_SIZE, || storage.clone());
+        read_large_file(
+            b,
+            true,
+            UNREALISTICALLY_LARGE_READ_SIZE,
+            || storage.clone(),
+            make_multi_threaded_runtime(),
+        );
     }
 }

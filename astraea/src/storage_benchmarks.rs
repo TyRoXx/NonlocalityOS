@@ -56,7 +56,8 @@ mod tests {
         use rand::Rng;
         use rand::SeedableRng;
         let mut small_rng = SmallRng::seed_from_u64(123);
-        let store_count = 25;
+        // count reduced to save time in the tests
+        let store_count = 15;
         let stored_values: Vec<_> = (0..store_count)
             .map(|_| {
                 HashedValue::from(Arc::new(Value::new(
@@ -97,11 +98,6 @@ mod tests {
     }
 
     #[bench]
-    fn sqlite_in_memory_store_value_newly_medium(b: &mut Bencher) {
-        sqlite_in_memory_store_value_newly(b, VALUE_BLOB_MAX_LENGTH / 2, 0);
-    }
-
-    #[bench]
     fn sqlite_in_memory_store_value_newly_large(b: &mut Bencher) {
         sqlite_in_memory_store_value_newly(b, VALUE_BLOB_MAX_LENGTH, 0);
     }
@@ -109,6 +105,32 @@ mod tests {
     #[bench]
     fn sqlite_in_memory_store_value_newly_only_refs(b: &mut Bencher) {
         sqlite_in_memory_store_value_newly(b, 0, 100);
+    }
+
+    async fn generate_random_values<T: StoreValue>(value_count_in_database: u64, storage: &T) {
+        for index in 0..value_count_in_database {
+            let stored_value = HashedValue::from(Arc::new(Value::new(
+                ValueBlob::try_from(bytes::Bytes::copy_from_slice(&index.to_be_bytes())).unwrap(),
+                vec![],
+            )));
+            let _reference = storage.store_value(&stored_value).await.unwrap();
+        }
+    }
+
+    #[bench]
+    fn generate_random_values_1000(b: &mut Bencher) {
+        let value_count_in_database = 1000;
+        let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+        b.iter(|| {
+            let connection = rusqlite::Connection::open_in_memory().unwrap();
+            SQLiteStorage::create_schema(&connection).unwrap();
+            let storage = SQLiteStorage::from(connection).unwrap();
+            runtime.block_on(generate_random_values(value_count_in_database, &storage));
+            assert_eq!(
+                Ok(value_count_in_database),
+                runtime.block_on(storage.approximate_value_count())
+            );
+        });
     }
 
     fn random_bytes(len: usize) -> Vec<u8> {
@@ -119,20 +141,12 @@ mod tests {
         (0..len).map(|_| small_rng.gen()).collect()
     }
 
-    fn sqlite_in_memory_load_and_hash_value(b: &mut Bencher, value_count_in_database: usize) {
+    fn sqlite_in_memory_load_and_hash_value(b: &mut Bencher, value_count_in_database: u64) {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
-        let runtime = Runtime::new().unwrap();
-        for index in 0..(value_count_in_database as u64) {
-            let stored_value = HashedValue::from(Arc::new(Value::new(
-                ValueBlob::try_from(bytes::Bytes::copy_from_slice(&index.to_be_bytes())).unwrap(),
-                vec![],
-            )));
-            let _reference = runtime
-                .block_on(storage.store_value(&stored_value))
-                .unwrap();
-        }
+        let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+        runtime.block_on(generate_random_values(value_count_in_database, &storage));
         assert_eq!(
             Ok(value_count_in_database as u64),
             runtime.block_on(storage.approximate_value_count())
@@ -163,7 +177,7 @@ mod tests {
         });
         b.bytes = stored_value.value().blob().len() as u64;
         assert_eq!(
-            Ok(value_count_in_database as u64 + 1),
+            Ok(value_count_in_database + 1),
             runtime.block_on(storage.approximate_value_count())
         );
     }

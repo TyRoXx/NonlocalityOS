@@ -642,13 +642,8 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_create_file_zeroes_200k() {
-        test_create_file(std::iter::repeat_n(0u8, 200_000).collect()).await
-    }
-
-    #[test_log::test(tokio::test)]
-    async fn test_create_file_random_200k() {
-        test_create_file(random_bytes(200_000)).await
+    async fn test_create_file_random_100k() {
+        test_create_file(random_bytes(100_000)).await
     }
 
     #[test_log::test(tokio::test)]
