@@ -68,7 +68,7 @@ mod tests {
         let original_content: Vec<u8> = Vec::new();
         let last_known_digest = BlobDigest::hash(&original_content);
         let last_known_digest_file_size = original_content.len();
-        let file_size_in_blocks = 20;
+        let file_size_in_blocks = 50;
         let write_buffer_in_blocks = file_size_in_blocks;
         let mut buffer = OpenFileContentBuffer::from_data(
             original_content.clone(),
@@ -158,6 +158,7 @@ mod tests {
 
     #[bench]
     fn read_large_file_sqlite_in_memory_storage_cold(b: &mut Bencher) {
+        tracing_subscriber::fmt::init();
         let storage = make_sqlite_in_memory_storage();
         read_large_file(
             b,

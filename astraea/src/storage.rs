@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::{debug, info, instrument};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum StoreError {
@@ -44,6 +44,7 @@ impl DelayedHashedValue {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn hash(self) -> Option<HashedValue> {
         match self.alternatives {
             DelayedHashedValueAlternatives::Delayed(value, expected_digest) => {
@@ -240,11 +241,6 @@ impl StoreValue for SQLiteStorage {
     async fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError> {
         let mut state_locked = self.state.lock().await;
         let reference = Reference::new(*value.digest());
-        debug!(
-            "Store {} bytes as {}",
-            value.value().blob().content.len(),
-            &reference.digest,
-        );
         let origin_digest: [u8; 64] = reference.digest.into();
         state_locked.require_transaction().unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
@@ -323,11 +319,6 @@ impl LoadValue for SQLiteStorage {
                 reference
             })
             .collect();
-        debug!(
-            "Load {} bytes as {}",
-            value_blob.content.len(),
-            &reference.digest,
-        );
         Some(DelayedHashedValue::delayed(
             Arc::new(Value::new(value_blob, references)),
             reference.digest,

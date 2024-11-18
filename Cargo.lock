@@ -1015,6 +1015,7 @@ dependencies = [
  "relative-path",
  "rusqlite",
  "test-case",
+ "test-log",
  "tokio",
  "tracing",
  "tracing-subscriber",
