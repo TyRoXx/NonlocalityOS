@@ -4,7 +4,6 @@
 
 * install Rust: <https://www.rust-lang.org/learn/get-started> (tested with Rust 1.84.0)
 * restart your terminal
-* install `sccache` by running `cargo --verbose install sccache`
 
 ## Visual Studio Code
 
