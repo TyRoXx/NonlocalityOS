@@ -181,6 +181,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -979,6 +980,23 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "dogbox_lambda_apis"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "async-trait",
+ "bytes 1.9.0",
+ "dogbox_tree",
+ "dogbox_tree_editor",
+ "lambda",
+ "postcard",
+ "rusqlite",
+ "serde",
+ "test-log",
+ "tokio",
 ]
 
 [[package]]
@@ -3927,6 +3945,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8c5f0a0af699448548ad1a2fbf920fb4bee257eae39953ba95cb84891a0446a"
 dependencies = [
  "getrandom",
+ "rand",
+ "uuid-macro-internal",
+]
+
+[[package]]
+name = "uuid-macro-internal"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b91f57fe13a38d0ce9e28a03463d8d3c2468ed03d75375110ec71d93b449a08"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
 ]
 
 [[package]]

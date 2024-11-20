@@ -1,6 +1,7 @@
 use crate::tree::{BlobDigest, HashedValue, Reference, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH};
 use async_trait::async_trait;
 use cached::Cached;
+use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -14,16 +15,40 @@ pub enum StoreError {
     Rusqlite(String),
 }
 
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for StoreError {}
+
 #[async_trait::async_trait]
 pub trait StoreValue {
     async fn store_value(&self, value: &HashedValue) -> std::result::Result<Reference, StoreError>;
 }
 
+pub async fn store_object<S: Serialize>(
+    storage: &dyn StoreValue,
+    object: &S,
+) -> std::result::Result<Reference, Box<dyn std::error::Error>> {
+    let serialized = match Value::from_object(object) {
+        Ok(success) => success,
+        Err(error) => return Err(Box::new(error)),
+    };
+    Ok(storage
+        .store_value(&HashedValue::from(Arc::new(serialized)))
+        .await
+        .map_err(|error| Box::new(error))?)
+}
+
+#[derive(Debug, Clone)]
 enum DelayedHashedValueAlternatives {
     Delayed(Arc<Value>, BlobDigest),
     Immediate(HashedValue),
 }
 
+#[derive(Debug, Clone)]
 pub struct DelayedHashedValue {
     alternatives: DelayedHashedValueAlternatives,
 }
@@ -58,18 +83,12 @@ impl DelayedHashedValue {
 }
 
 #[async_trait::async_trait]
-pub trait LoadValue {
+pub trait LoadValue: std::fmt::Debug {
     async fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue>;
     async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError>;
 }
 
 pub trait LoadStoreValue: LoadValue + StoreValue {}
-
-impl std::fmt::Debug for dyn LoadStoreValue + Send + Sync {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "LoadStoreValue")
-    }
-}
 
 #[async_trait]
 pub trait UpdateRoot {
@@ -81,6 +100,7 @@ pub trait LoadRoot {
     async fn load_root(&self, name: &str) -> Option<BlobDigest>;
 }
 
+#[derive(Debug)]
 pub struct InMemoryValueStorage {
     reference_to_value: Mutex<BTreeMap<Reference, HashedValue>>,
 }
@@ -140,6 +160,7 @@ impl LoadValue for InMemoryValueStorage {
 
 impl LoadStoreValue for InMemoryValueStorage {}
 
+#[derive(Debug)]
 struct SQLiteState {
     connection: rusqlite::Connection,
     is_in_transaction: bool,
@@ -159,6 +180,7 @@ impl SQLiteState {
     }
 }
 
+#[derive(Debug)]
 pub struct SQLiteStorage {
     state: tokio::sync::Mutex<SQLiteState>,
 }
@@ -400,6 +422,7 @@ impl CommitChanges for SQLiteStorage {
     }
 }
 
+#[derive(Debug)]
 pub struct LoadCache {
     next: Arc<(dyn LoadStoreValue + Send + Sync)>,
     entries: Mutex<cached::stores::SizedCache<BlobDigest, HashedValue>>,

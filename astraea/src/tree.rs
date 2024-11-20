@@ -181,6 +181,34 @@ mod tests {
     }
 }
 
+#[derive(Debug)]
+pub enum ValueSerializationError {
+    Postcard(postcard::Error),
+    BlobTooLong,
+}
+
+impl std::fmt::Display for ValueSerializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for ValueSerializationError {}
+
+#[derive(Debug)]
+pub enum ValueDeserializationError {
+    ReferencesNotAllowed,
+    Postcard(postcard::Error),
+}
+
+impl std::fmt::Display for ValueDeserializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for ValueDeserializationError {}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Value {
     pub blob: ValueBlob,
@@ -214,6 +242,32 @@ impl Value {
         Value {
             blob: ValueBlob::empty(),
             references: Vec::new(),
+        }
+    }
+
+    pub fn from_object<S: Serialize>(object: &S) -> Result<Value, ValueSerializationError> {
+        let blob = match postcard::to_allocvec(object) {
+            Ok(success) => success,
+            Err(error) => return Err(ValueSerializationError::Postcard(error)),
+        };
+        let value_blob = match ValueBlob::try_from(bytes::Bytes::from(blob)) {
+            Some(success) => success,
+            None => return Err(ValueSerializationError::BlobTooLong),
+        };
+        Ok(Value::new(value_blob, Vec::new()))
+    }
+
+    pub fn to_object<'t, 'u, D>(&'t self) -> Result<D, ValueDeserializationError>
+    where
+        D: Deserialize<'u>,
+        't: 'u,
+    {
+        if !self.references.is_empty() {
+            return Err(ValueDeserializationError::ReferencesNotAllowed);
+        }
+        match postcard::from_bytes::<D>(self.blob().as_slice()) {
+            Ok(success) => Ok(success),
+            Err(error) => Err(ValueDeserializationError::Postcard(error)),
         }
     }
 
