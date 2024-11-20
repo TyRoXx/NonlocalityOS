@@ -13,6 +13,7 @@ members=[
     "dogbox/dogbox_tree",
     "dogbox/dogbox_tree_editor",
     "dogbox/dogbox_dav_server",
+    "dogbox/dogbox_lambda_apis",
     "fuzz",
 ]
 resolver="2"
