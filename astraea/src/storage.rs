@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument};
+use tracing::{debug, info};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum StoreError {
@@ -44,7 +44,7 @@ impl DelayedHashedValue {
         }
     }
 
-    #[instrument(skip_all)]
+    //#[instrument(skip_all)]
     pub fn hash(self) -> Option<HashedValue> {
         match self.alternatives {
             DelayedHashedValueAlternatives::Delayed(value, expected_digest) => {

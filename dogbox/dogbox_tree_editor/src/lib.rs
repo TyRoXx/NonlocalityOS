@@ -20,7 +20,7 @@ use std::{
     u64,
 };
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -183,7 +183,7 @@ impl NamedEntry {
             NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {}
             NamedEntry::OpenRegularFile(_arc, receiver) => {
                 let mut cloned_receiver = receiver.clone();
-                let mut previous_status = *cloned_receiver.borrow();
+                let mut previous_status = *cloned_receiver.borrow_and_update();
                 debug!("The previous status was: {:?}", &previous_status);
                 tokio::task::spawn(async move {
                     loop {
@@ -1648,7 +1648,7 @@ impl Prefetcher {
         blocks_to_prefetch
     }
 
-    #[instrument(skip_all)]
+    //#[instrument(skip_all)]
     pub async fn prefetch(
         &mut self,
         blocks: &mut Vec<OpenFileContentBlock>,
