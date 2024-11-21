@@ -1,6 +1,6 @@
 use astraea::{
     storage::StoreValue,
-    tree::{HashedValue, TypedReference, Value, TYPE_ID_LAMBDA, TYPE_ID_STRING},
+    tree::{HashedValue, Reference, Value},
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -579,7 +579,7 @@ fn expect_dot(tokens: &mut std::slice::Iter<Token>) {
 async fn parse_expression<'t>(
     tokens: &mut std::slice::Iter<'t, Token>,
     storage: &dyn StoreValue,
-) -> TypedReference {
+) -> Reference {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
@@ -588,8 +588,7 @@ async fn parse_expression<'t>(
                     Value::from_string(&identifier).unwrap(/*TODO*/),
                 )))
                 .await
-                .unwrap()
-                .add_type(TYPE_ID_STRING),
+                .unwrap(),
             TokenContent::Assign => todo!(),
             TokenContent::Caret => todo!(),
             TokenContent::LeftParenthesis => todo!(),
@@ -603,7 +602,7 @@ async fn parse_expression<'t>(
 async fn parse_lambda<'t>(
     tokens: &mut std::slice::Iter<'t, Token>,
     storage: &dyn StoreValue,
-) -> TypedReference {
+) -> Reference {
     let parameter_name = match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
@@ -626,12 +625,10 @@ async fn parse_lambda<'t>(
     let body = parse_expression(tokens, storage).await;
     let result = storage
         .store_value(&HashedValue::from(Arc::new(make_lambda(Lambda::new(
-            parameter,
-            body.reference,
+            parameter, body,
         )))))
         .await
-        .unwrap()
-        .add_type(TYPE_ID_LAMBDA);
+        .unwrap();
     result
 }
 
@@ -647,7 +644,7 @@ pub async fn parse_entry_point_lambda<'t>(
             TokenContent::Assign => todo!(),
             TokenContent::Caret => {
                 let entry_point = parse_lambda(tokens, storage).await;
-                CompilerOutput::new(entry_point.reference, errors)
+                CompilerOutput::new(entry_point, errors)
             }
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
