@@ -4,7 +4,7 @@ use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
     tree::{
         HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob, TYPE_ID_CONSOLE,
-        TYPE_ID_DELAY, TYPE_ID_EFFECT, TYPE_ID_SECONDS, TYPE_ID_STRING,
+        TYPE_ID_EFFECT, TYPE_ID_SECONDS, TYPE_ID_STRING,
     },
 };
 use futures::future::join;
@@ -341,58 +341,6 @@ async fn test_sum() {
     assert_eq!(make_seconds(3), *result.value);
 }
 
-pub fn make_delay(before: Reference, duration: Reference) -> TypedValue {
-    TypedValue::new(
-        TYPE_ID_DELAY,
-        Value {
-            blob: ValueBlob::empty(),
-            references: vec![before, duration],
-        },
-    )
-}
-
-pub struct DelayService {}
-
-impl ReduceExpression for DelayService {
-    fn reduce<'t>(
-        &'t self,
-        mut argument: TypedValue,
-        service_resolver: &'t dyn ResolveServiceId,
-        loader: &'t dyn LoadValue,
-        storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
-        let mut arguments = argument.value.references.drain(0..2);
-        let before_ref = arguments.next().unwrap();
-        let duration_ref = arguments.next().unwrap();
-        assert!(arguments.next().is_none());
-        Box::pin(async move {
-            let before_future = async move {
-                reduce_expression_from_reference(
-                    &TypedReference::new(TYPE_ID_EFFECT, before_ref),
-                    service_resolver,
-                    loader,
-                    storage,
-                )
-                .await
-            };
-            let duration_future = async move {
-                reduce_expression_from_reference(
-                    &TypedReference::new(TYPE_ID_SECONDS, duration_ref),
-                    service_resolver,
-                    loader,
-                    storage,
-                )
-                .await
-            };
-            let (before_result, duration_result) = join(before_future, duration_future).await;
-            let duration = duration_result.unwrap().value;
-            let seconds = to_seconds(&duration).unwrap();
-            tokio::time::sleep(std::time::Duration::from_secs(seconds)).await;
-            make_effect(before_result.unwrap().reference.reference)
-        })
-    }
-}
-
 pub struct ActualConsole {}
 
 impl ReduceExpression for ActualConsole {
@@ -459,116 +407,6 @@ pub fn to_lambda(value: Value) -> Option<Lambda> {
         return None;
     }
     Some(Lambda::new(value.references[0], value.references[1]))
-}
-
-pub struct LambdaApplication {
-    function: Reference,
-    argument: Reference,
-}
-
-impl LambdaApplication {
-    pub fn new(function: Reference, argument: Reference) -> Self {
-        Self {
-            function: function,
-            argument: argument,
-        }
-    }
-}
-
-pub fn make_lambda_application(function: Reference, argument: Reference) -> Value {
-    Value {
-        blob: ValueBlob::empty(),
-        references: vec![function, argument],
-    }
-}
-
-pub fn to_lambda_application(value: Value) -> Option<LambdaApplication> {
-    if value.references.len() != 2 {
-        return None;
-    }
-    Some(LambdaApplication::new(
-        value.references[0],
-        value.references[1],
-    ))
-}
-
-async fn replace_variable_recursively(
-    body: &Reference,
-    variable: &Reference,
-    argument: &Reference,
-    loader: &dyn LoadValue,
-    storage: &dyn StoreValue,
-) -> Option<Value> {
-    let body_loaded = loader.load_value(&body).await.unwrap().hash().unwrap();
-    let mut references: Vec<Reference> = Vec::new();
-    let mut has_replaced_something = false;
-    for child in &body_loaded.value().references {
-        if child == variable {
-            references.push(argument.clone());
-            has_replaced_something = true;
-        } else {
-            if let Some(replaced) = Box::pin(replace_variable_recursively(
-                child, variable, argument, loader, storage,
-            ))
-            .await
-            {
-                let stored = storage
-                    .store_value(&HashedValue::from(Arc::new(replaced)))
-                    .await
-                    .unwrap(/*TODO*/);
-                references.push(stored);
-                has_replaced_something = true;
-            } else {
-                references.push(*child);
-            }
-        }
-    }
-    if !has_replaced_something {
-        return None;
-    }
-    Some(Value::new(body_loaded.value().blob().clone(), references))
-}
-
-pub struct LambdaApplicationService {}
-
-impl ReduceExpression for LambdaApplicationService {
-    fn reduce<'t>(
-        &'t self,
-        argument: TypedValue,
-        _service_resolver: &'t dyn ResolveServiceId,
-        loader: &'t dyn LoadValue,
-        storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
-        let lambda_application = to_lambda_application(argument.value).unwrap();
-        Box::pin(async move {
-            let argument = &lambda_application.argument;
-            let function = to_lambda(
-                (**loader
-                    .load_value(&lambda_application.function)
-                    .await
-                    .unwrap()
-                    .hash()
-                    .unwrap()
-                    .value())
-                .clone(),
-            )
-            .unwrap();
-            let variable = &function.variable;
-            match replace_variable_recursively(&function.body, &variable, argument, loader, storage)
-                .await
-            {
-                Some(replaced) => replaced,
-                None => (**loader
-                    .load_value(&function.body)
-                    .await
-                    .unwrap()
-                    .hash()
-                    .unwrap()
-                    .value())
-                .clone(),
-            }
-        })
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]

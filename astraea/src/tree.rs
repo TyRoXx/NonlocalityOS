@@ -82,7 +82,6 @@ pub struct TypeId(pub u64);
 pub const TYPE_ID_STRING: TypeId = TypeId(0);
 pub const TYPE_ID_CONSOLE: TypeId = TypeId(2);
 pub const TYPE_ID_EFFECT: TypeId = TypeId(3);
-pub const TYPE_ID_DELAY: TypeId = TypeId(4);
 pub const TYPE_ID_SECONDS: TypeId = TypeId(5);
 pub const TYPE_ID_SUM: TypeId = TypeId(6);
 pub const TYPE_ID_LAMBDA: TypeId = TypeId(7);
