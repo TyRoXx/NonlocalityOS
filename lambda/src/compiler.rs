@@ -1,6 +1,6 @@
 use astraea::{
     storage::StoreValue,
-    tree::{HashedValue, TypeId, TypedReference, Value},
+    tree::{HashedValue, TypedReference, Value, TYPE_ID_LAMBDA, TYPE_ID_STRING},
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -589,7 +589,7 @@ async fn parse_expression<'t>(
                 )))
                 .await
                 .unwrap()
-                .add_type(TypeId(0)),
+                .add_type(TYPE_ID_STRING),
             TokenContent::Assign => todo!(),
             TokenContent::Caret => todo!(),
             TokenContent::LeftParenthesis => todo!(),
@@ -621,17 +621,17 @@ async fn parse_lambda<'t>(
             Value::from_string(parameter_name).unwrap(/*TODO*/),
         )))
         .await
-        .unwrap()
-        .add_type(TypeId(0));
+        .unwrap();
     expect_dot(tokens);
     let body = parse_expression(tokens, storage).await;
     let result = storage
-        .store_value(&HashedValue::from(Arc::new(
-            make_lambda(Lambda::new(parameter, body)).value,
-        )))
+        .store_value(&HashedValue::from(Arc::new(make_lambda(Lambda::new(
+            parameter,
+            body.reference,
+        )))))
         .await
         .unwrap()
-        .add_type(TypeId(7));
+        .add_type(TYPE_ID_LAMBDA);
     result
 }
 
@@ -647,7 +647,7 @@ pub async fn parse_entry_point_lambda<'t>(
             TokenContent::Assign => todo!(),
             TokenContent::Caret => {
                 let entry_point = parse_lambda(tokens, storage).await;
-                CompilerOutput::new(entry_point, errors)
+                CompilerOutput::new(entry_point.reference, errors)
             }
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
@@ -661,8 +661,7 @@ pub async fn parse_entry_point_lambda<'t>(
             let entry_point = storage
                 .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
                 .await
-                .unwrap()
-                .add_type(TypeId(1));
+                .unwrap();
             CompilerOutput::new(entry_point, errors)
         }
     }
@@ -699,8 +698,7 @@ mod tests2 {
             value_storage
                 .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
                 .await
-                .unwrap()
-                .add_type(TypeId(1)),
+                .unwrap(),
             vec![CompilerError::new(
                 "Expected entry point lambda".to_string(),
                 SourceLocation::new(0, 0),
@@ -720,15 +718,13 @@ mod tests2 {
                 Value::from_string("x").unwrap(),
             )))
             .await
-            .unwrap()
-            .add_type(TypeId(0));
+            .unwrap();
         let entry_point = value_storage
-            .store_value(&HashedValue::from(Arc::new(
-                make_lambda(Lambda::new(parameter, parameter)).value,
-            )))
+            .store_value(&HashedValue::from(Arc::new(make_lambda(Lambda::new(
+                parameter, parameter,
+            )))))
             .await
-            .unwrap()
-            .add_type(TypeId(7));
+            .unwrap();
         let expected = CompilerOutput::new(entry_point, Vec::new());
         assert_eq!(expected, output);
         assert_eq!(2, value_storage.len().await);

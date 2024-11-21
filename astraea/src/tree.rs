@@ -79,6 +79,15 @@ impl std::convert::From<BlobDigest> for [u8; 64] {
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
 pub struct TypeId(pub u64);
 
+pub const TYPE_ID_STRING: TypeId = TypeId(0);
+pub const TYPE_ID_CONSOLE: TypeId = TypeId(2);
+pub const TYPE_ID_EFFECT: TypeId = TypeId(3);
+pub const TYPE_ID_DELAY: TypeId = TypeId(4);
+pub const TYPE_ID_SECONDS: TypeId = TypeId(5);
+pub const TYPE_ID_SUM: TypeId = TypeId(6);
+pub const TYPE_ID_LAMBDA: TypeId = TypeId(7);
+pub const TYPE_ID_LAMBDA_APPLICATION: TypeId = TypeId(8);
+
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy, Serialize, Deserialize)]
 pub struct ReferenceIndex(pub u64);
 
@@ -176,11 +185,11 @@ mod tests {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Value {
     pub blob: ValueBlob,
-    pub references: Vec<TypedReference>,
+    pub references: Vec<Reference>,
 }
 
 impl Value {
-    pub fn new(blob: ValueBlob, references: Vec<TypedReference>) -> Value {
+    pub fn new(blob: ValueBlob, references: Vec<Reference>) -> Value {
         Value {
             blob,
             references: references,
@@ -191,7 +200,7 @@ impl Value {
         &self.blob
     }
 
-    pub fn references(&self) -> &[TypedReference] {
+    pub fn references(&self) -> &[Reference] {
         &self.references
     }
 
@@ -248,9 +257,9 @@ where
     let mut hasher = D::new();
     hasher.update(referenced.blob.as_slice());
     for item in &referenced.references {
-        hasher.update(&item.type_id.0.to_be_bytes());
-        hasher.update(&item.reference.digest.0 .0);
-        hasher.update(&item.reference.digest.0 .1);
+        hasher.update(&TYPE_ID_STRING.0.to_be_bytes());
+        hasher.update(&item.digest.0 .0);
+        hasher.update(&item.digest.0 .1);
     }
     hasher.finalize()
 }
@@ -264,9 +273,9 @@ where
     let mut hasher = D::default();
     hasher.update(referenced.blob.as_slice());
     for item in &referenced.references {
-        hasher.update(&item.type_id.0.to_be_bytes());
-        hasher.update(&item.reference.digest.0 .0);
-        hasher.update(&item.reference.digest.0 .1);
+        hasher.update(&TYPE_ID_STRING.0.to_be_bytes());
+        hasher.update(&item.digest.0 .0);
+        hasher.update(&item.digest.0 .1);
     }
     hasher.finalize_xof()
 }

@@ -4,8 +4,7 @@ extern crate test;
 mod tests {
     use super::test::Bencher;
     use crate::tree::{
-        BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob,
-        VALUE_BLOB_MAX_LENGTH,
+        BlobDigest, HashedValue, Reference, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH,
     };
     use rand::rngs::SmallRng;
     use rand::Rng;
@@ -101,14 +100,11 @@ mod tests {
             .unwrap(),
             std::iter::repeat_n((), reference_count)
                 .map(|()| {
-                    TypedReference::new(
-                        TypeId(0),
-                        Reference::new(BlobDigest::new(&{
-                            let mut array: [u8; 64] = [0; 64];
-                            small_rng.fill(&mut array);
-                            array
-                        })),
-                    )
+                    Reference::new(BlobDigest::new(&{
+                        let mut array: [u8; 64] = [0; 64];
+                        small_rng.fill(&mut array);
+                        array
+                    }))
                 })
                 .collect(),
         ));

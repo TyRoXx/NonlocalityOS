@@ -1,7 +1,4 @@
-use crate::tree::{
-    BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob,
-    VALUE_BLOB_MAX_LENGTH,
-};
+use crate::tree::{BlobDigest, HashedValue, Reference, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH};
 use async_trait::async_trait;
 use cached::Cached;
 use std::{
@@ -272,8 +269,8 @@ impl StoreValue for SQLiteStorage {
             let mut statement = connection_locked.prepare_cached(
                 "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",).unwrap(/*TODO*/);
             for (index, reference) in value.value().references().iter().enumerate() {
-                let target_digest: [u8; 64] = reference.reference.digest.into();
-                let rows_inserted = statement.execute(                
+                let target_digest: [u8; 64] = reference.digest.into();
+                let rows_inserted = statement.execute(
                     (&inserted_value_rowid, &index, &target_digest),
                 ).unwrap(/*TODO*/);
                 assert_eq!(1, rows_inserted);
@@ -288,7 +285,7 @@ impl StoreValue for SQLiteStorage {
 impl LoadValue for SQLiteStorage {
     //#[instrument(skip_all)]
     async fn load_value(&self, reference: &Reference) -> Option<DelayedHashedValue> {
-        let references: Vec<crate::tree::TypedReference>;
+        let references: Vec<crate::tree::Reference>;
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = reference.digest.into();
@@ -306,7 +303,7 @@ impl LoadValue for SQLiteStorage {
         let results = statement.query_map([&id], |row| {
             let index : i64 = row.get(0)?;
             let target : [u8; 64] = row.get(1)?;
-            Ok((index, TypedReference::new(TypeId(0), Reference::new(BlobDigest::new(&target)))))
+            Ok((index, Reference::new(BlobDigest::new(&target))))
             }).unwrap(/*TODO*/);
         references = results
             .enumerate()

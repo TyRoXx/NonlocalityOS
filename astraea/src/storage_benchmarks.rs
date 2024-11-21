@@ -5,10 +5,7 @@ mod tests {
     use super::test::Bencher;
     use crate::{
         storage::{LoadValue, SQLiteStorage, StoreValue},
-        tree::{
-            BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob,
-            VALUE_BLOB_MAX_LENGTH,
-        },
+        tree::{BlobDigest, HashedValue, Reference, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
     };
     use std::sync::Arc;
     use tokio::runtime::Runtime;
@@ -66,12 +63,7 @@ mod tests {
                     ))
                     .unwrap(),
                     (0..reference_count)
-                        .map(|_| {
-                            TypedReference::new(
-                                TypeId(0),
-                                Reference::new(BlobDigest::new(&small_rng.gen())),
-                            )
-                        })
+                        .map(|_| Reference::new(BlobDigest::new(&small_rng.gen())))
                         .collect(),
                 )))
             })

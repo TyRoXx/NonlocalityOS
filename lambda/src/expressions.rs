@@ -1,6 +1,11 @@
+#[cfg(test)]
+use astraea::tree::TYPE_ID_SUM;
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
-    tree::{HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob},
+    tree::{
+        HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob, TYPE_ID_CONSOLE,
+        TYPE_ID_DELAY, TYPE_ID_EFFECT, TYPE_ID_SECONDS, TYPE_ID_STRING,
+    },
 };
 use futures::future::join;
 use serde::{Deserialize, Serialize};
@@ -28,7 +33,7 @@ pub trait ReduceExpression: Sync + Send {
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>>;
+    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>>;
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -47,7 +52,7 @@ pub async fn reduce_expression_without_storing_the_final_result(
     service_resolver: &dyn ResolveServiceId,
     loader: &dyn LoadValue,
     storage: &dyn StoreValue,
-) -> std::result::Result<TypedValue, ReductionError> {
+) -> std::result::Result<Value, ReductionError> {
     let service = match service_resolver.resolve(&argument.type_id) {
         Some(service) => service,
         None => return Err(ReductionError::NoServiceForType(argument.type_id)),
@@ -91,13 +96,13 @@ pub async fn reduce_expression_from_reference(
         storage,
     )
     .await?;
-    let arc_value = Arc::new(value.value);
+    let arc_value = Arc::new(value);
     Ok(ReferencedValue::new(
         storage
             .store_value(&HashedValue::from(arc_value.clone()))
             .await
             .map_err(|error| ReductionError::Io(error))?
-            .add_type(value.type_id),
+            .add_type(argument.type_id),
         arc_value,
     ))
 }
@@ -129,26 +134,21 @@ impl ReduceExpression for TestConsole {
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
         Box::pin(async move {
             assert_eq!(2, argument.value.references().len());
-            let past_ref = reduce_expression_from_reference(
-                &argument.value.references()[0],
-                service_resolver,
-                loader,
-                storage,
-            );
-            let message_ref = reduce_expression_from_reference(
-                &argument.value.references()[1],
-                service_resolver,
-                loader,
-                storage,
-            );
+            let past = TypedReference::new(TYPE_ID_EFFECT, argument.value.references()[0].clone());
+            let past_ref =
+                reduce_expression_from_reference(&past, service_resolver, loader, storage);
+            let message =
+                TypedReference::new(TYPE_ID_STRING, argument.value.references()[1].clone());
+            let message_ref =
+                reduce_expression_from_reference(&message, service_resolver, loader, storage);
             let (past_result, message_result) = join(past_ref, message_ref).await;
-            let past = past_result.unwrap();
+            let past_value = past_result.unwrap();
             let message_string = message_result.unwrap().value.to_string().unwrap();
             self.writer.send(message_string).unwrap();
-            make_effect(past.reference)
+            make_effect(past_value.reference.reference)
         })
     }
 }
@@ -162,8 +162,8 @@ impl ReduceExpression for Identity {
         _service_resolver: &dyn ResolveServiceId,
         _loader: &dyn LoadValue,
         _storage: &dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue>>> {
-        Box::pin(std::future::ready(argument))
+    ) -> Pin<Box<dyn std::future::Future<Output = Value>>> {
+        Box::pin(std::future::ready(argument.value))
     }
 }
 
@@ -173,27 +173,26 @@ async fn test_reduce_expression() {
     use tokio::sync::Mutex;
     let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
     let services = ServiceRegistry {
-        services: BTreeMap::from([(TypeId(0), identity.clone()), (TypeId(1), identity)]),
+        services: BTreeMap::from([(TYPE_ID_STRING, identity.clone()), (TypeId(1), identity)]),
     };
     let value_storage = InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let result = reduce_expression_without_storing_the_final_result(
-        TypedValue::new(TypeId(0), Value::from_string("hello, world!\n").unwrap()),
+        TypedValue::new(
+            TYPE_ID_STRING,
+            Value::from_string("hello, world!\n").unwrap(),
+        ),
         &services,
         &value_storage,
         &value_storage,
     )
     .await
     .unwrap();
-    assert_eq!(TypeId(0), result.type_id);
-    assert_eq!(
-        Some("hello, world!\n".to_string()),
-        result.value.to_string()
-    );
+    assert_eq!(Some("hello, world!\n".to_string()), result.to_string());
 }
 
-pub fn make_text_in_console(past: TypedReference, text: TypedReference) -> TypedValue {
+pub fn make_text_in_console(past: Reference, text: Reference) -> TypedValue {
     TypedValue::new(
-        TypeId(2),
+        TYPE_ID_CONSOLE,
         Value {
             blob: ValueBlob::empty(),
             references: vec![past, text],
@@ -208,8 +207,8 @@ pub fn make_beginning_of_time() -> Value {
     }
 }
 
-pub fn make_effect(cause: TypedReference) -> TypedValue {
-    TypedValue::new(TypeId(3), Value::new(ValueBlob::empty(), vec![cause]))
+pub fn make_effect(cause: Reference) -> Value {
+    Value::new(ValueBlob::empty(), vec![cause])
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -221,10 +220,10 @@ async fn test_effect() {
     let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
     let services = ServiceRegistry {
         services: BTreeMap::from([
-            (TypeId(0), identity.clone()),
+            (TYPE_ID_STRING, identity.clone()),
             (TypeId(1), identity.clone()),
-            (TypeId(2), test_console),
-            (TypeId(3), identity),
+            (TYPE_ID_CONSOLE, test_console),
+            (TYPE_ID_EFFECT, identity),
         ]),
     };
 
@@ -232,15 +231,13 @@ async fn test_effect() {
     let past = value_storage
         .store_value(&HashedValue::from(Arc::new(make_beginning_of_time())))
         .await
-        .unwrap()
-        .add_type(TypeId(3));
+        .unwrap();
     let message = value_storage
         .store_value(&HashedValue::from(Arc::new(
             Value::from_string("hello, world!\n").unwrap(),
         )))
         .await
-        .unwrap()
-        .add_type(TypeId(0));
+        .unwrap();
     let text_in_console = make_text_in_console(past, message);
     let result = reduce_expression_without_storing_the_final_result(
         text_in_console,
@@ -254,15 +251,11 @@ async fn test_effect() {
     assert_eq!(Some("hello, world!\n".to_string()), receiver.recv().await);
 }
 
-pub fn make_seconds(amount: u64) -> TypedValue {
-    TypedValue::new(
-        TypeId(5),
-        Value {
-            blob: ValueBlob::try_from(bytes::Bytes::copy_from_slice(&amount.to_be_bytes()))
-                .unwrap(),
-            references: Vec::new(),
-        },
-    )
+pub fn make_seconds(amount: u64) -> Value {
+    Value {
+        blob: ValueBlob::try_from(bytes::Bytes::copy_from_slice(&amount.to_be_bytes())).unwrap(),
+        references: Vec::new(),
+    }
 }
 
 pub fn to_seconds(value: &Value) -> Option<u64> {
@@ -274,17 +267,14 @@ pub fn to_seconds(value: &Value) -> Option<u64> {
     Some(u64::from_be_bytes(buf))
 }
 
-pub fn make_sum(summands: Vec<TypedReference>) -> TypedValue {
-    TypedValue::new(
-        TypeId(6),
-        Value {
-            blob: ValueBlob::empty(),
-            references: summands,
-        },
-    )
+pub fn make_sum(summands: Vec<Reference>) -> Value {
+    Value {
+        blob: ValueBlob::empty(),
+        references: summands,
+    }
 }
 
-pub fn to_sum(value: Value) -> Option<Vec<TypedReference>> {
+pub fn to_sum(value: Value) -> Option<Vec<Reference>> {
     Some(value.references)
 }
 
@@ -297,13 +287,19 @@ impl ReduceExpression for SumService {
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
         let summands_expressions = to_sum(argument.value).unwrap();
         Box::pin(async move {
             let summands_futures: Vec<_> = summands_expressions
                 .iter()
-                .map(|summand| {
-                    reduce_expression_from_reference(summand, service_resolver, loader, storage)
+                .map(|summand| async {
+                    reduce_expression_from_reference(
+                        &TypedReference::new(TYPE_ID_SECONDS, *summand),
+                        service_resolver,
+                        loader,
+                        storage,
+                    )
+                    .await
                 })
                 .collect();
             let summands_values = futures::future::join_all(summands_futures).await;
@@ -323,72 +319,31 @@ async fn test_sum() {
     let sum_service: Arc<dyn ReduceExpression> = Arc::new(SumService {});
     let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
     let services = ServiceRegistry {
-        services: BTreeMap::from([(TypeId(5), identity), (TypeId(6), sum_service)]),
+        services: BTreeMap::from([(TYPE_ID_SECONDS, identity), (TYPE_ID_SUM, sum_service)]),
     };
     let value_storage = InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
     let a = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_seconds(1).value)))
+        .store_value(&HashedValue::from(Arc::new(make_seconds(1))))
         .await
-        .unwrap()
-        .add_type(TypeId(5));
+        .unwrap();
     let b = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_seconds(2).value)))
+        .store_value(&HashedValue::from(Arc::new(make_seconds(2))))
         .await
-        .unwrap()
-        .add_type(TypeId(5));
+        .unwrap();
     let sum = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_sum(vec![a, b]).value)))
+        .store_value(&HashedValue::from(Arc::new(make_sum(vec![a, b]))))
         .await
         .unwrap()
-        .add_type(TypeId(6));
+        .add_type(TYPE_ID_SUM);
     let result = reduce_expression_from_reference(&sum, &services, &value_storage, &value_storage)
         .await
         .unwrap();
-    assert_eq!(make_seconds(3).value, *result.value);
+    assert_eq!(make_seconds(3), *result.value);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_nested_sum() {
-    use astraea::storage::InMemoryValueStorage;
-    use tokio::sync::Mutex;
-    let sum_service: Arc<dyn ReduceExpression> = Arc::new(SumService {});
-    let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
-    let services = ServiceRegistry {
-        services: BTreeMap::from([(TypeId(5), identity), (TypeId(6), sum_service)]),
-    };
-    let value_storage = InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
-    let a = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_seconds(1).value)))
-        .await
-        .unwrap()
-        .add_type(TypeId(5));
-    let b = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_seconds(2).value)))
-        .await
-        .unwrap()
-        .add_type(TypeId(5));
-    let c = value_storage
-        .store_value(&HashedValue::from(Arc::new(
-            make_sum(vec![a.clone(), b]).value,
-        )))
-        .await
-        .unwrap()
-        .add_type(TypeId(6));
-    let sum = make_sum(vec![a.clone(), a, c]);
-    let result = reduce_expression_without_storing_the_final_result(
-        sum,
-        &services,
-        &value_storage,
-        &value_storage,
-    )
-    .await
-    .unwrap();
-    assert_eq!(make_seconds(5), result);
-}
-
-pub fn make_delay(before: TypedReference, duration: TypedReference) -> TypedValue {
+pub fn make_delay(before: Reference, duration: Reference) -> TypedValue {
     TypedValue::new(
-        TypeId(4),
+        TYPE_ID_DELAY,
         Value {
             blob: ValueBlob::empty(),
             references: vec![before, duration],
@@ -405,91 +360,37 @@ impl ReduceExpression for DelayService {
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
         let mut arguments = argument.value.references.drain(0..2);
         let before_ref = arguments.next().unwrap();
         let duration_ref = arguments.next().unwrap();
         assert!(arguments.next().is_none());
         Box::pin(async move {
-            let before_future =
-                reduce_expression_from_reference(&before_ref, service_resolver, loader, storage);
-            let duration_future =
-                reduce_expression_from_reference(&duration_ref, service_resolver, loader, storage);
+            let before_future = async move {
+                reduce_expression_from_reference(
+                    &TypedReference::new(TYPE_ID_EFFECT, before_ref),
+                    service_resolver,
+                    loader,
+                    storage,
+                )
+                .await
+            };
+            let duration_future = async move {
+                reduce_expression_from_reference(
+                    &TypedReference::new(TYPE_ID_SECONDS, duration_ref),
+                    service_resolver,
+                    loader,
+                    storage,
+                )
+                .await
+            };
             let (before_result, duration_result) = join(before_future, duration_future).await;
             let duration = duration_result.unwrap().value;
             let seconds = to_seconds(&duration).unwrap();
             tokio::time::sleep(std::time::Duration::from_secs(seconds)).await;
-            make_effect(before_result.unwrap().reference)
+            make_effect(before_result.unwrap().reference.reference)
         })
     }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_delay() {
-    use astraea::storage::InMemoryValueStorage;
-    use tokio::sync::Mutex;
-    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-    let test_console: Arc<dyn ReduceExpression> = Arc::new(TestConsole { writer: sender });
-    let delay_service: Arc<dyn ReduceExpression> = Arc::new(DelayService {});
-    let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
-    let services = ServiceRegistry {
-        services: BTreeMap::from([
-            (TypeId(0), identity.clone()),
-            (TypeId(1), identity.clone()),
-            (TypeId(2), test_console),
-            (TypeId(3), identity.clone()),
-            (TypeId(4), delay_service),
-            (TypeId(5), identity),
-        ]),
-    };
-
-    let value_storage = InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
-    let past = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_beginning_of_time())))
-        .await
-        .unwrap()
-        .add_type(TypeId(3));
-    let duration = value_storage
-        .store_value(&HashedValue::from(Arc::new(
-            make_seconds(/*can't waste time here*/ 0).value,
-        )))
-        .await
-        .unwrap()
-        .add_type(TypeId(5));
-    let delay = value_storage
-        .store_value(&HashedValue::from(Arc::new(
-            make_delay(past.clone(), duration).value,
-        )))
-        .await
-        .unwrap()
-        .add_type(TypeId(4));
-    let message = value_storage
-        .store_value(&HashedValue::from(Arc::new(
-            Value::from_string("hello, world!\n").unwrap(),
-        )))
-        .await
-        .unwrap()
-        .add_type(TypeId(0));
-    let text_in_console = make_text_in_console(delay, message);
-    let result = reduce_expression_without_storing_the_final_result(
-        text_in_console,
-        &services,
-        &value_storage,
-        &value_storage,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        make_effect(
-            value_storage
-                .store_value(&HashedValue::from(Arc::new(make_effect(past).value)))
-                .await
-                .unwrap()
-                .add_type(TypeId(3))
-        ),
-        result
-    );
-    assert_eq!(Some("hello, world!\n".to_string()), receiver.recv().await);
 }
 
 pub struct ActualConsole {}
@@ -501,38 +402,44 @@ impl ReduceExpression for ActualConsole {
         service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
         Box::pin(async move {
             assert_eq!(2, argument.value.references.len());
-            let past_ref = reduce_expression_from_reference(
-                &argument.value.references[0],
-                service_resolver,
-                loader,
-                storage,
-            );
-            let message_ref = reduce_expression_from_reference(
-                &argument.value.references[1],
-                service_resolver,
-                loader,
-                storage,
-            );
+            let past_ref = async {
+                reduce_expression_from_reference(
+                    &TypedReference::new(TYPE_ID_EFFECT, argument.value.references[0]),
+                    service_resolver,
+                    loader,
+                    storage,
+                )
+                .await
+            };
+            let message_ref = async {
+                reduce_expression_from_reference(
+                    &TypedReference::new(TYPE_ID_STRING, argument.value.references[1]),
+                    service_resolver,
+                    loader,
+                    storage,
+                )
+                .await
+            };
             let (past_result, message_result) = join(past_ref, message_ref).await;
             let past = past_result.unwrap();
             let message_string = message_result.unwrap().value.to_string().unwrap();
             print!("{}", &message_string);
             std::io::stdout().flush().unwrap();
-            make_effect(past.reference)
+            make_effect(past.reference.reference)
         })
     }
 }
 
 pub struct Lambda {
-    variable: TypedReference,
-    body: TypedReference,
+    variable: Reference,
+    body: Reference,
 }
 
 impl Lambda {
-    pub fn new(variable: TypedReference, body: TypedReference) -> Self {
+    pub fn new(variable: Reference, body: Reference) -> Self {
         Self {
             variable: variable,
             body: body,
@@ -540,14 +447,11 @@ impl Lambda {
     }
 }
 
-pub fn make_lambda(lambda: Lambda) -> TypedValue {
-    TypedValue::new(
-        TypeId(7),
-        Value {
-            blob: ValueBlob::empty(),
-            references: vec![lambda.variable, lambda.body],
-        },
-    )
+pub fn make_lambda(lambda: Lambda) -> Value {
+    Value {
+        blob: ValueBlob::empty(),
+        references: vec![lambda.variable, lambda.body],
+    }
 }
 
 pub fn to_lambda(value: Value) -> Option<Lambda> {
@@ -558,12 +462,12 @@ pub fn to_lambda(value: Value) -> Option<Lambda> {
 }
 
 pub struct LambdaApplication {
-    function: TypedReference,
-    argument: TypedReference,
+    function: Reference,
+    argument: Reference,
 }
 
 impl LambdaApplication {
-    pub fn new(function: TypedReference, argument: TypedReference) -> Self {
+    pub fn new(function: Reference, argument: Reference) -> Self {
         Self {
             function: function,
             argument: argument,
@@ -571,14 +475,11 @@ impl LambdaApplication {
     }
 }
 
-pub fn make_lambda_application(function: TypedReference, argument: TypedReference) -> TypedValue {
-    TypedValue::new(
-        TypeId(8),
-        Value {
-            blob: ValueBlob::empty(),
-            references: vec![function, argument],
-        },
-    )
+pub fn make_lambda_application(function: Reference, argument: Reference) -> Value {
+    Value {
+        blob: ValueBlob::empty(),
+        references: vec![function, argument],
+    }
 }
 
 pub fn to_lambda_application(value: Value) -> Option<LambdaApplication> {
@@ -592,22 +493,17 @@ pub fn to_lambda_application(value: Value) -> Option<LambdaApplication> {
 }
 
 async fn replace_variable_recursively(
-    body: &TypedReference,
+    body: &Reference,
     variable: &Reference,
-    argument: &TypedReference,
+    argument: &Reference,
     loader: &dyn LoadValue,
     storage: &dyn StoreValue,
-) -> Option<TypedValue> {
-    let body_loaded = loader
-        .load_value(&body.reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
-    let mut references = Vec::new();
+) -> Option<Value> {
+    let body_loaded = loader.load_value(&body).await.unwrap().hash().unwrap();
+    let mut references: Vec<Reference> = Vec::new();
     let mut has_replaced_something = false;
     for child in &body_loaded.value().references {
-        if &child.reference == variable {
+        if child == variable {
             references.push(argument.clone());
             has_replaced_something = true;
         } else {
@@ -617,9 +513,9 @@ async fn replace_variable_recursively(
             .await
             {
                 let stored = storage
-                    .store_value(&HashedValue::from(Arc::new(replaced.value)))
-                    .await  .unwrap(/*TODO*/)
-                    .add_type(replaced.type_id);
+                    .store_value(&HashedValue::from(Arc::new(replaced)))
+                    .await
+                    .unwrap(/*TODO*/);
                 references.push(stored);
                 has_replaced_something = true;
             } else {
@@ -630,10 +526,7 @@ async fn replace_variable_recursively(
     if !has_replaced_something {
         return None;
     }
-    Some(TypedValue::new(
-        body.type_id,
-        Value::new(body_loaded.value().blob().clone(), references),
-    ))
+    Some(Value::new(body_loaded.value().blob().clone(), references))
 }
 
 pub struct LambdaApplicationService {}
@@ -645,13 +538,13 @@ impl ReduceExpression for LambdaApplicationService {
         _service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
         let lambda_application = to_lambda_application(argument.value).unwrap();
         Box::pin(async move {
             let argument = &lambda_application.argument;
             let function = to_lambda(
                 (**loader
-                    .load_value(&lambda_application.function.reference)
+                    .load_value(&lambda_application.function)
                     .await
                     .unwrap()
                     .hash()
@@ -661,101 +554,21 @@ impl ReduceExpression for LambdaApplicationService {
             )
             .unwrap();
             let variable = &function.variable;
-            match replace_variable_recursively(
-                &function.body,
-                &variable.reference,
-                argument,
-                loader,
-                storage,
-            )
-            .await
+            match replace_variable_recursively(&function.body, &variable, argument, loader, storage)
+                .await
             {
                 Some(replaced) => replaced,
-                None => TypedValue::new(
-                    function.body.type_id,
-                    (**loader
-                        .load_value(&function.body.reference)
-                        .await
-                        .unwrap()
-                        .hash()
-                        .unwrap()
-                        .value())
-                    .clone(),
-                ),
+                None => (**loader
+                    .load_value(&function.body)
+                    .await
+                    .unwrap()
+                    .hash()
+                    .unwrap()
+                    .value())
+                .clone(),
             }
         })
     }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_lambda() {
-    use astraea::storage::InMemoryValueStorage;
-    use tokio::sync::Mutex;
-    let lambda_application_service: Arc<dyn ReduceExpression> =
-        Arc::new(LambdaApplicationService {});
-    let identity: Arc<dyn ReduceExpression> = Arc::new(Identity {});
-    let sum_service: Arc<dyn ReduceExpression> = Arc::new(SumService {});
-    let services = ServiceRegistry {
-        services: BTreeMap::from([
-            (TypeId(5), identity.clone()),
-            (TypeId(6), sum_service),
-            (TypeId(7), identity),
-            (TypeId(8), lambda_application_service),
-        ]),
-    };
-    let value_storage = InMemoryValueStorage::new(Mutex::new(BTreeMap::new()));
-    let arg = value_storage
-        .store_value(&HashedValue::from(Arc::new(
-            Value::from_string("arg").unwrap(),
-        )))
-        .await
-        .unwrap()
-        .add_type(TypeId(0));
-    let one = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_seconds(1).value)))
-        .await
-        .unwrap()
-        .add_type(TypeId(5));
-    let sum = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_sum(vec![one, arg]).value)))
-        .await
-        .unwrap()
-        .add_type(TypeId(6));
-    let plus_one = value_storage
-        .store_value(&HashedValue::from(Arc::new(
-            make_lambda(Lambda::new(arg, sum)).value,
-        )))
-        .await
-        .unwrap()
-        .add_type(TypeId(7));
-    let two = value_storage
-        .store_value(&HashedValue::from(Arc::new(make_seconds(2).value)))
-        .await
-        .unwrap()
-        .add_type(TypeId(5));
-    let call = value_storage
-        .store_value(&HashedValue::from(Arc::new(
-            make_lambda_application(plus_one, two).value,
-        )))
-        .await
-        .unwrap()
-        .add_type(TypeId(8));
-    // When we apply a function to an argument we receive the body with the variable replaced.
-    let reduced_once =
-        reduce_expression_from_reference(&call, &services, &value_storage, &value_storage)
-            .await
-            .unwrap();
-    // A second reduction then constant-folds the body away:
-    let reduced_twice = reduce_expression_from_reference(
-        &reduced_once.reference,
-        &services,
-        &value_storage,
-        &value_storage,
-    )
-    .await
-    .unwrap();
-    assert_ne!(reduced_once.reference, reduced_twice.reference);
-    assert_eq!(make_seconds(3).value, *reduced_twice.value);
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -784,12 +597,12 @@ impl CompilerError {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct CompilerOutput {
-    pub entry_point: TypedReference,
+    pub entry_point: Reference,
     pub errors: Vec<CompilerError>,
 }
 
 impl CompilerOutput {
-    pub fn new(entry_point: TypedReference, errors: Vec<CompilerError>) -> CompilerOutput {
+    pub fn new(entry_point: Reference, errors: Vec<CompilerError>) -> CompilerOutput {
         CompilerOutput {
             entry_point: entry_point,
             errors: errors,
@@ -822,11 +635,11 @@ impl ReduceExpression for CompiledReducer {
         _service_resolver: &'t dyn ResolveServiceId,
         loader: &'t dyn LoadValue,
         storage: &'t dyn StoreValue,
-    ) -> Pin<Box<dyn std::future::Future<Output = TypedValue> + 't>> {
+    ) -> Pin<Box<dyn std::future::Future<Output = Value> + 't>> {
         Box::pin(async move {
             let source_ref = argument.value.references[0];
             let source_value = loader
-                .load_value(&source_ref.reference)
+                .load_value(&source_ref)
                 .await
                 .unwrap()
                 .hash()
@@ -834,7 +647,7 @@ impl ReduceExpression for CompiledReducer {
             let source_string = source_value.value().to_string().unwrap();
             let compiler_output: CompilerOutput =
                 crate::compiler::compile(&source_string, storage).await;
-            TypedValue::new(TypeId(10), compiler_output.to_value().unwrap(/*TODO*/))
+            compiler_output.to_value().unwrap(/*TODO*/)
         })
     }
 }

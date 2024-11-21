@@ -4,8 +4,7 @@ mod tests2;
 use astraea::{
     storage::{LoadStoreValue, StoreError},
     tree::{
-        BlobDigest, HashedValue, Reference, ReferenceIndex, TypeId, TypedReference, Value,
-        ValueBlob, VALUE_BLOB_MAX_LENGTH,
+        BlobDigest, HashedValue, Reference, ReferenceIndex, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH,
     },
 };
 use async_stream::stream;
@@ -568,7 +567,7 @@ impl OpenDirectory {
                             if index >= loaded.value().references().len() {
                                 return Err(Error::ReferenceIndexOutOfRange);
                             }
-                            let digest = loaded.value().references()[index].reference.digest;
+                            let digest = loaded.value().references()[index].digest;
                             Ok(DirectoryEntry::new(child.0.clone().into(), kind, digest))
                         }
                         serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
@@ -1035,10 +1034,7 @@ impl OpenDirectory {
                 },
             };
             let reference_index = ReferenceIndex(serialization_references.len() as u64);
-            serialization_references.push(TypedReference::new(
-                TypeId(/*TODO get rid of this ID*/ 0),
-                Reference::new(digest),
-            ));
+            serialization_references.push(Reference::new(digest));
             serialization_children.insert(
                 name,
                 serialization::DirectoryEntry {
@@ -1982,16 +1978,13 @@ impl OpenFileContentBufferLoaded {
         self.verify_integrity();
         for block in self.blocks.iter_mut() {
             let block_stored = block.try_store(true, storage.clone()).await?;
-            blocks_stored.push(TypedReference::new(
-                TypeId(0),
-                Reference::new(block_stored.unwrap()),
-            ));
+            blocks_stored.push(Reference::new(block_stored.unwrap()));
         }
         self.verify_integrity();
         self.dirty_blocks.clear();
         assert!(blocks_stored.len() >= 1);
         if blocks_stored.len() == 1 {
-            return Ok(self.update_digest(blocks_stored[0].reference.digest));
+            return Ok(self.update_digest(blocks_stored[0].digest));
         }
         let info = SegmentedBlob {
             size_in_bytes: self.size,
@@ -2262,7 +2255,7 @@ impl OpenFileContentBuffer {
                         .take(hashed_value.value().references().len() - 1)
                         .map(|reference| {
                             OpenFileContentBlock::NotLoaded(
-                                reference.reference.digest,
+                                reference.digest,
                                 VALUE_BLOB_MAX_LENGTH as u16,
                             )
                         });
@@ -2276,13 +2269,7 @@ impl OpenFileContentBuffer {
                     }
                     full_blocks
                         .chain(std::iter::once(OpenFileContentBlock::NotLoaded(
-                            hashed_value
-                                .value()
-                                .references()
-                                .last()
-                                .unwrap()
-                                .reference
-                                .digest,
+                            hashed_value.value().references().last().unwrap().digest,
                             final_block_size as u16,
                         )))
                         .collect()

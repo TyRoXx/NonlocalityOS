@@ -164,7 +164,7 @@ async fn persist_root_on_change(
                     .update_root(root_name, &root_status.digest.last_known_digest)
                     .await;
                 tokio::task::spawn_blocking({
-                     let blob_storage_commit = blob_storage_commit.clone(); 
+                     let blob_storage_commit = blob_storage_commit.clone();
                      move || {
                          Handle::current().block_on(  blob_storage_commit.commit_changes()).unwrap(/*TODO*/);
                 }})

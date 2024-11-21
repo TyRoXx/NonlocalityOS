@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         storage::{CommitChanges, LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
-        tree::{BlobDigest, HashedValue, Reference, TypeId, TypedReference, Value, ValueBlob},
+        tree::{BlobDigest, HashedValue, Reference, Value, ValueBlob},
     };
     use bytes::Bytes;
     use std::sync::Arc;
@@ -199,10 +199,7 @@ mod tests {
         let referenced_digest = BlobDigest::hash(b"ref");
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
-            vec![TypedReference::new(
-                TypeId(0),
-                Reference::new(referenced_digest),
-            )],
+            vec![Reference::new(referenced_digest)],
         ));
         let reference = storage
             .store_value(&HashedValue::from(value.clone()))
@@ -245,7 +242,7 @@ mod tests {
         let referenced_digests = [b"a".as_slice(), b"ab"]
             .into_iter()
             .map(|element: &[u8]| BlobDigest::hash(element))
-            .map(|digest| TypedReference::new(TypeId(0), Reference::new(digest)))
+            .map(|digest| Reference::new(digest))
             .collect();
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
@@ -287,7 +284,7 @@ mod tests {
         let referenced_digests = [b"a".as_slice(), b"ab", b"abc"]
             .into_iter()
             .map(|element: &[u8]| BlobDigest::hash(element))
-            .map(|digest| TypedReference::new(TypeId(0), Reference::new(digest)))
+            .map(|digest| Reference::new(digest))
             .collect();
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
