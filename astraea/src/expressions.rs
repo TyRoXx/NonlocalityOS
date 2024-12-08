@@ -127,13 +127,6 @@ pub enum EvaluatedStep {
     Last(Pointer),
 }
 
-pub type CallMethod = dyn Fn(
-    Pointer,
-    &BlobDigest,
-    &Name,
-    Pointer,
-) -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>>;
-
 pub type ReadVariable =
     dyn Fn(&Name) -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>>;
 
