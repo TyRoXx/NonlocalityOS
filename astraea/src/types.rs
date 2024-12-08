@@ -126,4 +126,19 @@ impl Type {
             )
         })
     }
+
+    pub fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
+        match self {
+            Type::Hole => write!(writer, "?"),
+            Type::Named(name) => write!(writer, "{}", &name.key),
+            Type::Unit => write!(writer, "()"),
+            Type::Option(blob_digest) => write!(writer, "Option<{}>", blob_digest),
+            Type::Function(signature) => {
+                signature.argument.print(writer, level)?;
+                write!(writer, " -> ")?;
+                signature.result.print(writer, level)
+            }
+            Type::Reference => write!(writer, "Reference"),
+        }
+    }
 }

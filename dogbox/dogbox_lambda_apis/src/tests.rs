@@ -1,4 +1,4 @@
-use crate::LoadedDirectory;
+use crate::{FileNameObject, LoadedDirectory};
 use astraea::expressions::{evaluate, Application, Expression, LambdaExpression, Object, Pointer};
 use astraea::storage::{store_object, LoadValue};
 use astraea::tree::{BlobDigest, Reference};
@@ -137,7 +137,15 @@ async fn complex_expression() {
         bytes_type,
     );
 
-    /*
+    {
+        let mut program_as_string = String::new();
+        lambda_application
+            .expression
+            .print(&mut program_as_string, 0)
+            .unwrap();
+        assert_eq!("^arg .\n  arg.get(literal(file_name, debd5af1f5e895bbb7fc660b5193f8e1e7bc79be1ed78aa085342a21bd5722f1941247674f4ca3d5ff7d591c5ced850bf5c666723e44d6d51ded8ec5b4049533)).read(()).apply(external)", program_as_string.as_str());
+    }
+
     {
         let find_variable = {
             let directory_type = directory_type.clone();
@@ -218,14 +226,26 @@ async fn complex_expression() {
                 todo!()
             }
         };
-    let evaluation_result = evaluate(&lambda_application.expression, &*storage, &read_variable)
-        .await
-        .serialize(&*storage)
-        .await
-        .unwrap();
+    let read_literal = move |literal_type: &Type,
+                             value: &HashedValue|
+          -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
+        assert_eq!(&file_name_type, literal_type);
+        let file_name: dogbox_tree::serialization::FileName =
+            value.value().to_object().unwrap(/*TODO*/);
+        Box::pin(async move { Pointer::Object(Arc::new(FileNameObject::new(file_name))) })
+    };
+    let evaluation_result = evaluate(
+        &lambda_application.expression,
+        &*storage,
+        &read_variable,
+        &read_literal,
+    )
+    .await
+    .serialize(&*storage)
+    .await
+    .unwrap();
     assert_eq!(
         &Value::new(ValueBlob::try_from(file_content).unwrap(), Vec::new()),
         &**evaluation_result.value()
     );
-    */
 }

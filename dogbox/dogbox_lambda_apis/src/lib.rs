@@ -6,11 +6,48 @@ use astraea::{
     types::Name,
 };
 use async_trait::async_trait;
-use dogbox_tree::serialization::FileName;
+use dogbox_tree::serialization::{self, FileName};
 use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
+
+#[derive(Debug)]
+pub struct FileNameObject {
+    pub content: FileName,
+}
+
+impl FileNameObject {
+    pub fn new(content: FileName) -> Self {
+        Self { content }
+    }
+}
+
+#[async_trait]
+impl Object for FileNameObject {
+    async fn call_method(
+        &self,
+        _interface: &BlobDigest,
+        _method: &Name,
+        _argument: &Pointer,
+    ) -> std::result::Result<Pointer, ()> {
+        todo!()
+    }
+
+    async fn serialize(
+        &self,
+        _storage: &dyn StoreValue,
+    ) -> std::result::Result<HashedValue, StoreError> {
+        todo!()
+    }
+
+    async fn serialize_to_flat_value(&self) -> Option<Arc<Value>> {
+        match Value::from_object(&self.content) {
+            Ok(success) => Some(Arc::new(success)),
+            Err(_) => todo!(),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct SmallBytes {
@@ -157,7 +194,7 @@ impl Object for LoadedDirectory {
                     Some(success) => success,
                     None => todo!(),
                 };
-                let key: FileName = match argument_value.to_object() {
+                let key: serialization::FileName = match argument_value.to_object() {
                     Ok(success) => success,
                     Err(_) => todo!(),
                 };
