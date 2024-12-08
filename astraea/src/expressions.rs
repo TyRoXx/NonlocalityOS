@@ -58,6 +58,39 @@ pub enum Expression {
     Lambda(Box<LambdaExpression>),
 }
 
+impl Expression {
+    pub fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
+        match self {
+            Expression::Hole => write!(writer, "?"),
+            Expression::Unit => write!(writer, "()"),
+            Expression::Literal(literal_type, blob_digest) => {
+                write!(writer, "literal(")?;
+                literal_type.print(writer, level)?;
+                write!(writer, ", {})", blob_digest)
+            }
+            Expression::Apply(application) => {
+                application.callee.print(writer, level)?;
+                write!(writer, ".{}", &application.method.key)?;
+                write!(writer, "(")?;
+                application.argument.print(writer, level)?;
+                write!(writer, ")")
+            }
+            Expression::ReadVariable(name) => {
+                write!(writer, "{}", &name.key)
+            }
+            Expression::Lambda(lambda_expression) => {
+                write!(writer, "^{}", &lambda_expression.parameter_name.key)?;
+                write!(writer, " .\n")?;
+                let indented = level + 1;
+                for _ in 0..(indented * 2) {
+                    write!(writer, " ")?;
+                }
+                lambda_expression.body.print(writer, level + 1)
+            }
+        }
+    }
+}
+
 #[async_trait]
 pub trait Object: std::fmt::Debug + Send {
     async fn call_method(
@@ -130,10 +163,14 @@ pub enum EvaluatedStep {
 pub type ReadVariable =
     dyn Fn(&Name) -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>>;
 
+pub type ReadLiteral =
+    dyn Fn(&Type, &HashedValue) -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>>;
+
 pub async fn evaluate_step(
     expression: &Expression,
     storage: &dyn LoadValue,
     read_variable: &ReadVariable,
+    read_literal: &ReadLiteral,
 ) -> EvaluatedStep {
     match expression {
         Expression::Hole => todo!(),
@@ -147,17 +184,30 @@ pub async fn evaluate_step(
                 storage.load_value(&Reference::new(*blob_digest)).await;
             match loaded {
                 Some(found) => match found.hash() {
-                    Some(hashed) => EvaluatedStep::Last(Pointer::Value(hashed)),
+                    Some(hashed) => {
+                        let literal = read_literal(literal_type, &hashed).await;
+                        EvaluatedStep::Last(literal)
+                    }
                     None => todo!(),
                 },
                 None => EvaluatedStep::Next(TypedExpression::hole()),
             }
         }
         Expression::Apply(application) => {
-            let evaluated_callee =
-                Box::pin(evaluate(&application.callee, storage, read_variable)).await;
-            let evaluated_argument =
-                Box::pin(evaluate(&application.argument, storage, read_variable)).await;
+            let evaluated_callee = Box::pin(evaluate(
+                &application.callee,
+                storage,
+                read_variable,
+                read_literal,
+            ))
+            .await;
+            let evaluated_argument = Box::pin(evaluate(
+                &application.argument,
+                storage,
+                read_variable,
+                read_literal,
+            ))
+            .await;
             let call_result = evaluated_callee
                 .call_method(
                     &application.callee_interface,
@@ -177,13 +227,19 @@ pub async fn evaluate(
     expression: &Expression,
     storage: &dyn LoadValue,
     read_variable: &ReadVariable,
+    read_literal: &ReadLiteral,
 ) -> Pointer {
-    let mut evaluated = evaluate_step(expression, storage, read_variable).await;
+    let mut evaluated = evaluate_step(expression, storage, read_variable, read_literal).await;
     loop {
         match evaluated {
             EvaluatedStep::Next(next_expression) => {
-                evaluated =
-                    evaluate_step(&next_expression.expression, storage, read_variable).await;
+                evaluated = evaluate_step(
+                    &next_expression.expression,
+                    storage,
+                    read_variable,
+                    read_literal,
+                )
+                .await;
             }
             EvaluatedStep::Last(result) => return result,
         }

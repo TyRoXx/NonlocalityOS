@@ -55,7 +55,10 @@ where
     match &unchecked {
         Expression::Hole => Ok(Type::Hole),
         Expression::Unit => Ok(Type::Unit),
-        Expression::Literal(literal_type, _blob_digest) => Ok(literal_type.clone()),
+        Expression::Literal(literal_type, _blob_digest) => {
+            /*TODO: check if the value behind _blob_digest is valid for this type*/
+            Ok(literal_type.clone())
+        }
         Expression::Apply(application) => {
             let callee_type = Arc::new(
                 Box::pin(type_of(&application.callee, find_variable, find_interface)).await?,
