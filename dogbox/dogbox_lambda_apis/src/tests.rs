@@ -63,10 +63,7 @@ async fn complex_expression() {
     let get_name = Name::new(namespace, "get".to_string());
     let directory_interface = Arc::new(Interface::new(BTreeMap::from([(
         get_name.clone(),
-        Signature::new(
-            file_name_type.clone(),
-            Type::Option(regular_file_type_ref.digest),
-        ),
+        Signature::new(file_name_type.clone(), regular_file_type.clone()),
     )])));
     let directory_interface_ref = store_object(&*storage, &*directory_interface)
         .await
@@ -90,12 +87,16 @@ async fn complex_expression() {
         .unwrap();
     let bytes_type_name = Name::new(namespace, "bytes".to_string());
     let bytes_type = Type::Named(bytes_type_name);
+    let bytes_interface = Arc::new(Interface::new(BTreeMap::from([
+        //TODO: add methods
+    ])));
+    let bytes_interface_ref = store_object(&*storage, &*bytes_interface).await.unwrap();
     let read_name = Name::new(namespace, "read".to_string());
-    let regular_file_interface = Interface::new(BTreeMap::from([(
+    let regular_file_interface = Arc::new(Interface::new(BTreeMap::from([(
         read_name.clone(),
         Signature::new(Type::Unit, bytes_type.clone()),
-    )]));
-    let regular_file_interface_ref = store_object(&*storage, &regular_file_interface)
+    )])));
+    let regular_file_interface_ref = store_object(&*storage, &*regular_file_interface)
         .await
         .unwrap();
     let read_expression = get_expression
@@ -117,24 +118,21 @@ async fn complex_expression() {
             bytes_type.clone(),
         ))),
     );
+    let apply_name = Name::new(namespace, "apply".to_string());
     let lambda_interface = Arc::new(Interface::new(BTreeMap::from([(
-        get_name.clone(),
-        Signature::new(
-            file_name_type.clone(),
-            Type::Option(regular_file_type_ref.digest),
-        ),
+        apply_name.clone(),
+        Signature::new(file_name_type.clone(), regular_file_type.clone()),
     )])));
     let lambda_interface_ref = store_object(&*storage, &*lambda_interface).await.unwrap();
-    let apply_name = Name::new(namespace, "apply".to_string());
     let external_parameter_name = Name::new(namespace, "external".to_string());
     let lambda_application = TypedExpression::new(
         Expression::Apply(Box::new(Application::new(
             lambda_expression.expression,
             lambda_interface_ref.digest,
-            apply_name,
+            apply_name.clone(),
             Expression::ReadVariable(external_parameter_name.clone()),
         ))),
-        bytes_type,
+        bytes_type.clone(),
     );
 
     {
@@ -163,20 +161,31 @@ async fn complex_expression() {
             let directory_type = directory_type.clone();
             let directory_interface_ref = directory_interface_ref.clone();
             let directory_interface = directory_interface.clone();
-            move         |digest: &BlobDigest,
-                                callee: Arc<Type>|
-            -> Pin<
-                Box<dyn core::future::Future<Output = Option<Arc<Interface>>> + Send>,
-            > {
-                if &directory_type == &*callee  {
-                    assert_eq!(&directory_interface_ref.digest, digest);
-                    Box::pin(core::future::ready(Some(directory_interface.clone())))
-                } else {
-                    assert_eq!(&regular_file_type,  &*callee);
-                    assert_eq!(&regular_file_interface_ref.digest, digest);
-                    todo!()
+            move |digest: &BlobDigest,
+                      callee: Arc<Type>|
+                      -> Pin<
+                    Box<dyn core::future::Future<Output = Option<Arc<Interface>>> + Send>,
+                > {
+                    if let Type::Function(signature) = &*callee {
+                        // TODO: check digest
+                        let generated_interface = Arc::new(Interface::new(BTreeMap::from([(
+                            apply_name.clone(),
+                           (** signature).clone(),
+                        )])));
+                        Box::pin(core::future::ready(Some(generated_interface)))
+                    }
+                    else if &directory_type == &*callee {
+                        assert_eq!(&directory_interface_ref.digest, digest);
+                        Box::pin(core::future::ready(Some(directory_interface.clone())))
+                    } else if &regular_file_type == &*callee {
+                        assert_eq!(&regular_file_interface_ref.digest, digest);
+                        Box::pin(core::future::ready(Some(regular_file_interface.clone())))
+                    } else {
+                        assert_eq!(&bytes_type, &*callee);
+                        assert_eq!(&bytes_interface_ref.digest, digest);
+                        Box::pin(core::future::ready(Some(bytes_interface.clone())))
+                    }
                 }
-            }
         };
         let checked =
             TypeCheckedExpression::check(&lambda_application, &find_variable, &find_interface)

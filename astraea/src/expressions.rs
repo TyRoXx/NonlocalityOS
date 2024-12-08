@@ -219,7 +219,10 @@ pub async fn evaluate_step(
             EvaluatedStep::Last(call_result)
         }
         Expression::ReadVariable(name) => EvaluatedStep::Last(read_variable(&name).await),
-        Expression::Lambda(_lambda_expression) => todo!(),
+        Expression::Lambda(lambda_expression) => {
+            // capture the environment
+            todo!()
+        }
     }
 }
 
