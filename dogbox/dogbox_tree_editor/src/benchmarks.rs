@@ -68,7 +68,8 @@ mod tests {
         let original_content: Vec<u8> = Vec::new();
         let last_known_digest = BlobDigest::hash(&original_content);
         let last_known_digest_file_size = original_content.len();
-        let file_size_in_blocks = 50;
+        // you may want to increase this number for actual benchmarking
+        let file_size_in_blocks = 10;
         let write_buffer_in_blocks = file_size_in_blocks;
         let mut buffer = OpenFileContentBuffer::from_data(
             original_content.clone(),
