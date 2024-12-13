@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
 set -e
 
-cargo install --locked cargo-nextest
+./install_cargo-nextest.sh
 cargo nextest run
