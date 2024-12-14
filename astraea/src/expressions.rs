@@ -5,7 +5,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::{pin::Pin, sync::Arc};
+use std::{collections::BTreeSet, pin::Pin, sync::Arc};
 
 #[derive(Debug, PartialEq, PartialOrd, Hash, Clone, Serialize, Deserialize)]
 pub struct Application {
@@ -45,6 +45,10 @@ impl LambdaExpression {
             parameter_name,
             body,
         }
+    }
+
+    pub fn find_captured_names(&self) -> BTreeSet<Name> {
+        self.body.find_captured_names()
     }
 }
 
@@ -87,6 +91,17 @@ impl Expression {
                 }
                 lambda_expression.body.print(writer, level + 1)
             }
+        }
+    }
+
+    pub fn find_captured_names(&self) -> BTreeSet<Name> {
+        match self {
+            Expression::Hole => todo!(),
+            Expression::Unit => todo!(),
+            Expression::Literal(_, blob_digest) => todo!(),
+            Expression::Apply(application) => todo!(),
+            Expression::ReadVariable(name) => todo!(),
+            Expression::Lambda(lambda_expression) => todo!(),
         }
     }
 }
@@ -220,7 +235,7 @@ pub async fn evaluate_step(
         }
         Expression::ReadVariable(name) => EvaluatedStep::Last(read_variable(&name).await),
         Expression::Lambda(lambda_expression) => {
-            // capture the environment
+            lambda_expression.find_captured_names();
             todo!()
         }
     }
