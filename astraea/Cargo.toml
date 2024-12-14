@@ -24,6 +24,14 @@ cached = "0"
 async-trait = "0"
 async-scoped = {version = "0", features = ["use-tokio"]}
 
+[dependencies.uuid]
+version = "1"
+features = [
+    "v4",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
+
 [dev-dependencies]
 proptest = "1"
 rand = { version = "0", features = [ "small_rng", "min_const_gen" ]}

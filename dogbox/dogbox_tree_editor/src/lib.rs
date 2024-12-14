@@ -425,7 +425,7 @@ impl OpenDirectory {
         self.modified
     }
 
-    async fn read(&self) -> Stream<MutableDirectoryEntry> {
+    pub async fn read(&self) -> Stream<MutableDirectoryEntry> {
         let state_locked = self.state.lock().await;
         let snapshot = state_locked.names.clone();
         debug!("Reading directory with {} entries", snapshot.len());
@@ -437,7 +437,7 @@ impl OpenDirectory {
         })
     }
 
-    async fn get_meta_data(&self, name: &str) -> Result<DirectoryEntryMetaData> {
+    pub async fn get_meta_data(&self, name: &str) -> Result<DirectoryEntryMetaData> {
         let state_locked = self.state.lock().await;
         match state_locked.names.get(name) {
             Some(found) => {
@@ -448,7 +448,7 @@ impl OpenDirectory {
         }
     }
 
-    async fn open_file(
+    pub async fn open_file(
         self: Arc<OpenDirectory>,
         name: &str,
         empty_file_digest: &BlobDigest,
@@ -626,7 +626,7 @@ impl OpenDirectory {
         }
     }
 
-    async fn open_directory(
+    pub async fn open_directory(
         self: &Arc<OpenDirectory>,
         path: NormalizedPath,
     ) -> Result<Arc<OpenDirectory>> {
@@ -671,7 +671,7 @@ impl OpenDirectory {
         ))
     }
 
-    async fn create_subdirectory(
+    pub async fn create_subdirectory(
         self: Arc<OpenDirectory>,
         name: String,
         empty_directory_digest: BlobDigest,
@@ -3170,6 +3170,7 @@ mod tests {
         assert!(end.is_none());
     }
 
+    #[derive(Debug)]
     struct NeverUsedStorage {}
 
     #[async_trait]

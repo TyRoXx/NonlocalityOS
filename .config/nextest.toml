@@ -4,6 +4,7 @@
 slow-timeout = { period = "5s", terminate-after = 4 }
 fail-fast = false
 retries = 1
+failure-output = "immediate-final"
 
 [profile.ci]
 # Do not cancel the test run on the first failure.
