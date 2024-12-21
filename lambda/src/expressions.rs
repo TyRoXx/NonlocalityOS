@@ -484,7 +484,7 @@ impl ReduceExpression for CompiledReducer {
                 .unwrap();
             let source_string = source_value.value().to_string().unwrap();
             let compiler_output: CompilerOutput =
-                crate::compiler::compile(&source_string, storage).await;
+                crate::compilation::compile(&source_string, storage).await;
             compiler_output.to_value().unwrap(/*TODO*/)
         })
     }

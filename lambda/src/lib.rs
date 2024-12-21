@@ -1,5 +1,6 @@
 #![feature(test)]
 
-pub mod compiler;
+pub mod compilation;
 pub mod expressions;
+pub mod parsing;
 pub mod tokenization;
