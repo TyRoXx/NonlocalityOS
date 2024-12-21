@@ -7,13 +7,13 @@ edition = "2021"
 
 [dependencies]
 relative-path = "1"
-wasmtime = "27"
-wasi-common = "27"
+wasmtime = "28"
+wasi-common = "28"
 display_bytes = "0"
-wiggle = "27"
+wiggle = "28"
 promising-future = "0"
 os_pipe = "1"
-wasmtime-wasi-threads = "27"
+wasmtime-wasi-threads = "28"
 anyhow = { version = "1", default-features = false }
 management_interface = { path ="../management_interface" }
 essrpc = {version = "0", features = ["bincode_transport", "async_client"]}
