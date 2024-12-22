@@ -4,11 +4,8 @@ use crate::{
 };
 use astraea::{
     expressions::{Expression, LambdaExpression},
-    storage::StoreValue,
-    tree::{HashedValue, Reference, Value},
     types::{Name, NamespaceId, Type},
 };
-use std::sync::Arc;
 
 pub fn pop_next_non_whitespace_token<'t>(
     tokens: &'t mut std::slice::Iter<Token>,
@@ -62,10 +59,7 @@ async fn parse_expression<'t>(tokens: &mut std::slice::Iter<'t, Token>) -> Expre
     }
 }
 
-async fn parse_lambda<'t>(
-    tokens: &mut std::slice::Iter<'t, Token>,
-    storage: &dyn StoreValue,
-) -> Reference {
+async fn parse_lambda<'t>(tokens: &mut std::slice::Iter<'t, Token>) -> Expression {
     let namespace = NamespaceId([0; 16]); // todo define son ding
     let parameter_name = Name::new(
         namespace,
@@ -84,23 +78,15 @@ async fn parse_lambda<'t>(
     );
     expect_dot(tokens);
     let body = parse_expression(tokens).await;
-    let result = storage
-        .store_value(&HashedValue::from(Arc::new(
-            Value::from_object(&LambdaExpression::new(
-                Type::Unit, // todo: do propper typechecking
-                parameter_name,
-                body,
-            ))
-            .expect("Creating value from lambda expression failed (todo better error message)"),
-        )))
-        .await
-        .unwrap();
-    result
+    return Expression::Lambda(Box::new(LambdaExpression::new(
+        Type::Unit, // todo: do propper typechecking
+        parameter_name,
+        body,
+    )));
 }
 
 pub async fn parse_entry_point_lambda<'t>(
     tokens: &mut std::slice::Iter<'t, Token>,
-    storage: &dyn StoreValue,
 ) -> CompilerOutput {
     let mut errors = Vec::new();
     match pop_next_non_whitespace_token(tokens) {
@@ -109,7 +95,7 @@ pub async fn parse_entry_point_lambda<'t>(
             TokenContent::Identifier(_) => todo!(),
             TokenContent::Assign => todo!(),
             TokenContent::Caret => {
-                let entry_point = parse_lambda(tokens, storage).await;
+                let entry_point = parse_lambda(tokens).await;
                 CompilerOutput::new(entry_point, errors)
             }
             TokenContent::LeftParenthesis => todo!(),
@@ -121,11 +107,7 @@ pub async fn parse_entry_point_lambda<'t>(
                 "Expected entry point lambda".to_string(),
                 SourceLocation::new(0, 0),
             ));
-            let entry_point = storage
-                .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
-                .await
-                .unwrap();
-            CompilerOutput::new(entry_point, errors)
+            CompilerOutput::new(Expression::Unit, errors)
         }
     }
 }

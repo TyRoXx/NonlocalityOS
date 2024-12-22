@@ -2,10 +2,7 @@ use crate::{
     parsing::{parse_entry_point_lambda, pop_next_non_whitespace_token},
     tokenization::tokenize_default_syntax,
 };
-use astraea::{
-    storage::StoreValue,
-    tree::{Reference, Value},
-};
+use astraea::expressions::Expression;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -34,34 +31,23 @@ impl CompilerError {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct CompilerOutput {
-    pub entry_point: Reference,
+    pub entry_point: Expression,
     pub errors: Vec<CompilerError>,
 }
 
 impl CompilerOutput {
-    pub fn new(entry_point: Reference, errors: Vec<CompilerError>) -> CompilerOutput {
+    pub fn new(entry_point: Expression, errors: Vec<CompilerError>) -> CompilerOutput {
         CompilerOutput {
             entry_point: entry_point,
             errors: errors,
         }
     }
-
-    pub fn from_value(input: Value) -> Option<CompilerOutput> {
-        if input.references.len() != 1 {
-            return None;
-        }
-        let errors: Vec<CompilerError> = match postcard::from_bytes(input.blob.as_slice()) {
-            Ok(parsed) => parsed,
-            Err(_) => return None,
-        };
-        Some(CompilerOutput::new(input.references[0], errors))
-    }
 }
 
-pub async fn compile(source: &str, storage: &dyn StoreValue) -> CompilerOutput {
+pub async fn compile(source: &str) -> CompilerOutput {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter();
-    let mut result = parse_entry_point_lambda(&mut token_iterator, storage).await;
+    let mut result = parse_entry_point_lambda(&mut token_iterator).await;
     match pop_next_non_whitespace_token(&mut token_iterator) {
         Some(extra_token) => {
             result.errors.push(CompilerError::new(
@@ -76,58 +62,33 @@ pub async fn compile(source: &str, storage: &dyn StoreValue) -> CompilerOutput {
 
 #[cfg(test)]
 mod tests2 {
-    use std::sync::Arc;
-
     use super::*;
     use crate::compilation::SourceLocation;
     use astraea::{
         expressions::{Expression, LambdaExpression},
-        storage::InMemoryValueStorage,
-        tree::{HashedValue, Value},
         types::{Name, NamespaceId, Type},
     };
-    use tokio::sync::Mutex;
 
     #[test_log::test(tokio::test)]
     async fn test_compile_empty_source() {
-        let value_storage =
-            InMemoryValueStorage::new(Mutex::new(std::collections::BTreeMap::new()));
-        let output = compile("", &value_storage).await;
+        let output = compile("").await;
         let expected = CompilerOutput::new(
-            value_storage
-                .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
-                .await
-                .unwrap(),
+            Expression::Unit,
             vec![CompilerError::new(
                 "Expected entry point lambda".to_string(),
                 SourceLocation::new(0, 0),
             )],
         );
         assert_eq!(expected, output);
-        assert_eq!(1, value_storage.len().await);
     }
 
     #[test_log::test(tokio::test)]
     async fn test_compile_simple_program() {
-        let value_storage =
-            InMemoryValueStorage::new(Mutex::new(std::collections::BTreeMap::new()));
-        let output = compile(r#"^x . x"#, &value_storage).await;
+        let output = compile(r#"^x . x"#).await;
         let name = Name::new(NamespaceId([0; 16]), "x".to_string());
-        let entry_point = value_storage
-            .store_value(&HashedValue::from(Arc::new(
-                Value::from_object(&LambdaExpression::new(
-                    Type::Unit,
-                    name.clone(),
-                    Expression::ReadVariable(name),
-                ))
-                .expect(
-                    "Failed to create value from Lambda expression (todo better error message)",
-                ),
-            )))
-            .await
-            .unwrap();
-        let expected = CompilerOutput::new(entry_point, Vec::new());
+        let entry_point =
+            LambdaExpression::new(Type::Unit, name.clone(), Expression::ReadVariable(name));
+        let expected = CompilerOutput::new(Expression::Lambda(Box::new(entry_point)), Vec::new());
         assert_eq!(expected, output);
-        assert_eq!(1, value_storage.len().await);
     }
 }

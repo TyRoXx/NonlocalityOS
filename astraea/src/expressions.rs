@@ -4,14 +4,13 @@ use crate::{
     types::{Name, Type},
 };
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     pin::Pin,
     sync::Arc,
 };
 
-#[derive(Debug, PartialEq, PartialOrd, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Hash, Clone)]
 pub struct Application {
     pub callee: Expression,
     pub callee_interface: BlobDigest,
@@ -35,7 +34,7 @@ impl Application {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Hash, Clone)]
 pub struct LambdaExpression {
     pub parameter_type: Type,
     pub parameter_name: Name,
@@ -56,7 +55,7 @@ impl LambdaExpression {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
 pub enum Expression {
     Unit,
     Literal(Type, BlobDigest),

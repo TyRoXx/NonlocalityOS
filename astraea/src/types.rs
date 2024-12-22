@@ -27,7 +27,7 @@ impl Name {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Serialize, Deserialize)]
 pub struct Signature {
     pub argument: Type,
     pub result: Type,
@@ -50,7 +50,7 @@ impl Interface {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, PartialOrd, Hash, Clone)]
 pub struct TypedExpression {
     pub expression: Expression,
     pub type_: Type,
@@ -90,7 +90,7 @@ impl TypedExpression {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone, Serialize, Deserialize)]
 pub enum Type {
     Named(Name),
     Unit,
