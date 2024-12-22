@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         expressions::{Expression, LambdaExpression},
-        tree::BlobDigest,
+        tree::{BlobDigest, HashedValue, Value, ValueBlob},
         type_checking::TypeCheckedExpression,
         types::{Interface, Name, NamespaceId, Signature, Type, TypedExpression},
     };
@@ -32,7 +32,10 @@ mod tests {
             }),
             TypeCheckedExpression::check(
                 &TypedExpression::new(
-                    Expression::Literal(Type::Reference, BlobDigest::hash(b"")),
+                    Expression::Literal(
+                        Type::Reference,
+                        HashedValue::from(Arc::new(Value::new(ValueBlob::empty(), vec![],)))
+                    ),
                     Type::Unit
                 ),
                 &no_named_variables,
@@ -93,7 +96,10 @@ mod tests {
     #[test_log::test(tokio::test)]
     async fn check_reference() {
         let unchecked = TypedExpression::new(
-            Expression::Literal(Type::Reference, BlobDigest::hash(b"")),
+            Expression::Literal(
+                Type::Reference,
+                HashedValue::from(Arc::new(Value::new(ValueBlob::empty(), vec![]))),
+            ),
             Type::Reference,
         );
         assert_eq!(

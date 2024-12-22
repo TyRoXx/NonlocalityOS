@@ -70,19 +70,16 @@ async fn complex_expression() {
     let directory_interface_ref = store_object(&*storage, &*directory_interface)
         .await
         .unwrap();
-    let stored_file_name = storage
-        .store_value(&HashedValue::from(Arc::new(
-            Value::from_object(&FileName::try_from(file_name.to_string()).unwrap()).unwrap(),
-        )))
-        .await
-        .unwrap();
+    let file_name_value = HashedValue::from(Arc::new(
+        Value::from_object(&FileName::try_from(file_name.to_string()).unwrap()).unwrap(),
+    ));
     let get_expression = read_lambda_parameter_expression
         .apply(
             &directory_interface,
             &directory_interface_ref.digest,
             get_name.clone(),
             TypedExpression::new(
-                Expression::Literal(file_name_type.clone(), stored_file_name.digest),
+                Expression::Literal(file_name_type.clone(), file_name_value),
                 file_name_type.clone(),
             ),
         )

@@ -122,7 +122,7 @@ impl TypedReference {
 
 pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct ValueBlob {
     pub content: bytes::Bytes,
 }
@@ -209,7 +209,7 @@ impl std::fmt::Display for ValueDeserializationError {
 
 impl std::error::Error for ValueDeserializationError {}
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct Value {
     pub blob: ValueBlob,
     pub references: Vec<Reference>,
@@ -279,7 +279,7 @@ impl Value {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct HashedValue {
     value: Arc<Value>,
     digest: BlobDigest,
@@ -300,6 +300,13 @@ impl HashedValue {
 
     pub fn digest(&self) -> &BlobDigest {
         &self.digest
+    }
+}
+
+impl std::hash::Hash for HashedValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Using the actual value here is not necessessary because the digest covers it.
+        self.digest.hash(state);
     }
 }
 

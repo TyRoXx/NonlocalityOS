@@ -1,6 +1,6 @@
 use crate::{
     storage::{LoadValue, StoreError, StoreValue},
-    tree::{BlobDigest, HashedValue, Reference, Value},
+    tree::{BlobDigest, HashedValue, Value},
     types::{Name, Type},
 };
 use async_trait::async_trait;
@@ -58,7 +58,7 @@ impl LambdaExpression {
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
 pub enum Expression {
     Unit,
-    Literal(Type, BlobDigest),
+    Literal(Type, HashedValue),
     Apply(Box<Application>),
     ReadVariable(Name),
     Lambda(Box<LambdaExpression>),
@@ -68,10 +68,10 @@ impl Expression {
     pub fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
         match self {
             Expression::Unit => write!(writer, "()"),
-            Expression::Literal(literal_type, blob_digest) => {
+            Expression::Literal(literal_type, literal_value) => {
                 write!(writer, "literal(")?;
                 literal_type.print(writer, level)?;
-                write!(writer, ", {})", blob_digest)
+                write!(writer, ", {})", literal_value.digest())
             }
             Expression::Apply(application) => {
                 application.callee.print(writer, level)?;
@@ -281,19 +281,9 @@ pub async fn evaluate(
 ) -> Pointer {
     match expression {
         Expression::Unit => return Pointer::Value(HashedValue::from(Arc::new(Value::from_unit()))),
-        Expression::Literal(literal_type, blob_digest) => {
-            let loaded: Option<crate::storage::DelayedHashedValue> =
-                storage.load_value(&Reference::new(*blob_digest)).await;
-            match loaded {
-                Some(found) => match found.hash() {
-                    Some(hashed) => {
-                        let literal = read_literal(literal_type.clone(), hashed).await;
-                        literal
-                    }
-                    None => todo!(),
-                },
-                None => todo!(),
-            }
+        Expression::Literal(literal_type, literal_value) => {
+            let literal = read_literal(literal_type.clone(), literal_value.clone()).await;
+            literal
         }
         Expression::Apply(application) => {
             let evaluated_callee = Box::pin(evaluate(
