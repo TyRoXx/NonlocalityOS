@@ -85,7 +85,7 @@ async fn parse_expression_start<'t>(
                 ))
             }
             TokenContent::Assign => todo!(),
-            TokenContent::Caret => todo!(),
+            TokenContent::Caret => Box::pin(parse_lambda(tokens)).await,
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
@@ -94,7 +94,7 @@ async fn parse_expression_start<'t>(
     }
 }
 
-async fn parse_expression<'t>(
+pub async fn parse_expression<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
 ) -> Expression {
     let start = parse_expression_start(tokens).await;
