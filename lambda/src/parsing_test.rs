@@ -26,6 +26,23 @@ async fn test_parse_lambda() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_parse_nested_lambda() {
+    let output = parse_wellformed_expression(r#"^f . ^g . f"#).await;
+    let f = Name::new(NamespaceId::builtins(), "f".to_string());
+    let g = Name::new(NamespaceId::builtins(), "g".to_string());
+    let expected = Expression::Lambda(Box::new(LambdaExpression::new(
+        Type::Unit,
+        f.clone(),
+        Expression::Lambda(Box::new(LambdaExpression::new(
+            Type::Unit,
+            g,
+            Expression::ReadVariable(f),
+        ))),
+    )));
+    assert_eq!(expected, output);
+}
+
+#[test_log::test(tokio::test)]
 async fn test_parse_function_call() {
     let output = parse_wellformed_expression(r#"^f . f(f)"#).await;
     let name = Name::new(NamespaceId::builtins(), "f".to_string());
