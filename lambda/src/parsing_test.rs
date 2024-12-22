@@ -13,21 +13,25 @@ async fn parse_wellformed_expression(source: &str) -> Expression {
     output
 }
 
+async fn test_wellformed_parsing(source: &str, expected: Expression) {
+    let output = parse_wellformed_expression(source).await;
+    assert_eq!(expected, output);
+    assert_eq!(expected.to_string(), output.to_string());
+}
+
 #[test_log::test(tokio::test)]
 async fn test_parse_lambda() {
-    let output = parse_wellformed_expression(r#"^f . f"#).await;
     let name = Name::new(NamespaceId::builtins(), "f".to_string());
     let expected = Expression::Lambda(Box::new(LambdaExpression::new(
         Type::Unit,
         name.clone(),
         Expression::ReadVariable(name),
     )));
-    assert_eq!(expected, output);
+    test_wellformed_parsing(r#"^f . f"#, expected).await;
 }
 
 #[test_log::test(tokio::test)]
 async fn test_parse_nested_lambda() {
-    let output = parse_wellformed_expression(r#"^f . ^g . f"#).await;
     let f = Name::new(NamespaceId::builtins(), "f".to_string());
     let g = Name::new(NamespaceId::builtins(), "g".to_string());
     let expected = Expression::Lambda(Box::new(LambdaExpression::new(
@@ -39,12 +43,11 @@ async fn test_parse_nested_lambda() {
             Expression::ReadVariable(f),
         ))),
     )));
-    assert_eq!(expected, output);
+    test_wellformed_parsing(r#"^f . ^g . f"#, expected).await;
 }
 
 #[test_log::test(tokio::test)]
 async fn test_parse_function_call() {
-    let output = parse_wellformed_expression(r#"^f . f(f)"#).await;
     let name = Name::new(NamespaceId::builtins(), "f".to_string());
     let f = Expression::ReadVariable(name.clone());
     let expected = Expression::Lambda(Box::new(LambdaExpression::new(
@@ -57,5 +60,5 @@ async fn test_parse_function_call() {
             f,
         ))),
     )));
-    assert_eq!(expected, output);
+    test_wellformed_parsing(r#"^f . f(f)"#, expected).await;
 }

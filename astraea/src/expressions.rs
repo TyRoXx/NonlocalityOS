@@ -95,6 +95,12 @@ impl Expression {
         }
     }
 
+    pub fn to_string(&self) -> String {
+        let mut result = String::new();
+        self.print(&mut result, 0).unwrap();
+        result
+    }
+
     pub fn find_captured_names(&self) -> BTreeSet<Name> {
         match self {
             Expression::Unit => BTreeSet::new(),
