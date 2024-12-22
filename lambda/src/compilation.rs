@@ -7,6 +7,7 @@ use astraea::{
     tree::{Reference, Value},
 };
 use serde::{Deserialize, Serialize};
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct SourceLocation {
     pub line: u64,
@@ -79,10 +80,11 @@ mod tests2 {
 
     use super::*;
     use crate::compilation::SourceLocation;
-    use crate::parsing::{make_lambda, Lambda};
     use astraea::{
+        expressions::{Expression, LambdaExpression},
         storage::InMemoryValueStorage,
         tree::{HashedValue, Value},
+        types::{Name, NamespaceId, Type},
     };
     use tokio::sync::Mutex;
 
@@ -110,20 +112,22 @@ mod tests2 {
         let value_storage =
             InMemoryValueStorage::new(Mutex::new(std::collections::BTreeMap::new()));
         let output = compile(r#"^x . x"#, &value_storage).await;
-        let parameter = value_storage
-            .store_value(&HashedValue::from(Arc::new(
-                Value::from_string("x").unwrap(),
-            )))
-            .await
-            .unwrap();
+        let name = Name::new(NamespaceId([0; 16]), "x".to_string());
         let entry_point = value_storage
-            .store_value(&HashedValue::from(Arc::new(make_lambda(Lambda::new(
-                parameter, parameter,
-            )))))
+            .store_value(&HashedValue::from(Arc::new(
+                Value::from_object(&LambdaExpression::new(
+                    Type::Unit,
+                    name.clone(),
+                    Expression::ReadVariable(name),
+                ))
+                .expect(
+                    "Failed to create value from Lambda expression (todo better error message)",
+                ),
+            )))
             .await
             .unwrap();
         let expected = CompilerOutput::new(entry_point, Vec::new());
         assert_eq!(expected, output);
-        assert_eq!(2, value_storage.len().await);
+        assert_eq!(1, value_storage.len().await);
     }
 }

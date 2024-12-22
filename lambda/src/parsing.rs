@@ -3,31 +3,12 @@ use crate::{
     tokenization::{Token, TokenContent},
 };
 use astraea::{
+    expressions::{Expression, LambdaExpression},
     storage::StoreValue,
-    tree::{HashedValue, Reference, Value, ValueBlob},
+    tree::{HashedValue, Reference, Value},
+    types::{Name, NamespaceId, Type},
 };
 use std::sync::Arc;
-
-pub struct Lambda {
-    variable: Reference,
-    body: Reference,
-}
-
-impl Lambda {
-    pub fn new(variable: Reference, body: Reference) -> Self {
-        Self {
-            variable: variable,
-            body: body,
-        }
-    }
-}
-
-pub fn make_lambda(lambda: Lambda) -> Value {
-    Value {
-        blob: ValueBlob::empty(),
-        references: vec![lambda.variable, lambda.body],
-    }
-}
 
 pub fn pop_next_non_whitespace_token<'t>(
     tokens: &'t mut std::slice::Iter<Token>,
@@ -64,19 +45,13 @@ fn expect_dot(tokens: &mut std::slice::Iter<Token>) {
     }
 }
 
-async fn parse_expression<'t>(
-    tokens: &mut std::slice::Iter<'t, Token>,
-    storage: &dyn StoreValue,
-) -> Reference {
+async fn parse_expression<'t>(tokens: &mut std::slice::Iter<'t, Token>) -> Expression {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
-            TokenContent::Identifier(identifier) => storage
-                .store_value(&HashedValue::from(Arc::new(
-                    Value::from_string(&identifier).unwrap(/*TODO*/),
-                )))
-                .await
-                .unwrap(),
+            TokenContent::Identifier(identifier) => {
+                Expression::ReadVariable(Name::new(NamespaceId([0; 16]), identifier.clone()))
+            }
             TokenContent::Assign => todo!(),
             TokenContent::Caret => todo!(),
             TokenContent::LeftParenthesis => todo!(),
@@ -91,30 +66,33 @@ async fn parse_lambda<'t>(
     tokens: &mut std::slice::Iter<'t, Token>,
     storage: &dyn StoreValue,
 ) -> Reference {
-    let parameter_name = match pop_next_non_whitespace_token(tokens) {
-        Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Whitespace => todo!(),
-            TokenContent::Identifier(identifier) => identifier,
-            TokenContent::Assign => todo!(),
-            TokenContent::Caret => todo!(),
-            TokenContent::LeftParenthesis => todo!(),
-            TokenContent::RightParenthesis => todo!(),
-            TokenContent::Dot => todo!(),
+    let namespace = NamespaceId([0; 16]); // todo define son ding
+    let parameter_name = Name::new(
+        namespace,
+        match pop_next_non_whitespace_token(tokens) {
+            Some(non_whitespace) => match &non_whitespace.content {
+                TokenContent::Whitespace => todo!(),
+                TokenContent::Identifier(identifier) => identifier.clone(),
+                TokenContent::Assign => todo!(),
+                TokenContent::Caret => todo!(),
+                TokenContent::LeftParenthesis => todo!(),
+                TokenContent::RightParenthesis => todo!(),
+                TokenContent::Dot => todo!(),
+            },
+            None => todo!(),
         },
-        None => todo!(),
-    };
-    let parameter = storage
-        .store_value(&HashedValue::from(Arc::new(
-            Value::from_string(parameter_name).unwrap(/*TODO*/),
-        )))
-        .await
-        .unwrap();
+    );
     expect_dot(tokens);
-    let body = parse_expression(tokens, storage).await;
+    let body = parse_expression(tokens).await;
     let result = storage
-        .store_value(&HashedValue::from(Arc::new(make_lambda(Lambda::new(
-            parameter, body,
-        )))))
+        .store_value(&HashedValue::from(Arc::new(
+            Value::from_object(&LambdaExpression::new(
+                Type::Unit, // todo: do propper typechecking
+                parameter_name,
+                body,
+            ))
+            .expect("Creating value from lambda expression failed (todo better error message)"),
+        )))
         .await
         .unwrap();
     result
