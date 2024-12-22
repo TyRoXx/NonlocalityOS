@@ -1,10 +1,12 @@
+use std::sync::Arc;
+
 use crate::{
     compilation::{CompilerError, CompilerOutput, SourceLocation},
     tokenization::{Token, TokenContent},
 };
 use astraea::{
     expressions::{Application, Expression, LambdaExpression},
-    tree::BlobDigest,
+    tree::{BlobDigest, HashedValue, Value},
     types::{Name, NamespaceId, Type},
 };
 
@@ -36,6 +38,7 @@ pub fn peek_next_non_whitespace_token<'t>(
                 TokenContent::LeftParenthesis => return Some(token),
                 TokenContent::RightParenthesis => return Some(token),
                 TokenContent::Dot => return Some(token),
+                TokenContent::Quotes(_) => return Some(token),
             },
             None => return None,
         }
@@ -52,6 +55,7 @@ fn expect_right_parenthesis(tokens: &mut std::iter::Peekable<std::slice::Iter<'_
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => {}
             TokenContent::Dot => todo!(),
+            TokenContent::Quotes(_) => todo!(),
         },
         None => todo!(),
     }
@@ -67,6 +71,7 @@ fn expect_dot(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => {}
+            TokenContent::Quotes(_) => todo!(),
         },
         None => todo!(),
     }
@@ -89,6 +94,7 @@ async fn parse_expression_start<'t>(
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
+            TokenContent::Quotes(_) => todo!(),
         },
         None => todo!(),
     }
@@ -99,7 +105,7 @@ pub async fn parse_expression<'t>(
 ) -> Expression {
     let start = parse_expression_start(tokens).await;
     match peek_next_non_whitespace_token(tokens) {
-        Some(more) => match more.content {
+        Some(more) => match &more.content {
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => start,
             TokenContent::Assign => start,
@@ -117,6 +123,17 @@ pub async fn parse_expression<'t>(
             }
             TokenContent::RightParenthesis => start,
             TokenContent::Dot => todo!(),
+            TokenContent::Quotes(content) => {
+                return Expression::Literal(
+                    Type::Named(Name::new(
+                        NamespaceId::builtins(),
+                        "utf8-string".to_string(),
+                    )),
+                    HashedValue::from(Arc::new(
+                        Value::from_string(&content).expect("It's too long. That's what she said."),
+                    )),
+                );
+            }
         },
         None => start,
     }
@@ -137,6 +154,7 @@ async fn parse_lambda<'t>(
                 TokenContent::LeftParenthesis => todo!(),
                 TokenContent::RightParenthesis => todo!(),
                 TokenContent::Dot => todo!(),
+                TokenContent::Quotes(_) => todo!(),
             },
             None => todo!(),
         },
@@ -156,7 +174,7 @@ pub async fn parse_entry_point_lambda<'t>(
     let mut errors = Vec::new();
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match non_whitespace.content {
-            TokenContent::Whitespace => todo!(),
+            TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => todo!(),
             TokenContent::Assign => todo!(),
             TokenContent::Caret => {
@@ -166,6 +184,7 @@ pub async fn parse_entry_point_lambda<'t>(
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
+            TokenContent::Quotes(_) => todo!(),
         },
         None => {
             errors.push(CompilerError::new(

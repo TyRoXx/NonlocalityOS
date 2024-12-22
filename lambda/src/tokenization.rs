@@ -16,6 +16,8 @@ pub enum TokenContent {
     RightParenthesis,
     // .
     Dot,
+    // "..."
+    Quotes(String),
 }
 
 #[derive(PartialEq, Debug)]
@@ -109,22 +111,16 @@ fn tokenize(source: &str, syntax: &hippeus_parser_generator::Parser) -> Vec<Toke
                                     object_buffer.extend_from_slice(&blob);
                                 }
                             },
-                            None => {
-                                match &mut postcard_length_prefix_mode {
-                                    Some(buffer) => {
-                                        // https://postcard.jamesmunns.com/wire-format.html#16---byte-array
-                                        if buffer.len() > 127 {
-                                            todo!("Support variable length byte arrays longer than 127 bytes");
-                                        }
-                                        object_buffer.push(buffer.len() as u8);
-                                        object_buffer.extend_from_slice(&buffer);
-                                        postcard_length_prefix_mode = None;
-                                    }
-                                    None => {
-                                        postcard_length_prefix_mode = Some(Vec::new());
-                                    }
+                            None => match &mut postcard_length_prefix_mode {
+                                Some(buffer) => {
+                                    object_buffer =
+                                        postcard::to_extend(&buffer, object_buffer).unwrap();
+                                    postcard_length_prefix_mode = None;
                                 }
-                            }
+                                None => {
+                                    postcard_length_prefix_mode = Some(Vec::new());
+                                }
+                            },
                         }
                     }
                     assert!(postcard_length_prefix_mode.is_none(), "the token parser failed to generate a final separator after a variable-length byte array");
@@ -179,6 +175,8 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(12);
     const TOKEN_TAG_DOT: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(13);
+    const TOKEN_TAG_QUOTES: hippeus_parser_generator::RegisterId =
+        hippeus_parser_generator::RegisterId(14);
     lazy_static! {
         static ref TOKEN_PARSER: hippeus_parser_generator::Parser =
             hippeus_parser_generator::Parser::Sequence(vec![
@@ -374,6 +372,52 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 )
                             ]))
                         ),
+
+                        // quotes
+                        hippeus_parser_generator::Parser::IsAnyOf {
+                            input: FIRST_INPUT,
+                            result: IS_ANY_OF_RESULT,
+                            candidates: vec![hippeus_parser_generator::RegisterValue::Byte(b'"')],
+                        },
+                        hippeus_parser_generator::Parser::Condition(
+                            IS_ANY_OF_RESULT,
+                            Box::new(hippeus_parser_generator::Parser::Sequence(vec![
+                                hippeus_parser_generator::Parser::Constant(
+                                    TOKEN_TAG_QUOTES,
+                                    hippeus_parser_generator::RegisterValue::Byte(7)
+                                ),
+                                hippeus_parser_generator::Parser::WriteOutputByte(
+                                    TOKEN_TAG_QUOTES
+                                ),
+                                // convention: separator starts a variable-length byte array
+                                hippeus_parser_generator::Parser::WriteOutputSeparator,
+                                hippeus_parser_generator::Parser::Constant(
+                                    LOOP_CONDITION,
+                                    hippeus_parser_generator::RegisterValue::Boolean(true)
+                                ),
+                                hippeus_parser_generator::Parser::Loop{condition: LOOP_CONDITION, body: Box::new(
+                                    hippeus_parser_generator::Parser::Sequence(vec![
+                                        hippeus_parser_generator::Parser::ReadInputByte(SUBSEQUENT_INPUT),
+                                        // TODO: support escape sequences
+                                        hippeus_parser_generator::Parser::IsAnyOf {
+                                            input: SUBSEQUENT_INPUT,
+                                            result: LOOP_CONDITION,
+                                            candidates: vec![hippeus_parser_generator::RegisterValue::Byte(b'"')],
+                                        },
+                                        hippeus_parser_generator::Parser::Not{from: LOOP_CONDITION, to: LOOP_CONDITION},
+                                        hippeus_parser_generator::Parser::Condition(
+                                            LOOP_CONDITION,
+                                            Box::new(hippeus_parser_generator::Parser::Sequence(vec![
+                                                hippeus_parser_generator::Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
+                                                hippeus_parser_generator::Parser::WriteOutputByte(OUTPUT_BYTE),
+                                            ]))
+                                        ),
+                                    ])
+                                )},
+                                // convention: separator also ends a variable-length byte array
+                                hippeus_parser_generator::Parser::WriteOutputSeparator,
+                            ]))
+                        ),
                     ])),
                 ),
             ]);
@@ -534,5 +578,36 @@ mod tests {
                 location: SourceLocation { line: 0, column: 0 },
             }],
         );
+    }
+
+    fn wellformed_quotes(string_content: &str) {
+        test_tokenize_default_syntax(
+            &format!("\"{}\"", string_content),
+            &[Token {
+                content: TokenContent::Quotes(string_content.to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            }],
+        );
+    }
+
+    #[test]
+    fn test_tokenize_default_syntax_string_empty() {
+        wellformed_quotes("");
+    }
+
+    #[test]
+    fn test_tokenize_default_syntax_string_short() {
+        wellformed_quotes("hello");
+    }
+
+    #[test]
+    fn test_tokenize_default_syntax_string_longer() {
+        wellformed_quotes(&std::iter::repeat_n('A', 1000).collect::<String>());
+    }
+
+    #[test]
+    fn test_tokenize_default_syntax_string_escape_sequences() {
+        // TODO: support escape sequences, test \"
+        wellformed_quotes("\\\\");
     }
 }
