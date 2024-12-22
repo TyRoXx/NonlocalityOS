@@ -1,12 +1,33 @@
 use crate::{
-    expressions::{make_lambda, CompilerError, CompilerOutput, Lambda, SourceLocation},
+    compilation::{CompilerError, CompilerOutput, SourceLocation},
     tokenization::{Token, TokenContent},
 };
 use astraea::{
     storage::StoreValue,
-    tree::{HashedValue, Reference, Value},
+    tree::{HashedValue, Reference, Value, ValueBlob},
 };
 use std::sync::Arc;
+
+pub struct Lambda {
+    variable: Reference,
+    body: Reference,
+}
+
+impl Lambda {
+    pub fn new(variable: Reference, body: Reference) -> Self {
+        Self {
+            variable: variable,
+            body: body,
+        }
+    }
+}
+
+pub fn make_lambda(lambda: Lambda) -> Value {
+    Value {
+        blob: ValueBlob::empty(),
+        references: vec![lambda.variable, lambda.body],
+    }
+}
 
 pub fn pop_next_non_whitespace_token<'t>(
     tokens: &'t mut std::slice::Iter<Token>,
