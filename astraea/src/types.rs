@@ -13,6 +13,10 @@ impl NamespaceId {
     pub fn random() -> Self {
         Self(Uuid::new_v4().into_bytes())
     }
+
+    pub fn builtins() -> Self {
+        return Self([0; 16]);
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Serialize, Deserialize)]

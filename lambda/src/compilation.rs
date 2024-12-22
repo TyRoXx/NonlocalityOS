@@ -46,7 +46,7 @@ impl CompilerOutput {
 
 pub async fn compile(source: &str) -> CompilerOutput {
     let tokens = tokenize_default_syntax(source);
-    let mut token_iterator = tokens.iter();
+    let mut token_iterator = tokens.iter().peekable();
     let mut result = parse_entry_point_lambda(&mut token_iterator).await;
     match pop_next_non_whitespace_token(&mut token_iterator) {
         Some(extra_token) => {
