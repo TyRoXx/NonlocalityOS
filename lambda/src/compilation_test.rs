@@ -3,9 +3,10 @@ mod tests2 {
     use crate::compilation::{compile, CompilerError, CompilerOutput, SourceLocation};
     use astraea::{
         expressions::{Application, Expression, LambdaExpression},
-        tree::BlobDigest,
+        tree::{BlobDigest, HashedValue, Value},
         types::{Name, NamespaceId, Type},
     };
+    use std::sync::Arc;
 
     #[test_log::test(tokio::test)]
     async fn test_compile_empty_source() {
@@ -43,6 +44,31 @@ mod tests2 {
                 BlobDigest::hash(b"todo"),
                 Name::new(NamespaceId::builtins(), "apply".to_string()),
                 f,
+            ))),
+        );
+        let expected = CompilerOutput::new(Expression::Lambda(Box::new(entry_point)), Vec::new());
+        assert_eq!(expected, output);
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_compile_quotes() {
+        let output = compile(r#"^print . print("Hello, world!")"#).await;
+        let print_name = Name::new(NamespaceId::builtins(), "print".to_string());
+        let print = Expression::ReadVariable(print_name.clone());
+        let entry_point = LambdaExpression::new(
+            Type::Unit,
+            print_name,
+            Expression::Apply(Box::new(Application::new(
+                print.clone(),
+                BlobDigest::hash(b"todo"),
+                Name::new(NamespaceId::builtins(), "apply".to_string()),
+                Expression::Literal(
+                    Type::Named(Name::new(
+                        NamespaceId::builtins(),
+                        "utf8-string".to_string(),
+                    )),
+                    HashedValue::from(Arc::new(Value::from_string("Hello, world!").unwrap())),
+                ),
             ))),
         );
         let expected = CompilerOutput::new(Expression::Lambda(Box::new(entry_point)), Vec::new());

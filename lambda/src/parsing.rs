@@ -94,7 +94,17 @@ async fn parse_expression_start<'t>(
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
-            TokenContent::Quotes(_) => todo!(),
+            TokenContent::Quotes(content) => {
+                return Expression::Literal(
+                    Type::Named(Name::new(
+                        NamespaceId::builtins(),
+                        "utf8-string".to_string(),
+                    )),
+                    HashedValue::from(Arc::new(
+                        Value::from_string(&content).expect("It's too long. That's what she said."),
+                    )),
+                );
+            }
         },
         None => todo!(),
     }
@@ -123,17 +133,7 @@ pub async fn parse_expression<'t>(
             }
             TokenContent::RightParenthesis => start,
             TokenContent::Dot => todo!(),
-            TokenContent::Quotes(content) => {
-                return Expression::Literal(
-                    Type::Named(Name::new(
-                        NamespaceId::builtins(),
-                        "utf8-string".to_string(),
-                    )),
-                    HashedValue::from(Arc::new(
-                        Value::from_string(&content).expect("It's too long. That's what she said."),
-                    )),
-                );
-            }
+            TokenContent::Quotes(_) => todo!(),
         },
         None => start,
     }
