@@ -151,7 +151,7 @@ fn tokenize(source: &str, syntax: &hippeus_parser_generator::Parser) -> Vec<Toke
 pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
     const IS_END_OF_INPUT: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(0);
-    const IS_INPUT_AVAILABLE: hippeus_parser_generator::RegisterId =
+    const STILL_SOMETHING_TO_CHECK: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(1);
     const FIRST_INPUT: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(2);
@@ -183,18 +183,13 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(15);
     const IF_CONDITION: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(16);
-    const STILL_SOMETHING_TO_CHECK: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(17);
     lazy_static! {
         static ref TOKEN_PARSER: hippeus_parser_generator::Parser =
             hippeus_parser_generator::Parser::Sequence(vec![
                 hippeus_parser_generator::Parser::IsEndOfInput(IS_END_OF_INPUT),
-                hippeus_parser_generator::Parser::Not {
-                    from: IS_END_OF_INPUT,
-                    to: IS_INPUT_AVAILABLE,
-                },
                 hippeus_parser_generator::Parser::IfElse(
-                    IS_INPUT_AVAILABLE,
+                    IS_END_OF_INPUT,
+                    Box::new(hippeus_parser_generator::Parser::no_op()),
                     Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                         hippeus_parser_generator::Parser::ReadInputByte(FIRST_INPUT),
 
@@ -296,9 +291,9 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(STILL_SOMETHING_TO_CHECK, hippeus_parser_generator::RegisterValue::Boolean(true)),
                                 hippeus_parser_generator::Parser::IsEndOfInput(IS_END_OF_INPUT),
-                                hippeus_parser_generator::Parser::Not{from: IS_END_OF_INPUT, to: IF_CONDITION},
                                 hippeus_parser_generator::Parser::IfElse(
-                                    IF_CONDITION,
+                                    IS_END_OF_INPUT,
+                                    Box::new(hippeus_parser_generator::Parser::no_op()),
                                     Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                         hippeus_parser_generator::Parser::PeekInputByte(SUBSEQUENT_INPUT),
                                         hippeus_parser_generator::Parser::IsAnyOf {
@@ -324,7 +319,6 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                             Box::new(hippeus_parser_generator::Parser::no_op())
                                         ),
                                     ])),
-                                    Box::new(hippeus_parser_generator::Parser::no_op())
                                 ),
                                 hippeus_parser_generator::Parser::IfElse(
                                     STILL_SOMETHING_TO_CHECK,
@@ -459,17 +453,17 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                         // TODO: support escape sequences
                                         hippeus_parser_generator::Parser::IsAnyOf {
                                             input: SUBSEQUENT_INPUT,
-                                            result: LOOP_CONDITION,
+                                            result: IS_ANY_OF_RESULT,
                                             candidates: vec![hippeus_parser_generator::RegisterValue::Byte(b'"')],
                                         },
-                                        hippeus_parser_generator::Parser::Not{from: LOOP_CONDITION, to: LOOP_CONDITION},
+                                        hippeus_parser_generator::Parser::Not{from: IS_ANY_OF_RESULT, to: LOOP_CONDITION},
                                         hippeus_parser_generator::Parser::IfElse(
-                                            LOOP_CONDITION,
+                                            IS_ANY_OF_RESULT,
+                                            Box::new(hippeus_parser_generator::Parser::no_op()),
                                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                                 hippeus_parser_generator::Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
                                                 hippeus_parser_generator::Parser::WriteOutputByte(OUTPUT_BYTE),
                                             ])),
-                                            Box::new(hippeus_parser_generator::Parser::no_op())
                                         ),
                                     ])
                                 )},
@@ -479,7 +473,6 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::no_op())
                         )
                     ])),
-                    Box::new(hippeus_parser_generator::Parser::no_op()),
                 ),
             ]);
     }
