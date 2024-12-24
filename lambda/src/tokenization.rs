@@ -18,6 +18,8 @@ pub enum TokenContent {
     Dot,
     // "..."
     Quotes(String),
+    // =>
+    FatArrow,
 }
 
 #[derive(PartialEq, Debug)]
@@ -177,6 +179,12 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(13);
     const TOKEN_TAG_QUOTES: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(14);
+    const TOKEN_TAG_FAT_ARROW: hippeus_parser_generator::RegisterId =
+        hippeus_parser_generator::RegisterId(15);
+    const IF_CONDITION: hippeus_parser_generator::RegisterId =
+        hippeus_parser_generator::RegisterId(16);
+    const STILL_SOMETHING_TO_CHECK: hippeus_parser_generator::RegisterId =
+        hippeus_parser_generator::RegisterId(17);
     lazy_static! {
         static ref TOKEN_PARSER: hippeus_parser_generator::Parser =
             hippeus_parser_generator::Parser::Sequence(vec![
@@ -251,7 +259,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                                     input: SUBSEQUENT_INPUT,
                                                     result: LOOP_CONDITION,
                                                     candidates: (b'a'..b'z').map(|c|
-                                                        hippeus_parser_generator::RegisterValue::Byte( c)).collect(),
+                                                        hippeus_parser_generator::RegisterValue::Byte(c)).collect(),
                                                 },
                                                 hippeus_parser_generator::Parser::Condition(
                                                     LOOP_CONDITION,
@@ -279,13 +287,48 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                         hippeus_parser_generator::Parser::Condition(
                             IS_ANY_OF_RESULT,
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
-                                hippeus_parser_generator::Parser::Constant(
-                                    TOKEN_TAG_ASSIGN,
-                                    hippeus_parser_generator::RegisterValue::Byte(2)
+                                hippeus_parser_generator::Parser::Constant(STILL_SOMETHING_TO_CHECK, hippeus_parser_generator::RegisterValue::Boolean(true)),
+                                hippeus_parser_generator::Parser::IsEndOfInput(IS_END_OF_INPUT),
+                                hippeus_parser_generator::Parser::Not{from: IS_END_OF_INPUT, to: IF_CONDITION},
+                                hippeus_parser_generator::Parser::Condition(
+                                    IF_CONDITION,
+                                    Box::new(hippeus_parser_generator::Parser::Sequence(vec![
+                                        hippeus_parser_generator::Parser::PeekInputByte(SUBSEQUENT_INPUT),
+                                        hippeus_parser_generator::Parser::IsAnyOf {
+                                            input: SUBSEQUENT_INPUT,
+                                            result: IF_CONDITION,
+                                            candidates: vec![
+                                                hippeus_parser_generator::RegisterValue::Byte(b'>')
+                                            ]
+                                        },
+                                        hippeus_parser_generator::Parser::Condition(
+                                            IF_CONDITION,
+                                            Box::new(hippeus_parser_generator::Parser::Sequence(vec![
+                                                hippeus_parser_generator::Parser::ReadInputByte(SUBSEQUENT_INPUT),
+                                                hippeus_parser_generator::Parser::Constant(
+                                                    TOKEN_TAG_FAT_ARROW,
+                                                    hippeus_parser_generator::RegisterValue::Byte(8)
+                                                ),
+                                                hippeus_parser_generator::Parser::WriteOutputByte(
+                                                    TOKEN_TAG_FAT_ARROW
+                                                ),
+                                                hippeus_parser_generator::Parser::Constant(STILL_SOMETHING_TO_CHECK, hippeus_parser_generator::RegisterValue::Boolean(false)),
+                                            ]))
+                                        ),
+                                    ]))
                                 ),
-                                hippeus_parser_generator::Parser::WriteOutputByte(
-                                    TOKEN_TAG_ASSIGN
-                                )
+                                hippeus_parser_generator::Parser::Condition(
+                                    STILL_SOMETHING_TO_CHECK,
+                                    Box::new(hippeus_parser_generator::Parser::Sequence(vec![
+                                        hippeus_parser_generator::Parser::Constant(
+                                            TOKEN_TAG_ASSIGN,
+                                            hippeus_parser_generator::RegisterValue::Byte(2)
+                                        ),
+                                        hippeus_parser_generator::Parser::WriteOutputByte(
+                                            TOKEN_TAG_ASSIGN
+                                        )
+                                    ]))
+                                ),
                             ]))
                         ),
 
@@ -464,7 +507,7 @@ mod tests {
     #[test]
     fn test_tokenize_default_syntax_source_locations() {
         test_tokenize_default_syntax(
-            " \n  test=\n^().",
+            " \n  test=\n^().\"\"=>",
             &[
                 Token {
                     content: TokenContent::Whitespace,
@@ -509,6 +552,56 @@ mod tests {
                 Token {
                     content: TokenContent::Dot,
                     location: SourceLocation { line: 2, column: 3 },
+                },
+                Token {
+                    content: TokenContent::Quotes("".to_string()),
+                    location: SourceLocation { line: 2, column: 4 },
+                },
+                Token {
+                    content: TokenContent::FatArrow,
+                    location: SourceLocation { line: 2, column: 6 },
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn test_tokenize_default_syntax_assign_ambiguity_1() {
+        test_tokenize_default_syntax(
+            "==>==",
+            &[
+                Token {
+                    content: TokenContent::Assign,
+                    location: SourceLocation { line: 0, column: 0 },
+                },
+                Token {
+                    content: TokenContent::FatArrow,
+                    location: SourceLocation { line: 0, column: 1 },
+                },
+                Token {
+                    content: TokenContent::Assign,
+                    location: SourceLocation { line: 0, column: 3 },
+                },
+                Token {
+                    content: TokenContent::Assign,
+                    location: SourceLocation { line: 0, column: 4 },
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn test_tokenize_default_syntax_assign_ambiguity_2() {
+        test_tokenize_default_syntax(
+            "==>",
+            &[
+                Token {
+                    content: TokenContent::Assign,
+                    location: SourceLocation { line: 0, column: 0 },
+                },
+                Token {
+                    content: TokenContent::FatArrow,
+                    location: SourceLocation { line: 0, column: 1 },
                 },
             ],
         );
@@ -575,6 +668,17 @@ mod tests {
             ".",
             &[Token {
                 content: TokenContent::Dot,
+                location: SourceLocation { line: 0, column: 0 },
+            }],
+        );
+    }
+
+    #[test]
+    fn test_tokenize_default_syntax_fat_arrow() {
+        test_tokenize_default_syntax(
+            "=>",
+            &[Token {
+                content: TokenContent::FatArrow,
                 location: SourceLocation { line: 0, column: 0 },
             }],
         );

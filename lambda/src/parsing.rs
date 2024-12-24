@@ -32,13 +32,14 @@ pub fn peek_next_non_whitespace_token<'t>(
                     tokens.next();
                     continue;
                 }
-                TokenContent::Identifier(_) => return Some(token),
-                TokenContent::Assign => return Some(token),
-                TokenContent::Caret => return Some(token),
-                TokenContent::LeftParenthesis => return Some(token),
-                TokenContent::RightParenthesis => return Some(token),
-                TokenContent::Dot => return Some(token),
-                TokenContent::Quotes(_) => return Some(token),
+                TokenContent::Identifier(_)
+                | TokenContent::Assign
+                | TokenContent::Caret
+                | TokenContent::LeftParenthesis
+                | TokenContent::RightParenthesis
+                | TokenContent::Dot
+                | TokenContent::Quotes(_)
+                | TokenContent::FatArrow => return Some(token),
             },
             None => return None,
         }
@@ -56,6 +57,7 @@ fn expect_right_parenthesis(tokens: &mut std::iter::Peekable<std::slice::Iter<'_
             TokenContent::RightParenthesis => {}
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => todo!(),
+            TokenContent::FatArrow => todo!(),
         },
         None => todo!(),
     }
@@ -72,6 +74,7 @@ fn expect_dot(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => {}
             TokenContent::Quotes(_) => todo!(),
+            TokenContent::FatArrow => todo!(),
         },
         None => todo!(),
     }
@@ -105,6 +108,7 @@ async fn parse_expression_start<'t>(
                     )),
                 );
             }
+            TokenContent::FatArrow => todo!(),
         },
         None => todo!(),
     }
@@ -134,6 +138,7 @@ pub async fn parse_expression<'t>(
             TokenContent::RightParenthesis => start,
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => todo!(),
+            TokenContent::FatArrow => todo!(),
         },
         None => start,
     }
@@ -155,6 +160,7 @@ async fn parse_lambda<'t>(
                 TokenContent::RightParenthesis => todo!(),
                 TokenContent::Dot => todo!(),
                 TokenContent::Quotes(_) => todo!(),
+                TokenContent::FatArrow => todo!(),
             },
             None => todo!(),
         },
@@ -185,6 +191,7 @@ pub async fn parse_entry_point_lambda<'t>(
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => todo!(),
+            TokenContent::FatArrow => todo!(),
         },
         None => {
             errors.push(CompilerError::new(
