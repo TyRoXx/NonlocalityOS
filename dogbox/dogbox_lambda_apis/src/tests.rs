@@ -140,7 +140,7 @@ async fn complex_expression() {
             .expression
             .print(&mut program_as_string, 0)
             .unwrap();
-        assert_eq!("^arg .\n  arg.get(literal(file_name, debd5af1f5e895bbb7fc660b5193f8e1e7bc79be1ed78aa085342a21bd5722f1941247674f4ca3d5ff7d591c5ced850bf5c666723e44d6d51ded8ec5b4049533)).read(()).apply(external)", program_as_string.as_str());
+        assert_eq!("(arg) =>\n  arg.get(literal(file_name, debd5af1f5e895bbb7fc660b5193f8e1e7bc79be1ed78aa085342a21bd5722f1941247674f4ca3d5ff7d591c5ced850bf5c666723e44d6d51ded8ec5b4049533)).read(()).apply(external)", program_as_string.as_str());
     }
 
     {

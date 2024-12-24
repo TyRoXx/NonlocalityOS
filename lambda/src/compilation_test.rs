@@ -14,7 +14,7 @@ mod tests2 {
         let expected = CompilerOutput::new(
             Expression::Unit,
             vec![CompilerError::new(
-                "Expected entry point lambda".to_string(),
+                "Parser error: Expected expression, got EOF.".to_string(),
                 SourceLocation::new(0, 0),
             )],
         );
@@ -23,7 +23,7 @@ mod tests2 {
 
     #[test_log::test(tokio::test)]
     async fn test_compile_lambda() {
-        let output = compile(r#"^x . x"#).await;
+        let output = compile(r#"(x) => x"#).await;
         let name = Name::new(NamespaceId([0; 16]), "x".to_string());
         let entry_point =
             LambdaExpression::new(Type::Unit, name.clone(), Expression::ReadVariable(name));
@@ -33,7 +33,7 @@ mod tests2 {
 
     #[test_log::test(tokio::test)]
     async fn test_compile_function_call() {
-        let output = compile(r#"^f . f(f)"#).await;
+        let output = compile(r#"(f) => f(f)"#).await;
         let name = Name::new(NamespaceId::builtins(), "f".to_string());
         let f = Expression::ReadVariable(name.clone());
         let entry_point = LambdaExpression::new(
@@ -52,7 +52,7 @@ mod tests2 {
 
     #[test_log::test(tokio::test)]
     async fn test_compile_quotes() {
-        let output = compile(r#"^print . print("Hello, world!")"#).await;
+        let output = compile(r#"(print) => print("Hello, world!")"#).await;
         let print_name = Name::new(NamespaceId::builtins(), "print".to_string());
         let print = Expression::ReadVariable(print_name.clone());
         let entry_point = LambdaExpression::new(

@@ -84,8 +84,7 @@ impl Expression {
                 write!(writer, "{}", &name.key)
             }
             Expression::Lambda(lambda_expression) => {
-                write!(writer, "^{}", &lambda_expression.parameter_name.key)?;
-                write!(writer, " .\n")?;
+                write!(writer, "({}) =>\n", &lambda_expression.parameter_name.key)?;
                 let indented = level + 1;
                 for _ in 0..(indented * 2) {
                     write!(writer, " ")?;

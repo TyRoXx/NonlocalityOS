@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     compilation::{CompilerError, CompilerOutput, SourceLocation},
     tokenization::{Token, TokenContent},
@@ -9,6 +7,26 @@ use astraea::{
     tree::{BlobDigest, HashedValue, Value},
     types::{Name, NamespaceId, Type},
 };
+use std::sync::Arc;
+
+#[derive(Debug)]
+pub struct ParserError {
+    pub message: String,
+}
+
+impl ParserError {
+    pub fn new(message: String) -> Self {
+        Self { message }
+    }
+}
+
+impl std::fmt::Display for ParserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.message)
+    }
+}
+
+pub type ParserResult<T> = std::result::Result<T, ParserError>;
 
 pub fn pop_next_non_whitespace_token<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
@@ -63,7 +81,7 @@ fn expect_right_parenthesis(tokens: &mut std::iter::Peekable<std::slice::Iter<'_
     }
 }
 
-fn expect_dot(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
+fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
@@ -72,9 +90,9 @@ fn expect_dot(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
             TokenContent::Caret => todo!(),
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
-            TokenContent::Dot => {}
+            TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => todo!(),
-            TokenContent::FatArrow => todo!(),
+            TokenContent::FatArrow => {}
         },
         None => todo!(),
     }
@@ -82,71 +100,71 @@ fn expect_dot(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
 
 async fn parse_expression_start<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
-) -> Expression {
+) -> ParserResult<Expression> {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
             TokenContent::Identifier(identifier) => {
-                Expression::ReadVariable(Name::new(
+                Ok(Expression::ReadVariable(Name::new(
                     /*TODO: use local namespace*/ NamespaceId::builtins(),
                     identifier.clone(),
-                ))
+                )))
             }
             TokenContent::Assign => todo!(),
-            TokenContent::Caret => Box::pin(parse_lambda(tokens)).await,
-            TokenContent::LeftParenthesis => todo!(),
+            TokenContent::Caret => todo!(),
+            TokenContent::LeftParenthesis => Box::pin(parse_lambda(tokens)).await,
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
-            TokenContent::Quotes(content) => {
-                return Expression::Literal(
-                    Type::Named(Name::new(
-                        NamespaceId::builtins(),
-                        "utf8-string".to_string(),
-                    )),
-                    HashedValue::from(Arc::new(
-                        Value::from_string(&content).expect("It's too long. That's what she said."),
-                    )),
-                );
-            }
+            TokenContent::Quotes(content) => Ok(Expression::Literal(
+                Type::Named(Name::new(
+                    NamespaceId::builtins(),
+                    "utf8-string".to_string(),
+                )),
+                HashedValue::from(Arc::new(
+                    Value::from_string(&content).expect("It's too long. That's what she said."),
+                )),
+            )),
             TokenContent::FatArrow => todo!(),
         },
-        None => todo!(),
+        None => Err(ParserError::new(
+            "Expected expression, got EOF.".to_string(),
+        )),
     }
 }
 
 pub async fn parse_expression<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
-) -> Expression {
-    let start = parse_expression_start(tokens).await;
+) -> ParserResult<Expression> {
+    let start = parse_expression_start(tokens).await?;
     match peek_next_non_whitespace_token(tokens) {
         Some(more) => match &more.content {
             TokenContent::Whitespace => unreachable!(),
-            TokenContent::Identifier(_) => start,
-            TokenContent::Assign => start,
-            TokenContent::Caret => start,
+            TokenContent::Identifier(_) => Ok(start),
+            TokenContent::Assign => Ok(start),
+            TokenContent::Caret => Ok(start),
             TokenContent::LeftParenthesis => {
                 tokens.next();
-                let argument = Box::pin(parse_expression(tokens)).await;
+                let argument = Box::pin(parse_expression(tokens)).await?;
                 expect_right_parenthesis(tokens);
-                return Expression::Apply(Box::new(Application::new(
+                Ok(Expression::Apply(Box::new(Application::new(
                     start,
                     BlobDigest::hash(b"todo"),
                     Name::new(NamespaceId::builtins(), "apply".to_string()),
                     argument,
-                )));
+                ))))
             }
-            TokenContent::RightParenthesis => start,
+            TokenContent::RightParenthesis => Ok(start),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => todo!(),
         },
-        None => start,
+        None => Ok(start),
     }
 }
 
 async fn parse_lambda<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
-) -> Expression {
+) -> ParserResult<Expression> {
     let namespace = NamespaceId([0; 16]); // todo define son ding
     let parameter_name = Name::new(
         namespace,
@@ -165,37 +183,38 @@ async fn parse_lambda<'t>(
             None => todo!(),
         },
     );
-    expect_dot(tokens);
-    let body = parse_expression(tokens).await;
-    return Expression::Lambda(Box::new(LambdaExpression::new(
+    expect_right_parenthesis(tokens);
+    expect_fat_arrow(tokens);
+    let body = parse_expression(tokens).await?;
+    Ok(Expression::Lambda(Box::new(LambdaExpression::new(
         Type::Unit, // todo: do propper typechecking
         parameter_name,
         body,
-    )));
+    ))))
 }
 
 pub async fn parse_entry_point_lambda<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
 ) -> CompilerOutput {
     let mut errors = Vec::new();
-    match pop_next_non_whitespace_token(tokens) {
-        Some(non_whitespace) => match non_whitespace.content {
-            TokenContent::Whitespace => unreachable!(),
-            TokenContent::Identifier(_) => todo!(),
-            TokenContent::Assign => todo!(),
-            TokenContent::Caret => {
-                let entry_point = parse_lambda(tokens).await;
-                CompilerOutput::new(entry_point, errors)
+    let entry_point_result = parse_expression(tokens).await;
+    match entry_point_result {
+        Ok(entry_point) => match &entry_point {
+            Expression::Unit
+            | Expression::Literal(_, _)
+            | Expression::Apply(_)
+            | Expression::ReadVariable(_) => {
+                errors.push(CompilerError::new(
+                    "The entry point is expected to be a lambda expression.".to_string(),
+                    SourceLocation::new(0, 0),
+                ));
+                CompilerOutput::new(Expression::Unit, errors)
             }
-            TokenContent::LeftParenthesis => todo!(),
-            TokenContent::RightParenthesis => todo!(),
-            TokenContent::Dot => todo!(),
-            TokenContent::Quotes(_) => todo!(),
-            TokenContent::FatArrow => todo!(),
+            Expression::Lambda(_) => CompilerOutput::new(entry_point, errors),
         },
-        None => {
+        Err(error) => {
             errors.push(CompilerError::new(
-                "Expected entry point lambda".to_string(),
+                format!("Parser error: {}", &error),
                 SourceLocation::new(0, 0),
             ));
             CompilerOutput::new(Expression::Unit, errors)

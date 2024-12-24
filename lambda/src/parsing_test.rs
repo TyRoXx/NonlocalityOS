@@ -8,7 +8,7 @@ use astraea::{
 async fn parse_wellformed_expression(source: &str) -> Expression {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter().peekable();
-    let output = parse_expression(&mut token_iterator).await;
+    let output = parse_expression(&mut token_iterator).await.unwrap();
     assert_eq!(None, token_iterator.next());
     output
 }
@@ -27,7 +27,7 @@ async fn test_parse_lambda() {
         name.clone(),
         Expression::ReadVariable(name),
     )));
-    test_wellformed_parsing(r#"^f . f"#, expected).await;
+    test_wellformed_parsing(r#"(f) => f"#, expected).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -43,7 +43,7 @@ async fn test_parse_nested_lambda() {
             Expression::ReadVariable(f),
         ))),
     )));
-    test_wellformed_parsing(r#"^f . ^g . f"#, expected).await;
+    test_wellformed_parsing(r#"(f) => (g) => f"#, expected).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -60,5 +60,5 @@ async fn test_parse_function_call() {
             f,
         ))),
     )));
-    test_wellformed_parsing(r#"^f . f(f)"#, expected).await;
+    test_wellformed_parsing(r#"(f) => f(f)"#, expected).await;
 }
