@@ -52,7 +52,6 @@ pub fn peek_next_non_whitespace_token<'t>(
                 }
                 TokenContent::Identifier(_)
                 | TokenContent::Assign
-                | TokenContent::Caret
                 | TokenContent::LeftParenthesis
                 | TokenContent::RightParenthesis
                 | TokenContent::Dot
@@ -70,7 +69,6 @@ fn expect_right_parenthesis(tokens: &mut std::iter::Peekable<std::slice::Iter<'_
             TokenContent::Whitespace => todo!(),
             TokenContent::Identifier(_) => todo!(),
             TokenContent::Assign => todo!(),
-            TokenContent::Caret => todo!(),
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => {}
             TokenContent::Dot => todo!(),
@@ -87,7 +85,6 @@ fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>
             TokenContent::Whitespace => todo!(),
             TokenContent::Identifier(_) => todo!(),
             TokenContent::Assign => todo!(),
-            TokenContent::Caret => todo!(),
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
@@ -111,7 +108,6 @@ async fn parse_expression_start<'t>(
                 )))
             }
             TokenContent::Assign => todo!(),
-            TokenContent::Caret => todo!(),
             TokenContent::LeftParenthesis => Box::pin(parse_lambda(tokens)).await,
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
@@ -141,7 +137,6 @@ pub async fn parse_expression<'t>(
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => Ok(start),
             TokenContent::Assign => Ok(start),
-            TokenContent::Caret => Ok(start),
             TokenContent::LeftParenthesis => {
                 tokens.next();
                 let argument = Box::pin(parse_expression(tokens)).await?;
@@ -173,7 +168,6 @@ async fn parse_lambda<'t>(
                 TokenContent::Whitespace => todo!(),
                 TokenContent::Identifier(identifier) => identifier.clone(),
                 TokenContent::Assign => todo!(),
-                TokenContent::Caret => todo!(),
                 TokenContent::LeftParenthesis => todo!(),
                 TokenContent::RightParenthesis => todo!(),
                 TokenContent::Dot => todo!(),

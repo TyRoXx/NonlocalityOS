@@ -8,8 +8,6 @@ pub enum TokenContent {
     Identifier(String),
     // =
     Assign,
-    // ^
-    Caret,
     // (
     LeftParenthesis,
     // )
@@ -169,7 +167,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(8);
     const OUTPUT_BYTE: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(9);
-    const TOKEN_TAG_CARET: hippeus_parser_generator::RegisterId =
+    const IF_CONDITION: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(10);
     const TOKEN_TAG_LEFT_PARENTHESIS: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(11);
@@ -181,8 +179,6 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(14);
     const TOKEN_TAG_FAT_ARROW: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(15);
-    const IF_CONDITION: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(16);
     lazy_static! {
         static ref TOKEN_PARSER: hippeus_parser_generator::Parser =
             hippeus_parser_generator::Parser::Sequence(vec![
@@ -309,7 +305,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                                 hippeus_parser_generator::Parser::ReadInputByte(SUBSEQUENT_INPUT),
                                                 hippeus_parser_generator::Parser::Constant(
                                                     TOKEN_TAG_FAT_ARROW,
-                                                    hippeus_parser_generator::RegisterValue::Byte(8)
+                                                    hippeus_parser_generator::RegisterValue::Byte(7)
                                                 ),
                                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                                     TOKEN_TAG_FAT_ARROW
@@ -337,28 +333,6 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::no_op())
                         ),
 
-                        // caret
-                        hippeus_parser_generator::Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                hippeus_parser_generator::RegisterValue::Byte(b'^')
-                            ]
-                        },
-                        hippeus_parser_generator::Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(hippeus_parser_generator::Parser::Sequence(vec![
-                                hippeus_parser_generator::Parser::Constant(
-                                    TOKEN_TAG_CARET,
-                                    hippeus_parser_generator::RegisterValue::Byte(3)
-                                ),
-                                hippeus_parser_generator::Parser::WriteOutputByte(
-                                    TOKEN_TAG_CARET
-                                )
-                            ])),
-                            Box::new(hippeus_parser_generator::Parser::no_op())
-                        ),
-
                         // left parenthesis
                         hippeus_parser_generator::Parser::IsAnyOf {
                             input: FIRST_INPUT,
@@ -372,7 +346,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
                                     TOKEN_TAG_LEFT_PARENTHESIS,
-                                    hippeus_parser_generator::RegisterValue::Byte(4)
+                                    hippeus_parser_generator::RegisterValue::Byte(3)
                                 ),
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_LEFT_PARENTHESIS
@@ -394,7 +368,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
                                     TOKEN_TAG_RIGHT_PARENTHESIS,
-                                    hippeus_parser_generator::RegisterValue::Byte(5)
+                                    hippeus_parser_generator::RegisterValue::Byte(4)
                                 ),
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_RIGHT_PARENTHESIS
@@ -416,7 +390,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
                                     TOKEN_TAG_DOT,
-                                    hippeus_parser_generator::RegisterValue::Byte(6)
+                                    hippeus_parser_generator::RegisterValue::Byte(5)
                                 ),
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_DOT
@@ -436,7 +410,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
                                     TOKEN_TAG_QUOTES,
-                                    hippeus_parser_generator::RegisterValue::Byte(7)
+                                    hippeus_parser_generator::RegisterValue::Byte(6)
                                 ),
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_QUOTES
@@ -518,7 +492,7 @@ mod tests {
     #[test]
     fn test_tokenize_default_syntax_source_locations() {
         test_tokenize_default_syntax(
-            " \n  test=\n^().\"\"=>",
+            " \n  test=\n().\"\"=>",
             &[
                 Token {
                     content: TokenContent::Whitespace,
@@ -549,28 +523,24 @@ mod tests {
                     location: SourceLocation { line: 1, column: 7 },
                 },
                 Token {
-                    content: TokenContent::Caret,
+                    content: TokenContent::LeftParenthesis,
                     location: SourceLocation { line: 2, column: 0 },
                 },
                 Token {
-                    content: TokenContent::LeftParenthesis,
+                    content: TokenContent::RightParenthesis,
                     location: SourceLocation { line: 2, column: 1 },
                 },
                 Token {
-                    content: TokenContent::RightParenthesis,
+                    content: TokenContent::Dot,
                     location: SourceLocation { line: 2, column: 2 },
                 },
                 Token {
-                    content: TokenContent::Dot,
+                    content: TokenContent::Quotes("".to_string()),
                     location: SourceLocation { line: 2, column: 3 },
                 },
                 Token {
-                    content: TokenContent::Quotes("".to_string()),
-                    location: SourceLocation { line: 2, column: 4 },
-                },
-                Token {
                     content: TokenContent::FatArrow,
-                    location: SourceLocation { line: 2, column: 6 },
+                    location: SourceLocation { line: 2, column: 5 },
                 },
             ],
         );
@@ -635,17 +605,6 @@ mod tests {
             "=",
             &[Token {
                 content: TokenContent::Assign,
-                location: SourceLocation { line: 0, column: 0 },
-            }],
-        );
-    }
-
-    #[test]
-    fn test_tokenize_default_syntax_caret() {
-        test_tokenize_default_syntax(
-            "^",
-            &[Token {
-                content: TokenContent::Caret,
                 location: SourceLocation { line: 0, column: 0 },
             }],
         );
