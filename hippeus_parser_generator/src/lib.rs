@@ -770,23 +770,11 @@ fn test_number_parsing() {
         },
         Parser::WriteOutputByte(accumulator),
     ]);
-    let result = parse(&parser, &mut Slice::new("123"));
-    match result {
-        ParseResult::Success {
-            output,
-            has_extraneous_input,
-        } => {
-            assert_eq!(1, output.len());
-            {
-                let element = &output[0];
-                let non_separator = element.as_ref().unwrap();
-                assert_eq!(&[123u8][..], &non_separator[..]);
-            }
-            assert!(!has_extraneous_input);
-        }
-        ParseResult::Failed => panic!(),
-        ParseResult::ErrorInParser => panic!(),
-    }
+    expect_single_byte_output(&parser, "0", 0);
+    expect_single_byte_output(&parser, "9", 9);
+    expect_single_byte_output(&parser, "99", 99);
+    expect_single_byte_output(&parser, "123", 123);
+    expect_single_byte_output(&parser, "255", 255);
 }
 
 #[test]
@@ -827,23 +815,7 @@ fn test_or_one() {
         Parser::Constant(RegisterId(2), RegisterValue::Byte(0)),
         Parser::WriteOutputByte(RegisterId(2)),
     ])]);
-    let result = parse(&parser, &mut Slice::new("A"));
-    match result {
-        ParseResult::Success {
-            output,
-            has_extraneous_input,
-        } => {
-            assert_eq!(1, output.len());
-            {
-                let element = &output[0];
-                let non_separator = element.as_ref().unwrap();
-                assert_eq!(&[0u8][..], &non_separator[..]);
-            }
-            assert!(!has_extraneous_input);
-        }
-        ParseResult::Failed => panic!(),
-        ParseResult::ErrorInParser => panic!(),
-    }
+    expect_single_byte_output(&parser, "A", 0);
 }
 
 #[test]
@@ -888,23 +860,7 @@ fn test_or_first() {
             Parser::WriteOutputByte(RegisterId(2)),
         ]),
     ]);
-    let result = parse(&parser, &mut Slice::new("A"));
-    match result {
-        ParseResult::Success {
-            output,
-            has_extraneous_input,
-        } => {
-            assert_eq!(1, output.len());
-            {
-                let element = &output[0];
-                let non_separator = element.as_ref().unwrap();
-                assert_eq!(&[0u8][..], &non_separator[..]);
-            }
-            assert!(!has_extraneous_input);
-        }
-        ParseResult::Failed => panic!(),
-        ParseResult::ErrorInParser => panic!(),
-    }
+    expect_single_byte_output(&parser, "A", 0);
 }
 
 #[test]
@@ -949,28 +905,9 @@ fn test_or_second() {
             Parser::WriteOutputByte(RegisterId(2)),
         ]),
     ]);
-    let result = parse(
-        &parser,
-        &mut Slice::new(
-            /*this is obviously wrong. TODO: support arbitrary lookahead*/ "BB",
-        ),
+    expect_single_byte_output(
+        &parser, /*this is obviously wrong. TODO: support arbitrary lookahead*/ "BB", 1,
     );
-    match result {
-        ParseResult::Success {
-            output,
-            has_extraneous_input,
-        } => {
-            assert_eq!(1, output.len());
-            {
-                let element = &output[0];
-                let non_separator = element.as_ref().unwrap();
-                assert_eq!(&[1u8][..], &non_separator[..]);
-            }
-            assert!(!has_extraneous_input);
-        }
-        ParseResult::Failed => panic!(),
-        ParseResult::ErrorInParser => panic!(),
-    }
 }
 
 #[cfg(test)]
