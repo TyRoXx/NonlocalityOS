@@ -193,7 +193,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                     from: IS_END_OF_INPUT,
                     to: IS_INPUT_AVAILABLE,
                 },
-                hippeus_parser_generator::Parser::Condition(
+                hippeus_parser_generator::Parser::IfElse(
                     IS_INPUT_AVAILABLE,
                     Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                         hippeus_parser_generator::Parser::ReadInputByte(FIRST_INPUT),
@@ -207,7 +207,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::RegisterValue::Byte(b'\n')
                             ]
                         },
-                        hippeus_parser_generator::Parser::Condition(
+                        hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
@@ -217,7 +217,8 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_WHITESPACE
                                 )
-                            ]))
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
                         ),
 
                         // identifier
@@ -227,7 +228,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             candidates: (b'a'..b'z').map(|c|
                                 hippeus_parser_generator::RegisterValue::Byte( c)).collect(),
                         },
-                        hippeus_parser_generator::Parser::Condition(
+                        hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
@@ -251,7 +252,8 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                         hippeus_parser_generator::Parser::Not {
                                             from: IS_END_OF_INPUT,
                                             to: LOOP_CONDITION,
-                                        },hippeus_parser_generator::Parser::Condition(
+                                        },
+                                        hippeus_parser_generator::Parser::IfElse(
                                             LOOP_CONDITION,
                                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                                 hippeus_parser_generator::Parser::PeekInputByte(SUBSEQUENT_INPUT),
@@ -261,19 +263,24 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                                     candidates: (b'a'..b'z').map(|c|
                                                         hippeus_parser_generator::RegisterValue::Byte(c)).collect(),
                                                 },
-                                                hippeus_parser_generator::Parser::Condition(
+                                                hippeus_parser_generator::Parser::IfElse(
                                                     LOOP_CONDITION,
                                                     Box::new( hippeus_parser_generator::Parser::Sequence(vec![
                                                         hippeus_parser_generator::Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
                                                         // pop the byte we had peeked at before
                                                         hippeus_parser_generator::Parser::ReadInputByte(SUBSEQUENT_INPUT),
-                                                        ]))),
-                                            ]))),
+                                                    ])),
+                                                    Box::new(hippeus_parser_generator::Parser::no_op())
+                                                ),
+                                            ])),
+                                            Box::new(hippeus_parser_generator::Parser::no_op())
+                                        )
                                     ])
                                 )},
                                 // convention: separator also ends a variable-length byte array
                                 hippeus_parser_generator::Parser::WriteOutputSeparator,
-                            ]))
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
                         ),
 
                         // assign
@@ -284,13 +291,13 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::RegisterValue::Byte(b'=')
                             ]
                         },
-                        hippeus_parser_generator::Parser::Condition(
+                        hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(STILL_SOMETHING_TO_CHECK, hippeus_parser_generator::RegisterValue::Boolean(true)),
                                 hippeus_parser_generator::Parser::IsEndOfInput(IS_END_OF_INPUT),
                                 hippeus_parser_generator::Parser::Not{from: IS_END_OF_INPUT, to: IF_CONDITION},
-                                hippeus_parser_generator::Parser::Condition(
+                                hippeus_parser_generator::Parser::IfElse(
                                     IF_CONDITION,
                                     Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                         hippeus_parser_generator::Parser::PeekInputByte(SUBSEQUENT_INPUT),
@@ -301,7 +308,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                                 hippeus_parser_generator::RegisterValue::Byte(b'>')
                                             ]
                                         },
-                                        hippeus_parser_generator::Parser::Condition(
+                                        hippeus_parser_generator::Parser::IfElse(
                                             IF_CONDITION,
                                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                                 hippeus_parser_generator::Parser::ReadInputByte(SUBSEQUENT_INPUT),
@@ -313,11 +320,13 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                                     TOKEN_TAG_FAT_ARROW
                                                 ),
                                                 hippeus_parser_generator::Parser::Constant(STILL_SOMETHING_TO_CHECK, hippeus_parser_generator::RegisterValue::Boolean(false)),
-                                            ]))
+                                            ])),
+                                            Box::new(hippeus_parser_generator::Parser::no_op())
                                         ),
-                                    ]))
+                                    ])),
+                                    Box::new(hippeus_parser_generator::Parser::no_op())
                                 ),
-                                hippeus_parser_generator::Parser::Condition(
+                                hippeus_parser_generator::Parser::IfElse(
                                     STILL_SOMETHING_TO_CHECK,
                                     Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                         hippeus_parser_generator::Parser::Constant(
@@ -327,9 +336,11 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                         hippeus_parser_generator::Parser::WriteOutputByte(
                                             TOKEN_TAG_ASSIGN
                                         )
-                                    ]))
+                                    ])),
+                                    Box::new(hippeus_parser_generator::Parser::no_op())
                                 ),
-                            ]))
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
                         ),
 
                         // caret
@@ -340,7 +351,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::RegisterValue::Byte(b'^')
                             ]
                         },
-                        hippeus_parser_generator::Parser::Condition(
+                        hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
@@ -350,7 +361,8 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_CARET
                                 )
-                            ]))
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
                         ),
 
                         // left parenthesis
@@ -361,7 +373,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::RegisterValue::Byte(b'(')
                             ]
                         },
-                        hippeus_parser_generator::Parser::Condition(
+                        hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
@@ -371,7 +383,8 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_LEFT_PARENTHESIS
                                 )
-                            ]))
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
                         ),
 
                         // right parenthesis
@@ -382,7 +395,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::RegisterValue::Byte(b')')
                             ]
                         },
-                        hippeus_parser_generator::Parser::Condition(
+                        hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
@@ -392,7 +405,8 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_RIGHT_PARENTHESIS
                                 )
-                            ]))
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
                         ),
 
                         // dot
@@ -403,7 +417,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::RegisterValue::Byte(b'.')
                             ]
                         },
-                        hippeus_parser_generator::Parser::Condition(
+                        hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
@@ -413,7 +427,8 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_DOT
                                 )
-                            ]))
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
                         ),
 
                         // quotes
@@ -422,7 +437,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             result: IS_ANY_OF_RESULT,
                             candidates: vec![hippeus_parser_generator::RegisterValue::Byte(b'"')],
                         },
-                        hippeus_parser_generator::Parser::Condition(
+                        hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
@@ -448,20 +463,23 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                             candidates: vec![hippeus_parser_generator::RegisterValue::Byte(b'"')],
                                         },
                                         hippeus_parser_generator::Parser::Not{from: LOOP_CONDITION, to: LOOP_CONDITION},
-                                        hippeus_parser_generator::Parser::Condition(
+                                        hippeus_parser_generator::Parser::IfElse(
                                             LOOP_CONDITION,
                                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                                 hippeus_parser_generator::Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
                                                 hippeus_parser_generator::Parser::WriteOutputByte(OUTPUT_BYTE),
-                                            ]))
+                                            ])),
+                                            Box::new(hippeus_parser_generator::Parser::no_op())
                                         ),
                                     ])
                                 )},
                                 // convention: separator also ends a variable-length byte array
                                 hippeus_parser_generator::Parser::WriteOutputSeparator,
-                            ]))
-                        ),
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
+                        )
                     ])),
+                    Box::new(hippeus_parser_generator::Parser::no_op()),
                 ),
             ]);
     }

@@ -13,7 +13,7 @@ pub enum Parser {
     IsEndOfInput(RegisterId),
     ReadInputByte(RegisterId),
     PeekInputByte(RegisterId),
-    Condition(RegisterId, Box<Parser>),
+    IfElse(RegisterId, Box<Parser>, Box<Parser>),
     Fail,
     Sequence(Vec<Parser>),
     Not {
@@ -49,6 +49,12 @@ pub enum Parser {
         candidates: Vec<RegisterValue>,
     },
     Or(Vec<Parser>),
+}
+
+impl Parser {
+    pub fn no_op() -> Self {
+        Self::Sequence(vec![])
+    }
 }
 
 #[derive(PartialEq)]
@@ -193,18 +199,24 @@ impl<'t> Interpreter<'t> {
                 }
                 None => return Some(InterpreterStatus::Failed),
             },
-            Parser::Condition(cause, action) => {
-                let register_read_result = self.registers.get(cause);
+            Parser::IfElse(condition, consequent, alternative) => {
+                let register_read_result = self.registers.get(condition);
                 match register_read_result {
                     Some(register_value) => match register_value {
                         RegisterValue::Boolean(true) => {
                             self.position.push(Frame {
-                                parser: std::slice::from_ref(action),
+                                parser: std::slice::from_ref(consequent),
                                 index: 0,
                                 is_recoverable: false,
                             });
                         }
-                        RegisterValue::Boolean(false) => {}
+                        RegisterValue::Boolean(false) => {
+                            self.position.push(Frame {
+                                parser: std::slice::from_ref(alternative),
+                                index: 0,
+                                is_recoverable: false,
+                            });
+                        }
                         RegisterValue::Byte(_) => return Some(InterpreterStatus::ErrorInParser),
                     },
                     None => return Some(InterpreterStatus::ErrorInParser),
@@ -534,7 +546,11 @@ fn test_fail() {
             from: RegisterId(0),
             to: RegisterId(1),
         },
-        Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+        Parser::IfElse(
+            RegisterId(1),
+            Box::new(Parser::Fail),
+            Box::new(Parser::no_op()),
+        ),
     ]);
     assert_eq!(Some(true), is_match(&parser, &mut Slice::new("")));
     assert_eq!(Some(false), is_match(&parser, &mut Slice::new("a")));
@@ -803,7 +819,11 @@ fn test_or_one() {
             from: RegisterId(1),
             to: RegisterId(1),
         },
-        Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+        Parser::IfElse(
+            RegisterId(1),
+            Box::new(Parser::Fail),
+            Box::new(Parser::no_op()),
+        ),
         Parser::Constant(RegisterId(2), RegisterValue::Byte(0)),
         Parser::WriteOutputByte(RegisterId(2)),
     ])]);
@@ -840,7 +860,11 @@ fn test_or_first() {
                 from: RegisterId(1),
                 to: RegisterId(1),
             },
-            Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+            Parser::IfElse(
+                RegisterId(1),
+                Box::new(Parser::Fail),
+                Box::new(Parser::no_op()),
+            ),
             Parser::Constant(RegisterId(2), RegisterValue::Byte(0)),
             Parser::WriteOutputByte(RegisterId(2)),
         ]),
@@ -855,7 +879,11 @@ fn test_or_first() {
                 from: RegisterId(1),
                 to: RegisterId(1),
             },
-            Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+            Parser::IfElse(
+                RegisterId(1),
+                Box::new(Parser::Fail),
+                Box::new(Parser::no_op()),
+            ),
             Parser::Constant(RegisterId(2), RegisterValue::Byte(1)),
             Parser::WriteOutputByte(RegisterId(2)),
         ]),
@@ -893,7 +921,11 @@ fn test_or_second() {
                 from: RegisterId(1),
                 to: RegisterId(1),
             },
-            Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+            Parser::IfElse(
+                RegisterId(1),
+                Box::new(Parser::Fail),
+                Box::new(Parser::no_op()),
+            ),
             Parser::Constant(RegisterId(2), RegisterValue::Byte(0)),
             Parser::WriteOutputByte(RegisterId(2)),
         ]),
@@ -908,7 +940,11 @@ fn test_or_second() {
                 from: RegisterId(1),
                 to: RegisterId(1),
             },
-            Parser::Condition(RegisterId(1), Box::new(Parser::Fail)),
+            Parser::IfElse(
+                RegisterId(1),
+                Box::new(Parser::Fail),
+                Box::new(Parser::no_op()),
+            ),
             Parser::Constant(RegisterId(2), RegisterValue::Byte(1)),
             Parser::WriteOutputByte(RegisterId(2)),
         ]),
@@ -935,4 +971,79 @@ fn test_or_second() {
         ParseResult::Failed => panic!(),
         ParseResult::ErrorInParser => panic!(),
     }
+}
+
+#[cfg(test)]
+fn expect_single_byte_output(parser: &Parser, input: &str, expected_output: u8) {
+    let result = parse(&parser, &mut Slice::new(input));
+    match result {
+        ParseResult::Success {
+            output,
+            has_extraneous_input,
+        } => {
+            assert_eq!(1, output.len());
+            {
+                let element = &output[0];
+                let non_separator = element.as_ref().unwrap();
+                assert_eq!(&[expected_output][..], &non_separator[..]);
+            }
+            assert!(!has_extraneous_input);
+        }
+        ParseResult::Failed => panic!(),
+        ParseResult::ErrorInParser => panic!(),
+    }
+}
+
+#[test]
+fn test_if_else() {
+    let parser = Parser::Sequence(vec![
+        Parser::ReadInputByte(RegisterId(0)),
+        Parser::IsAnyOf {
+            input: RegisterId(0),
+            result: RegisterId(1),
+            candidates: vec![RegisterValue::Byte(b'A')],
+        },
+        Parser::IfElse(
+            RegisterId(1),
+            Box::new(Parser::Constant(RegisterId(2), RegisterValue::Byte(42))),
+            Box::new(Parser::Constant(RegisterId(2), RegisterValue::Byte(43))),
+        ),
+        Parser::WriteOutputByte(RegisterId(2)),
+    ]);
+    expect_single_byte_output(&parser, "A", 42);
+    expect_single_byte_output(&parser, "B", 43);
+}
+
+#[test]
+fn test_if_else_overwriting_condition() {
+    let parser = Parser::Sequence(vec![
+        Parser::ReadInputByte(RegisterId(0)),
+        Parser::IsAnyOf {
+            input: RegisterId(0),
+            result: RegisterId(1),
+            candidates: vec![RegisterValue::Byte(b'A')],
+        },
+        Parser::IfElse(
+            RegisterId(1),
+            Box::new(Parser::Sequence(vec![
+                Parser::Constant(RegisterId(2), RegisterValue::Byte(42)),
+                // The condition is only checked once, so this change won't cause the alternative to be executed.
+                Parser::Not {
+                    from: RegisterId(1),
+                    to: RegisterId(1),
+                },
+            ])),
+            Box::new(Parser::Sequence(vec![
+                Parser::Constant(RegisterId(2), RegisterValue::Byte(43)),
+                // The condition is only checked once, so this change won't cause the consequent to be executed.
+                Parser::Not {
+                    from: RegisterId(1),
+                    to: RegisterId(1),
+                },
+            ])),
+        ),
+        Parser::WriteOutputByte(RegisterId(2)),
+    ]);
+    expect_single_byte_output(&parser, "A", 42);
+    expect_single_byte_output(&parser, "B", 43);
 }
