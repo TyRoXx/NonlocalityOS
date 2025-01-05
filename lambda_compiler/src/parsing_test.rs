@@ -1,12 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::{parsing::parse_expression, tokenization::tokenize_default_syntax};
-    use astraea::{
-        builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME},
-        expressions::{Application, Expression, LambdaExpression},
-        tree::BlobDigest,
-        types::{Name, NamespaceId, Type},
-    };
+    use astraea::tree::BlobDigest;
+    use lambda::builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME};
+    use lambda::expressions::{Application, Expression, LambdaExpression};
+    use lambda::types::{Name, NamespaceId, Type};
 
     const TEST_NAMESPACE: NamespaceId =
         NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);

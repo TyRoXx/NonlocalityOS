@@ -2,7 +2,7 @@ use crate::{
     parsing::{parse_entry_point_lambda, pop_next_non_whitespace_token},
     tokenization::tokenize_default_syntax,
 };
-use astraea::{expressions::Expression, types::NamespaceId};
+use lambda::{expressions::Expression, types::NamespaceId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]

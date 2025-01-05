@@ -2,12 +2,10 @@ use crate::{
     compilation::{CompilerError, CompilerOutput, SourceLocation},
     tokenization::{Token, TokenContent},
 };
-use astraea::{
-    builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME, UTF8_STRING_TYPE_NAME},
-    expressions::{Application, Expression, LambdaExpression},
-    tree::{BlobDigest, HashedValue, Value},
-    types::{Name, NamespaceId, Type},
-};
+use astraea::tree::{BlobDigest, HashedValue, Value};
+use lambda::builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME, UTF8_STRING_TYPE_NAME};
+use lambda::expressions::{Application, Expression, LambdaExpression};
+use lambda::types::{Name, NamespaceId, Type};
 use std::sync::Arc;
 
 #[derive(Debug)]
