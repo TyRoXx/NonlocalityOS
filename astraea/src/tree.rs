@@ -99,10 +99,6 @@ impl Reference {
     pub fn new(digest: BlobDigest) -> Self {
         Self { digest }
     }
-
-    pub fn add_type(&self, type_id: TypeId) -> TypedReference {
-        TypedReference::new(type_id, *self)
-    }
 }
 
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
