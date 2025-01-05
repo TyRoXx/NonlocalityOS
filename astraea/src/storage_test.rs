@@ -24,7 +24,7 @@ mod tests {
             SQLiteStorage::create_schema(&connection1).unwrap();
             let storage = SQLiteStorage::from(connection1).unwrap();
             let reference = storage
-                .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+                .store_value(&HashedValue::from(Arc::new(Value::empty())))
                 .await
                 .unwrap();
             assert_eq!(expected_reference, reference.digest);
@@ -58,7 +58,7 @@ mod tests {
                 .unwrap()
                 .hash()
                 .unwrap();
-            assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
+            assert_eq!(HashedValue::from(Arc::new(Value::empty())), loaded_back);
         }
     }
 
@@ -74,7 +74,7 @@ mod tests {
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
         let reference = storage
-            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .store_value(&HashedValue::from(Arc::new(Value::empty())))
             .await
             .unwrap();
         assert_eq!(
@@ -92,7 +92,7 @@ mod tests {
             .unwrap()
             .hash()
             .unwrap();
-        assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
+        assert_eq!(HashedValue::from(Arc::new(Value::empty())), loaded_back);
 
         storage.commit_changes().await.unwrap();
 
@@ -102,7 +102,7 @@ mod tests {
             .unwrap()
             .hash()
             .unwrap();
-        assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
+        assert_eq!(HashedValue::from(Arc::new(Value::empty())), loaded_back);
     }
 
     #[test_log::test(tokio::test(flavor = "multi_thread"))]
@@ -111,7 +111,7 @@ mod tests {
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
         let reference_1 = storage
-            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .store_value(&HashedValue::from(Arc::new(Value::empty())))
             .await
             .unwrap();
         assert_eq!(
@@ -125,7 +125,7 @@ mod tests {
         );
 
         let reference_2 = storage
-            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .store_value(&HashedValue::from(Arc::new(Value::empty())))
             .await
             .unwrap();
         assert_eq!(reference_1.digest, reference_2.digest);
@@ -136,7 +136,7 @@ mod tests {
             .unwrap()
             .hash()
             .unwrap();
-        assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
+        assert_eq!(HashedValue::from(Arc::new(Value::empty())), loaded_back);
 
         storage.commit_changes().await.unwrap();
 
@@ -146,7 +146,7 @@ mod tests {
             .unwrap()
             .hash()
             .unwrap();
-        assert_eq!(HashedValue::from(Arc::new(Value::from_unit())), loaded_back);
+        assert_eq!(HashedValue::from(Arc::new(Value::empty())), loaded_back);
     }
 
     #[test_log::test(tokio::test)]
@@ -324,7 +324,7 @@ mod tests {
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
         let reference_1 = storage
-            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .store_value(&HashedValue::from(Arc::new(Value::empty())))
             .await
             .unwrap();
         let reference_2 = storage
@@ -351,7 +351,7 @@ mod tests {
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
         let reference_1 = storage
-            .store_value(&HashedValue::from(Arc::new(Value::from_unit())))
+            .store_value(&HashedValue::from(Arc::new(Value::empty())))
             .await
             .unwrap();
         let name_1 = "testA";

@@ -280,7 +280,7 @@ pub async fn evaluate(
     read_literal: &ReadLiteral,
 ) -> Pointer {
     match expression {
-        Expression::Unit => return Pointer::Value(HashedValue::from(Arc::new(Value::from_unit()))),
+        Expression::Unit => return Pointer::Value(HashedValue::from(Arc::new(Value::empty()))),
         Expression::Literal(literal_type, literal_value) => {
             let literal = read_literal(literal_type.clone(), literal_value.clone()).await;
             literal

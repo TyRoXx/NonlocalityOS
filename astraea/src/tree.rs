@@ -208,7 +208,7 @@ impl Value {
         })
     }
 
-    pub fn from_unit() -> Value {
+    pub fn empty() -> Value {
         Value {
             blob: ValueBlob::empty(),
             references: Vec::new(),
