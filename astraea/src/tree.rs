@@ -101,21 +101,6 @@ impl Reference {
     }
 }
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
-pub struct TypedReference {
-    pub type_id: TypeId,
-    pub reference: Reference,
-}
-
-impl TypedReference {
-    pub fn new(type_id: TypeId, reference: Reference) -> TypedReference {
-        TypedReference {
-            type_id: type_id,
-            reference: reference,
-        }
-    }
-}
-
 pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
