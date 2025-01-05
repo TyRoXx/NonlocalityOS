@@ -5,7 +5,7 @@ mod tests {
     use super::test::Bencher;
     use crate::{
         storage::{LoadValue, SQLiteStorage, StoreValue},
-        tree::{BlobDigest, HashedValue, Reference, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
+        tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
     };
     use std::sync::Arc;
     use tokio::runtime::Runtime;
@@ -23,7 +23,7 @@ mod tests {
             let reference = runtime
                 .block_on(storage.store_value(&stored_value))
                 .unwrap();
-            assert_eq!(stored_value.digest(), &reference.digest);
+            assert_eq!(stored_value.digest(), &reference);
             reference
         });
         b.bytes = value_blob_size as u64;
@@ -63,7 +63,7 @@ mod tests {
                     ))
                     .unwrap(),
                     (0..reference_count)
-                        .map(|_| Reference::new(BlobDigest::new(&small_rng.gen())))
+                        .map(|_| BlobDigest::new(&small_rng.gen()))
                         .collect(),
                 )))
             })
@@ -77,7 +77,7 @@ mod tests {
                 let reference = runtime
                     .block_on(storage.store_value(&stored_value))
                     .unwrap();
-                assert_eq!(stored_value.digest(), &reference.digest);
+                assert_eq!(stored_value.digest(), &reference);
             }
             storage
         });
@@ -156,7 +156,7 @@ mod tests {
                 "93cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25"
             ))
             .unwrap(),
-            reference.digest
+            reference
         );
         b.iter(|| {
             let loaded = runtime

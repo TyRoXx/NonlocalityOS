@@ -3,9 +3,7 @@ mod benchmarks;
 mod tests2;
 use astraea::{
     storage::{LoadStoreValue, StoreError},
-    tree::{
-        BlobDigest, HashedValue, Reference, ReferenceIndex, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH,
-    },
+    tree::{BlobDigest, HashedValue, ReferenceIndex, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use async_stream::stream;
 use bytes::Buf;
@@ -537,7 +535,7 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<Arc<OpenDirectory>> {
-        match storage.load_value(&Reference::new(*digest)).await {
+        match storage.load_value(digest).await {
             Some(delayed_loaded) => {
                 let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
                 let parsed_directory: DirectoryTree =
@@ -567,7 +565,7 @@ impl OpenDirectory {
                             if index >= loaded.value().references().len() {
                                 return Err(Error::ReferenceIndexOutOfRange);
                             }
-                            let digest = loaded.value().references()[index].digest;
+                            let digest = loaded.value().references()[index];
                             Ok(DirectoryEntry::new(child.0.clone().into(), kind, digest))
                         }
                         serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
@@ -659,8 +657,7 @@ impl OpenDirectory {
         {
             Ok(success) => success,
             Err(error) => return Err(Error::Storage(error)),
-        }
-        .digest;
+        };
         Ok(OpenDirectory::new(
             DigestStatus::new(empty_directory_digest, true),
             BTreeMap::new(),
@@ -1034,7 +1031,7 @@ impl OpenDirectory {
                 },
             };
             let reference_index = ReferenceIndex(serialization_references.len() as u64);
-            serialization_references.push(Reference::new(digest));
+            serialization_references.push(digest);
             serialization_children.insert(
                 name,
                 serialization::DirectoryEntry {
@@ -1061,13 +1058,14 @@ impl OpenDirectory {
             .unwrap(),
         ));
         match maybe_value_blob {
-            Some(value_blob) => storage
-                .store_value(&HashedValue::from(Arc::new(Value::new(
-                    value_blob,
-                    serialization_references,
-                ))))
-                .await
-                .map(|reference| reference.digest),
+            Some(value_blob) => {
+                storage
+                    .store_value(&HashedValue::from(Arc::new(Value::new(
+                        value_blob,
+                        serialization_references,
+                    ))))
+                    .await
+            }
             None => todo!(),
         }
     }
@@ -1270,7 +1268,7 @@ impl OpenFileContentBlock {
             // there is nothing to load
             HashedValue::from(Arc::new(Value::new(ValueBlob::empty(), Vec::new())))
         } else {
-            let delayed = match storage.load_value(&Reference::new(*blob_digest)).await {
+            let delayed = match storage.load_value(blob_digest).await {
                 Some(success) => success,
                 None => return Err(Error::MissingValue(*blob_digest)),
             };
@@ -1411,10 +1409,7 @@ impl OpenFileContentBlock {
                     }
                 };
                 let size = hashed_value.value().blob().len();
-                let result = storage
-                    .store_value(&hashed_value)
-                    .await
-                    .map(|success| success.digest)?;
+                let result = storage.store_value(&hashed_value).await?;
                 assert_eq!(hashed_value.digest(), &result);
                 // free the memory
                 *self = OpenFileContentBlock::NotLoaded(result, size);
@@ -1978,13 +1973,13 @@ impl OpenFileContentBufferLoaded {
         self.verify_integrity();
         for block in self.blocks.iter_mut() {
             let block_stored = block.try_store(true, storage.clone()).await?;
-            blocks_stored.push(Reference::new(block_stored.unwrap()));
+            blocks_stored.push(block_stored.unwrap());
         }
         self.verify_integrity();
         self.dirty_blocks.clear();
         assert!(blocks_stored.len() >= 1);
         if blocks_stored.len() == 1 {
-            return Ok(self.update_digest(blocks_stored[0].digest));
+            return Ok(self.update_digest(blocks_stored[0]));
         }
         let info = SegmentedBlob {
             size_in_bytes: self.size,
@@ -1996,7 +1991,7 @@ impl OpenFileContentBufferLoaded {
         let reference = storage
             .store_value(&HashedValue::from(Arc::new(value)))
             .await?;
-        Ok(self.update_digest(reference.digest))
+        Ok(self.update_digest(reference))
     }
 
     fn update_digest(&mut self, new_digest: BlobDigest) -> StoreChanges {
@@ -2224,11 +2219,10 @@ impl OpenFileContentBuffer {
                 let blocks = if *size <= VALUE_BLOB_MAX_LENGTH as u64 {
                     vec![OpenFileContentBlock::NotLoaded(*digest, *size as u16)]
                 } else {
-                    let delayed_hashed_value =
-                        match storage.load_value(&Reference::new(*digest)).await {
-                            Some(success) => success,
-                            None => return Err(Error::MissingValue(*digest)),
-                        };
+                    let delayed_hashed_value = match storage.load_value(digest).await {
+                        Some(success) => success,
+                        None => return Err(Error::MissingValue(*digest)),
+                    };
                     let hashed_value = match delayed_hashed_value.hash() {
                         Some(success) => success,
                         None => return Err(Error::MissingValue(*digest)),
@@ -2255,7 +2249,7 @@ impl OpenFileContentBuffer {
                         .take(hashed_value.value().references().len() - 1)
                         .map(|reference| {
                             OpenFileContentBlock::NotLoaded(
-                                reference.digest,
+                                *reference,
                                 VALUE_BLOB_MAX_LENGTH as u16,
                             )
                         });
@@ -2269,7 +2263,7 @@ impl OpenFileContentBuffer {
                     }
                     full_blocks
                         .chain(std::iter::once(OpenFileContentBlock::NotLoaded(
-                            hashed_value.value().references().last().unwrap().digest,
+                            *hashed_value.value().references().last().unwrap(),
                             final_block_size as u16,
                         )))
                         .collect()
@@ -2837,7 +2831,7 @@ impl TreeEditor {
             ))))
             .await
         {
-            Ok(success) => Ok(success.digest),
+            Ok(success) => Ok(success),
             Err(error) => Err(Error::Storage(error)),
         }
     }
@@ -3177,7 +3171,7 @@ mod tests {
     impl LoadValue for NeverUsedStorage {
         async fn load_value(
             &self,
-            _reference: &astraea::tree::Reference,
+            _reference: &astraea::tree::BlobDigest,
         ) -> Option<DelayedHashedValue> {
             panic!()
         }
@@ -3192,7 +3186,7 @@ mod tests {
         async fn store_value(
             &self,
             _value: &HashedValue,
-        ) -> std::result::Result<astraea::tree::Reference, StoreError> {
+        ) -> std::result::Result<astraea::tree::BlobDigest, StoreError> {
             panic!()
         }
     }

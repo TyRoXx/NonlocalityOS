@@ -79,17 +79,6 @@ impl std::convert::From<BlobDigest> for [u8; 64] {
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy, Serialize, Deserialize)]
 pub struct ReferenceIndex(pub u64);
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
-pub struct Reference {
-    pub digest: BlobDigest,
-}
-
-impl Reference {
-    pub fn new(digest: BlobDigest) -> Self {
-        Self { digest }
-    }
-}
-
 pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
@@ -182,11 +171,11 @@ impl std::error::Error for ValueDeserializationError {}
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct Value {
     pub blob: ValueBlob,
-    pub references: Vec<Reference>,
+    pub references: Vec<BlobDigest>,
 }
 
 impl Value {
-    pub fn new(blob: ValueBlob, references: Vec<Reference>) -> Value {
+    pub fn new(blob: ValueBlob, references: Vec<BlobDigest>) -> Value {
         Value {
             blob,
             references: references,
@@ -197,7 +186,7 @@ impl Value {
         &self.blob
     }
 
-    pub fn references(&self) -> &[Reference] {
+    pub fn references(&self) -> &[BlobDigest] {
         &self.references
     }
 
@@ -258,10 +247,7 @@ pub struct HashedValue {
 impl HashedValue {
     pub fn from(value: Arc<Value>) -> HashedValue {
         let digest = calculate_reference(&value);
-        Self {
-            value,
-            digest: digest.digest,
-        }
+        Self { value, digest }
     }
 
     pub fn value(&self) -> &Arc<Value> {
@@ -292,8 +278,8 @@ where
     hasher.update(referenced.blob.as_slice());
     for item in &referenced.references {
         hasher.update(&DEPRECATED_TYPE_ID_IN_DIGEST.to_be_bytes());
-        hasher.update(&item.digest.0 .0);
-        hasher.update(&item.digest.0 .1);
+        hasher.update(&item.0 .0);
+        hasher.update(&item.0 .1);
     }
     hasher.finalize()
 }
@@ -308,15 +294,13 @@ where
     hasher.update(referenced.blob.as_slice());
     for item in &referenced.references {
         hasher.update(&DEPRECATED_TYPE_ID_IN_DIGEST.to_be_bytes());
-        hasher.update(&item.digest.0 .0);
-        hasher.update(&item.digest.0 .1);
+        hasher.update(&item.0 .0);
+        hasher.update(&item.0 .1);
     }
     hasher.finalize_xof()
 }
 
-pub fn calculate_reference(referenced: &Value) -> Reference {
+pub fn calculate_reference(referenced: &Value) -> BlobDigest {
     let result: [u8; 64] = calculate_digest_fixed::<sha3::Sha3_512>(referenced).into();
-    Reference {
-        digest: BlobDigest::new(&result),
-    }
+    BlobDigest::new(&result)
 }

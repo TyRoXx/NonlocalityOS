@@ -1,7 +1,7 @@
 #![feature(test)]
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
-    tree::{BlobDigest, HashedValue, Reference, Value},
+    tree::{BlobDigest, HashedValue, Value},
 };
 use async_trait::async_trait;
 use dogbox_tree::serialization::{self, FileName};
@@ -131,7 +131,7 @@ impl Object for LoadedFile {
                 // the argument is unit, so we don't need to check it
                 let content = self
                     .storage
-                    .load_value(&Reference::new(self.content))
+                    .load_value(&self.content)
                     .await.unwrap(/*TODO*/);
                 let hashed = content.hash().unwrap(/*TODO*/);
                 let result: Arc<(dyn Object + Sync)> = Arc::new(SmallBytes::new(hashed));
@@ -220,7 +220,7 @@ impl Object for LoadedDirectory {
                     ) => Ok(Pointer::Object(Arc::new(LoadedFile::new(
                         self.file_interface,
                         self.read.clone(),
-                        self.value_for_references.references()[reference_index.0 as usize].digest,
+                        self.value_for_references.references()[reference_index.0 as usize],
                         self.storage.clone(),
                     )))),
                     dogbox_tree::serialization::ReferenceIndexOrInlineContent::Direct(_vec) => {

@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         storage::{CommitChanges, LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
-        tree::{BlobDigest, HashedValue, Reference, Value, ValueBlob},
+        tree::{BlobDigest, HashedValue, Value, ValueBlob},
     };
     use bytes::Bytes;
     use std::sync::Arc;
@@ -27,7 +27,7 @@ mod tests {
                 .store_value(&HashedValue::from(Arc::new(Value::empty())))
                 .await
                 .unwrap();
-            assert_eq!(expected_reference, reference.digest);
+            assert_eq!(expected_reference, reference);
             storage.commit_changes().await.unwrap();
         }
         // TODO: solve OpenSSL rebuild issues on Windows
@@ -53,7 +53,7 @@ mod tests {
             connection3.pragma_update(None, "key", correct_key).unwrap();
             let storage = SQLiteStorage::from(connection3).unwrap();
             let loaded_back = storage
-                .load_value(&Reference::new(expected_reference))
+                .load_value(&expected_reference)
                 .await
                 .unwrap()
                 .hash()
@@ -84,7 +84,7 @@ mod tests {
                 58, 241, 245, 249, 76, 17, 227, 233, 64, 44, 58, 197, 88, 245, 0, 25, 157, 149,
                 182, 211, 227, 1, 117, 133, 134, 40, 29, 205, 38
             ]),
-            reference.digest
+            reference
         );
         let loaded_back = storage
             .load_value(&reference)
@@ -121,14 +121,14 @@ mod tests {
                 58, 241, 245, 249, 76, 17, 227, 233, 64, 44, 58, 197, 88, 245, 0, 25, 157, 149,
                 182, 211, 227, 1, 117, 133, 134, 40, 29, 205, 38
             ]),
-            reference_1.digest
+            reference_1
         );
 
         let reference_2 = storage
             .store_value(&HashedValue::from(Arc::new(Value::empty())))
             .await
             .unwrap();
-        assert_eq!(reference_1.digest, reference_2.digest);
+        assert_eq!(reference_1, reference_2);
 
         let loaded_back = storage
             .load_value(&reference_1)
@@ -169,7 +169,7 @@ mod tests {
                 242, 157, 50, 240, 255, 14, 154, 197, 128, 74, 128, 191, 86, 117, 225, 34, 104, 53,
                 16, 115, 92, 235, 146, 231, 135, 79, 204, 161, 250
             ]),
-            reference.digest
+            reference
         );
         let expected = HashedValue::from(value);
         let loaded_back = storage
@@ -199,7 +199,7 @@ mod tests {
         let referenced_digest = BlobDigest::hash(b"ref");
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
-            vec![Reference::new(referenced_digest)],
+            vec![referenced_digest],
         ));
         let reference = storage
             .store_value(&HashedValue::from(value.clone()))
@@ -212,7 +212,7 @@ mod tests {
                 236, 65, 171, 221, 49, 239, 74, 43, 206, 121, 210, 155, 155, 175, 238, 69, 255,
                 222, 33, 84, 166, 21, 144, 147, 44, 156, 146, 215
             ]),
-            reference.digest
+            reference
         );
         let expected = HashedValue::from(value);
         let loaded_back = storage
@@ -242,7 +242,6 @@ mod tests {
         let referenced_digests = [b"a".as_slice(), b"ab"]
             .into_iter()
             .map(|element: &[u8]| BlobDigest::hash(element))
-            .map(|digest| Reference::new(digest))
             .collect();
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
@@ -254,7 +253,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             BlobDigest::parse_hex_string("7a94d90a60e67e6f1eaa209b308250e7260824a0e1b44f28afbdec93ba48ce674ebc68535a375b63589e99c1e1333a99402f039be481163501b3ff21d6d5f095").unwrap(),
-            reference.digest
+            reference
         );
         let expected = HashedValue::from(value);
         let loaded_back = storage
@@ -284,7 +283,6 @@ mod tests {
         let referenced_digests = [b"a".as_slice(), b"ab", b"abc"]
             .into_iter()
             .map(|element: &[u8]| BlobDigest::hash(element))
-            .map(|digest| Reference::new(digest))
             .collect();
         let value = Arc::new(Value::new(
             ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
@@ -296,7 +294,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             BlobDigest::parse_hex_string("28ce0d016af6bdd104fe0f1fbc5c7a8802d3c2d4b50fee71dd3041b69ae9766dbaea94ef1e82666deece16748e1e3ad720e9b260e2a82a9836a4c05336eec93c").unwrap(),
-            reference.digest
+            reference
         );
         let expected = HashedValue::from(value);
         let loaded_back = storage
@@ -336,13 +334,13 @@ mod tests {
             .unwrap();
         let name = "test";
         assert_eq!(None, storage.load_root(name).await);
-        storage.update_root(name, &reference_1.digest).await;
-        assert_eq!(Some(reference_1.digest), storage.load_root(name).await);
-        storage.update_root(name, &reference_2.digest).await;
-        assert_eq!(Some(reference_2.digest), storage.load_root(name).await);
+        storage.update_root(name, &reference_1).await;
+        assert_eq!(Some(reference_1), storage.load_root(name).await);
+        storage.update_root(name, &reference_2).await;
+        assert_eq!(Some(reference_2), storage.load_root(name).await);
 
         storage.commit_changes().await.unwrap();
-        assert_eq!(Some(reference_2.digest), storage.load_root(name).await);
+        assert_eq!(Some(reference_2), storage.load_root(name).await);
     }
 
     #[test_log::test(tokio::test)]
@@ -357,13 +355,13 @@ mod tests {
         let name_1 = "testA";
         let name_2 = "testB";
         assert_eq!(None, storage.load_root(name_1).await);
-        storage.update_root(name_1, &reference_1.digest).await;
-        assert_eq!(Some(reference_1.digest), storage.load_root(name_1).await);
-        storage.update_root(name_2, &reference_1.digest).await;
-        assert_eq!(Some(reference_1.digest), storage.load_root(name_1).await);
+        storage.update_root(name_1, &reference_1).await;
+        assert_eq!(Some(reference_1), storage.load_root(name_1).await);
+        storage.update_root(name_2, &reference_1).await;
+        assert_eq!(Some(reference_1), storage.load_root(name_1).await);
 
         storage.commit_changes().await.unwrap();
-        assert_eq!(Some(reference_1.digest), storage.load_root(name_1).await);
-        assert_eq!(Some(reference_1.digest), storage.load_root(name_1).await);
+        assert_eq!(Some(reference_1), storage.load_root(name_1).await);
+        assert_eq!(Some(reference_1), storage.load_root(name_1).await);
     }
 }

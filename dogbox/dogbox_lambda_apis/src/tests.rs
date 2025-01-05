@@ -1,6 +1,6 @@
 use crate::{FileNameObject, LoadedDirectory};
 use astraea::storage::{store_object, LoadValue};
-use astraea::tree::{BlobDigest, Reference};
+use astraea::tree::BlobDigest;
 use astraea::{
     storage::{InMemoryValueStorage, StoreValue},
     tree::{HashedValue, Value, ValueBlob},
@@ -36,7 +36,7 @@ async fn complex_expression() {
     let file_name = "test.txt";
     let open_file = directory
         .clone()
-        .open_file(file_name, &empty_file_digest.digest)
+        .open_file(file_name, &empty_file_digest)
         .await
         .unwrap();
     let write_permission = open_file.get_write_permission();
@@ -77,7 +77,7 @@ async fn complex_expression() {
     let get_expression = read_lambda_parameter_expression
         .apply(
             &directory_interface,
-            &directory_interface_ref.digest,
+            &directory_interface_ref,
             get_name.clone(),
             TypedExpression::new(
                 Expression::Literal(file_name_type.clone(), file_name_value),
@@ -102,7 +102,7 @@ async fn complex_expression() {
     let read_expression = get_expression
         .apply(
             &regular_file_interface,
-            &regular_file_interface_ref.digest,
+            &regular_file_interface_ref,
             read_name.clone(),
             TypedExpression::unit(),
         )
@@ -128,7 +128,7 @@ async fn complex_expression() {
     let lambda_application = TypedExpression::new(
         Expression::Apply(Box::new(Application::new(
             lambda_expression.expression,
-            lambda_interface_ref.digest,
+            lambda_interface_ref,
             apply_name.clone(),
             Expression::ReadVariable(external_parameter_name.clone()),
         ))),
@@ -175,14 +175,14 @@ async fn complex_expression() {
                         Box::pin(core::future::ready(Some(generated_interface)))
                     }
                     else if &directory_type == &*callee {
-                        assert_eq!(&directory_interface_ref.digest, digest);
+                        assert_eq!(&directory_interface_ref, digest);
                         Box::pin(core::future::ready(Some(directory_interface.clone())))
                     } else if &regular_file_type == &*callee {
-                        assert_eq!(&regular_file_interface_ref.digest, digest);
+                        assert_eq!(&regular_file_interface_ref, digest);
                         Box::pin(core::future::ready(Some(regular_file_interface.clone())))
                     } else {
                         assert_eq!(&bytes_type, &*callee);
-                        assert_eq!(&bytes_interface_ref.digest, digest);
+                        assert_eq!(&bytes_interface_ref, digest);
                         Box::pin(core::future::ready(Some(bytes_interface.clone())))
                     }
                 }
@@ -198,7 +198,7 @@ async fn complex_expression() {
 
     let external_argument = {
         let loaded = storage
-            .load_value(&Reference::new(directory_status.digest.last_known_digest))
+            .load_value(&directory_status.digest.last_known_digest)
             .await;
         match loaded {
             Some(found) => match found.hash() {
@@ -213,9 +213,9 @@ async fn complex_expression() {
                     let hydrated: Arc<(dyn Object + Sync)> = Arc::new(LoadedDirectory::new(
                         hashed.value().clone(),
                         parsed_directory,
-                        directory_interface_ref.digest.clone(),
+                        directory_interface_ref.clone(),
                         get_name.clone(),
-                        regular_file_interface_ref.digest.clone(),
+                        regular_file_interface_ref.clone(),
                         read_name.clone(),
                         storage.clone(),
                     ));
