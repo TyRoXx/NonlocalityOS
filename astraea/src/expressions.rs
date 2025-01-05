@@ -1,4 +1,5 @@
 use crate::{
+    builtins::LAMBDA_APPLY_METHOD_NAME,
     storage::{LoadValue, StoreError, StoreValue},
     tree::{BlobDigest, HashedValue, Value},
     types::{Name, Type},
@@ -165,7 +166,7 @@ impl Object for Closure {
         read_variable: &Arc<ReadVariable>,
         read_literal: &ReadLiteral,
     ) -> std::result::Result<Pointer, ()> {
-        if method.key != "apply" {
+        if method.key != LAMBDA_APPLY_METHOD_NAME {
             todo!()
         }
         let read_variable_in_body: Arc<ReadVariable> = Arc::new({

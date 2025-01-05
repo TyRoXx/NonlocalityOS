@@ -1,9 +1,9 @@
 use crate::{
-    builtins::builtins_namespace,
     compilation::{CompilerError, CompilerOutput, SourceLocation},
     tokenization::{Token, TokenContent},
 };
 use astraea::{
+    builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME, UTF8_STRING_TYPE_NAME},
     expressions::{Application, Expression, LambdaExpression},
     tree::{BlobDigest, HashedValue, Value},
     types::{Name, NamespaceId, Type},
@@ -98,22 +98,24 @@ fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>
 
 async fn parse_expression_start<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
+    local_namespace: &NamespaceId,
 ) -> ParserResult<Expression> {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
-            TokenContent::Identifier(identifier) => {
-                Ok(Expression::ReadVariable(Name::new(
-                    /*TODO: use local namespace*/ builtins_namespace(),
-                    identifier.clone(),
-                )))
-            }
+            TokenContent::Identifier(identifier) => Ok(Expression::ReadVariable(Name::new(
+                *local_namespace,
+                identifier.clone(),
+            ))),
             TokenContent::Assign => todo!(),
-            TokenContent::LeftParenthesis => Box::pin(parse_lambda(tokens)).await,
+            TokenContent::LeftParenthesis => Box::pin(parse_lambda(tokens, local_namespace)).await,
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(content) => Ok(Expression::Literal(
-                Type::Named(Name::new(builtins_namespace(), "utf8-string".to_string())),
+                Type::Named(Name::new(
+                    BUILTINS_NAMESPACE,
+                    UTF8_STRING_TYPE_NAME.to_string(),
+                )),
                 HashedValue::from(Arc::new(
                     Value::from_string(&content).expect("It's too long. That's what she said."),
                 )),
@@ -128,8 +130,9 @@ async fn parse_expression_start<'t>(
 
 pub async fn parse_expression<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
+    local_namespace: &NamespaceId,
 ) -> ParserResult<Expression> {
-    let start = parse_expression_start(tokens).await?;
+    let start = parse_expression_start(tokens, local_namespace).await?;
     match peek_next_non_whitespace_token(tokens) {
         Some(more) => match &more.content {
             TokenContent::Whitespace => unreachable!(),
@@ -137,12 +140,12 @@ pub async fn parse_expression<'t>(
             TokenContent::Assign => Ok(start),
             TokenContent::LeftParenthesis => {
                 tokens.next();
-                let argument = Box::pin(parse_expression(tokens)).await?;
+                let argument = Box::pin(parse_expression(tokens, local_namespace)).await?;
                 expect_right_parenthesis(tokens);
                 Ok(Expression::Apply(Box::new(Application::new(
                     start,
                     BlobDigest::hash(b"todo"),
-                    Name::new(builtins_namespace(), "apply".to_string()),
+                    Name::new(BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME.to_string()),
                     argument,
                 ))))
             }
@@ -157,10 +160,10 @@ pub async fn parse_expression<'t>(
 
 async fn parse_lambda<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
+    local_namespace: &NamespaceId,
 ) -> ParserResult<Expression> {
-    let namespace = NamespaceId([0; 16]); // todo define son ding
     let parameter_name = Name::new(
-        namespace,
+        *local_namespace,
         match pop_next_non_whitespace_token(tokens) {
             Some(non_whitespace) => match &non_whitespace.content {
                 TokenContent::Whitespace => todo!(),
@@ -177,7 +180,7 @@ async fn parse_lambda<'t>(
     );
     expect_right_parenthesis(tokens);
     expect_fat_arrow(tokens);
-    let body = parse_expression(tokens).await?;
+    let body = parse_expression(tokens, local_namespace).await?;
     Ok(Expression::Lambda(Box::new(LambdaExpression::new(
         Type::Unit, // todo: do propper typechecking
         parameter_name,
@@ -187,9 +190,10 @@ async fn parse_lambda<'t>(
 
 pub async fn parse_entry_point_lambda<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
+    local_namespace: &NamespaceId,
 ) -> CompilerOutput {
     let mut errors = Vec::new();
-    let entry_point_result = parse_expression(tokens).await;
+    let entry_point_result = parse_expression(tokens, local_namespace).await;
     match entry_point_result {
         Ok(entry_point) => match &entry_point {
             Expression::Unit

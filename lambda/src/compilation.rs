@@ -2,7 +2,7 @@ use crate::{
     parsing::{parse_entry_point_lambda, pop_next_non_whitespace_token},
     tokenization::tokenize_default_syntax,
 };
-use astraea::expressions::Expression;
+use astraea::{expressions::Expression, types::NamespaceId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -44,10 +44,10 @@ impl CompilerOutput {
     }
 }
 
-pub async fn compile(source: &str) -> CompilerOutput {
+pub async fn compile(source: &str, local_namespace: &NamespaceId) -> CompilerOutput {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter().peekable();
-    let mut result = parse_entry_point_lambda(&mut token_iterator).await;
+    let mut result = parse_entry_point_lambda(&mut token_iterator, local_namespace).await;
     match pop_next_non_whitespace_token(&mut token_iterator) {
         Some(extra_token) => {
             result.errors.push(CompilerError::new(

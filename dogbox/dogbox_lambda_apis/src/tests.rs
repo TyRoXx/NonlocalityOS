@@ -1,4 +1,5 @@
 use crate::{FileNameObject, LoadedDirectory};
+use astraea::builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME};
 use astraea::expressions::{
     evaluate, Application, Expression, LambdaExpression, Object, Pointer, ReadVariable,
 };
@@ -117,7 +118,7 @@ async fn complex_expression() {
             bytes_type.clone(),
         ))),
     );
-    let apply_name = Name::new(namespace, "apply".to_string());
+    let apply_name = Name::new(BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME.to_string());
     let lambda_interface = Arc::new(Interface::new(BTreeMap::from([(
         apply_name.clone(),
         Signature::new(file_name_type.clone(), regular_file_type.clone()),
