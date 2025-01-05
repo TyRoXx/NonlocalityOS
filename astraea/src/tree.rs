@@ -76,9 +76,6 @@ impl std::convert::From<BlobDigest> for [u8; 64] {
     }
 }
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy)]
-pub struct TypeId(pub u64);
-
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy, Serialize, Deserialize)]
 pub struct ReferenceIndex(pub u64);
 
@@ -283,6 +280,10 @@ impl std::hash::Hash for HashedValue {
     }
 }
 
+// TypeId doesn't exist anymore, but we still have them in the digest for backwards compatibility.
+// TODO: remove it to make hashing slightly faster
+const DEPRECATED_TYPE_ID_IN_DIGEST: u64 = 0;
+
 pub fn calculate_digest_fixed<D>(referenced: &Value) -> sha3::digest::Output<D>
 where
     D: sha3::Digest,
@@ -290,7 +291,7 @@ where
     let mut hasher = D::new();
     hasher.update(referenced.blob.as_slice());
     for item in &referenced.references {
-        hasher.update(&TypeId(0).0.to_be_bytes());
+        hasher.update(&DEPRECATED_TYPE_ID_IN_DIGEST.to_be_bytes());
         hasher.update(&item.digest.0 .0);
         hasher.update(&item.digest.0 .1);
     }
@@ -306,7 +307,7 @@ where
     let mut hasher = D::default();
     hasher.update(referenced.blob.as_slice());
     for item in &referenced.references {
-        hasher.update(&TypeId(0).0.to_be_bytes());
+        hasher.update(&DEPRECATED_TYPE_ID_IN_DIGEST.to_be_bytes());
         hasher.update(&item.digest.0 .0);
         hasher.update(&item.digest.0 .1);
     }
