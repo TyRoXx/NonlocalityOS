@@ -1,10 +1,13 @@
 #[cfg(test)]
 mod tests2 {
-    use crate::compilation::{compile, CompilerError, CompilerOutput, SourceLocation};
+    use crate::{
+        builtins::builtins_namespace,
+        compilation::{compile, CompilerError, CompilerOutput, SourceLocation},
+    };
     use astraea::{
         expressions::{Application, Expression, LambdaExpression},
         tree::{BlobDigest, HashedValue, Value},
-        types::{Name, NamespaceId, Type},
+        types::{Name, Type},
     };
     use std::sync::Arc;
 
@@ -24,7 +27,7 @@ mod tests2 {
     #[test_log::test(tokio::test)]
     async fn test_compile_lambda() {
         let output = compile(r#"(x) => x"#).await;
-        let name = Name::new(NamespaceId([0; 16]), "x".to_string());
+        let name = Name::new(builtins_namespace(), "x".to_string());
         let entry_point =
             LambdaExpression::new(Type::Unit, name.clone(), Expression::ReadVariable(name));
         let expected = CompilerOutput::new(Expression::Lambda(Box::new(entry_point)), Vec::new());
@@ -34,7 +37,7 @@ mod tests2 {
     #[test_log::test(tokio::test)]
     async fn test_compile_function_call() {
         let output = compile(r#"(f) => f(f)"#).await;
-        let name = Name::new(NamespaceId::builtins(), "f".to_string());
+        let name = Name::new(builtins_namespace(), "f".to_string());
         let f = Expression::ReadVariable(name.clone());
         let entry_point = LambdaExpression::new(
             Type::Unit,
@@ -42,7 +45,7 @@ mod tests2 {
             Expression::Apply(Box::new(Application::new(
                 f.clone(),
                 BlobDigest::hash(b"todo"),
-                Name::new(NamespaceId::builtins(), "apply".to_string()),
+                Name::new(builtins_namespace(), "apply".to_string()),
                 f,
             ))),
         );
@@ -53,7 +56,7 @@ mod tests2 {
     #[test_log::test(tokio::test)]
     async fn test_compile_quotes() {
         let output = compile(r#"(print) => print("Hello, world!")"#).await;
-        let print_name = Name::new(NamespaceId::builtins(), "print".to_string());
+        let print_name = Name::new(builtins_namespace(), "print".to_string());
         let print = Expression::ReadVariable(print_name.clone());
         let entry_point = LambdaExpression::new(
             Type::Unit,
@@ -61,12 +64,9 @@ mod tests2 {
             Expression::Apply(Box::new(Application::new(
                 print.clone(),
                 BlobDigest::hash(b"todo"),
-                Name::new(NamespaceId::builtins(), "apply".to_string()),
+                Name::new(builtins_namespace(), "apply".to_string()),
                 Expression::Literal(
-                    Type::Named(Name::new(
-                        NamespaceId::builtins(),
-                        "utf8-string".to_string(),
-                    )),
+                    Type::Named(Name::new(builtins_namespace(), "utf8-string".to_string())),
                     HashedValue::from(Arc::new(Value::from_string("Hello, world!").unwrap())),
                 ),
             ))),

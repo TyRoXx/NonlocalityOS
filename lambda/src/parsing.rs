@@ -1,4 +1,5 @@
 use crate::{
+    builtins::builtins_namespace,
     compilation::{CompilerError, CompilerOutput, SourceLocation},
     tokenization::{Token, TokenContent},
 };
@@ -103,7 +104,7 @@ async fn parse_expression_start<'t>(
             TokenContent::Whitespace => todo!(),
             TokenContent::Identifier(identifier) => {
                 Ok(Expression::ReadVariable(Name::new(
-                    /*TODO: use local namespace*/ NamespaceId::builtins(),
+                    /*TODO: use local namespace*/ builtins_namespace(),
                     identifier.clone(),
                 )))
             }
@@ -112,10 +113,7 @@ async fn parse_expression_start<'t>(
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(content) => Ok(Expression::Literal(
-                Type::Named(Name::new(
-                    NamespaceId::builtins(),
-                    "utf8-string".to_string(),
-                )),
+                Type::Named(Name::new(builtins_namespace(), "utf8-string".to_string())),
                 HashedValue::from(Arc::new(
                     Value::from_string(&content).expect("It's too long. That's what she said."),
                 )),
@@ -144,7 +142,7 @@ pub async fn parse_expression<'t>(
                 Ok(Expression::Apply(Box::new(Application::new(
                     start,
                     BlobDigest::hash(b"todo"),
-                    Name::new(NamespaceId::builtins(), "apply".to_string()),
+                    Name::new(builtins_namespace(), "apply".to_string()),
                     argument,
                 ))))
             }
