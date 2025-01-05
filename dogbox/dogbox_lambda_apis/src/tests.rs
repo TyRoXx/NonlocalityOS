@@ -1,18 +1,18 @@
 use crate::{FileNameObject, LoadedDirectory};
-use astraea::builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME};
-use astraea::expressions::{
-    evaluate, Application, Expression, LambdaExpression, Object, Pointer, ReadVariable,
-};
 use astraea::storage::{store_object, LoadValue};
 use astraea::tree::{BlobDigest, Reference};
-use astraea::type_checking::TypeCheckedExpression;
-use astraea::types::{Interface, Name, NamespaceId, Signature, Type, TypedExpression};
 use astraea::{
     storage::{InMemoryValueStorage, StoreValue},
     tree::{HashedValue, Value, ValueBlob},
 };
 use dogbox_tree::serialization::FileName;
 use dogbox_tree_editor::OpenDirectory;
+use lambda::builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME};
+use lambda::expressions::{
+    evaluate, Application, Expression, LambdaExpression, Object, Pointer, ReadVariable,
+};
+use lambda::type_checking::TypeCheckedExpression;
+use lambda::types::{Interface, Name, NamespaceId, Signature, Type, TypedExpression};
 use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::Arc;

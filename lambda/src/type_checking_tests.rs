@@ -2,10 +2,10 @@
 mod tests {
     use crate::{
         expressions::{Expression, LambdaExpression},
-        tree::{BlobDigest, HashedValue, Value, ValueBlob},
         type_checking::TypeCheckedExpression,
         types::{Interface, Name, NamespaceId, Signature, Type, TypedExpression},
     };
+    use astraea::tree::{BlobDigest, HashedValue, Value, ValueBlob};
     use std::{pin::Pin, sync::Arc};
 
     fn no_named_variables(_name: &Name) -> Option<Type> {

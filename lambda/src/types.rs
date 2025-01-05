@@ -1,7 +1,5 @@
-use crate::{
-    expressions::{Application, Expression},
-    tree::BlobDigest,
-};
+use crate::expressions::{Application, Expression};
+use astraea::tree::BlobDigest;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;

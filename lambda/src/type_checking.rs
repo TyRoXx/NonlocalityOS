@@ -1,6 +1,7 @@
+use astraea::tree::BlobDigest;
+
 use crate::{
     expressions::{Expression, LambdaExpression},
-    tree::BlobDigest,
     types::{Interface, Name, Signature, Type, TypedExpression},
 };
 use std::{pin::Pin, sync::Arc};

@@ -181,7 +181,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -2022,9 +2021,28 @@ name = "lambda"
 version = "0.1.0"
 dependencies = [
  "astraea",
+ "async-trait",
  "bytes 1.9.0",
  "futures",
  "hippeus_parser_generator",
+ "lazy_static",
+ "postcard",
+ "rusqlite",
+ "serde",
+ "test-log",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "lambda_compiler"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "bytes 1.9.0",
+ "futures",
+ "hippeus_parser_generator",
+ "lambda",
  "lazy_static",
  "postcard",
  "rusqlite",

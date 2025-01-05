@@ -1,12 +1,12 @@
 #![feature(test)]
 use astraea::{
-    expressions::{Object, Pointer, ReadLiteral, ReadVariable},
     storage::{LoadValue, StoreError, StoreValue},
     tree::{BlobDigest, HashedValue, Reference, Value},
-    types::Name,
 };
 use async_trait::async_trait;
 use dogbox_tree::serialization::{self, FileName};
+use lambda::expressions::{Object, Pointer, ReadLiteral, ReadVariable};
+use lambda::types::Name;
 use std::sync::Arc;
 
 #[cfg(test)]

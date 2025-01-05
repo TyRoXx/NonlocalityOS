@@ -1,9 +1,9 @@
 use crate::{
     builtins::LAMBDA_APPLY_METHOD_NAME,
-    storage::{LoadValue, StoreError, StoreValue},
-    tree::{BlobDigest, HashedValue, Value},
     types::{Name, Type},
 };
+use astraea::storage::{LoadValue, StoreError, StoreValue};
+use astraea::tree::{BlobDigest, HashedValue, Value};
 use async_trait::async_trait;
 use std::{
     collections::{BTreeMap, BTreeSet},
