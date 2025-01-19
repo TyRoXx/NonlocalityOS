@@ -5,4 +5,3 @@ pub mod install;
 mod podman;
 pub mod raspberrypi;
 pub mod run;
-pub mod wasi;
