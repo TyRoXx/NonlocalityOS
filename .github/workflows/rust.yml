@@ -23,8 +23,8 @@ jobs:
       cancel-in-progress: true
 
     env:
-      SCCACHE_VERSION: "v0.8.2"
-      SCCACHE_FILENAME: "sccache-v0.8.2-x86_64-unknown-linux-musl.tar.gz"
+      SCCACHE_VERSION: "v0.9.1"
+      SCCACHE_FILENAME: "sccache-v0.9.1-x86_64-unknown-linux-musl.tar.gz"
 
     steps:
     - uses: actions/checkout@v4
