@@ -237,7 +237,6 @@ async fn build(
 
     let root = Directory {
         entries: BTreeMap::from([
-            ("admin_tool".to_string(), Program::host()),
             ("astra".to_string(), Program::other()),
             ("hippeus_parser_generator".to_string(), Program::other()),
             ("management_interface".to_string(), Program::other()),

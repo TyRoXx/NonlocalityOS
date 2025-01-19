@@ -1,6 +1,5 @@
 [workspace]
 members=[
-    "admin_tool",
     "astra",
     "management_service",
     "nonlocality_env",
