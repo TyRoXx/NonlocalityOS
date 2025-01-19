@@ -17,7 +17,7 @@ for %%D in ("%PATH:;=" "%") do (
 
 if "%found%" == "false" (
     echo %executable% not found in PATH, trying to install it.
-    cargo --verbose install sccache || exit /B 1
+    cargo --verbose install --locked sccache --version 0.9.1 || exit /B 1
 )
 
 :end
