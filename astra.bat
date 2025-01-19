@@ -1,6 +1,6 @@
 @echo off
 cls || exit /B 1
-call .\install_sccache.bat || exit /B 1
+call .\scripts\install_sccache.bat || exit /B 1
 
 setlocal
 set RUSTC_WRAPPER=sccache

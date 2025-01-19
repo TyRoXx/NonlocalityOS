@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
 set -e
 
-./install_cargo-nextest.sh
+./scripts/install_cargo-nextest.sh
 cargo nextest run

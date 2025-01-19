@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-./install_cargo-tarpaulin.sh || exit 1
+./scripts/install_cargo-tarpaulin.sh || exit 1
 
 sccache --zero-stats || exit 1
 

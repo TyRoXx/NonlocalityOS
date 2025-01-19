@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-./install_sccache.sh || exit 1
+./scripts/install_sccache.sh || exit 1
 export RUSTC_WRAPPER=sccache
 
 repository=$(dirname "$0")

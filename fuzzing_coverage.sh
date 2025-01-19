@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -e
 
-./install_cargo-fuzz.sh
+./scripts/install_cargo-fuzz.sh
 cargo install --version 0.3.6 --locked cargo-binutils
 
 BINARY=target/x86_64-unknown-linux-gnu/coverage/x86_64-unknown-linux-gnu/release/write-read-large-files

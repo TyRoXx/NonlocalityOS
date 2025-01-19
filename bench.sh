@@ -7,7 +7,7 @@ PACKAGE="dogbox_tree_editor"
 #BENCHMARKS="read_large_file_sqlite_in_memory_storage"
 BENCHMARKS=""
 
-./install_sccache.sh || exit 1
+./scripts/install_sccache.sh || exit 1
 export RUSTC_WRAPPER=sccache
 
 cargo install --version 0.12.0 --locked samply
