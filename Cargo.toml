@@ -1,8 +1,6 @@
 [workspace]
 members=[
     "astra",
-    "management_service",
-    "nonlocality_env",
     "nonlocality_build_utils",
     "astraea",
     "lambda",
