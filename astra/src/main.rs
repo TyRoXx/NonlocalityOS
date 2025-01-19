@@ -207,15 +207,8 @@ async fn build(
             true
         }
     };
-    let example_applications = repository.join("example_applications");
     match mode {
-        CargoBuildMode::BuildRelease => {
-            error_count += run_cargo_build_for_host(
-                &example_applications.join("example_cluster"),
-                progress_reporter,
-            )
-            .await;
-        }
+        CargoBuildMode::BuildRelease => {}
         CargoBuildMode::Test | CargoBuildMode::Coverage => {
             error_count += install_nextest(&repository, &progress_reporter).await;
             error_count += run_cargo_test(
@@ -223,13 +216,6 @@ async fn build(
                 &coverage_info_directory,
                 with_coverage,
                 &progress_reporter,
-            )
-            .await;
-            error_count += run_cargo_test(
-                &example_applications,
-                &coverage_info_directory,
-                with_coverage,
-                progress_reporter,
             )
             .await;
         }
@@ -288,33 +274,6 @@ async fn build(
     error_count
 }
 
-async fn build_example_cluster(
-    mode: CargoBuildMode,
-    repository: &std::path::Path,
-    progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
-) -> NumberOfErrors {
-    let example_cluster = repository.join("example_applications");
-    run_cargo(
-        &example_cluster,
-        &[
-            "run",
-            "--bin",
-            "example_cluster",
-            "--release",
-            "--",
-            example_cluster.to_str().unwrap(),
-            match mode {
-                CargoBuildMode::BuildRelease => "build",
-                CargoBuildMode::Test => "test",
-                CargoBuildMode::Coverage => "coverage",
-            },
-        ],
-        &HashMap::new(),
-        progress_reporter,
-    )
-    .await
-}
-
 const MANAGEMENT_SERVICE_NAME: &str = "management_service";
 
 #[tokio::main(flavor = "multi_thread")]
@@ -343,15 +302,13 @@ async fn main() -> std::process::ExitCode {
         Arc::new(ConsoleErrorReporter {});
 
     let host_operating_system = detect_host_operating_system();
-    let mut error_count = build(
+    let error_count = build(
         command,
         &repository,
         host_operating_system,
         &progress_reporter,
     )
     .await;
-
-    error_count += build_example_cluster(command, &repository, &progress_reporter).await;
 
     let build_duration = started_at.elapsed();
     println!("Duration: {:?}", build_duration);

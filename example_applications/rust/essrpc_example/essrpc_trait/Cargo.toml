@@ -1,9 +1,0 @@
-[package]
-name = "essrpc_trait"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-
-[dependencies]
-essrpc = {version = "0", features = [ ]}

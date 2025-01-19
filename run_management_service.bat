@@ -1,5 +1,0 @@
-set NL_CLUSTER_CONFIG=%CD%/example_applications/target/example_applications_cluster.config
-set NL_FILESYSTEM_ACCESS_PARENT=%CD%/example_applications/filesystem_access
-remove %NL_CLUSTER_CONFIG%
-call .\build.bat || exit /B 1
-cargo run --verbose --bin management_service --release -- %NL_CLUSTER_CONFIG% --filesystem_access_root %NL_FILESYSTEM_ACCESS_PARENT% || exit /B 1
