@@ -623,7 +623,7 @@ mod tests {
         use rand::Rng;
         use rand::SeedableRng;
         let mut small_rng = SmallRng::seed_from_u64(123);
-        (0..len).map(|_| small_rng.gen()).collect()
+        (0..len).map(|_| small_rng.random()).collect()
     }
 
     #[test_log::test(tokio::test)]

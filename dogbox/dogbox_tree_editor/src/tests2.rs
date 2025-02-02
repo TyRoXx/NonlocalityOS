@@ -173,7 +173,7 @@ mod tests {
         use rand::Rng;
         use rand::SeedableRng;
         let mut small_rng = SmallRng::seed_from_u64(seed);
-        (0..len).map(|_| small_rng.gen()).collect()
+        (0..len).map(|_| small_rng.random()).collect()
     }
 
     #[tokio::test]
@@ -184,8 +184,8 @@ mod tests {
         let write_data_digest = BlobDigest::hash(&write_data);
         assert_eq!(
             &BlobDigest::parse_hex_string(concat!(
-                "150ccd092312e7c17595ab98c400665c67b3c4f7848c7cd37317d68d44f7df82",
-                "2ac3a4e7b0fef6cc42f2b8b53e678284cb0f73c2c605f5711e6a4d34829e43d2"
+                "d22943da0befa7ca73ed859895034da55129eca5381fdc61517707697e6d55b3",
+                "d72b239bec3109f98c08cbdba15ab2e9ec40b280f8d34eed785dc5a68d69fa85"
             ))
             .unwrap(),
             &write_data_digest,
@@ -194,8 +194,8 @@ mod tests {
         let last_known_digest = BlobDigest::hash(&original_data);
         assert_eq!(
             &BlobDigest::parse_hex_string(concat!(
-                "23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e3",
-                "93cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25"
+                "8d51e962d39ad493f724e4fcfe36c9d92fdbc6791f5152033368d45fe9e34632",
+                "0d5345d77d979c05ea62e23f294b2b3c8f2a98d8315a160de066a4db1713fe58"
             ))
             .unwrap(),
             &last_known_digest,

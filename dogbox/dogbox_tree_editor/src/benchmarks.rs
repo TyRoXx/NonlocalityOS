@@ -81,7 +81,7 @@ mod tests {
         let mut small_rng = SmallRng::seed_from_u64(123);
         let file_size_in_bytes = file_size_in_blocks * VALUE_BLOB_MAX_LENGTH;
         let storage = create_storage_for_iteration();
-        let content = bytes::Bytes::from_iter((0..file_size_in_bytes).map(|_| small_rng.gen()));
+        let content = bytes::Bytes::from_iter((0..file_size_in_bytes).map(|_| small_rng.random()));
         {
             let write_position = 0;
             let write_buffer = runtime.block_on(OptimizedWriteBuffer::from_bytes(
