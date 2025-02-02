@@ -168,28 +168,46 @@ mod tests {
         assert_eq!(expected_digests, storage.digests().await);
     }
 
-    fn random_bytes(len: usize) -> Vec<u8> {
+    fn random_bytes(len: usize, seed: u64) -> Vec<u8> {
         use rand::rngs::SmallRng;
         use rand::Rng;
         use rand::SeedableRng;
-        let mut small_rng = SmallRng::seed_from_u64(123);
+        let mut small_rng = SmallRng::seed_from_u64(seed);
         (0..len).map(|_| small_rng.gen()).collect()
     }
 
     #[tokio::test]
     async fn open_file_content_buffer_overwrite_full_block() {
-        let data = random_bytes(VALUE_BLOB_MAX_LENGTH);
-        let last_known_digest = BlobDigest::hash(&data);
-        let last_known_digest_file_size = data.len();
+        let original_data = random_bytes(VALUE_BLOB_MAX_LENGTH, 123);
+        let last_known_digest_file_size = original_data.len();
+        let write_data = bytes::Bytes::from(random_bytes(last_known_digest_file_size, 124));
+        let write_data_digest = BlobDigest::hash(&write_data);
+        assert_eq!(
+            &BlobDigest::parse_hex_string(concat!(
+                "150ccd092312e7c17595ab98c400665c67b3c4f7848c7cd37317d68d44f7df82",
+                "2ac3a4e7b0fef6cc42f2b8b53e678284cb0f73c2c605f5711e6a4d34829e43d2"
+            ))
+            .unwrap(),
+            &write_data_digest,
+        );
+        assert_ne!(&original_data[..], &write_data[..]);
+        let last_known_digest = BlobDigest::hash(&original_data);
+        assert_eq!(
+            &BlobDigest::parse_hex_string(concat!(
+                "23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e3",
+                "93cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25"
+            ))
+            .unwrap(),
+            &last_known_digest,
+        );
         let mut buffer = OpenFileContentBuffer::from_data(
-            data,
+            original_data,
             last_known_digest,
             last_known_digest_file_size as u64,
             1,
         )
         .unwrap();
         let write_position = 0 as u64;
-        let write_data = bytes::Bytes::from(random_bytes(last_known_digest_file_size));
         let write_buffer =
             OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
         let storage = Arc::new(InMemoryValueStorage::empty());
@@ -215,14 +233,7 @@ mod tests {
             prefetcher: Prefetcher::new(),
         });
         assert_eq!(expected_buffer, buffer);
-        let expected_digests = BTreeSet::from_iter(
-            [concat!(
-                "23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e3",
-                "93cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25"
-            )]
-            .map(BlobDigest::parse_hex_string)
-            .map(Option::unwrap),
-        );
+        let expected_digests = BTreeSet::from([last_known_digest]);
         assert_eq!(expected_digests, storage.digests().await);
     }
 
@@ -233,7 +244,7 @@ mod tests {
     #[test_case(200_000)]
     fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
         Runtime::new().unwrap().block_on(async {
-            let original_content = random_bytes(VALUE_BLOB_MAX_LENGTH);
+            let original_content = random_bytes(VALUE_BLOB_MAX_LENGTH, 123);
             let last_known_digest = BlobDigest::hash(&original_content);
             let last_known_digest_file_size = original_content.len();
             let mut buffer = OpenFileContentBuffer::from_data(
@@ -378,7 +389,7 @@ mod tests {
                 1,
             )
             .unwrap();
-            let new_content = bytes::Bytes::from(random_bytes(size));
+            let new_content = bytes::Bytes::from(random_bytes(size, 123));
             let storage = Arc::new(InMemoryValueStorage::empty());
             buffer
                 .write(
@@ -397,7 +408,7 @@ mod tests {
     #[test_case(63_999)]
     fn open_file_content_buffer_write_completes_a_block(write_position: u16) {
         Runtime::new().unwrap().block_on(async {
-            let original_content = random_bytes(write_position as usize);
+            let original_content = random_bytes(write_position as usize, 123);
             let last_known_digest = BlobDigest::hash(&original_content);
             let last_known_digest_file_size = original_content.len();
             let mut buffer = OpenFileContentBuffer::from_data(
@@ -408,7 +419,7 @@ mod tests {
             )
             .unwrap();
             let write_size = VALUE_BLOB_MAX_LENGTH - write_position as usize;
-            let write_data = bytes::Bytes::from(random_bytes(write_size));
+            let write_data = bytes::Bytes::from(random_bytes(write_size, 123));
             let write_buffer =
                 OptimizedWriteBuffer::from_bytes(write_position as u64, write_data.clone()).await;
             assert_eq!(write_size, write_buffer.prefix().len());
@@ -445,7 +456,7 @@ mod tests {
             )
             .unwrap();
             let write_size = VALUE_BLOB_MAX_LENGTH - write_position as usize;
-            let write_data = bytes::Bytes::from(random_bytes(write_size));
+            let write_data = bytes::Bytes::from(random_bytes(write_size, 123));
             let write_buffer =
                 OptimizedWriteBuffer::from_bytes(write_position as u64, write_data.clone()).await;
             assert_eq!(write_size, write_buffer.prefix().len());
