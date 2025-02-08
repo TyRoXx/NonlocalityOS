@@ -72,7 +72,7 @@ jobs:
           ~/.cargo/.crates2.json
           target/
           target-coverage/
-        key: cargo-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'scripts/install_cargo-tarpaulin.sh') }}
+        key: cargo-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'scripts/install_cargo-tarpaulin.sh', '**/rust-toolchain.toml') }}
 
     - name: Run tests
       run: ./coverage.sh
