@@ -1,4 +1,11 @@
-#![no_main]
+// libfuzzer doesn't support Windows. no_main causes a linker error on Windows.
+#![cfg_attr(target_os = "linux", no_main)]
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    panic!("Fuzzing is not supported on this platform.");
+}
+
 use astraea::{
     storage::{InMemoryValueStorage, StoreValue},
     tree::{HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
@@ -148,8 +155,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                     Vec::new(),
                 ))))
                 .await
-                .unwrap()
-                .digest;
+                .unwrap();
             buffers.push(BufferState::new(
                 storage,
                 OpenFileContentBuffer::from_data(
@@ -189,7 +195,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                     if (*position as usize + *size as usize) > max_tested_file_size {
                         return Corpus::Reject;
                     }
-                    let data = bytes::Bytes::from_iter((0..*size).map(|_| small_rng.gen()));
+                    let data = bytes::Bytes::from_iter((0..*size).map(|_| small_rng.random()));
                     let position = *position as u64;
                     write_to_all_buffers(&mut buffers, position, &data).await;
                 }
@@ -201,7 +207,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                         return Corpus::Reject;
                     }
                     let data = bytes::Bytes::from_iter(
-                        (0..VALUE_BLOB_MAX_LENGTH).map(|_| small_rng.gen()),
+                        (0..VALUE_BLOB_MAX_LENGTH).map(|_| small_rng.random()),
                     );
                     let position = *block_index as u64 * VALUE_BLOB_MAX_LENGTH as u64;
                     write_to_all_buffers(&mut buffers, position, &data).await;

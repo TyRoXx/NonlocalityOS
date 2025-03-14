@@ -72,10 +72,13 @@ jobs:
           ~/.cargo/.crates2.json
           target/
           target-coverage/
-        key: cargo-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'scripts/install_cargo-tarpaulin.sh', '**/rust-toolchain.toml') }}
+        key: cargo-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'scripts/install_cargo-tarpaulin.sh', 'scripts/coverage.sh', 'scripts/build_fuzz.sh', '**/rust-toolchain.toml') }}
 
     - name: Run tests
       run: ./coverage.sh
+
+    - name: Building fuzzers
+      run: ./scripts/build_fuzz.sh
 
     - name: sccache stats
       run: sccache --show-adv-stats
