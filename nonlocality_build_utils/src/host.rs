@@ -1,4 +1,4 @@
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum HostOperatingSystem {
     WindowsAmd64,
     LinuxAmd64,
