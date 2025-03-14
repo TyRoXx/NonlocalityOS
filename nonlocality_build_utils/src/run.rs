@@ -135,13 +135,14 @@ pub async fn run_cargo_test(
     .await
 }
 
-pub async fn run_cargo_build_for_host(
+pub async fn run_cargo_build_for_target(
     project: &std::path::Path,
+    target: &str,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> NumberOfErrors {
     run_cargo(
         project,
-        &["build", "--verbose", "--release"],
+        &["build", "--verbose", "--release", "--target", target],
         &HashMap::new(),
         progress_reporter,
     )

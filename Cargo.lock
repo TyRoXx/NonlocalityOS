@@ -123,6 +123,7 @@ dependencies = [
  "dotenv",
  "nonlocality_build_utils",
  "relative-path",
+ "rusqlite",
  "serde",
  "ssh2",
  "tokio",

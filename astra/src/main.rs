@@ -8,7 +8,7 @@ use nonlocality_build_utils::raspberrypi::install_raspberry_pi_cpp_compiler;
 use nonlocality_build_utils::raspberrypi::run_cargo_build_for_raspberry_pi;
 use nonlocality_build_utils::raspberrypi::RaspberryPi64Target;
 use nonlocality_build_utils::run::run_cargo;
-use nonlocality_build_utils::run::run_cargo_build_for_host;
+use nonlocality_build_utils::run::run_cargo_build_for_target;
 use nonlocality_build_utils::run::run_cargo_fmt;
 use nonlocality_build_utils::run::run_cargo_test;
 use nonlocality_build_utils::run::ConsoleErrorReporter;
@@ -18,34 +18,14 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum CargoBuildTarget {
-    Host,
+    LinuxAmd64,
     RaspberryPi64(RaspberryPi64Target),
 }
 
 #[derive(Clone)]
-struct Program {
-    pub targets: Vec<CargoBuildTarget>,
-}
-
-impl Program {
-    pub fn host() -> Program {
-        Program {
-            targets: vec![CargoBuildTarget::Host],
-        }
-    }
-
-    pub fn host_and_pi(pi: RaspberryPi64Target) -> Program {
-        Program {
-            targets: vec![CargoBuildTarget::Host, CargoBuildTarget::RaspberryPi64(pi)],
-        }
-    }
-
-    pub fn other() -> Program {
-        Program { targets: vec![] }
-    }
-}
+struct Program {}
 
 #[derive(Clone)]
 struct Directory {
@@ -58,7 +38,9 @@ async fn run_cargo_build(
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> NumberOfErrors {
     match target {
-        CargoBuildTarget::Host => run_cargo_build_for_host(project, progress_reporter).await,
+        CargoBuildTarget::LinuxAmd64 => {
+            run_cargo_build_for_target(project, "x86_64-unknown-linux-gnu", progress_reporter).await
+        }
         CargoBuildTarget::RaspberryPi64(pi) => {
             run_cargo_build_for_raspberry_pi(
                 &project,
@@ -72,30 +54,33 @@ async fn run_cargo_build(
 }
 
 async fn build_program(
-    program: &Program,
     where_in_filesystem: &std::path::Path,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
-    mode: CargoBuildMode,
+    mode: AstraCommand,
+    target: &CargoBuildTarget,
 ) -> NumberOfErrors {
     let mut tasks = Vec::new();
     match mode {
-        CargoBuildMode::BuildRelease => {
-            for target in &program.targets {
-                let target_clone = target.clone();
-                let where_in_filesystem_clone = where_in_filesystem.to_path_buf();
-                let progress_reporter_clone = progress_reporter.clone();
-                tasks.push(tokio::spawn(async move {
-                    run_cargo_build(
-                        &where_in_filesystem_clone,
-                        &target_clone,
-                        &progress_reporter_clone,
-                    )
-                    .await
-                }));
-            }
+        AstraCommand::BuildRelease | AstraCommand::Deploy => {
+            let target_clone = target.clone();
+            let where_in_filesystem_clone = where_in_filesystem.to_path_buf();
+            let progress_reporter_clone = progress_reporter.clone();
+            tasks.push(tokio::spawn(async move {
+                println!(
+                    "Building {} for {:?}",
+                    where_in_filesystem_clone.display(),
+                    &target_clone
+                );
+                run_cargo_build(
+                    &where_in_filesystem_clone,
+                    &target_clone,
+                    &progress_reporter_clone,
+                )
+                .await
+            }));
         }
-        CargoBuildMode::Test => {}
-        CargoBuildMode::Coverage => {}
+        AstraCommand::Test => {}
+        AstraCommand::Coverage => {}
     }
     join_all(tasks, progress_reporter).await
 }
@@ -124,20 +109,21 @@ async fn build_recursively(
     description: &Directory,
     where_in_filesystem: &std::path::Path,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
-    mode: CargoBuildMode,
+    mode: AstraCommand,
+    target: &CargoBuildTarget,
 ) -> NumberOfErrors {
     let mut tasks = Vec::new();
     for entry in &description.entries {
         let subdirectory = where_in_filesystem.join(entry.0);
-        let directory_entry = entry.1.clone();
         let progress_reporter_clone = progress_reporter.clone();
         let mode_clone = mode.clone();
+        let target_clone = target.clone();
         tasks.push(tokio::spawn(async move {
             build_program(
-                &directory_entry,
                 &subdirectory,
                 &progress_reporter_clone,
                 mode_clone,
+                &target_clone,
             )
             .await
         }));
@@ -157,17 +143,19 @@ async fn install_tools(
 }
 
 #[derive(Debug, Clone, Copy)]
-enum CargoBuildMode {
+enum AstraCommand {
     BuildRelease,
     Test,
     Coverage,
+    Deploy,
 }
 
-fn parse_command(input: &str) -> Option<CargoBuildMode> {
+fn parse_command(input: &str) -> Option<AstraCommand> {
     match input {
-        "build" => Some(CargoBuildMode::BuildRelease),
-        "test" => Some(CargoBuildMode::Test),
-        "coverage" => Some(CargoBuildMode::Coverage),
+        "build" => Some(AstraCommand::BuildRelease),
+        "test" => Some(AstraCommand::Test),
+        "coverage" => Some(AstraCommand::Coverage),
+        "deploy" => Some(AstraCommand::Deploy),
         _ => None,
     }
 }
@@ -186,12 +174,13 @@ async fn install_nextest(
 }
 
 async fn build(
-    mode: CargoBuildMode,
+    mode: AstraCommand,
+    target: &CargoBuildTarget,
     repository: &std::path::Path,
     host: HostOperatingSystem,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> NumberOfErrors {
-    let (mut error_count, maybe_raspberry_pi) =
+    let (mut error_count, _maybe_raspberry_pi) =
         install_tools(repository, host, &progress_reporter).await;
     error_count += run_cargo_fmt(&repository, &progress_reporter).await;
 
@@ -200,16 +189,17 @@ async fn build(
     error_count += delete_directory(&coverage_info_directory);
 
     let with_coverage = match mode {
-        CargoBuildMode::BuildRelease => false,
-        CargoBuildMode::Test => false,
-        CargoBuildMode::Coverage => {
+        AstraCommand::BuildRelease => false,
+        AstraCommand::Test => false,
+        AstraCommand::Coverage => {
             error_count += install_grcov(&repository, progress_reporter).await;
             true
         }
+        AstraCommand::Deploy => false,
     };
     match mode {
-        CargoBuildMode::BuildRelease => {}
-        CargoBuildMode::Test | CargoBuildMode::Coverage => {
+        AstraCommand::BuildRelease => {}
+        AstraCommand::Test | AstraCommand::Coverage => {
             error_count += install_nextest(&repository, &progress_reporter).await;
             error_count += run_cargo_test(
                 &repository,
@@ -219,47 +209,19 @@ async fn build(
             )
             .await;
         }
+        AstraCommand::Deploy => {}
     }
 
     let root = Directory {
-        entries: BTreeMap::from([
-            ("astra".to_string(), Program::other()),
-            ("hippeus_parser_generator".to_string(), Program::other()),
-            ("management_interface".to_string(), Program::other()),
-            (
-                MANAGEMENT_SERVICE_NAME.to_string(),
-                match maybe_raspberry_pi.clone() {
-                    Some(raspberry_pi) => Program::host_and_pi(raspberry_pi),
-                    None => Program::host(),
-                },
-            ),
-            ("nonlocality_build_utils".to_string(), Program::other()),
-            ("nonlocality_env".to_string(), Program::other()),
-            ("astraea".to_string(), Program::other()),
-            (
-                "nonlocality_host".to_string(),
-                match maybe_raspberry_pi.clone() {
-                    Some(raspberry_pi) => Program::host_and_pi(raspberry_pi),
-                    None => Program::host(),
-                },
-            ),
-            ("dogbox/dogbox_blob_layer".to_string(), Program::other()),
-            (
-                "dogbox/dogbox_dav_server".to_string(),
-                match maybe_raspberry_pi {
-                    Some(raspberry_pi) => Program::host_and_pi(raspberry_pi),
-                    None => Program::host(),
-                },
-            ),
-        ]),
+        entries: BTreeMap::from([("nonlocality_host".to_string(), Program {})]),
     };
 
-    error_count += build_recursively(&root, &repository, &progress_reporter, mode).await;
+    error_count += build_recursively(&root, &repository, &progress_reporter, mode, target).await;
 
     match mode {
-        CargoBuildMode::BuildRelease => {}
-        CargoBuildMode::Test => {}
-        CargoBuildMode::Coverage => {
+        AstraCommand::BuildRelease => {}
+        AstraCommand::Test => {}
+        AstraCommand::Coverage => {
             let coverage_report_directory = coverage_directory.join("report");
             error_count += delete_directory(&coverage_report_directory);
             error_count += generate_coverage_report_with_grcov(
@@ -270,11 +232,10 @@ async fn build(
             )
             .await;
         }
+        AstraCommand::Deploy => {}
     }
     error_count
 }
-
-const MANAGEMENT_SERVICE_NAME: &str = "management_service";
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> std::process::ExitCode {
@@ -282,13 +243,14 @@ async fn main() -> std::process::ExitCode {
     let command_line_arguments: Vec<String> = std::env::args().collect();
     if command_line_arguments.len() != 3 {
         println!(
-            "Two command line arguments required: [Path to the root of the repository] test|build"
+            "Two command line arguments required: [Path to the root of the repository] test|build|coverage|deploy"
         );
         return std::process::ExitCode::FAILURE;
     }
     let repository = std::env::current_dir()
         .unwrap()
         .join(&command_line_arguments[1]);
+    println!("Repository: {}", repository.display());
     let command_input = &command_line_arguments[2];
     let command = match parse_command(command_input) {
         Some(success) => success,
@@ -304,6 +266,7 @@ async fn main() -> std::process::ExitCode {
     let host_operating_system = detect_host_operating_system();
     let error_count = build(
         command,
+        &CargoBuildTarget::LinuxAmd64,
         &repository,
         host_operating_system,
         &progress_reporter,

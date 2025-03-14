@@ -1,10 +1,9 @@
+use crate::run::{NumberOfErrors, ReportProgress};
 use relative_path::RelativePath;
 use ssh2::OpenFlags;
 use std::sync::Arc;
 
-use crate::run::{NumberOfErrors, ReportProgress};
-
-pub const MANAGEMENT_SERVICE_NAME: &str = "management_service";
+pub const MANAGEMENT_SERVICE_NAME: &str = "nonlocality_host";
 
 fn to_std_path(linux_path: &relative_path::RelativePath) -> std::path::PathBuf {
     linux_path.to_path(std::path::Path::new("/"))
