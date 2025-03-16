@@ -7,7 +7,7 @@ use std::{collections::HashMap, sync::Arc};
 
 pub const RASPBERRY_PI_TARGET_NAME: &str = "aarch64-unknown-linux-gnu";
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RaspberryPi64Target {
     pub compiler_installation: std::path::PathBuf,
     pub host: HostOperatingSystem,
