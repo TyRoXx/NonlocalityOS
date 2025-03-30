@@ -8,6 +8,30 @@ fn to_std_path(linux_path: &relative_path::RelativePath) -> std::path::PathBuf {
     linux_path.to_path(std::path::Path::new("/"))
 }
 
+fn format_bytes(size: u64) -> String {
+    const SIZE_OF_BYTE: f64 = 1_000.0;
+    let units: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
+    let scale = std::cmp::min(
+        units.len() - 1,
+        ((size as f64).log(10.0) / SIZE_OF_BYTE.log(10.0)).floor() as usize,
+    );
+    let unit = units[scale];
+    let scaled_size = size as f64 / SIZE_OF_BYTE.powf(scale as f64);
+    return format!("{:.1} {}", scaled_size, unit);
+}
+
+#[cfg(test)]
+#[test]
+fn test_format() {
+    assert_eq!("10.0 B", format_bytes(10));
+    assert_eq!("1.0 KB", format_bytes(1000));
+    assert_eq!("1.2 KB", format_bytes(1200));
+    assert_eq!("1.3 GB", format_bytes(1298783830));
+
+    // Testing that large file sizes don't crash
+    assert_eq!("12000.0 PB", format_bytes(12000000000000000000));
+}
+
 fn upload_file(
     session: &ssh2::Session,
     sftp: &ssh2::Sftp,
@@ -21,7 +45,7 @@ fn upload_file(
         .metadata()
         .expect("Tried to determine the file size")
         .len();
-    info!("Uploading file with {} bytes", file_size);
+    info!("Uploading file with {}", format_bytes(file_size));
 
     let mode = match is_executable {
         true => 0o755,
@@ -43,14 +67,12 @@ fn upload_file(
     let after_upload = Instant::now();
     let upload_duration = after_upload.duration_since(before_upload);
     info!("Upload duration: {:.1} s", upload_duration.as_secs_f64());
-    let upload_speed = file_size as f64 / upload_duration.as_secs_f64();
-    let upload_speed_kb = upload_speed / 1_000.0;
-    let upload_speed_mb = upload_speed_kb / 1_000.0;
-    if upload_speed_mb >= 1.0 {
-        info!("Upload speed: {:.1} MB/s", upload_speed_mb);
-    } else {
-        info!("Upload speed: {:.1} KB/s", upload_speed_kb);
-    }
+
+    let upload_speed_bytes_per_second = file_size as f64 / upload_duration.as_secs_f64();
+    info!(
+        "Upload speed: {}/s",
+        format_bytes(upload_speed_bytes_per_second as u64)
+    );
 
     let mut channel = session.channel_session().unwrap();
     channel.exec(&format!("file {}", to)).unwrap();
