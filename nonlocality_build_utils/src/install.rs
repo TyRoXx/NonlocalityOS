@@ -13,7 +13,7 @@ fn format_bytes(size: u64) -> String {
     let units: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
     let scale = std::cmp::min(
         units.len() - 1,
-        ((size as f64).log(10.0) / SIZE_OF_BYTE.log(10.0)).floor() as usize,
+        (size as f64).log(SIZE_OF_BYTE).floor() as usize,
     );
     let unit = units[scale];
     let scaled_size = size as f64 / SIZE_OF_BYTE.powf(scale as f64);
