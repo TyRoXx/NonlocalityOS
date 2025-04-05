@@ -63,36 +63,13 @@ async fn install_tools(
     raspberry_pi
 }
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> std::process::ExitCode {
-    tracing_subscriber::fmt()
-        .with_span_events(FmtSpan::CLOSE)
-        .init();
-    let started_at = std::time::Instant::now();
-    let command_line_arguments: Vec<String> = std::env::args().collect();
-    info!("Command line arguments: {:?}", &command_line_arguments[1..]);
-    if command_line_arguments.len() != 1 {
-        error!("No command line arguments supported at the moment");
-        return std::process::ExitCode::FAILURE;
-    }
-    let repository = std::env::current_dir().unwrap();
-    info!("Repository: {}", repository.display());
-
-    dotenv::dotenv().ok();
-    let ssh_endpoint = SocketAddr::from_str(
-        &std::env::var("ASTRA_DEPLOY_SSH_ENDPOINT")
-            .expect("Tried to read env variable ASTRA_DEPLOY_SSH_ENDPOINT"),
-    )
-    .unwrap();
-    let ssh_user = std::env::var("ASTRA_DEPLOY_SSH_USER")
-        .expect("Tried to read env variable ASTRA_DEPLOY_SSH_USER");
-    let ssh_password = std::env::var("ASTRA_DEPLOY_SSH_PASSWORD")
-        .expect("Tried to read env variable ASTRA_DEPLOY_SSH_PASSWORD");
-    info!("Deploying to {} as {}", &ssh_endpoint, &ssh_user);
-
-    let progress_reporter: Arc<dyn ReportProgress + Send + Sync> =
-        Arc::new(ConsoleErrorReporter {});
-
+async fn install(
+    repository: &std::path::Path,
+    ssh_endpoint: &SocketAddr,
+    ssh_user: &str,
+    ssh_password: &str,
+    progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
+) -> std::io::Result<()> {
     let temporary_directory = tempfile::tempdir().unwrap();
     let database_path = temporary_directory.path().join(INITIAL_DATABASE_FILE_NAME);
     {
@@ -105,7 +82,8 @@ async fn main() -> std::process::ExitCode {
     let raspberry_pi = install_tools(&repository, host_operating_system, &progress_reporter)
         .await
         .expect("Could not install tools for Raspberry Pi");
-    let build: Box<BuildHostBinary> =
+    let build: Box<BuildHostBinary> = {
+        let repository = repository.to_path_buf();
         Box::new(
             move |output_binary,
                   target,
@@ -136,8 +114,9 @@ async fn main() -> std::process::ExitCode {
                     Ok(())
                 })
             },
-        );
-    let result = deploy(
+        )
+    };
+    deploy(
         &database_path,
         build,
         NONLOCALITY_HOST_BINARY_NAME,
@@ -147,7 +126,61 @@ async fn main() -> std::process::ExitCode {
         &ssh_password,
         &progress_reporter,
     )
-    .await;
+    .await
+}
+
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> std::process::ExitCode {
+    tracing_subscriber::fmt()
+        .with_span_events(FmtSpan::CLOSE)
+        .init();
+    let started_at = std::time::Instant::now();
+    let command_line_arguments: Vec<String> = std::env::args().collect();
+    info!("Command line arguments: {:?}", &command_line_arguments[1..]);
+    if command_line_arguments.len() != 2 {
+        error!("Command line arguments: install|uninstall");
+        return std::process::ExitCode::FAILURE;
+    }
+    let command = &command_line_arguments[1];
+
+    let repository = std::env::current_dir().unwrap();
+    info!("Repository: {}", repository.display());
+
+    dotenv::dotenv().ok();
+    let ssh_endpoint = SocketAddr::from_str(
+        &std::env::var("ASTRA_DEPLOY_SSH_ENDPOINT")
+            .expect("Tried to read env variable ASTRA_DEPLOY_SSH_ENDPOINT"),
+    )
+    .unwrap();
+    let ssh_user = std::env::var("ASTRA_DEPLOY_SSH_USER")
+        .expect("Tried to read env variable ASTRA_DEPLOY_SSH_USER");
+    let ssh_password = std::env::var("ASTRA_DEPLOY_SSH_PASSWORD")
+        .expect("Tried to read env variable ASTRA_DEPLOY_SSH_PASSWORD");
+    info!("Deploying to {} as {}", &ssh_endpoint, &ssh_user);
+
+    let progress_reporter: Arc<dyn ReportProgress + Send + Sync> =
+        Arc::new(ConsoleErrorReporter {});
+
+    let result = match command.as_str() {
+        "install" => {
+            install(
+                &repository,
+                &ssh_endpoint,
+                &ssh_user,
+                &ssh_password,
+                &progress_reporter,
+            )
+            .await
+        }
+        "uninstall" => {
+            error!("Uninstall not implemented");
+            return std::process::ExitCode::FAILURE;
+        }
+        _ => {
+            error!("Unknown command {}", command);
+            return std::process::ExitCode::FAILURE;
+        }
+    };
 
     let build_duration = started_at.elapsed();
     info!("Duration: {:?}", build_duration);
