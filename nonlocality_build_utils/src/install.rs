@@ -1,5 +1,5 @@
 use crate::run::ReportProgress;
-use relative_path::RelativePath;
+use relative_path::{RelativePath, RelativePathBuf};
 use ssh2::OpenFlags;
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Instant};
 use tracing::{info, span, Level};
@@ -170,16 +170,37 @@ pub type BuildHostBinary = dyn FnOnce(
     Box<dyn std::future::Future<Output = std::io::Result<()>> + Sync + Send>,
 >;
 
-pub async fn deploy(
-    initial_database: &std::path::Path,
+struct DeploymentSession {
+    session: ssh2::Session,
+    sftp: ssh2::Sftp,
+    nonlocality_dir: RelativePathBuf,
+    remote_host_binary: RelativePathBuf,
+}
+
+impl DeploymentSession {
+    fn new(
+        session: ssh2::Session,
+        sftp: ssh2::Sftp,
+        nonlocality_dir: RelativePathBuf,
+        remote_host_binary: RelativePathBuf,
+    ) -> Self {
+        Self {
+            session,
+            sftp,
+            nonlocality_dir,
+            remote_host_binary,
+        }
+    }
+}
+
+async fn deploy_host_binary(
     build_host_binary: Box<BuildHostBinary>,
     host_binary_name: &str,
-    initial_database_file_name: &str,
     ssh_endpoint: &SocketAddr,
     ssh_user: &str,
     ssh_password: &str,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
-) -> std::io::Result<()> {
+) -> std::io::Result<DeploymentSession> {
     info!("Connecting to {}", &ssh_endpoint);
     let tcp = std::net::TcpStream::connect(&ssh_endpoint).unwrap();
     let mut session = ssh2::Session::new().unwrap();
@@ -258,15 +279,81 @@ pub async fn deploy(
         ),
     )
     .await;
+    Ok(DeploymentSession::new(
+        session,
+        sftp,
+        nonlocality_dir,
+        remote_host_binary,
+    ))
+}
 
-    let remote_database = nonlocality_dir.join(initial_database_file_name);
-    upload_file(&session, &sftp, initial_database, &remote_database, false);
+pub async fn deploy(
+    initial_database: &std::path::Path,
+    build_host_binary: Box<BuildHostBinary>,
+    host_binary_name: &str,
+    initial_database_file_name: &str,
+    ssh_endpoint: &SocketAddr,
+    ssh_user: &str,
+    ssh_password: &str,
+    progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
+) -> std::io::Result<()> {
+    let deployment_session = deploy_host_binary(
+        build_host_binary,
+        host_binary_name,
+        ssh_endpoint,
+        ssh_user,
+        ssh_password,
+        progress_reporter,
+    )
+    .await?;
+    let remote_database = deployment_session
+        .nonlocality_dir
+        .join(initial_database_file_name);
+    upload_file(
+        &deployment_session.session,
+        &deployment_session.sftp,
+        initial_database,
+        &remote_database,
+        false,
+    );
 
     info!("Starting the host binary on the remote to install itself as a service.");
     let sudo = RelativePath::new("/usr/bin/sudo");
     run_simple_ssh_command(
-        &session,
-        &format!("{} {} install", sudo, remote_host_binary),
+        &deployment_session.session,
+        &format!("{} {} install", sudo, deployment_session.remote_host_binary),
+    )
+    .await;
+
+    Ok(())
+}
+
+pub async fn uninstall(
+    build_host_binary: Box<BuildHostBinary>,
+    host_binary_name: &str,
+    ssh_endpoint: &SocketAddr,
+    ssh_user: &str,
+    ssh_password: &str,
+    progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
+) -> std::io::Result<()> {
+    let deployment_session = deploy_host_binary(
+        build_host_binary,
+        host_binary_name,
+        ssh_endpoint,
+        ssh_user,
+        ssh_password,
+        progress_reporter,
+    )
+    .await?;
+
+    info!("Starting the host binary on the remote to uninstall its service.");
+    let sudo = RelativePath::new("/usr/bin/sudo");
+    run_simple_ssh_command(
+        &deployment_session.session,
+        &format!(
+            "{} {} uninstall",
+            sudo, deployment_session.remote_host_binary
+        ),
     )
     .await;
 

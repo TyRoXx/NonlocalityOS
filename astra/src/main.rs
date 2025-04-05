@@ -63,6 +63,50 @@ async fn install_tools(
     raspberry_pi
 }
 
+async fn build_host_binary(
+    repository: &std::path::Path,
+    output_binary: &std::path::Path,
+    target: &BuildTarget,
+    progress: &Arc<dyn ReportProgress + Sync + Send>,
+) -> std::io::Result<()> {
+    let host_operating_system = detect_host_operating_system();
+    let raspberry_pi = install_tools(&repository, host_operating_system, progress)
+        .await
+        .expect("Could not install tools for Raspberry Pi");
+    let executable = run_cargo_build(
+        repository,
+        target,
+        NONLOCALITY_HOST_BINARY_NAME,
+        &raspberry_pi,
+        progress,
+    )
+    .await?;
+    info!(
+        "Copying {} to {}",
+        &executable.display(),
+        output_binary.display()
+    );
+    std::fs::copy(&executable, output_binary)?;
+    Ok(())
+}
+
+fn make_build_host_binary_function(repository: &std::path::Path) -> Box<BuildHostBinary> {
+    let repository = repository.to_path_buf();
+    Box::new(
+        move |output_binary,
+            target,
+            progress|
+            -> Pin<Box<dyn std::future::Future<Output = std::io::Result<()>> + Sync + Send>,
+        > {
+            let output_binary: PathBuf = output_binary.into();
+            let repository = repository.clone();
+            let target = target.clone();
+            let progress = progress.clone();
+            Box::pin(async move { build_host_binary(&repository, &output_binary, &target, &progress).await })
+        }
+    )
+}
+
 async fn install(
     repository: &std::path::Path,
     ssh_endpoint: &SocketAddr,
@@ -78,44 +122,7 @@ async fn install(
         // TODO: put something in the database
         let _storage = SQLiteStorage::from(connection1).unwrap();
     }
-    let host_operating_system = detect_host_operating_system();
-    let raspberry_pi = install_tools(&repository, host_operating_system, &progress_reporter)
-        .await
-        .expect("Could not install tools for Raspberry Pi");
-    let build: Box<BuildHostBinary> = {
-        let repository = repository.to_path_buf();
-        Box::new(
-            move |output_binary,
-                  target,
-                  progress|
-                  -> Pin<
-                Box<dyn std::future::Future<Output = std::io::Result<()>> + Sync + Send>,
-            > {
-                let output_binary: PathBuf = output_binary.into();
-                let repository = repository.clone();
-                let target = target.clone();
-                let raspberry_pi = raspberry_pi.clone();
-                let progress = progress.clone();
-                Box::pin(async move {
-                    let executable = run_cargo_build(
-                        &repository,
-                        &target,
-                        NONLOCALITY_HOST_BINARY_NAME,
-                        &raspberry_pi,
-                        &progress,
-                    )
-                    .await?;
-                    info!(
-                        "Copying {} to {}",
-                        &executable.display(),
-                        &output_binary.display()
-                    );
-                    std::fs::copy(&executable, &output_binary)?;
-                    Ok(())
-                })
-            },
-        )
-    };
+    let build = make_build_host_binary_function(&repository);
     deploy(
         &database_path,
         build,
@@ -125,6 +132,25 @@ async fn install(
         &ssh_user,
         &ssh_password,
         &progress_reporter,
+    )
+    .await
+}
+
+async fn uninstall(
+    repository: &std::path::Path,
+    ssh_endpoint: &SocketAddr,
+    ssh_user: &str,
+    ssh_password: &str,
+    progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
+) -> std::io::Result<()> {
+    let build = make_build_host_binary_function(&repository);
+    nonlocality_build_utils::install::uninstall(
+        build,
+        NONLOCALITY_HOST_BINARY_NAME,
+        ssh_endpoint,
+        ssh_user,
+        ssh_password,
+        progress_reporter,
     )
     .await
 }
@@ -173,8 +199,14 @@ async fn main() -> std::process::ExitCode {
             .await
         }
         "uninstall" => {
-            error!("Uninstall not implemented");
-            return std::process::ExitCode::FAILURE;
+            uninstall(
+                &repository,
+                &ssh_endpoint,
+                &ssh_user,
+                &ssh_password,
+                &progress_reporter,
+            )
+            .await
         }
         _ => {
             error!("Unknown command {}", command);
