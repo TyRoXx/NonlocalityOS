@@ -1,3 +1,4 @@
+use nonlocality_host::{INITIAL_DATABASE_FILE_NAME, INSTALLED_DATABASE_FILE_NAME};
 use std::{ffi::OsStr, path::Path};
 use tracing::{error, info, warn};
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -42,6 +43,25 @@ async fn run_process(
 async fn install(nonlocality_directory: &Path, host_binary_name: &OsStr) -> std::io::Result<()> {
     info!("Installing host from {}", nonlocality_directory.display());
     let executable = &nonlocality_directory.join(host_binary_name);
+
+    let initial_database = &nonlocality_directory.join(INITIAL_DATABASE_FILE_NAME);
+    let installed_database = &nonlocality_directory.join(INSTALLED_DATABASE_FILE_NAME);
+    if std::fs::exists(&installed_database)? {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!(
+                "Installed database already exists: {}",
+                installed_database.display()
+            ),
+        ));
+    }
+    info!(
+        "Moving initial database {} to installed database: {}",
+        initial_database.display(),
+        installed_database.display()
+    );
+    std::fs::rename(initial_database, installed_database)?;
+
     let service_file_content = format!(
         r#"[Unit]
 Description=NonlocalityOS Host

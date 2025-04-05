@@ -170,12 +170,11 @@ pub type BuildHostBinary = dyn FnOnce(
     Box<dyn std::future::Future<Output = std::io::Result<()>> + Sync + Send>,
 >;
 
-pub const INITIAL_DATABASE_FILE_NAME: &str = "initial_database.sqlite3";
-
 pub async fn deploy(
     initial_database: &std::path::Path,
     build_host_binary: Box<BuildHostBinary>,
     host_binary_name: &str,
+    initial_database_file_name: &str,
     ssh_endpoint: &SocketAddr,
     ssh_user: &str,
     ssh_password: &str,
@@ -260,7 +259,7 @@ pub async fn deploy(
     )
     .await;
 
-    let remote_database = nonlocality_dir.join(INITIAL_DATABASE_FILE_NAME);
+    let remote_database = nonlocality_dir.join(initial_database_file_name);
     upload_file(&session, &sftp, initial_database, &remote_database, false);
 
     info!("Starting the host binary on the remote to install itself as a service.");

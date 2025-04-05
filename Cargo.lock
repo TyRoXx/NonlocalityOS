@@ -123,6 +123,7 @@ dependencies = [
  "async-recursion",
  "dotenv",
  "nonlocality_build_utils",
+ "nonlocality_host",
  "relative-path",
  "rusqlite",
  "serde",

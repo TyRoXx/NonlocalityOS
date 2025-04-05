@@ -4,13 +4,13 @@ use nonlocality_build_utils::host::HostOperatingSystem;
 use nonlocality_build_utils::install::deploy;
 use nonlocality_build_utils::install::BuildHostBinary;
 use nonlocality_build_utils::install::BuildTarget;
-use nonlocality_build_utils::install::INITIAL_DATABASE_FILE_NAME;
 use nonlocality_build_utils::raspberrypi::install_raspberry_pi_cpp_compiler;
 use nonlocality_build_utils::raspberrypi::run_cargo_build_for_raspberry_pi;
 use nonlocality_build_utils::raspberrypi::RaspberryPi64Target;
 use nonlocality_build_utils::run::run_cargo_build_for_target;
 use nonlocality_build_utils::run::ConsoleErrorReporter;
 use nonlocality_build_utils::run::ReportProgress;
+use nonlocality_host::INITIAL_DATABASE_FILE_NAME;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -141,6 +141,7 @@ async fn main() -> std::process::ExitCode {
         &database_path,
         build,
         NONLOCALITY_HOST_BINARY_NAME,
+        INITIAL_DATABASE_FILE_NAME,
         &ssh_endpoint,
         &ssh_user,
         &ssh_password,
