@@ -83,9 +83,8 @@ jobs:
     - name: sccache stats
       run: sccache --show-adv-stats
 
-# https://coveralls.io is "Down for Maintenance" (2025-03-30)
-#    - name: Coveralls
-#      uses: coverallsapp/github-action@v2
-#      with:
-#        file: target-coverage/lcov.info
-#        format: lcov
+    - name: Coveralls
+      uses: coverallsapp/github-action@v2
+      with:
+        file: target-coverage/lcov.info
+        format: lcov
