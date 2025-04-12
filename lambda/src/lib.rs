@@ -7,6 +7,7 @@ mod expressions_tests;
 pub mod type_checking;
 mod type_checking_tests;
 pub mod types;
+pub mod standard_library;
 
 #[cfg(test)]
 mod complex_expression_tests;

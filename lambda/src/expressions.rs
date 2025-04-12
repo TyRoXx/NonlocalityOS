@@ -134,7 +134,7 @@ pub trait Object: std::fmt::Debug + Send {
 
     async fn serialize(
         &self,
-        storage: &dyn StoreValue,
+        storage: &(dyn StoreValue + Sync),
     ) -> std::result::Result<HashedValue, StoreError>;
 
     async fn serialize_to_flat_value(&self) -> Option<Arc<Value>>;
@@ -196,7 +196,7 @@ impl Object for Closure {
 
     async fn serialize(
         &self,
-        _storage: &dyn StoreValue,
+        _storage: &(dyn StoreValue + Sync),
     ) -> std::result::Result<HashedValue, StoreError> {
         todo!()
     }
@@ -214,7 +214,7 @@ pub enum Pointer {
 }
 
 impl Pointer {
-    async fn call_method(
+    pub async fn call_method(
         &self,
         interface: &BlobDigest,
         method: &Name,
@@ -242,7 +242,7 @@ impl Pointer {
 
     pub async fn serialize(
         self,
-        storage: &dyn StoreValue,
+        storage: &(dyn StoreValue + Sync),
     ) -> std::result::Result<HashedValue, StoreError> {
         match self {
             Pointer::Value(hashed_value) => Ok(hashed_value),

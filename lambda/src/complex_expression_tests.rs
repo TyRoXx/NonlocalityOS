@@ -45,7 +45,7 @@ impl Object for FileNameObject {
 
     async fn serialize(
         &self,
-        _storage: &dyn StoreValue,
+        _storage: &(dyn StoreValue + Sync),
     ) -> std::result::Result<HashedValue, StoreError> {
         todo!()
     }
@@ -87,7 +87,7 @@ impl Object for SmallBytes {
 
     async fn serialize(
         &self,
-        _storage: &dyn StoreValue,
+        _storage: &(dyn StoreValue + Sync),
     ) -> std::result::Result<HashedValue, StoreError> {
         Ok(self.single_value_content.clone())
     }
@@ -152,7 +152,7 @@ impl Object for LoadedFile {
 
     async fn serialize(
         &self,
-        _storage: &dyn StoreValue,
+        _storage: &(dyn StoreValue + Sync),
     ) -> std::result::Result<HashedValue, StoreError> {
         todo!()
     }
@@ -243,7 +243,7 @@ impl Object for LoadedDirectory {
 
     async fn serialize(
         &self,
-        _storage: &dyn StoreValue,
+        _storage: &(dyn StoreValue + Sync),
     ) -> std::result::Result<HashedValue, StoreError> {
         todo!()
     }
