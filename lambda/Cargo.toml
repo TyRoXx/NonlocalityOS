@@ -6,9 +6,11 @@ edition = "2021"
 [lib]
 
 [dependencies]
-hippeus_parser_generator = { path ="../hippeus_parser_generator" }
+hippeus_parser_generator = { path = "../hippeus_parser_generator" }
 tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "sync"]}
-astraea = { path ="../astraea" }
+astraea = { path = "../astraea" }
+dogbox_tree = { path = "../dogbox/dogbox_tree" }
+dogbox_tree_editor = { path = "../dogbox/dogbox_tree_editor" }
 serde = "1"
 postcard = {version = "1", features = ["alloc"]}
 lazy_static = "1"
