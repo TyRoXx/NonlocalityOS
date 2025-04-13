@@ -17,10 +17,10 @@ background = true
 
 [jobs.nextest]
 command = ["cargo", "nextest", "run", "--color", "always", "--profile", "default"]
-need_stdout = false
+need_stdout = true
 analyzer = "nextest"
 on_change_strategy = "wait_then_restart"
-background = false
+background = true
 
 [jobs.fuzz]
 command = ["cargo", "--color", "always", "fuzz", "run", "write-read-large-files"]

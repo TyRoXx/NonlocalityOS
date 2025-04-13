@@ -53,10 +53,11 @@ impl Object for MemoryByteSink {
         interface: &BlobDigest,
         method: &Name,
         argument: &Pointer,
-        _storage: &(dyn LoadValue + Sync),
+        _load_value: &(dyn LoadValue + Sync),
+        _store_value: &(dyn StoreValue + Sync),
         _read_variable: &Arc<ReadVariable>,
         _read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, ()> {
+    ) -> std::result::Result<Pointer, StoreError> {
         if &self.self_interface == interface {
             if &Self::write_method_name() == method {
                 let argument_value = match argument.serialize_to_flat_value().await {
@@ -175,10 +176,12 @@ async fn memory_byte_sink() {
     let main_function = evaluate(
         &lambda_expression.expression,
         &*storage,
+        &*storage,
         &read_variable,
         &read_literal,
     )
-    .await;
+    .await
+    .unwrap();
     let result = main_function
         .call_method(
             &lambda_interface_ref,
@@ -187,6 +190,7 @@ async fn memory_byte_sink() {
                 self_interface: memory_byte_sink_interface_ref,
                 written: vec![],
             })),
+            &*storage,
             &*storage,
             &read_variable,
             &read_literal,

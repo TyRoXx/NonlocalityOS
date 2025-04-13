@@ -205,6 +205,9 @@ pub async fn parse_entry_point_lambda<'t>(
                 CompilerOutput::new(Expression::Unit, errors)
             }
             Expression::Lambda(_) => CompilerOutput::new(entry_point, errors),
+            Expression::Construct(_constructed_type, _arguments) => {
+                todo!()
+            }
         },
         Err(error) => {
             errors.push(CompilerError::new(

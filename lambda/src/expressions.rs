@@ -2,8 +2,11 @@ use crate::{
     builtins::LAMBDA_APPLY_METHOD_NAME,
     types::{Name, Type},
 };
-use astraea::storage::{LoadValue, StoreError, StoreValue};
 use astraea::tree::{BlobDigest, HashedValue, Value};
+use astraea::{
+    storage::{LoadValue, StoreError, StoreValue},
+    tree::ValueBlob,
+};
 use async_trait::async_trait;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -63,6 +66,7 @@ pub enum Expression {
     Apply(Box<Application>),
     ReadVariable(Name),
     Lambda(Box<LambdaExpression>),
+    Construct(Type, Vec<Expression>),
 }
 
 impl Expression {
@@ -92,6 +96,15 @@ impl Expression {
                 }
                 lambda_expression.body.print(writer, level + 1)
             }
+            Expression::Construct(constructed_type, arguments) => {
+                write!(writer, "construct(")?;
+                constructed_type.print(writer, level)?;
+                for argument in arguments {
+                    write!(writer, ", ")?;
+                    argument.print(writer, level)?;
+                }
+                write!(writer, ")")
+            }
         }
     }
 
@@ -116,6 +129,13 @@ impl Expression {
                 result.remove(&lambda_expression.parameter_name);
                 result
             }
+            Expression::Construct(_constructed_type, arguments) => {
+                let mut result = BTreeSet::new();
+                for argument in arguments {
+                    result.append(&mut argument.find_captured_names());
+                }
+                result
+            }
         }
     }
 }
@@ -127,10 +147,11 @@ pub trait Object: std::fmt::Debug + Send {
         interface: &BlobDigest,
         method: &Name,
         argument: &Pointer,
-        storage: &(dyn LoadValue + Sync),
+        load_value: &(dyn LoadValue + Sync),
+        store_value: &(dyn StoreValue + Sync),
         read_variable: &Arc<ReadVariable>,
         read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, ()>;
+    ) -> std::result::Result<Pointer, StoreError>;
 
     async fn serialize(
         &self,
@@ -162,10 +183,11 @@ impl Object for Closure {
         /*TODO: use the interface for something*/ _interface: &BlobDigest,
         method: &Name,
         argument: &Pointer,
-        storage: &(dyn LoadValue + Sync),
+        load_value: &(dyn LoadValue + Sync),
+        store_value: &(dyn StoreValue + Sync),
         read_variable: &Arc<ReadVariable>,
         read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, ()> {
+    ) -> std::result::Result<Pointer, StoreError> {
         if method.key != LAMBDA_APPLY_METHOD_NAME {
             todo!()
         }
@@ -185,13 +207,14 @@ impl Object for Closure {
                 }
             }
         });
-        Ok(evaluate(
+        evaluate(
             &self.lambda.body,
-            storage,
+            load_value,
+            store_value,
             &read_variable_in_body,
             read_literal,
         )
-        .await)
+        .await
     }
 
     async fn serialize(
@@ -219,10 +242,11 @@ impl Pointer {
         interface: &BlobDigest,
         method: &Name,
         argument: &Pointer,
-        storage: &(dyn LoadValue + Sync),
+        load_value: &(dyn LoadValue + Sync),
+        store_value: &(dyn StoreValue + Sync),
         read_variable: &Arc<ReadVariable>,
         read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, ()> {
+    ) -> std::result::Result<Pointer, StoreError> {
         match self {
             Pointer::Value(_hashed_value) => todo!(),
             Pointer::Object(arc) => {
@@ -230,7 +254,8 @@ impl Pointer {
                     interface,
                     method,
                     argument,
-                    storage,
+                    load_value,
+                    store_value,
                     read_variable,
                     read_literal,
                 )
@@ -275,53 +300,78 @@ pub type ReadLiteral = dyn Fn(Type, HashedValue) -> Pin<Box<dyn core::future::Fu
 
 pub async fn evaluate(
     expression: &Expression,
-    storage: &(dyn LoadValue + Sync),
+    load_value: &(dyn LoadValue + Sync),
+    store_value: &(dyn StoreValue + Sync),
     read_variable: &Arc<ReadVariable>,
     read_literal: &ReadLiteral,
-) -> Pointer {
+) -> std::result::Result<Pointer, StoreError> {
     match expression {
-        Expression::Unit => return Pointer::Value(HashedValue::from(Arc::new(Value::empty()))),
+        Expression::Unit => return Ok(Pointer::Value(HashedValue::from(Arc::new(Value::empty())))),
         Expression::Literal(literal_type, literal_value) => {
             let literal = read_literal(literal_type.clone(), literal_value.clone()).await;
-            literal
+            Ok(literal)
         }
         Expression::Apply(application) => {
             let evaluated_callee = Box::pin(evaluate(
                 &application.callee,
-                storage,
+                load_value,
+                store_value,
                 read_variable,
                 read_literal,
             ))
-            .await;
+            .await?;
             let evaluated_argument = Box::pin(evaluate(
                 &application.argument,
-                storage,
+                load_value,
+                store_value,
                 read_variable,
                 read_literal,
             ))
-            .await;
+            .await?;
             let call_result = evaluated_callee
                 .call_method(
                     &application.callee_interface,
                     &application.method,
                     &evaluated_argument,
-                    storage,read_variable, read_literal
+                    load_value,
+                    store_value,
+                    read_variable,
+                    read_literal,
                 )
-                .await
-                .unwrap(/*TODO*/);
+                .await;
             call_result
         }
-        Expression::ReadVariable(name) => read_variable(&name).await,
+        Expression::ReadVariable(name) => Ok(read_variable(&name).await),
         Expression::Lambda(lambda_expression) => {
             let mut captured_variables = BTreeMap::new();
             for captured_name in lambda_expression.find_captured_names().into_iter() {
                 let captured_value = read_variable(&captured_name).await;
                 captured_variables.insert(captured_name, captured_value);
             }
-            Pointer::Object(Arc::new(Closure::new(
+            Ok(Pointer::Object(Arc::new(Closure::new(
                 (**lambda_expression).clone(),
                 captured_variables,
-            )))
+            ))))
+        }
+        Expression::Construct(_constructed_type, arguments) => {
+            let mut evaluated_arguments = Vec::new();
+            for argument in arguments {
+                let evaluated_argument = Box::pin(evaluate(
+                    argument,
+                    load_value,
+                    store_value,
+                    read_variable,
+                    read_literal,
+                ))
+                .await?
+                .serialize(store_value)
+                .await?;
+                evaluated_arguments.push(*evaluated_argument.digest());
+            }
+            Ok(Pointer::Value(HashedValue::from(Arc::new(Value::new(
+                ValueBlob::empty(),
+                evaluated_arguments,
+            )))))
         }
     }
 }

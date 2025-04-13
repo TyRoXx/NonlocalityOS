@@ -17,3 +17,6 @@ mod hello_world_tests;
 
 #[cfg(test)]
 mod memory_byte_sink_tests;
+
+#[cfg(test)]
+mod effect_tests;

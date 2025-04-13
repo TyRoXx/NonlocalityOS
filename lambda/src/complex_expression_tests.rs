@@ -36,10 +36,11 @@ impl Object for FileNameObject {
         _interface: &BlobDigest,
         _method: &Name,
         _argument: &Pointer,
-        _storage: &(dyn LoadValue + Sync),
+        _load_value: &(dyn LoadValue + Sync),
+        _store_value: &(dyn StoreValue + Sync),
         _read_variable: &Arc<ReadVariable>,
         _read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, ()> {
+    ) -> std::result::Result<Pointer, StoreError> {
         todo!()
     }
 
@@ -78,10 +79,11 @@ impl Object for SmallBytes {
         _interface: &BlobDigest,
         _method: &Name,
         _argument: &Pointer,
-        _storage: &(dyn LoadValue + Sync),
+        _load_value: &(dyn LoadValue + Sync),
+        _store_value: &(dyn StoreValue + Sync),
         _read_variable: &Arc<ReadVariable>,
         _read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, ()> {
+    ) -> std::result::Result<Pointer, StoreError> {
         todo!()
     }
 
@@ -128,10 +130,11 @@ impl Object for LoadedFile {
         interface: &BlobDigest,
         method: &Name,
         _argument: &Pointer,
-        _storage: &(dyn LoadValue + Sync),
+        _load_value: &(dyn LoadValue + Sync),
+        _store_value: &(dyn StoreValue + Sync),
         _read_variable: &Arc<ReadVariable>,
         _read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, ()> {
+    ) -> std::result::Result<Pointer, StoreError> {
         if &self.interface == interface {
             if &self.read == method {
                 // the argument is unit, so we don't need to check it
@@ -202,10 +205,11 @@ impl Object for LoadedDirectory {
         interface: &BlobDigest,
         method: &Name,
         argument: &Pointer,
-        _storage: &(dyn LoadValue + Sync),
+        _load_value: &(dyn LoadValue + Sync),
+        _store_value: &(dyn StoreValue + Sync),
         _read_variable: &Arc<ReadVariable>,
         _read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, ()> {
+    ) -> std::result::Result<Pointer, StoreError> {
         if &self.self_interface == interface {
             if &self.get == method {
                 let argument_value = match argument.serialize_to_flat_value().await {
@@ -485,10 +489,12 @@ async fn complex_expression() {
     let evaluation_result = evaluate(
         &lambda_application.expression,
         &*storage,
+        &*storage,
         &read_variable,
         &read_literal,
     )
     .await
+    .unwrap()
     .serialize(&*storage)
     .await
     .unwrap();
