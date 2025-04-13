@@ -1,5 +1,5 @@
 use crate::expressions::{Application, Expression};
-use astraea::tree::BlobDigest;
+use astraea::tree::{BlobDigest, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -132,5 +132,9 @@ impl Type {
             }
             Type::Reference => write!(writer, "Reference"),
         }
+    }
+
+    pub fn to_value(&self) -> Value {
+        todo!()
     }
 }

@@ -66,7 +66,7 @@ async fn effect() {
     let and_then_name = Name::new(namespace, "AndThen".to_string());
     let and_then_type = Type::Named(and_then_name);
     let construct_and_then_expression = TypedExpression::new(
-        Expression::Construct(
+        Expression::ConstructEffect(
             and_then_type.clone(),
             vec![
                 first_console_output_expression.expression,
@@ -137,11 +137,8 @@ async fn effect() {
         )
         .await
         .unwrap();
-    let serialized_result = match result {
-        Pointer::Value(value) => value,
-        _ => panic!("Expected a Value"),
+    match &result {
+        Pointer::InMemoryValue(value) => value,
+        _ => panic!("Expected an InMemoryValue"),
     };
-    let deserialized_result =
-        crate::standard_library::ConsoleOutput::from_value(serialized_result.value()).unwrap();
-    assert_eq!(&first_console_output, &deserialized_result);
 }

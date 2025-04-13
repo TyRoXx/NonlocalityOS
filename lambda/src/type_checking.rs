@@ -105,7 +105,7 @@ where
         Expression::Lambda(lambda_expression) => {
             type_of_lambda_expression(&lambda_expression, find_variable, find_interface).await
         }
-        Expression::Construct(_constructed_type, _arguments) => {
+        Expression::ConstructEffect(_constructed_type, _arguments) => {
             todo!()
         }
     }

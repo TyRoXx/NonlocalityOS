@@ -1,5 +1,6 @@
 use crate::{
     builtins::LAMBDA_APPLY_METHOD_NAME,
+    standard_library::Effect,
     types::{Name, Type},
 };
 use astraea::tree::{BlobDigest, HashedValue, Value};
@@ -66,7 +67,7 @@ pub enum Expression {
     Apply(Box<Application>),
     ReadVariable(Name),
     Lambda(Box<LambdaExpression>),
-    Construct(Type, Vec<Expression>),
+    ConstructEffect(Type, Vec<Expression>),
 }
 
 impl Expression {
@@ -96,7 +97,7 @@ impl Expression {
                 }
                 lambda_expression.body.print(writer, level + 1)
             }
-            Expression::Construct(constructed_type, arguments) => {
+            Expression::ConstructEffect(constructed_type, arguments) => {
                 write!(writer, "construct(")?;
                 constructed_type.print(writer, level)?;
                 for argument in arguments {
@@ -129,7 +130,7 @@ impl Expression {
                 result.remove(&lambda_expression.parameter_name);
                 result
             }
-            Expression::Construct(_constructed_type, arguments) => {
+            Expression::ConstructEffect(_constructed_type, arguments) => {
                 let mut result = BTreeSet::new();
                 for argument in arguments {
                     result.append(&mut argument.find_captured_names());
@@ -230,10 +231,23 @@ impl Object for Closure {
 }
 
 #[derive(Debug, Clone)]
+pub struct InMemoryValue {
+    pub blob: ValueBlob,
+    pub references: Vec<Pointer>,
+}
+
+impl InMemoryValue {
+    pub fn new(blob: ValueBlob, references: Vec<Pointer>) -> Self {
+        Self { blob, references }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Pointer {
     Value(HashedValue),
     Object(Arc<(dyn Object + Sync)>),
     Reference(BlobDigest),
+    InMemoryValue(InMemoryValue),
 }
 
 impl Pointer {
@@ -262,6 +276,9 @@ impl Pointer {
                 .await
             }
             Pointer::Reference(_blob_digest) => todo!(),
+            Pointer::InMemoryValue(_in_memory_value) => {
+                todo!()
+            }
         }
     }
 
@@ -273,6 +290,9 @@ impl Pointer {
             Pointer::Value(hashed_value) => Ok(hashed_value),
             Pointer::Object(arc) => arc.serialize(storage).await,
             Pointer::Reference(_blob_digest) => todo!(),
+            Pointer::InMemoryValue(_in_memory_value) => {
+                todo!()
+            }
         }
     }
 
@@ -287,6 +307,9 @@ impl Pointer {
             }
             Pointer::Object(arc) => arc.serialize_to_flat_value().await,
             Pointer::Reference(_blob_digest) => todo!(),
+            Pointer::InMemoryValue(_in_memory_value) => {
+                todo!()
+            }
         }
     }
 }
@@ -353,7 +376,7 @@ pub async fn evaluate(
                 captured_variables,
             ))))
         }
-        Expression::Construct(_constructed_type, arguments) => {
+        Expression::ConstructEffect(constructed_type, arguments) => {
             let mut evaluated_arguments = Vec::new();
             for argument in arguments {
                 let evaluated_argument = Box::pin(evaluate(
@@ -363,15 +386,22 @@ pub async fn evaluate(
                     read_variable,
                     read_literal,
                 ))
-                .await?
-                .serialize(store_value)
                 .await?;
-                evaluated_arguments.push(*evaluated_argument.digest());
+                evaluated_arguments
+                    .push(*evaluated_argument.serialize(store_value).await?.digest());
             }
-            Ok(Pointer::Value(HashedValue::from(Arc::new(Value::new(
-                ValueBlob::empty(),
-                evaluated_arguments,
-            )))))
+            let constructed_type_stored = store_value
+                .store_value(&HashedValue::from(Arc::new(constructed_type.to_value())))
+                .await?;
+            let argument = store_value
+                .store_value(&HashedValue::from(Arc::new(Value::new(
+                    ValueBlob::empty(),
+                    evaluated_arguments,
+                ))))
+                .await?;
+            Ok(Pointer::Value(HashedValue::from(Arc::new(
+                Effect::new(constructed_type_stored, argument).to_value(),
+            ))))
         }
     }
 }
