@@ -1,7 +1,10 @@
-use crate::expressions::{Application, Expression};
-use astraea::tree::BlobDigest;
+use crate::expressions::{DeepExpression, Expression};
+use astraea::{
+    storage::LoadValue,
+    tree::{BlobDigest, Value},
+};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Serialize, Deserialize)]
@@ -10,6 +13,12 @@ pub struct NamespaceId(pub [u8; 16]);
 impl NamespaceId {
     pub fn random() -> Self {
         Self(Uuid::new_v4().into_bytes())
+    }
+}
+
+impl Display for NamespaceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Uuid::from_bytes(self.0))
     }
 }
 
@@ -25,14 +34,20 @@ impl Name {
     }
 }
 
+impl Display for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.namespace, self.key)
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Serialize, Deserialize)]
 pub struct Signature {
-    pub argument: Type,
-    pub result: Type,
+    pub argument: BlobDigest,
+    pub result: BlobDigest,
 }
 
 impl Signature {
-    pub fn new(argument: Type, result: Type) -> Self {
+    pub fn new(argument: BlobDigest, result: BlobDigest) -> Self {
         Self { argument, result }
     }
 }
@@ -50,45 +65,29 @@ impl Interface {
 
 #[derive(Debug, PartialEq, PartialOrd, Hash, Clone)]
 pub struct TypedExpression {
-    pub expression: Expression,
+    pub expression: DeepExpression,
     pub type_: Type,
 }
 
 impl TypedExpression {
-    pub fn new(expression: Expression, type_: Type) -> Self {
+    pub fn new(expression: DeepExpression, type_: Type) -> Self {
         Self { expression, type_ }
     }
 
     pub fn unit() -> Self {
-        Self::new(Expression::Unit, Type::Unit)
+        Self::new(DeepExpression(Expression::Unit), Type::Unit)
     }
 
-    pub fn convert_into(self, type_: &Type) -> Expression {
+    pub fn convert_into(self, type_: &Type) -> DeepExpression {
         if &self.type_ == type_ {
             self.expression
         } else {
             todo!()
         }
     }
-
-    pub fn apply(
-        self,
-        interface: &Interface,
-        interface_reference: &BlobDigest,
-        method: Name,
-        argument: TypedExpression,
-    ) -> Option<TypedExpression> {
-        self.type_.apply(
-            self.expression,
-            interface,
-            interface_reference,
-            method,
-            argument,
-        )
-    }
 }
 
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
 pub enum Type {
     Named(Name),
     Unit,
@@ -98,39 +97,23 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn apply(
-        &self,
-        callee: Expression,
-        interface: &Interface,
-        interface_reference: &BlobDigest,
-        method: Name,
-        argument: TypedExpression,
-    ) -> Option<TypedExpression> {
-        interface.methods.get(&method).map(|signature| {
-            let converted_argument = argument.convert_into(&signature.argument);
-            TypedExpression::new(
-                Expression::Apply(Box::new(Application::new(
-                    callee,
-                    *interface_reference,
-                    method,
-                    converted_argument,
-                ))),
-                signature.result.clone(),
-            )
-        })
-    }
-
-    pub fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
+    pub fn print(&self, writer: &mut dyn std::fmt::Write) -> std::fmt::Result {
         match self {
             Type::Named(name) => write!(writer, "{}", &name.key),
             Type::Unit => write!(writer, "()"),
             Type::Option(blob_digest) => write!(writer, "Option<{}>", blob_digest),
             Type::Function(signature) => {
-                signature.argument.print(writer, level)?;
-                write!(writer, " -> ")?;
-                signature.result.print(writer, level)
+                write!(writer, "{} -> {}", &signature.argument, &signature.result)
             }
             Type::Reference => write!(writer, "Reference"),
         }
+    }
+
+    pub fn deserialize(_value: &Value, _load_value: &(dyn LoadValue + Sync)) -> Option<Type> {
+        todo!()
+    }
+
+    pub fn to_value(&self) -> Value {
+        todo!()
     }
 }

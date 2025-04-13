@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_512};
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
 /// SHA3-512 hash. Supports Serde because we will need this type a lot in network protocols and file formats.
 #[derive(Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Clone, Copy, Hash)]
@@ -78,6 +78,12 @@ impl std::convert::From<BlobDigest> for [u8; 64] {
 
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Debug, Copy, Serialize, Deserialize)]
 pub struct ReferenceIndex(pub u64);
+
+impl Display for ReferenceIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
 
@@ -158,6 +164,7 @@ impl std::error::Error for ValueSerializationError {}
 pub enum ValueDeserializationError {
     ReferencesNotAllowed,
     Postcard(postcard::Error),
+    BlobUnavailable(BlobDigest),
 }
 
 impl std::fmt::Display for ValueDeserializationError {
@@ -256,6 +263,12 @@ impl HashedValue {
 
     pub fn digest(&self) -> &BlobDigest {
         &self.digest
+    }
+}
+
+impl Display for HashedValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.digest)
     }
 }
 
