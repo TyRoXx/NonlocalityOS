@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests2 {
     use crate::compilation::{compile, CompilerError, CompilerOutput, SourceLocation};
-    use astraea::tree::{BlobDigest, HashedValue, Value};
-    use lambda::builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME, UTF8_STRING_TYPE_NAME};
+    use astraea::tree::{HashedValue, Value};
+    use lambda::builtins::{BUILTINS_NAMESPACE, UTF8_STRING_TYPE_NAME};
     use lambda::expressions::{Application, Expression, LambdaExpression};
     use lambda::types::{Name, NamespaceId, Type};
     use std::sync::Arc;
@@ -41,12 +41,7 @@ mod tests2 {
         let entry_point = LambdaExpression::new(
             Type::Unit,
             name,
-            Expression::Apply(Box::new(Application::new(
-                f.clone(),
-                BlobDigest::hash(b"todo"),
-                Name::new(BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME.to_string()),
-                f,
-            ))),
+            Expression::Apply(Box::new(Application::new(f.clone(), f))),
         );
         let expected = CompilerOutput::new(Expression::Lambda(Box::new(entry_point)), Vec::new());
         assert_eq!(expected, output);
@@ -62,8 +57,6 @@ mod tests2 {
             print_name,
             Expression::Apply(Box::new(Application::new(
                 print.clone(),
-                BlobDigest::hash(b"todo"),
-                Name::new(BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME.to_string()),
                 Expression::Literal(
                     Type::Named(Name::new(
                         BUILTINS_NAMESPACE,

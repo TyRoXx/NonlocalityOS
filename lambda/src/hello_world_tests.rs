@@ -1,13 +1,12 @@
 use crate::{
-    builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME},
-    expressions::{evaluate, Expression, LambdaExpression, Pointer, ReadVariable},
-    types::{Interface, Name, NamespaceId, Signature, Type, TypedExpression},
+    expressions::{evaluate, Application, Expression, LambdaExpression, Pointer, ReadVariable},
+    types::{Name, NamespaceId, Type, TypedExpression},
 };
 use astraea::{
-    storage::{store_object, InMemoryValueStorage, StoreValue},
+    storage::{InMemoryValueStorage, StoreValue},
     tree::{HashedValue, Value},
 };
-use std::{collections::BTreeMap, pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc};
 
 #[tokio::test]
 async fn hello_world() {
@@ -32,23 +31,14 @@ async fn hello_world() {
         console_output_type.clone(),
     );
     let lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
-    let lambda_expression = TypedExpression::new(
-        Expression::Lambda(Box::new(LambdaExpression::new(
-            console_output_type.clone(),
-            lambda_parameter_name.clone(),
-            console_output_expression.expression,
-        ))),
-        Type::Function(Box::new(Signature::new(
-            console_output_type.clone(),
-            console_output_type.clone(),
-        ))),
-    );
+    let lambda_expression = Expression::Lambda(Box::new(LambdaExpression::new(
+        console_output_type.clone(),
+        lambda_parameter_name.clone(),
+        console_output_expression.expression,
+    )));
     {
         let mut program_as_string = String::new();
-        lambda_expression
-            .expression
-            .print(&mut program_as_string, 0)
-            .unwrap();
+        lambda_expression.print(&mut program_as_string, 0).unwrap();
         assert_eq!("(unused_arg) =>\n  literal(ConsoleOutput, 09e593654f7d4be82ed8ef897a98f0c23c45d5b49ec58a5c8e9df679bf204e0bd2d7b184002cf1348726dfc5ae6d25a5ce57b36177839f474388486aa27f5ece)", program_as_string.as_str());
     }
     let read_variable: Arc<ReadVariable> = Arc::new(
@@ -66,7 +56,7 @@ async fn hello_world() {
         }
     };
     let main_function = evaluate(
-        &lambda_expression.expression,
+        &lambda_expression,
         &*storage,
         &*storage,
         &read_variable,
@@ -74,25 +64,20 @@ async fn hello_world() {
     )
     .await
     .unwrap();
-    let apply_name = Name::new(BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME.to_string());
-    let lambda_interface = Arc::new(Interface::new(BTreeMap::from([(
-        apply_name.clone(),
-        Signature::new(Type::Unit, console_output_type.clone()),
-    )])));
-    let lambda_interface_ref = store_object(&*storage, &*lambda_interface).await.unwrap();
-    let result = main_function
-        .call_method(
-            &lambda_interface_ref,
-            &apply_name,
-            &Pointer::Value(HashedValue::from(Arc::new(Value::empty()))),
-            &*storage,
-            &*storage,
-            &read_variable,
-            &read_literal,
-        )
-        .await
-        .unwrap();
-    let serialized_result = match result {
+    let call_main = Expression::Apply(Box::new(Application::new(
+        Expression::Literal(Type::Unit, main_function.serialize()),
+        Expression::Unit,
+    )));
+    let main_result = evaluate(
+        &call_main,
+        &*storage,
+        &*storage,
+        &read_variable,
+        &read_literal,
+    )
+    .await
+    .unwrap();
+    let serialized_result = match main_result {
         Pointer::Value(value) => value,
         _ => panic!("Expected a Value"),
     };

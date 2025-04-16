@@ -1,5 +1,8 @@
-use crate::expressions::{Application, Expression};
-use astraea::tree::{BlobDigest, Value};
+use crate::expressions::Expression;
+use astraea::{
+    storage::LoadValue,
+    tree::{BlobDigest, Value},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -27,12 +30,12 @@ impl Name {
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Serialize, Deserialize)]
 pub struct Signature {
-    pub argument: Type,
-    pub result: Type,
+    pub argument: BlobDigest,
+    pub result: BlobDigest,
 }
 
 impl Signature {
-    pub fn new(argument: Type, result: Type) -> Self {
+    pub fn new(argument: BlobDigest, result: BlobDigest) -> Self {
         Self { argument, result }
     }
 }
@@ -70,25 +73,9 @@ impl TypedExpression {
             todo!()
         }
     }
-
-    pub fn apply(
-        self,
-        interface: &Interface,
-        interface_reference: &BlobDigest,
-        method: Name,
-        argument: TypedExpression,
-    ) -> Option<TypedExpression> {
-        self.type_.apply(
-            self.expression,
-            interface,
-            interface_reference,
-            method,
-            argument,
-        )
-    }
 }
 
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
 pub enum Type {
     Named(Name),
     Unit,
@@ -98,40 +85,20 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn apply(
-        &self,
-        callee: Expression,
-        interface: &Interface,
-        interface_reference: &BlobDigest,
-        method: Name,
-        argument: TypedExpression,
-    ) -> Option<TypedExpression> {
-        interface.methods.get(&method).map(|signature| {
-            let converted_argument = argument.convert_into(&signature.argument);
-            TypedExpression::new(
-                Expression::Apply(Box::new(Application::new(
-                    callee,
-                    *interface_reference,
-                    method,
-                    converted_argument,
-                ))),
-                signature.result.clone(),
-            )
-        })
-    }
-
-    pub fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
+    pub fn print(&self, writer: &mut dyn std::fmt::Write) -> std::fmt::Result {
         match self {
             Type::Named(name) => write!(writer, "{}", &name.key),
             Type::Unit => write!(writer, "()"),
             Type::Option(blob_digest) => write!(writer, "Option<{}>", blob_digest),
             Type::Function(signature) => {
-                signature.argument.print(writer, level)?;
-                write!(writer, " -> ")?;
-                signature.result.print(writer, level)
+                write!(writer, "{} -> {}", &signature.argument, &signature.result)
             }
             Type::Reference => write!(writer, "Reference"),
         }
+    }
+
+    pub fn deserialize(_value: &Value, _load_value: &(dyn LoadValue + Sync)) -> Option<Type> {
+        todo!()
     }
 
     pub fn to_value(&self) -> Value {

@@ -1,13 +1,9 @@
-use crate::{
-    builtins::LAMBDA_APPLY_METHOD_NAME,
-    types::{Name, Type},
-};
+use crate::types::{Name, Type};
 use astraea::tree::{BlobDigest, HashedValue, Value};
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
     tree::ValueBlob,
 };
-use async_trait::async_trait;
 use std::{
     collections::{BTreeMap, BTreeSet},
     pin::Pin,
@@ -17,24 +13,12 @@ use std::{
 #[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Hash, Clone)]
 pub struct Application {
     pub callee: Expression,
-    pub callee_interface: BlobDigest,
-    pub method: Name,
     pub argument: Expression,
 }
 
 impl Application {
-    pub fn new(
-        callee: Expression,
-        callee_interface: BlobDigest,
-        method: Name,
-        argument: Expression,
-    ) -> Self {
-        Self {
-            callee,
-            callee_interface,
-            method,
-            argument,
-        }
+    pub fn new(callee: Expression, argument: Expression) -> Self {
+        Self { callee, argument }
     }
 }
 
@@ -52,6 +36,37 @@ impl LambdaExpression {
             parameter_name,
             body,
         }
+    }
+
+    pub async fn deserialize(
+        value: &Value,
+        load_value: &(dyn LoadValue + Sync),
+    ) -> Option<LambdaExpression> {
+        if value.references().len() != 2 {
+            return None;
+        }
+        let parameter_name = match postcard::from_bytes(value.blob().as_slice()) {
+            Ok(name) => name,
+            Err(_) => return None,
+        };
+        let parameter_type = Type::deserialize(
+            load_value
+                .load_value(&value.references()[0])
+                .await?
+                .hash()?
+                .value(),
+            load_value,
+        )?;
+        let body = Expression::deserialize(
+            load_value
+                .load_value(&value.references()[1])
+                .await?
+                .hash()?
+                .value(),
+            load_value,
+        )
+        .await?;
+        Some(LambdaExpression::new(parameter_type, parameter_name, body))
     }
 
     pub fn find_captured_names(&self) -> BTreeSet<Name> {
@@ -75,12 +90,11 @@ impl Expression {
             Expression::Unit => write!(writer, "()"),
             Expression::Literal(literal_type, literal_value) => {
                 write!(writer, "literal(")?;
-                literal_type.print(writer, level)?;
+                literal_type.print(writer)?;
                 write!(writer, ", {})", literal_value.digest())
             }
             Expression::Apply(application) => {
                 application.callee.print(writer, level)?;
-                write!(writer, ".{}", &application.method.key)?;
                 write!(writer, "(")?;
                 application.argument.print(writer, level)?;
                 write!(writer, ")")
@@ -105,6 +119,13 @@ impl Expression {
                 write!(writer, ")")
             }
         }
+    }
+
+    pub async fn deserialize(
+        _value: &Value,
+        _load_value: &(dyn LoadValue + Sync),
+    ) -> Option<Expression> {
+        todo!()
     }
 
     pub fn to_string(&self) -> String {
@@ -139,27 +160,6 @@ impl Expression {
     }
 }
 
-#[async_trait]
-pub trait Object: std::fmt::Debug + Send {
-    async fn call_method(
-        &self,
-        interface: &BlobDigest,
-        method: &Name,
-        argument: &Pointer,
-        load_value: &(dyn LoadValue + Sync),
-        store_value: &(dyn StoreValue + Sync),
-        read_variable: &Arc<ReadVariable>,
-        read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, StoreError>;
-
-    async fn serialize(
-        &self,
-        storage: &(dyn StoreValue + Sync),
-    ) -> std::result::Result<HashedValue, StoreError>;
-
-    async fn serialize_to_flat_value(&self) -> Option<Arc<Value>>;
-}
-
 #[derive(Debug)]
 pub struct Closure {
     lambda: LambdaExpression,
@@ -173,23 +173,39 @@ impl Closure {
             captured_variables,
         }
     }
-}
 
-#[async_trait]
-impl Object for Closure {
+    pub async fn deserialize(
+        value: &Value,
+        load_value: &(dyn LoadValue + Sync),
+    ) -> Option<Closure> {
+        if value.blob().len() != 0 {
+            return None;
+        }
+        if value.references().len() != 2 {
+            return None;
+        }
+        let lambda_expression = LambdaExpression::deserialize(
+            load_value
+                .load_value(&value.references()[0])
+                .await?
+                .hash()?
+                .value(),
+            load_value,
+        )
+        .await?;
+        let captured_variables = BTreeMap::new();
+        // TODO: deserialize the captured variables
+        Some(Closure::new(lambda_expression, captured_variables))
+    }
+
     async fn call_method(
         &self,
-        /*TODO: use the interface for something*/ _interface: &BlobDigest,
-        method: &Name,
         argument: &Pointer,
         load_value: &(dyn LoadValue + Sync),
         store_value: &(dyn StoreValue + Sync),
         read_variable: &Arc<ReadVariable>,
         read_literal: &ReadLiteral,
     ) -> std::result::Result<Pointer, StoreError> {
-        if method.key != LAMBDA_APPLY_METHOD_NAME {
-            todo!()
-        }
         let read_variable_in_body: Arc<ReadVariable> = Arc::new({
             let parameter_name = self.lambda.parameter_name.clone();
             let argument = argument.clone();
@@ -206,13 +222,13 @@ impl Object for Closure {
                 }
             }
         });
-        evaluate(
+        Box::pin(evaluate(
             &self.lambda.body,
             load_value,
             store_value,
             &read_variable_in_body,
             read_literal,
-        )
+        ))
         .await
     }
 
@@ -220,10 +236,6 @@ impl Object for Closure {
         &self,
         _storage: &(dyn StoreValue + Sync),
     ) -> std::result::Result<HashedValue, StoreError> {
-        todo!()
-    }
-
-    async fn serialize_to_flat_value(&self) -> Option<Arc<Value>> {
         todo!()
     }
 }
@@ -243,50 +255,14 @@ impl InMemoryValue {
 #[derive(Debug, Clone)]
 pub enum Pointer {
     Value(HashedValue),
-    Object(Arc<(dyn Object + Sync)>),
     Reference(BlobDigest),
     InMemoryValue(InMemoryValue),
 }
 
 impl Pointer {
-    pub async fn call_method(
-        &self,
-        interface: &BlobDigest,
-        method: &Name,
-        argument: &Pointer,
-        load_value: &(dyn LoadValue + Sync),
-        store_value: &(dyn StoreValue + Sync),
-        read_variable: &Arc<ReadVariable>,
-        read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, StoreError> {
+    pub fn serialize(self) -> HashedValue {
         match self {
-            Pointer::Value(_hashed_value) => todo!(),
-            Pointer::Object(arc) => {
-                arc.call_method(
-                    interface,
-                    method,
-                    argument,
-                    load_value,
-                    store_value,
-                    read_variable,
-                    read_literal,
-                )
-                .await
-            }
-            Pointer::Reference(_blob_digest) => todo!(),
-            Pointer::InMemoryValue(_in_memory_value) => {
-                todo!()
-            }
-        }
-    }
-
-    pub async fn serialize(
-        self,
-        storage: &(dyn StoreValue + Sync),
-    ) -> std::result::Result<HashedValue, StoreError> {
-        match self {
-            Pointer::Value(hashed_value) => Ok(hashed_value),
-            Pointer::Object(arc) => arc.serialize(storage).await,
+            Pointer::Value(hashed_value) => hashed_value,
             Pointer::Reference(_blob_digest) => todo!(),
             Pointer::InMemoryValue(_in_memory_value) => {
                 todo!()
@@ -303,7 +279,6 @@ impl Pointer {
                     None
                 }
             }
-            Pointer::Object(arc) => arc.serialize_to_flat_value().await,
             Pointer::Reference(_blob_digest) => todo!(),
             Pointer::InMemoryValue(_in_memory_value) => {
                 todo!()
@@ -349,10 +324,14 @@ pub async fn evaluate(
                 read_literal,
             ))
             .await?;
-            let call_result = evaluated_callee
+            let callee_closure =
+                match Closure::deserialize(&evaluated_callee.serialize().value(), load_value).await
+                {
+                    Some(success) => success,
+                    None => todo!(),
+                };
+            let call_result = callee_closure
                 .call_method(
-                    &application.callee_interface,
-                    &application.method,
                     &evaluated_argument,
                     load_value,
                     store_value,
@@ -369,10 +348,10 @@ pub async fn evaluate(
                 let captured_value = read_variable(&captured_name).await;
                 captured_variables.insert(captured_name, captured_value);
             }
-            Ok(Pointer::Object(Arc::new(Closure::new(
-                (**lambda_expression).clone(),
-                captured_variables,
-            ))))
+            Closure::new((**lambda_expression).clone(), captured_variables)
+                .serialize(store_value)
+                .await
+                .map(|value| Pointer::Value(value))
         }
         Expression::MakeValue(arguments) => {
             let mut evaluated_arguments = Vec::new();
@@ -385,8 +364,7 @@ pub async fn evaluate(
                     read_literal,
                 ))
                 .await?;
-                evaluated_arguments
-                    .push(*evaluated_argument.serialize(store_value).await?.digest());
+                evaluated_arguments.push(*evaluated_argument.serialize().digest());
             }
             Ok(Pointer::Value(HashedValue::from(Arc::new(Value::new(
                 ValueBlob::empty(),

@@ -2,8 +2,8 @@ use crate::{
     compilation::{CompilerError, CompilerOutput, SourceLocation},
     tokenization::{Token, TokenContent},
 };
-use astraea::tree::{BlobDigest, HashedValue, Value};
-use lambda::builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME, UTF8_STRING_TYPE_NAME};
+use astraea::tree::{HashedValue, Value};
+use lambda::builtins::{BUILTINS_NAMESPACE, UTF8_STRING_TYPE_NAME};
 use lambda::expressions::{Application, Expression, LambdaExpression};
 use lambda::types::{Name, NamespaceId, Type};
 use std::sync::Arc;
@@ -141,10 +141,7 @@ pub async fn parse_expression<'t>(
                 let argument = Box::pin(parse_expression(tokens, local_namespace)).await?;
                 expect_right_parenthesis(tokens);
                 Ok(Expression::Apply(Box::new(Application::new(
-                    start,
-                    BlobDigest::hash(b"todo"),
-                    Name::new(BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME.to_string()),
-                    argument,
+                    start, argument,
                 ))))
             }
             TokenContent::RightParenthesis => Ok(start),

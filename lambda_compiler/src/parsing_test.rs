@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests {
     use crate::{parsing::parse_expression, tokenization::tokenize_default_syntax};
-    use astraea::tree::BlobDigest;
-    use lambda::builtins::{BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME};
     use lambda::expressions::{Application, Expression, LambdaExpression};
     use lambda::types::{Name, NamespaceId, Type};
 
@@ -59,12 +57,7 @@ mod tests {
         let expected = Expression::Lambda(Box::new(LambdaExpression::new(
             Type::Unit,
             name,
-            Expression::Apply(Box::new(Application::new(
-                f.clone(),
-                BlobDigest::hash(b"todo"),
-                Name::new(BUILTINS_NAMESPACE, LAMBDA_APPLY_METHOD_NAME.to_string()),
-                f,
-            ))),
+            Expression::Apply(Box::new(Application::new(f.clone(), f))),
         )));
         test_wellformed_parsing(r#"(f) => f(f)"#, expected).await;
     }
