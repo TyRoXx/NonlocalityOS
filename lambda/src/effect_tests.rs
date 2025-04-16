@@ -66,13 +66,10 @@ async fn effect() {
     let and_then_name = Name::new(namespace, "AndThen".to_string());
     let and_then_type = Type::Named(and_then_name);
     let construct_and_then_expression = TypedExpression::new(
-        Expression::ConstructEffect(
-            and_then_type.clone(),
-            vec![
-                first_console_output_expression.expression,
-                and_then_lambda_expression.expression,
-            ],
-        ),
+        Expression::MakeValue(vec![
+            first_console_output_expression.expression,
+            and_then_lambda_expression.expression,
+        ]),
         and_then_type.clone(),
     );
 
@@ -91,9 +88,7 @@ async fn effect() {
             .expression
             .print(&mut program_as_string, 0)
             .unwrap();
-        assert_eq!("(unused_arg) =>
-  construct(AndThen, literal(ConsoleOutput, eabe5159d5b6c20554d74248e4f7c32021cbec092e1ce1221e90d2454e95c6e57b3524a5089a6dcbf7084f3389d61cbaf32e98559fe0684c2eb4883dcac1a322), (previous_result) =>
-    literal(ConsoleOutput, 2bdfb1e268c1fa3859cc589789da27b302a76cbeb278018dffe2706cc497a9f8a3069085871b6d40fd35b0c463ad29a2dc68f94daa77a003ef462b8c71c20d4f))",
+        assert_eq!("(unused_arg) =>\n  make_value(literal(ConsoleOutput, eabe5159d5b6c20554d74248e4f7c32021cbec092e1ce1221e90d2454e95c6e57b3524a5089a6dcbf7084f3389d61cbaf32e98559fe0684c2eb4883dcac1a322), (previous_result) =>\n    literal(ConsoleOutput, 2bdfb1e268c1fa3859cc589789da27b302a76cbeb278018dffe2706cc497a9f8a3069085871b6d40fd35b0c463ad29a2dc68f94daa77a003ef462b8c71c20d4f), )",
             program_as_string.as_str());
     }
     let read_variable: Arc<ReadVariable> = Arc::new(

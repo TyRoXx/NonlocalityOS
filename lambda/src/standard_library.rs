@@ -54,19 +54,3 @@ impl AndThen {
         })
     }
 }
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Effect {
-    pub type_: BlobDigest,
-    pub argument: BlobDigest,
-}
-
-impl Effect {
-    pub fn new(type_: BlobDigest, argument: BlobDigest) -> Self {
-        Self { type_, argument }
-    }
-
-    pub fn to_value(&self) -> Value {
-        Value::new(ValueBlob::empty(), vec![self.type_, self.argument])
-    }
-}

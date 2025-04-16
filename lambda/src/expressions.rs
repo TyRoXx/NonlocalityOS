@@ -1,6 +1,5 @@
 use crate::{
     builtins::LAMBDA_APPLY_METHOD_NAME,
-    standard_library::Effect,
     types::{Name, Type},
 };
 use astraea::tree::{BlobDigest, HashedValue, Value};
@@ -67,7 +66,7 @@ pub enum Expression {
     Apply(Box<Application>),
     ReadVariable(Name),
     Lambda(Box<LambdaExpression>),
-    ConstructEffect(Type, Vec<Expression>),
+    MakeValue(Vec<Expression>),
 }
 
 impl Expression {
@@ -97,12 +96,11 @@ impl Expression {
                 }
                 lambda_expression.body.print(writer, level + 1)
             }
-            Expression::ConstructEffect(constructed_type, arguments) => {
-                write!(writer, "construct(")?;
-                constructed_type.print(writer, level)?;
+            Expression::MakeValue(arguments) => {
+                write!(writer, "make_value(")?;
                 for argument in arguments {
-                    write!(writer, ", ")?;
                     argument.print(writer, level)?;
+                    write!(writer, ", ")?;
                 }
                 write!(writer, ")")
             }
@@ -130,7 +128,7 @@ impl Expression {
                 result.remove(&lambda_expression.parameter_name);
                 result
             }
-            Expression::ConstructEffect(_constructed_type, arguments) => {
+            Expression::MakeValue(arguments) => {
                 let mut result = BTreeSet::new();
                 for argument in arguments {
                     result.append(&mut argument.find_captured_names());
@@ -376,7 +374,7 @@ pub async fn evaluate(
                 captured_variables,
             ))))
         }
-        Expression::ConstructEffect(constructed_type, arguments) => {
+        Expression::MakeValue(arguments) => {
             let mut evaluated_arguments = Vec::new();
             for argument in arguments {
                 let evaluated_argument = Box::pin(evaluate(
@@ -390,18 +388,10 @@ pub async fn evaluate(
                 evaluated_arguments
                     .push(*evaluated_argument.serialize(store_value).await?.digest());
             }
-            let constructed_type_stored = store_value
-                .store_value(&HashedValue::from(Arc::new(constructed_type.to_value())))
-                .await?;
-            let argument = store_value
-                .store_value(&HashedValue::from(Arc::new(Value::new(
-                    ValueBlob::empty(),
-                    evaluated_arguments,
-                ))))
-                .await?;
-            Ok(Pointer::Value(HashedValue::from(Arc::new(
-                Effect::new(constructed_type_stored, argument).to_value(),
-            ))))
+            Ok(Pointer::Value(HashedValue::from(Arc::new(Value::new(
+                ValueBlob::empty(),
+                evaluated_arguments,
+            )))))
         }
     }
 }
