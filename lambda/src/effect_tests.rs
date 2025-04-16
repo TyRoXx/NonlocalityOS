@@ -51,7 +51,6 @@ async fn effect() {
 
     let and_then_lambda_parameter_name = Name::new(namespace, "previous_result".to_string());
     let and_then_lambda_expression = Expression::Lambda(Box::new(LambdaExpression::new(
-        console_output_type.clone(),
         and_then_lambda_parameter_name.clone(),
         second_console_output_expression.expression,
     )));
@@ -68,7 +67,6 @@ async fn effect() {
 
     let main_lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
     let main_lambda_expression = Expression::Lambda(Box::new(LambdaExpression::new(
-        console_output_type.clone(),
         main_lambda_parameter_name.clone(),
         construct_and_then_expression.expression,
     )));

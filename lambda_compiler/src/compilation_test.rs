@@ -27,8 +27,7 @@ mod tests2 {
     async fn test_compile_lambda() {
         let output = compile(r#"(x) => x"#, &TEST_NAMESPACE).await;
         let name = Name::new(TEST_NAMESPACE, "x".to_string());
-        let entry_point =
-            LambdaExpression::new(Type::Unit, name.clone(), Expression::ReadVariable(name));
+        let entry_point = LambdaExpression::new(name.clone(), Expression::ReadVariable(name));
         let expected = CompilerOutput::new(Expression::Lambda(Box::new(entry_point)), Vec::new());
         assert_eq!(expected, output);
     }
@@ -39,7 +38,6 @@ mod tests2 {
         let name = Name::new(TEST_NAMESPACE, "f".to_string());
         let f = Expression::ReadVariable(name.clone());
         let entry_point = LambdaExpression::new(
-            Type::Unit,
             name,
             Expression::Apply(Box::new(Application::new(f.clone(), f))),
         );
@@ -53,7 +51,6 @@ mod tests2 {
         let print_name = Name::new(TEST_NAMESPACE, "print".to_string());
         let print = Expression::ReadVariable(print_name.clone());
         let entry_point = LambdaExpression::new(
-            Type::Unit,
             print_name,
             Expression::Apply(Box::new(Application::new(
                 print.clone(),

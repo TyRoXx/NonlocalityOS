@@ -177,7 +177,6 @@ async fn parse_lambda<'t>(
     expect_fat_arrow(tokens);
     let body = parse_expression(tokens, local_namespace).await?;
     Ok(Expression::Lambda(Box::new(LambdaExpression::new(
-        Type::Unit, // todo: do propper typechecking
         parameter_name,
         body,
     ))))

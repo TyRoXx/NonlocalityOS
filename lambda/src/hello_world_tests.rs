@@ -32,7 +32,6 @@ async fn hello_world() {
     );
     let lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
     let lambda_expression = Expression::Lambda(Box::new(LambdaExpression::new(
-        console_output_type.clone(),
         lambda_parameter_name.clone(),
         console_output_expression.expression,
     )));

@@ -24,15 +24,13 @@ impl Application {
 
 #[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Hash, Clone)]
 pub struct LambdaExpression {
-    pub parameter_type: Type,
     pub parameter_name: Name,
     pub body: Expression,
 }
 
 impl LambdaExpression {
-    pub fn new(parameter_type: Type, parameter_name: Name, body: Expression) -> Self {
+    pub fn new(parameter_name: Name, body: Expression) -> Self {
         Self {
-            parameter_type,
             parameter_name,
             body,
         }
@@ -49,14 +47,6 @@ impl LambdaExpression {
             Ok(name) => name,
             Err(_) => return None,
         };
-        let parameter_type = Type::deserialize(
-            load_value
-                .load_value(&value.references()[0])
-                .await?
-                .hash()?
-                .value(),
-            load_value,
-        )?;
         let body = Expression::deserialize(
             load_value
                 .load_value(&value.references()[1])
@@ -66,7 +56,7 @@ impl LambdaExpression {
             load_value,
         )
         .await?;
-        Some(LambdaExpression::new(parameter_type, parameter_name, body))
+        Some(LambdaExpression::new(parameter_name, body))
     }
 
     pub async fn serialize(
@@ -78,11 +68,8 @@ impl LambdaExpression {
             Err(_) => todo!(),
         };
         let blob = ValueBlob::try_from(bytes::Bytes::from_owner(parameter_name)).unwrap();
-        let parameter_type = storage
-            .store_value(&HashedValue::from(Arc::new(self.parameter_type.to_value())))
-            .await?;
         let body = self.body.serialize(storage).await?;
-        let references = vec![parameter_type, *body.digest()];
+        let references = vec![*body.digest()];
         Ok(HashedValue::from(Arc::new(Value::new(blob, references))))
     }
 
