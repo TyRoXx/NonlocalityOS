@@ -69,6 +69,23 @@ impl LambdaExpression {
         Some(LambdaExpression::new(parameter_type, parameter_name, body))
     }
 
+    pub async fn serialize(
+        &self,
+        storage: &(dyn StoreValue + Sync),
+    ) -> std::result::Result<HashedValue, StoreError> {
+        let parameter_name: Vec<u8> = match postcard::to_allocvec(&self.parameter_name) {
+            Ok(success) => success,
+            Err(_) => todo!(),
+        };
+        let blob = ValueBlob::try_from(bytes::Bytes::from_owner(parameter_name)).unwrap();
+        let parameter_type = storage
+            .store_value(&HashedValue::from(Arc::new(self.parameter_type.to_value())))
+            .await?;
+        let body = self.body.serialize(storage).await?;
+        let references = vec![parameter_type, *body.digest()];
+        Ok(HashedValue::from(Arc::new(Value::new(blob, references))))
+    }
+
     pub fn find_captured_names(&self) -> BTreeSet<Name> {
         self.body.find_captured_names()
     }
@@ -128,6 +145,13 @@ impl Expression {
         todo!()
     }
 
+    pub async fn serialize(
+        &self,
+        _storage: &(dyn StoreValue + Sync),
+    ) -> std::result::Result<HashedValue, StoreError> {
+        todo!()
+    }
+
     pub fn to_string(&self) -> String {
         let mut result = String::new();
         self.print(&mut result, 0).unwrap();
@@ -181,7 +205,7 @@ impl Closure {
         if value.blob().len() != 0 {
             return None;
         }
-        if value.references().len() != 2 {
+        if value.references().len() < 1 {
             return None;
         }
         let lambda_expression = LambdaExpression::deserialize(
@@ -196,6 +220,17 @@ impl Closure {
         let captured_variables = BTreeMap::new();
         // TODO: deserialize the captured variables
         Some(Closure::new(lambda_expression, captured_variables))
+    }
+
+    async fn serialize(
+        &self,
+        storage: &(dyn StoreValue + Sync),
+    ) -> std::result::Result<HashedValue, StoreError> {
+        let lambda = self.lambda.serialize(storage).await?;
+        Ok(HashedValue::from(Arc::new(Value::new(
+            ValueBlob::empty(),
+            vec![*lambda.digest()],
+        ))))
     }
 
     async fn call_method(
@@ -230,13 +265,6 @@ impl Closure {
             read_literal,
         ))
         .await
-    }
-
-    async fn serialize(
-        &self,
-        _storage: &(dyn StoreValue + Sync),
-    ) -> std::result::Result<HashedValue, StoreError> {
-        todo!()
     }
 }
 
