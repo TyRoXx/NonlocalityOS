@@ -128,6 +128,44 @@ impl Display for DeepExpression {
 
 pub type ShallowExpression = Expression<BlobDigest, BlobDigest>;
 
+#[derive(Debug)]
+pub struct Closure {
+    parameter_name: Name,
+    body: Arc<DeepExpression>,
+    captured_variables: BTreeMap<Name, Pointer>,
+}
+
+impl Closure {
+    pub fn new(
+        parameter_name: Name,
+        body: Arc<DeepExpression>,
+        captured_variables: BTreeMap<Name, Pointer>,
+    ) -> Self {
+        Self {
+            parameter_name,
+            body,
+            captured_variables,
+        }
+    }
+
+    pub async fn serialize(
+        &self,
+        store_value: &(dyn StoreValue + Sync),
+    ) -> Result<HashedValue, StoreError> {
+        Ok(HashedValue::from(Arc::new(Value::new(
+            ValueBlob::empty(),
+            vec![self.body.0.serialize(store_value).await?.digest().clone()],
+        ))))
+    }
+
+    pub async fn deserialize(
+        _root: &Value,
+        _load_value: &(dyn LoadValue + Sync),
+    ) -> Option<Closure> {
+        todo!()
+    }
+}
+
 async fn call_method(
     parameter_name: &Name,
     captured_variables: &BTreeMap<Name, Pointer>,
@@ -254,10 +292,16 @@ pub async fn evaluate(
                 Box::pin(evaluate(callee, load_value, store_value, read_variable)).await?;
             let evaluated_argument =
                 Box::pin(evaluate(argument, load_value, store_value, read_variable)).await?;
+            let closure =
+                match Closure::deserialize(&evaluated_callee.serialize().value(), load_value).await
+                {
+                    Some(success) => success,
+                    None => todo!(),
+                };
             call_method(
-                parameter_name,
-                captured_variables,
-                body,
+                &closure.parameter_name,
+                &closure.captured_variables,
+                &closure.body,
                 &evaluated_argument,
                 load_value,
                 store_value,
@@ -275,7 +319,9 @@ pub async fn evaluate(
                 let captured_value = read_variable(&captured_name).await;
                 captured_variables.insert(captured_name, captured_value);
             }
-            todo!()
+            let closure = Closure::new(parameter_name.clone(), body.clone(), captured_variables);
+            let serialized = closure.serialize(store_value).await?;
+            Ok(Pointer::Value(serialized))
         }
         Expression::Construct(arguments) => {
             let mut evaluated_arguments = Vec::new();
