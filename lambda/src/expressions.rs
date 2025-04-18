@@ -1,4 +1,4 @@
-use crate::types::{Name, Type};
+use crate::types::Name;
 use astraea::tree::{BlobDigest, HashedValue, Value};
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
@@ -81,7 +81,7 @@ impl LambdaExpression {
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
 pub enum Expression {
     Unit,
-    Literal(Type, HashedValue),
+    Literal(HashedValue),
     Apply(Box<Application>),
     ReadVariable(Name),
     Lambda(Box<LambdaExpression>),
@@ -92,10 +92,8 @@ impl Expression {
     pub fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
         match self {
             Expression::Unit => write!(writer, "()"),
-            Expression::Literal(literal_type, literal_value) => {
-                write!(writer, "literal(")?;
-                literal_type.print(writer)?;
-                write!(writer, ", {})", literal_value.digest())
+            Expression::Literal(literal_value) => {
+                write!(writer, "literal({})", literal_value.digest())
             }
             Expression::Apply(application) => {
                 application.callee.print(writer, level)?;
@@ -148,7 +146,7 @@ impl Expression {
     pub fn find_captured_names(&self) -> BTreeSet<Name> {
         match self {
             Expression::Unit => BTreeSet::new(),
-            Expression::Literal(_, _blob_digest) => BTreeSet::new(),
+            Expression::Literal(_blob_digest) => BTreeSet::new(),
             Expression::Apply(application) => {
                 let mut result = application.argument.find_captured_names();
                 result.append(&mut application.argument.find_captured_names());
@@ -305,7 +303,7 @@ impl Pointer {
 pub type ReadVariable =
     dyn Fn(&Name) -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> + Send + Sync;
 
-pub type ReadLiteral = dyn Fn(Type, HashedValue) -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>>
+pub type ReadLiteral = dyn Fn(HashedValue) -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>>
     + Send
     + Sync;
 
@@ -318,8 +316,8 @@ pub async fn evaluate(
 ) -> std::result::Result<Pointer, StoreError> {
     match expression {
         Expression::Unit => return Ok(Pointer::Value(HashedValue::from(Arc::new(Value::empty())))),
-        Expression::Literal(literal_type, literal_value) => {
-            let literal = read_literal(literal_type.clone(), literal_value.clone()).await;
+        Expression::Literal(literal_value) => {
+            let literal = read_literal(literal_value.clone()).await;
             Ok(literal)
         }
         Expression::Apply(application) => {

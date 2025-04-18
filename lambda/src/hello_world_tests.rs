@@ -24,10 +24,7 @@ async fn hello_world() {
     };
     let console_output_value = Arc::new(console_output.to_value());
     let console_output_expression = TypedExpression::new(
-        Expression::Literal(
-            console_output_type.clone(),
-            HashedValue::from(console_output_value.clone()),
-        ),
+        Expression::Literal(HashedValue::from(console_output_value.clone())),
         console_output_type.clone(),
     );
     let lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
@@ -38,7 +35,7 @@ async fn hello_world() {
     {
         let mut program_as_string = String::new();
         lambda_expression.print(&mut program_as_string, 0).unwrap();
-        assert_eq!("(unused_arg) =>\n  literal(ConsoleOutput, 09e593654f7d4be82ed8ef897a98f0c23c45d5b49ec58a5c8e9df679bf204e0bd2d7b184002cf1348726dfc5ae6d25a5ce57b36177839f474388486aa27f5ece)", program_as_string.as_str());
+        assert_eq!("(unused_arg) =>\n  literal(09e593654f7d4be82ed8ef897a98f0c23c45d5b49ec58a5c8e9df679bf204e0bd2d7b184002cf1348726dfc5ae6d25a5ce57b36177839f474388486aa27f5ece)", program_as_string.as_str());
     }
     let read_variable: Arc<ReadVariable> = Arc::new(
         move |_name: &Name| -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
@@ -46,11 +43,7 @@ async fn hello_world() {
         },
     );
     let read_literal = {
-        let console_output_type = console_output_type.clone();
-        move |literal_type: Type,
-              value: HashedValue|
-              -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
-            assert_eq!(console_output_type, literal_type);
+        move |value: HashedValue| -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
             Box::pin(async move { Pointer::Value(value) })
         }
     };
@@ -64,7 +57,7 @@ async fn hello_world() {
     .await
     .unwrap();
     let call_main = Expression::Apply(Box::new(Application::new(
-        Expression::Literal(Type::Unit, main_function.serialize()),
+        Expression::Literal(main_function.serialize()),
         Expression::Unit,
     )));
     let main_result = evaluate(

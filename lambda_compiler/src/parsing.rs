@@ -3,9 +3,8 @@ use crate::{
     tokenization::{Token, TokenContent},
 };
 use astraea::tree::{HashedValue, Value};
-use lambda::builtins::{BUILTINS_NAMESPACE, UTF8_STRING_TYPE_NAME};
 use lambda::expressions::{Application, Expression, LambdaExpression};
-use lambda::types::{Name, NamespaceId, Type};
+use lambda::types::{Name, NamespaceId};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -109,15 +108,9 @@ async fn parse_expression_start<'t>(
             TokenContent::LeftParenthesis => Box::pin(parse_lambda(tokens, local_namespace)).await,
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
-            TokenContent::Quotes(content) => Ok(Expression::Literal(
-                Type::Named(Name::new(
-                    BUILTINS_NAMESPACE,
-                    UTF8_STRING_TYPE_NAME.to_string(),
-                )),
-                HashedValue::from(Arc::new(
-                    Value::from_string(&content).expect("It's too long. That's what she said."),
-                )),
-            )),
+            TokenContent::Quotes(content) => Ok(Expression::Literal(HashedValue::from(Arc::new(
+                Value::from_string(&content).expect("It's too long. That's what she said."),
+            )))),
             TokenContent::FatArrow => todo!(),
         },
         None => Err(ParserError::new(
@@ -191,7 +184,7 @@ pub async fn parse_entry_point_lambda<'t>(
     match entry_point_result {
         Ok(entry_point) => match &entry_point {
             Expression::Unit
-            | Expression::Literal(_, _)
+            | Expression::Literal(_)
             | Expression::Apply(_)
             | Expression::ReadVariable(_) => {
                 errors.push(CompilerError::new(

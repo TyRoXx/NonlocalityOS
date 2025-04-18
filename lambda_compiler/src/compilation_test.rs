@@ -2,9 +2,8 @@
 mod tests2 {
     use crate::compilation::{compile, CompilerError, CompilerOutput, SourceLocation};
     use astraea::tree::{HashedValue, Value};
-    use lambda::builtins::{BUILTINS_NAMESPACE, UTF8_STRING_TYPE_NAME};
     use lambda::expressions::{Application, Expression, LambdaExpression};
-    use lambda::types::{Name, NamespaceId, Type};
+    use lambda::types::{Name, NamespaceId};
     use std::sync::Arc;
 
     const TEST_NAMESPACE: NamespaceId =
@@ -54,13 +53,9 @@ mod tests2 {
             print_name,
             Expression::Apply(Box::new(Application::new(
                 print.clone(),
-                Expression::Literal(
-                    Type::Named(Name::new(
-                        BUILTINS_NAMESPACE,
-                        UTF8_STRING_TYPE_NAME.to_string(),
-                    )),
-                    HashedValue::from(Arc::new(Value::from_string("Hello, world!").unwrap())),
-                ),
+                Expression::Literal(HashedValue::from(Arc::new(
+                    Value::from_string("Hello, world!").unwrap(),
+                ))),
             ))),
         );
         let expected = CompilerOutput::new(Expression::Lambda(Box::new(entry_point)), Vec::new());
