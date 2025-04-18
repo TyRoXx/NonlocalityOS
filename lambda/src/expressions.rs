@@ -4,129 +4,98 @@ use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
     tree::ValueBlob,
 };
+use std::fmt::Display;
 use std::{
     collections::{BTreeMap, BTreeSet},
     pin::Pin,
     sync::Arc,
 };
 
-#[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Hash, Clone)]
-pub struct Application {
-    pub callee: Expression,
-    pub argument: Expression,
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
+pub enum Expression<E, V>
+where
+    E: Clone + Display,
+    V: Clone + Display,
+{
+    Unit,
+    Literal(V),
+    Apply { callee: E, argument: E },
+    ReadVariable(Name),
+    Lambda { parameter_name: Name, body: E },
+    Construct(Vec<E>),
 }
 
-impl Application {
-    pub fn new(callee: Expression, argument: Expression) -> Self {
-        Self { callee, argument }
+impl<E, V> Expression<E, V>
+where
+    E: Clone + Display,
+    V: Clone + Display,
+{
+    pub fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
+        match self {
+            Expression::Unit => write!(writer, "()"),
+            Expression::Literal(literal_value) => {
+                write!(writer, "literal({})", literal_value)
+            }
+            Expression::Apply { callee, argument } => {
+                write!(writer, "{}({})", callee, argument)
+            }
+            Expression::ReadVariable(name) => {
+                write!(writer, "{}", &name.key)
+            }
+            Expression::Lambda {
+                parameter_name,
+                body,
+            } => {
+                write!(writer, "({}) =>\n", parameter_name)?;
+                let indented = level + 1;
+                for _ in 0..(indented * 2) {
+                    write!(writer, " ")?;
+                }
+                write!(writer, "{}", body)
+            }
+            Expression::Construct(arguments) => {
+                write!(writer, "construct(")?;
+                for argument in arguments {
+                    write!(writer, "{}, ", argument)?;
+                }
+                write!(writer, ")")
+            }
+        }
     }
-}
 
-#[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Hash, Clone)]
-pub struct LambdaExpression {
-    pub parameter_name: Name,
-    pub body: Expression,
-}
+    pub fn to_string(&self) -> String {
+        let mut result = String::new();
+        self.print(&mut result, 0).unwrap();
+        result
+    }
 
-impl LambdaExpression {
-    pub fn new(parameter_name: Name, body: Expression) -> Self {
-        Self {
+    pub fn make_unit() -> Self {
+        Expression::Unit
+    }
+
+    pub fn make_literal(value: V) -> Self {
+        Expression::Literal(value)
+    }
+
+    pub fn make_apply(callee: E, argument: E) -> Self {
+        Expression::Apply { callee, argument }
+    }
+
+    pub fn make_lambda(parameter_name: Name, body: E) -> Self {
+        Expression::Lambda {
             parameter_name,
             body,
         }
     }
 
-    pub async fn deserialize(
-        value: &Value,
-        load_value: &(dyn LoadValue + Sync),
-    ) -> Option<LambdaExpression> {
-        if value.references().len() != 2 {
-            return None;
-        }
-        let parameter_name = match postcard::from_bytes(value.blob().as_slice()) {
-            Ok(name) => name,
-            Err(_) => return None,
-        };
-        let body = Expression::deserialize(
-            load_value
-                .load_value(&value.references()[1])
-                .await?
-                .hash()?
-                .value(),
-            load_value,
-        )
-        .await?;
-        Some(LambdaExpression::new(parameter_name, body))
-    }
-
-    pub async fn serialize(
-        &self,
-        storage: &(dyn StoreValue + Sync),
-    ) -> std::result::Result<HashedValue, StoreError> {
-        let parameter_name: Vec<u8> = match postcard::to_allocvec(&self.parameter_name) {
-            Ok(success) => success,
-            Err(_) => todo!(),
-        };
-        let blob = ValueBlob::try_from(bytes::Bytes::from_owner(parameter_name)).unwrap();
-        let body = self.body.serialize(storage).await?;
-        let references = vec![*body.digest()];
-        Ok(HashedValue::from(Arc::new(Value::new(blob, references))))
-    }
-
-    pub fn find_captured_names(&self) -> BTreeSet<Name> {
-        self.body.find_captured_names()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
-pub enum Expression {
-    Unit,
-    Literal(HashedValue),
-    Apply(Box<Application>),
-    ReadVariable(Name),
-    Lambda(Box<LambdaExpression>),
-    MakeValue(Vec<Expression>),
-}
-
-impl Expression {
-    pub fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
-        match self {
-            Expression::Unit => write!(writer, "()"),
-            Expression::Literal(literal_value) => {
-                write!(writer, "literal({})", literal_value.digest())
-            }
-            Expression::Apply(application) => {
-                application.callee.print(writer, level)?;
-                write!(writer, "(")?;
-                application.argument.print(writer, level)?;
-                write!(writer, ")")
-            }
-            Expression::ReadVariable(name) => {
-                write!(writer, "{}", &name.key)
-            }
-            Expression::Lambda(lambda_expression) => {
-                write!(writer, "({}) =>\n", &lambda_expression.parameter_name.key)?;
-                let indented = level + 1;
-                for _ in 0..(indented * 2) {
-                    write!(writer, " ")?;
-                }
-                lambda_expression.body.print(writer, level + 1)
-            }
-            Expression::MakeValue(arguments) => {
-                write!(writer, "make_value(")?;
-                for argument in arguments {
-                    argument.print(writer, level)?;
-                    write!(writer, ", ")?;
-                }
-                write!(writer, ")")
-            }
-        }
+    pub fn make_construct(arguments: Vec<E>) -> Self {
+        Expression::Construct(arguments)
     }
 
     pub async fn deserialize(
         _value: &Value,
         _load_value: &(dyn LoadValue + Sync),
-    ) -> Option<Expression> {
+    ) -> Option<Expression<E, V>> {
         todo!()
     }
 
@@ -136,121 +105,61 @@ impl Expression {
     ) -> std::result::Result<HashedValue, StoreError> {
         todo!()
     }
+}
 
-    pub fn to_string(&self) -> String {
-        let mut result = String::new();
-        self.print(&mut result, 0).unwrap();
-        result
-    }
-
-    pub fn find_captured_names(&self) -> BTreeSet<Name> {
-        match self {
-            Expression::Unit => BTreeSet::new(),
-            Expression::Literal(_blob_digest) => BTreeSet::new(),
-            Expression::Apply(application) => {
-                let mut result = application.argument.find_captured_names();
-                result.append(&mut application.argument.find_captured_names());
-                result
-            }
-            Expression::ReadVariable(name) => BTreeSet::from([name.clone()]),
-            Expression::Lambda(lambda_expression) => {
-                let mut result = lambda_expression.body.find_captured_names();
-                result.remove(&lambda_expression.parameter_name);
-                result
-            }
-            Expression::MakeValue(arguments) => {
-                let mut result = BTreeSet::new();
-                for argument in arguments {
-                    result.append(&mut argument.find_captured_names());
-                }
-                result
-            }
-        }
+impl<E, V> Display for Expression<E, V>
+where
+    E: Clone + Display,
+    V: Clone + Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.print(f, 0)
     }
 }
 
-#[derive(Debug)]
-pub struct Closure {
-    lambda: LambdaExpression,
-    captured_variables: BTreeMap<Name, Pointer>,
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
+pub struct DeepExpression(pub Expression<Arc<DeepExpression>, HashedValue>);
+
+impl Display for DeepExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
-impl Closure {
-    pub fn new(lambda: LambdaExpression, captured_variables: BTreeMap<Name, Pointer>) -> Self {
-        Self {
-            lambda,
-            captured_variables,
-        }
-    }
+pub type ShallowExpression = Expression<BlobDigest, BlobDigest>;
 
-    pub async fn deserialize(
-        value: &Value,
-        load_value: &(dyn LoadValue + Sync),
-    ) -> Option<Closure> {
-        if value.blob().len() != 0 {
-            return None;
-        }
-        if value.references().len() < 1 {
-            return None;
-        }
-        let lambda_expression = LambdaExpression::deserialize(
-            load_value
-                .load_value(&value.references()[0])
-                .await?
-                .hash()?
-                .value(),
-            load_value,
-        )
-        .await?;
-        let captured_variables = BTreeMap::new();
-        // TODO: deserialize the captured variables
-        Some(Closure::new(lambda_expression, captured_variables))
-    }
-
-    async fn serialize(
-        &self,
-        storage: &(dyn StoreValue + Sync),
-    ) -> std::result::Result<HashedValue, StoreError> {
-        let lambda = self.lambda.serialize(storage).await?;
-        Ok(HashedValue::from(Arc::new(Value::new(
-            ValueBlob::empty(),
-            vec![*lambda.digest()],
-        ))))
-    }
-
-    async fn call_method(
-        &self,
-        argument: &Pointer,
-        load_value: &(dyn LoadValue + Sync),
-        store_value: &(dyn StoreValue + Sync),
-        read_variable: &Arc<ReadVariable>,
-        read_literal: &ReadLiteral,
-    ) -> std::result::Result<Pointer, StoreError> {
-        let read_variable_in_body: Arc<ReadVariable> = Arc::new({
-            let parameter_name = self.lambda.parameter_name.clone();
-            let argument = argument.clone();
-            let captured_variables = self.captured_variables.clone();
-            let read_variable = read_variable.clone();
-            move |name: &Name| -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
-                if name == &parameter_name {
-                    let argument = argument.clone();
-                    Box::pin(core::future::ready(argument))
-                } else if let Some(found) = captured_variables.get(name) {
-                    Box::pin(core::future::ready(found.clone()))
-                } else {
-                    read_variable(name)
-                }
+async fn call_method(
+    parameter_name: &Name,
+    captured_variables: &BTreeMap<Name, Pointer>,
+    body: &DeepExpression,
+    argument: &Pointer,
+    load_value: &(dyn LoadValue + Sync),
+    store_value: &(dyn StoreValue + Sync),
+    read_variable: &Arc<ReadVariable>,
+) -> std::result::Result<Pointer, StoreError> {
+    let read_variable_in_body: Arc<ReadVariable> = Arc::new({
+        let parameter_name = parameter_name.clone();
+        let argument = argument.clone();
+        let captured_variables = captured_variables.clone();
+        let read_variable = read_variable.clone();
+        move |name: &Name| -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
+            if name == &parameter_name {
+                let argument = argument.clone();
+                Box::pin(core::future::ready(argument))
+            } else if let Some(found) = captured_variables.get(name) {
+                Box::pin(core::future::ready(found.clone()))
+            } else {
+                read_variable(name)
             }
-        });
-        Box::pin(evaluate(
-            &self.lambda.body,
-            load_value,
-            store_value,
-            &read_variable_in_body,
-            read_literal,
-        ))
-        .await
-    }
+        }
+    });
+    Box::pin(evaluate(
+        &body,
+        load_value,
+        store_value,
+        &read_variable_in_body,
+    ))
+    .await
 }
 
 #[derive(Debug, Clone)]
@@ -303,80 +212,76 @@ impl Pointer {
 pub type ReadVariable =
     dyn Fn(&Name) -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> + Send + Sync;
 
-pub type ReadLiteral = dyn Fn(HashedValue) -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>>
-    + Send
-    + Sync;
+fn find_captured_names(expression: &DeepExpression) -> BTreeSet<Name> {
+    match &expression.0 {
+        Expression::Unit => BTreeSet::new(),
+        Expression::Literal(_blob_digest) => BTreeSet::new(),
+        Expression::Apply { callee, argument } => {
+            let mut result = find_captured_names(callee);
+            result.append(&mut find_captured_names(argument));
+            result
+        }
+        Expression::ReadVariable(name) => BTreeSet::from([name.clone()]),
+        Expression::Lambda {
+            parameter_name,
+            body,
+        } => {
+            let mut result = find_captured_names(body);
+            result.remove(&parameter_name);
+            result
+        }
+        Expression::Construct(arguments) => {
+            let mut result = BTreeSet::new();
+            for argument in arguments {
+                result.append(&mut find_captured_names(argument));
+            }
+            result
+        }
+    }
+}
 
 pub async fn evaluate(
-    expression: &Expression,
+    expression: &DeepExpression,
     load_value: &(dyn LoadValue + Sync),
     store_value: &(dyn StoreValue + Sync),
     read_variable: &Arc<ReadVariable>,
-    read_literal: &ReadLiteral,
 ) -> std::result::Result<Pointer, StoreError> {
-    match expression {
+    match &expression.0 {
         Expression::Unit => return Ok(Pointer::Value(HashedValue::from(Arc::new(Value::empty())))),
-        Expression::Literal(literal_value) => {
-            let literal = read_literal(literal_value.clone()).await;
-            Ok(literal)
-        }
-        Expression::Apply(application) => {
-            let evaluated_callee = Box::pin(evaluate(
-                &application.callee,
+        Expression::Literal(literal_value) => Ok(Pointer::Value(literal_value.clone())),
+        Expression::Apply { callee, argument } => {
+            let evaluated_callee =
+                Box::pin(evaluate(callee, load_value, store_value, read_variable)).await?;
+            let evaluated_argument =
+                Box::pin(evaluate(argument, load_value, store_value, read_variable)).await?;
+            call_method(
+                parameter_name,
+                captured_variables,
+                body,
+                &evaluated_argument,
                 load_value,
                 store_value,
                 read_variable,
-                read_literal,
-            ))
-            .await?;
-            let evaluated_argument = Box::pin(evaluate(
-                &application.argument,
-                load_value,
-                store_value,
-                read_variable,
-                read_literal,
-            ))
-            .await?;
-            let callee_closure =
-                match Closure::deserialize(&evaluated_callee.serialize().value(), load_value).await
-                {
-                    Some(success) => success,
-                    None => todo!(),
-                };
-            let call_result = callee_closure
-                .call_method(
-                    &evaluated_argument,
-                    load_value,
-                    store_value,
-                    read_variable,
-                    read_literal,
-                )
-                .await;
-            call_result
+            )
+            .await
         }
         Expression::ReadVariable(name) => Ok(read_variable(&name).await),
-        Expression::Lambda(lambda_expression) => {
+        Expression::Lambda {
+            parameter_name,
+            body,
+        } => {
             let mut captured_variables = BTreeMap::new();
-            for captured_name in lambda_expression.find_captured_names().into_iter() {
+            for captured_name in find_captured_names(body).into_iter() {
                 let captured_value = read_variable(&captured_name).await;
                 captured_variables.insert(captured_name, captured_value);
             }
-            Closure::new((**lambda_expression).clone(), captured_variables)
-                .serialize(store_value)
-                .await
-                .map(|value| Pointer::Value(value))
+            todo!()
         }
-        Expression::MakeValue(arguments) => {
+        Expression::Construct(arguments) => {
             let mut evaluated_arguments = Vec::new();
             for argument in arguments {
-                let evaluated_argument = Box::pin(evaluate(
-                    argument,
-                    load_value,
-                    store_value,
-                    read_variable,
-                    read_literal,
-                ))
-                .await?;
+                let evaluated_argument =
+                    Box::pin(evaluate(argument, load_value, store_value, read_variable)).await?;
                 evaluated_arguments.push(*evaluated_argument.serialize().digest());
             }
             Ok(Pointer::Value(HashedValue::from(Arc::new(Value::new(

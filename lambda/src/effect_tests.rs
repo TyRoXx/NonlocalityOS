@@ -1,5 +1,5 @@
 use crate::{
-    expressions::{evaluate, Application, Expression, LambdaExpression, Pointer, ReadVariable},
+    expressions::{evaluate, DeepExpression, Expression, Pointer, ReadVariable},
     types::{Name, NamespaceId, Type, TypedExpression},
 };
 use astraea::{
@@ -25,7 +25,9 @@ async fn effect() {
     };
     let first_console_output_value = Arc::new(first_console_output.to_value());
     let first_console_output_expression = TypedExpression::new(
-        Expression::Literal(HashedValue::from(first_console_output_value.clone())),
+        DeepExpression(Expression::make_literal(HashedValue::from(
+            first_console_output_value.clone(),
+        ))),
         console_output_type.clone(),
     );
 
@@ -39,34 +41,37 @@ async fn effect() {
     };
     let second_console_output_value = Arc::new(second_console_output.to_value());
     let second_console_output_expression = TypedExpression::new(
-        Expression::Literal(HashedValue::from(second_console_output_value.clone())),
+        DeepExpression(Expression::make_literal(HashedValue::from(
+            second_console_output_value.clone(),
+        ))),
         console_output_type.clone(),
     );
 
     let and_then_lambda_parameter_name = Name::new(namespace, "previous_result".to_string());
-    let and_then_lambda_expression = Expression::Lambda(Box::new(LambdaExpression::new(
+    let and_then_lambda_expression = DeepExpression(Expression::make_lambda(
         and_then_lambda_parameter_name.clone(),
-        second_console_output_expression.expression,
-    )));
+        Arc::new(second_console_output_expression.expression),
+    ));
 
     let and_then_name = Name::new(namespace, "AndThen".to_string());
     let and_then_type = Type::Named(and_then_name);
     let construct_and_then_expression = TypedExpression::new(
-        Expression::MakeValue(vec![
-            first_console_output_expression.expression,
-            and_then_lambda_expression,
-        ]),
+        DeepExpression(Expression::make_construct(vec![
+            Arc::new(first_console_output_expression.expression),
+            Arc::new(and_then_lambda_expression),
+        ])),
         and_then_type.clone(),
     );
 
     let main_lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
-    let main_lambda_expression = Expression::Lambda(Box::new(LambdaExpression::new(
+    let main_lambda_expression = DeepExpression(Expression::make_lambda(
         main_lambda_parameter_name.clone(),
-        construct_and_then_expression.expression,
-    )));
+        Arc::new(construct_and_then_expression.expression),
+    ));
     {
         let mut program_as_string = String::new();
         main_lambda_expression
+            .0
             .print(&mut program_as_string, 0)
             .unwrap();
         assert_eq!("(unused_arg) =>\n  make_value(literal(eabe5159d5b6c20554d74248e4f7c32021cbec092e1ce1221e90d2454e95c6e57b3524a5089a6dcbf7084f3389d61cbaf32e98559fe0684c2eb4883dcac1a322), (previous_result) =>\n    literal(ConsoleOutput, 2bdfb1e268c1fa3859cc589789da27b302a76cbeb278018dffe2706cc497a9f8a3069085871b6d40fd35b0c463ad29a2dc68f94daa77a003ef462b8c71c20d4f), )",
@@ -77,33 +82,23 @@ async fn effect() {
             todo!()
         },
     );
-    let read_literal = {
-        move |value: HashedValue| -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
-            Box::pin(async move { Pointer::Value(value) })
-        }
-    };
     let main_function = evaluate(
         &main_lambda_expression,
         &*storage,
         &*storage,
         &read_variable,
-        &read_literal,
     )
     .await
     .unwrap();
-    let call_main = Expression::Apply(Box::new(Application::new(
-        Expression::Literal(main_function.serialize()),
-        Expression::Unit,
-    )));
-    let main_result = evaluate(
-        &call_main,
-        &*storage,
-        &*storage,
-        &read_variable,
-        &read_literal,
-    )
-    .await
-    .unwrap();
+    let call_main = DeepExpression(Expression::make_apply(
+        Arc::new(DeepExpression(Expression::make_literal(
+            main_function.serialize(),
+        ))),
+        Arc::new(DeepExpression(Expression::make_unit())),
+    ));
+    let main_result = evaluate(&call_main, &*storage, &*storage, &read_variable)
+        .await
+        .unwrap();
     match &main_result {
         Pointer::InMemoryValue(value) => value,
         _ => panic!("Expected an InMemoryValue"),

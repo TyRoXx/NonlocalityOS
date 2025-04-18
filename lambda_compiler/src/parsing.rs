@@ -3,7 +3,7 @@ use crate::{
     tokenization::{Token, TokenContent},
 };
 use astraea::tree::{HashedValue, Value};
-use lambda::expressions::{Application, Expression, LambdaExpression};
+use lambda::expressions::{DeepExpression, Expression};
 use lambda::types::{Name, NamespaceId};
 use std::sync::Arc;
 
@@ -96,21 +96,22 @@ fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>
 async fn parse_expression_start<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
-) -> ParserResult<Expression> {
+) -> ParserResult<DeepExpression> {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
-            TokenContent::Identifier(identifier) => Ok(Expression::ReadVariable(Name::new(
-                *local_namespace,
-                identifier.clone(),
+            TokenContent::Identifier(identifier) => Ok(DeepExpression(Expression::ReadVariable(
+                Name::new(*local_namespace, identifier.clone()),
             ))),
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => Box::pin(parse_lambda(tokens, local_namespace)).await,
             TokenContent::RightParenthesis => todo!(),
             TokenContent::Dot => todo!(),
-            TokenContent::Quotes(content) => Ok(Expression::Literal(HashedValue::from(Arc::new(
-                Value::from_string(&content).expect("It's too long. That's what she said."),
-            )))),
+            TokenContent::Quotes(content) => Ok(DeepExpression(Expression::Literal(
+                HashedValue::from(Arc::new(
+                    Value::from_string(&content).expect("It's too long. That's what she said."),
+                )),
+            ))),
             TokenContent::FatArrow => todo!(),
         },
         None => Err(ParserError::new(
@@ -122,7 +123,7 @@ async fn parse_expression_start<'t>(
 pub async fn parse_expression<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
-) -> ParserResult<Expression> {
+) -> ParserResult<DeepExpression> {
     let start = parse_expression_start(tokens, local_namespace).await?;
     match peek_next_non_whitespace_token(tokens) {
         Some(more) => match &more.content {
@@ -133,9 +134,10 @@ pub async fn parse_expression<'t>(
                 tokens.next();
                 let argument = Box::pin(parse_expression(tokens, local_namespace)).await?;
                 expect_right_parenthesis(tokens);
-                Ok(Expression::Apply(Box::new(Application::new(
-                    start, argument,
-                ))))
+                Ok(DeepExpression(Expression::make_apply(
+                    Arc::new(start),
+                    Arc::new(argument),
+                )))
             }
             TokenContent::RightParenthesis => Ok(start),
             TokenContent::Dot => todo!(),
@@ -149,8 +151,8 @@ pub async fn parse_expression<'t>(
 async fn parse_lambda<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
-) -> ParserResult<Expression> {
-    let parameter_name = Name::new(
+) -> ParserResult<DeepExpression> {
+    let parameter_name: Name = Name::new(
         *local_namespace,
         match pop_next_non_whitespace_token(tokens) {
             Some(non_whitespace) => match &non_whitespace.content {
@@ -169,10 +171,10 @@ async fn parse_lambda<'t>(
     expect_right_parenthesis(tokens);
     expect_fat_arrow(tokens);
     let body = parse_expression(tokens, local_namespace).await?;
-    Ok(Expression::Lambda(Box::new(LambdaExpression::new(
+    Ok(DeepExpression(Expression::make_lambda(
         parameter_name,
-        body,
-    ))))
+        Arc::new(body),
+    )))
 }
 
 pub async fn parse_entry_point_lambda<'t>(
@@ -182,19 +184,25 @@ pub async fn parse_entry_point_lambda<'t>(
     let mut errors = Vec::new();
     let entry_point_result = parse_expression(tokens, local_namespace).await;
     match entry_point_result {
-        Ok(entry_point) => match &entry_point {
+        Ok(entry_point) => match &entry_point.0 {
             Expression::Unit
             | Expression::Literal(_)
-            | Expression::Apply(_)
+            | Expression::Apply {
+                callee: _,
+                argument: _,
+            }
             | Expression::ReadVariable(_) => {
                 errors.push(CompilerError::new(
                     "The entry point is expected to be a lambda expression.".to_string(),
                     SourceLocation::new(0, 0),
                 ));
-                CompilerOutput::new(Expression::Unit, errors)
+                CompilerOutput::new(DeepExpression(Expression::Unit), errors)
             }
-            Expression::Lambda(_) => CompilerOutput::new(entry_point, errors),
-            Expression::MakeValue(_arguments) => {
+            Expression::Lambda {
+                parameter_name: _,
+                body: _,
+            } => CompilerOutput::new(entry_point, errors),
+            Expression::Construct(_arguments) => {
                 todo!()
             }
         },
@@ -203,7 +211,7 @@ pub async fn parse_entry_point_lambda<'t>(
                 format!("Parser error: {}", &error),
                 SourceLocation::new(0, 0),
             ));
-            CompilerOutput::new(Expression::Unit, errors)
+            CompilerOutput::new(DeepExpression(Expression::Unit), errors)
         }
     }
 }

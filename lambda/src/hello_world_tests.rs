@@ -1,5 +1,5 @@
 use crate::{
-    expressions::{evaluate, Application, Expression, LambdaExpression, Pointer, ReadVariable},
+    expressions::{evaluate, DeepExpression, Expression, Pointer, ReadVariable},
     types::{Name, NamespaceId, Type, TypedExpression},
 };
 use astraea::{
@@ -24,17 +24,22 @@ async fn hello_world() {
     };
     let console_output_value = Arc::new(console_output.to_value());
     let console_output_expression = TypedExpression::new(
-        Expression::Literal(HashedValue::from(console_output_value.clone())),
+        DeepExpression(Expression::make_literal(HashedValue::from(
+            console_output_value.clone(),
+        ))),
         console_output_type.clone(),
     );
     let lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
-    let lambda_expression = Expression::Lambda(Box::new(LambdaExpression::new(
+    let lambda_expression = DeepExpression(Expression::make_lambda(
         lambda_parameter_name.clone(),
-        console_output_expression.expression,
-    )));
+        Arc::new(console_output_expression.expression),
+    ));
     {
         let mut program_as_string = String::new();
-        lambda_expression.print(&mut program_as_string, 0).unwrap();
+        lambda_expression
+            .0
+            .print(&mut program_as_string, 0)
+            .unwrap();
         assert_eq!("(unused_arg) =>\n  literal(09e593654f7d4be82ed8ef897a98f0c23c45d5b49ec58a5c8e9df679bf204e0bd2d7b184002cf1348726dfc5ae6d25a5ce57b36177839f474388486aa27f5ece)", program_as_string.as_str());
     }
     let read_variable: Arc<ReadVariable> = Arc::new(
@@ -42,33 +47,18 @@ async fn hello_world() {
             todo!()
         },
     );
-    let read_literal = {
-        move |value: HashedValue| -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
-            Box::pin(async move { Pointer::Value(value) })
-        }
-    };
-    let main_function = evaluate(
-        &lambda_expression,
-        &*storage,
-        &*storage,
-        &read_variable,
-        &read_literal,
-    )
-    .await
-    .unwrap();
-    let call_main = Expression::Apply(Box::new(Application::new(
-        Expression::Literal(main_function.serialize()),
-        Expression::Unit,
-    )));
-    let main_result = evaluate(
-        &call_main,
-        &*storage,
-        &*storage,
-        &read_variable,
-        &read_literal,
-    )
-    .await
-    .unwrap();
+    let main_function = evaluate(&lambda_expression, &*storage, &*storage, &read_variable)
+        .await
+        .unwrap();
+    let call_main = DeepExpression(Expression::make_apply(
+        Arc::new(DeepExpression(Expression::make_literal(
+            main_function.serialize(),
+        ))),
+        Arc::new(DeepExpression(Expression::make_unit())),
+    ));
+    let main_result = evaluate(&call_main, &*storage, &*storage, &read_variable)
+        .await
+        .unwrap();
     let serialized_result = match main_result {
         Pointer::Value(value) => value,
         _ => panic!("Expected a Value"),

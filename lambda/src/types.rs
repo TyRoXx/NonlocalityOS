@@ -1,10 +1,10 @@
-use crate::expressions::Expression;
+use crate::expressions::{DeepExpression, Expression};
 use astraea::{
     storage::LoadValue,
     tree::{BlobDigest, Value},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Serialize, Deserialize)]
@@ -13,6 +13,12 @@ pub struct NamespaceId(pub [u8; 16]);
 impl NamespaceId {
     pub fn random() -> Self {
         Self(Uuid::new_v4().into_bytes())
+    }
+}
+
+impl Display for NamespaceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Uuid::from_bytes(self.0))
     }
 }
 
@@ -25,6 +31,12 @@ pub struct Name {
 impl Name {
     pub fn new(namespace: NamespaceId, key: String) -> Self {
         Self { namespace, key }
+    }
+}
+
+impl Display for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.namespace, self.key)
     }
 }
 
@@ -53,20 +65,20 @@ impl Interface {
 
 #[derive(Debug, PartialEq, PartialOrd, Hash, Clone)]
 pub struct TypedExpression {
-    pub expression: Expression,
+    pub expression: DeepExpression,
     pub type_: Type,
 }
 
 impl TypedExpression {
-    pub fn new(expression: Expression, type_: Type) -> Self {
+    pub fn new(expression: DeepExpression, type_: Type) -> Self {
         Self { expression, type_ }
     }
 
     pub fn unit() -> Self {
-        Self::new(Expression::Unit, Type::Unit)
+        Self::new(DeepExpression(Expression::Unit), Type::Unit)
     }
 
-    pub fn convert_into(self, type_: &Type) -> Expression {
+    pub fn convert_into(self, type_: &Type) -> DeepExpression {
         if &self.type_ == type_ {
             self.expression
         } else {

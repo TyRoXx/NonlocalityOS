@@ -2,7 +2,7 @@ use crate::{
     parsing::{parse_entry_point_lambda, pop_next_non_whitespace_token},
     tokenization::tokenize_default_syntax,
 };
-use lambda::{expressions::Expression, types::NamespaceId};
+use lambda::{expressions::DeepExpression, types::NamespaceId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -31,12 +31,12 @@ impl CompilerError {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct CompilerOutput {
-    pub entry_point: Expression,
+    pub entry_point: DeepExpression,
     pub errors: Vec<CompilerError>,
 }
 
 impl CompilerOutput {
-    pub fn new(entry_point: Expression, errors: Vec<CompilerError>) -> CompilerOutput {
+    pub fn new(entry_point: DeepExpression, errors: Vec<CompilerError>) -> CompilerOutput {
         CompilerOutput {
             entry_point: entry_point,
             errors: errors,
