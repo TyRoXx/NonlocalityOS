@@ -40,7 +40,7 @@ async fn hello_world() {
             .0
             .print(&mut program_as_string, 0)
             .unwrap();
-        assert_eq!("(unused_arg) =>\n  literal(09e593654f7d4be82ed8ef897a98f0c23c45d5b49ec58a5c8e9df679bf204e0bd2d7b184002cf1348726dfc5ae6d25a5ce57b36177839f474388486aa27f5ece)", program_as_string.as_str());
+        assert_eq!("(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.unused_arg) =>\n  literal(09e593654f7d4be82ed8ef897a98f0c23c45d5b49ec58a5c8e9df679bf204e0bd2d7b184002cf1348726dfc5ae6d25a5ce57b36177839f474388486aa27f5ece)", program_as_string.as_str());
     }
     let read_variable: Arc<ReadVariable> = Arc::new(
         move |_name: &Name| -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
