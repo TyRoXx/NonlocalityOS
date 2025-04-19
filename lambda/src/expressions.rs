@@ -1,5 +1,5 @@
 use crate::types::Name;
-use astraea::tree::{BlobDigest, HashedValue, ReferenceIndex, Value};
+use astraea::tree::{BlobDigest, HashedValue, ReferenceIndex, Value, ValueDeserializationError};
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
     tree::ValueBlob,
@@ -208,7 +208,7 @@ pub async fn deserialize_shallow(
 }
 
 pub async fn deserialize_recursively(
-    _value: &Value,
+    _root: &BlobDigest,
     _load_value: &(dyn LoadValue + Sync),
 ) -> Option<DeepExpression> {
     todo!()
@@ -266,6 +266,21 @@ pub struct Closure {
     captured_variables: BTreeMap<Name, BlobDigest>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClosureBlob {
+    parameter_name: Name,
+    captured_variables: BTreeMap<Name, ReferenceIndex>,
+}
+
+impl ClosureBlob {
+    pub fn new(parameter_name: Name, captured_variables: BTreeMap<Name, ReferenceIndex>) -> Self {
+        Self {
+            parameter_name,
+            captured_variables,
+        }
+    }
+}
+
 impl Closure {
     pub fn new(
         parameter_name: Name,
@@ -282,19 +297,48 @@ impl Closure {
     pub async fn serialize(
         &self,
         store_value: &(dyn StoreValue + Sync),
-    ) -> Result<HashedValue, StoreError> {
-        // TODO: parameter_name, captured_variables
-        Ok(HashedValue::from(Arc::new(Value::new(
-            ValueBlob::empty(),
-            vec![serialize_recursively(&self.body, store_value).await?],
-        ))))
+    ) -> Result<BlobDigest, StoreError> {
+        let mut references = vec![serialize_recursively(&self.body, store_value).await?];
+        let mut captured_variables = BTreeMap::new();
+        for (name, reference) in self.captured_variables.iter() {
+            let index = ReferenceIndex(references.len() as u64);
+            captured_variables.insert(name.clone(), index);
+            references.push(reference.clone());
+        }
+        let closure_blob = ClosureBlob::new(self.parameter_name.clone(), captured_variables);
+        store_value
+            .store_value(&HashedValue::from(Arc::new(Value::new(
+                ValueBlob::try_from(bytes::Bytes::from_owner(
+                  postcard::to_allocvec(&closure_blob).unwrap(/*TODO*/))).unwrap(/*TODO*/),
+                references,
+            ))))
+            .await
     }
 
     pub async fn deserialize(
         root: &BlobDigest,
         load_value: &(dyn LoadValue + Sync),
-    ) -> Option<Closure> {
-        todo!()
+    ) -> Result<Closure, ValueDeserializationError> {
+        let root_value = match load_value.load_value(root).await {
+            Some(success) => success,
+            None => return Err(ValueDeserializationError::BlobUnavailable(root.clone())),
+        };
+        let closure_blob: ClosureBlob = match root_value.value().to_object() {
+            Ok(success) => success,
+            Err(error) => return Err(error),
+        };
+        let body_reference = &root_value.value().references()[0];
+        let body = deserialize_recursively(body_reference, load_value).await?;
+        let mut captured_variables = BTreeMap::new();
+        for (name, index) in closure_blob.captured_variables {
+            let reference = &root_value.value().references()[index.0 as usize];
+            captured_variables.insert(name, reference.clone());
+        }
+        Ok(Closure::new(
+            closure_blob.parameter_name,
+            Arc::new(body),
+            captured_variables,
+        ))
     }
 }
 
@@ -455,7 +499,13 @@ pub async fn evaluate(
             }
             let closure = Closure::new(parameter_name.clone(), body.clone(), captured_variables);
             let serialized = closure.serialize(store_value).await?;
-            Ok(serialized.digest().clone())
+            if Closure::deserialize(&serialized, load_value)
+                .await
+                .is_none()
+            {
+                panic!()
+            }
+            Ok(serialized)
         }
         Expression::Construct(arguments) => {
             let mut evaluated_arguments = Vec::new();

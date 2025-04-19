@@ -164,6 +164,7 @@ impl std::error::Error for ValueSerializationError {}
 pub enum ValueDeserializationError {
     ReferencesNotAllowed,
     Postcard(postcard::Error),
+    BlobUnavailable(BlobDigest),
 }
 
 impl std::fmt::Display for ValueDeserializationError {
