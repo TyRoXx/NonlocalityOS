@@ -56,9 +56,11 @@ mod tests2 {
             print_name,
             Arc::new(DeepExpression(Expression::make_apply(
                 print.clone(),
-                Arc::new(DeepExpression(Expression::make_literal(HashedValue::from(
-                    Arc::new(Value::from_string("Hello, world!").unwrap()),
-                )))),
+                Arc::new(DeepExpression(Expression::make_literal(
+                    HashedValue::from(Arc::new(Value::from_string("Hello, world!").unwrap()))
+                        .digest()
+                        .clone(),
+                ))),
             ))),
         ));
         let expected = CompilerOutput::new(entry_point, Vec::new());

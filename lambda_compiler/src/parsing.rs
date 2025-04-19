@@ -110,7 +110,9 @@ async fn parse_expression_start<'t>(
             TokenContent::Quotes(content) => Ok(DeepExpression(Expression::Literal(
                 HashedValue::from(Arc::new(
                     Value::from_string(&content).expect("It's too long. That's what she said."),
-                )),
+                ))
+                .digest()
+                .clone(),
             ))),
             TokenContent::FatArrow => todo!(),
         },

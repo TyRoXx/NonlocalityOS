@@ -1,10 +1,10 @@
 use crate::{
-    expressions::{evaluate, DeepExpression, Expression, Pointer, ReadVariable},
+    expressions::{evaluate, DeepExpression, Expression,  ReadVariable},
     types::{Name, NamespaceId, Type, TypedExpression},
 };
 use astraea::{
     storage::{InMemoryValueStorage, StoreValue},
-    tree::{HashedValue, Value},
+    tree::{BlobDigest, HashedValue, Value},
 };
 use std::{pin::Pin, sync::Arc};
 
@@ -25,9 +25,12 @@ async fn effect() {
     };
     let first_console_output_value = Arc::new(first_console_output.to_value());
     let first_console_output_expression = TypedExpression::new(
-        DeepExpression(Expression::make_literal(HashedValue::from(
-            first_console_output_value.clone(),
-        ))),
+        DeepExpression(Expression::make_literal(
+            storage
+                .store_value(&HashedValue::from(first_console_output_value.clone()))
+                .await
+                .unwrap(),
+        )),
         console_output_type.clone(),
     );
 
@@ -41,9 +44,12 @@ async fn effect() {
     };
     let second_console_output_value = Arc::new(second_console_output.to_value());
     let second_console_output_expression = TypedExpression::new(
-        DeepExpression(Expression::make_literal(HashedValue::from(
-            second_console_output_value.clone(),
-        ))),
+        DeepExpression(Expression::make_literal(
+            storage
+                .store_value(&HashedValue::from(second_console_output_value.clone()))
+                .await
+                .unwrap(),
+        )),
         console_output_type.clone(),
     );
 
@@ -78,7 +84,7 @@ async fn effect() {
             program_as_string.as_str());
     }
     let read_variable: Arc<ReadVariable> = Arc::new(
-        move |_name: &Name| -> Pin<Box<dyn core::future::Future<Output = Pointer> + Send>> {
+        move |_name: &Name| -> Pin<Box<dyn core::future::Future<Output = BlobDigest> + Send>> {
             todo!()
         },
     );
@@ -91,16 +97,11 @@ async fn effect() {
     .await
     .unwrap();
     let call_main = DeepExpression(Expression::make_apply(
-        Arc::new(DeepExpression(Expression::make_literal(
-            main_function.serialize(),
-        ))),
+        Arc::new(DeepExpression(Expression::make_literal(main_function))),
         Arc::new(DeepExpression(Expression::make_unit())),
     ));
     let main_result = evaluate(&call_main, &*storage, &*storage, &read_variable)
         .await
         .unwrap();
-    match &main_result {
-        Pointer::InMemoryValue(value) => value,
-        _ => panic!("Expected an InMemoryValue"),
-    };
+    assert_eq!("", format!("{}", &main_result))
 }
