@@ -1,4 +1,4 @@
-use crate::types::Name;
+use crate::name::Name;
 use astraea::tree::{BlobDigest, HashedValue, ReferenceIndex, Value, ValueDeserializationError};
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},

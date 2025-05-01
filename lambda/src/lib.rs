@@ -5,7 +5,7 @@ mod builtins_test;
 pub mod expressions;
 mod expressions_tests;
 pub mod standard_library;
-pub mod types;
+pub mod name;
 
 #[cfg(test)]
 mod hello_world_tests;

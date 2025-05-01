@@ -4,7 +4,7 @@ use crate::{
 };
 use astraea::tree::{HashedValue, Value};
 use lambda::expressions::{DeepExpression, Expression};
-use lambda::types::{Name, NamespaceId};
+use lambda::name::{Name, NamespaceId};
 use std::sync::Arc;
 
 #[derive(Debug)]

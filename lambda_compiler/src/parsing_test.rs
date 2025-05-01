@@ -4,7 +4,7 @@ mod tests {
 
     use crate::{parsing::parse_expression, tokenization::tokenize_default_syntax};
     use lambda::expressions::{DeepExpression, Expression};
-    use lambda::types::{Name, NamespaceId};
+    use lambda::name::{Name, NamespaceId};
 
     const TEST_NAMESPACE: NamespaceId =
         NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);

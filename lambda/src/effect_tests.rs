@@ -1,6 +1,6 @@
 use crate::{
     expressions::{evaluate, DeepExpression, Expression, PrintExpression, ReadVariable},
-    types::{Name, NamespaceId},
+    name::{Name, NamespaceId},
 };
 use astraea::{
     storage::{InMemoryValueStorage, StoreValue},
