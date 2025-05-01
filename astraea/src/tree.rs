@@ -211,18 +211,6 @@ impl Value {
         }
     }
 
-    pub fn from_object<S: Serialize>(object: &S) -> Result<Value, ValueSerializationError> {
-        let blob = match postcard::to_allocvec(object) {
-            Ok(success) => success,
-            Err(error) => return Err(ValueSerializationError::Postcard(error)),
-        };
-        let value_blob = match ValueBlob::try_from(bytes::Bytes::from(blob)) {
-            Some(success) => success,
-            None => return Err(ValueSerializationError::BlobTooLong),
-        };
-        Ok(Value::new(value_blob, Vec::new()))
-    }
-
     pub fn to_object<'t, 'u, D>(&'t self) -> Result<D, ValueDeserializationError>
     where
         D: Deserialize<'u>,

@@ -1,7 +1,6 @@
 use crate::tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH};
 use async_trait::async_trait;
 use cached::Cached;
-use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -27,20 +26,6 @@ impl std::error::Error for StoreError {}
 pub trait StoreValue {
     async fn store_value(&self, value: &HashedValue)
         -> std::result::Result<BlobDigest, StoreError>;
-}
-
-pub async fn store_object<S: Serialize>(
-    storage: &dyn StoreValue,
-    object: &S,
-) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
-    let serialized = match Value::from_object(object) {
-        Ok(success) => success,
-        Err(error) => return Err(Box::new(error)),
-    };
-    Ok(storage
-        .store_value(&HashedValue::from(Arc::new(serialized)))
-        .await
-        .map_err(|error| Box::new(error))?)
 }
 
 #[derive(Debug, Clone)]
