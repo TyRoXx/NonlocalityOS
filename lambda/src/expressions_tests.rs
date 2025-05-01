@@ -1,9 +1,22 @@
 use crate::{
-    expressions::{DeepExpression, Expression, PrintExpression, ShallowExpression},
+    expressions::{
+        to_reference_expression, DeepExpression, Expression, PrintExpression, ReferenceExpression,
+        ShallowExpression,
+    },
     name::{Name, NamespaceId},
 };
 use astraea::tree::{BlobDigest, ReferenceIndex};
 use std::sync::Arc;
+
+#[test_log::test(tokio::test)]
+async fn test_to_reference_expression_read_variable() {
+    let name = Name::new(NamespaceId([0xff; 16]), "name".to_string());
+    let read_variable = ShallowExpression::ReadVariable(name.clone());
+    let (reference_expression, references) = to_reference_expression(&read_variable);
+    let expected_reference_expression = ReferenceExpression::ReadVariable(name);
+    assert_eq!(reference_expression, expected_reference_expression);
+    assert_eq!(references.len(), 0);
+}
 
 #[test_log::test(tokio::test)]
 async fn print_all_expression_types() {
