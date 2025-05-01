@@ -1,4 +1,3 @@
-use crate::expressions::{DeepExpression, Expression};
 use astraea::{
     storage::LoadValue,
     tree::{BlobDigest, Value},
@@ -60,30 +59,6 @@ pub struct Interface {
 impl Interface {
     pub fn new(methods: BTreeMap<Name, Signature>) -> Self {
         Self { methods }
-    }
-}
-
-#[derive(Debug, PartialEq, PartialOrd, Hash, Clone)]
-pub struct TypedExpression {
-    pub expression: DeepExpression,
-    pub type_: Type,
-}
-
-impl TypedExpression {
-    pub fn new(expression: DeepExpression, type_: Type) -> Self {
-        Self { expression, type_ }
-    }
-
-    pub fn unit() -> Self {
-        Self::new(DeepExpression(Expression::Unit), Type::Unit)
-    }
-
-    pub fn convert_into(self, type_: &Type) -> DeepExpression {
-        if &self.type_ == type_ {
-            self.expression
-        } else {
-            todo!()
-        }
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::{
     expressions::{evaluate, DeepExpression, Expression, PrintExpression, ReadVariable},
-    types::{Name, NamespaceId, Type, TypedExpression},
+    types::{Name, NamespaceId},
 };
 use astraea::{
     storage::{InMemoryValueStorage, StoreValue},
@@ -12,8 +12,6 @@ use std::{pin::Pin, sync::Arc};
 async fn effect() {
     let storage = Arc::new(InMemoryValueStorage::empty());
     let namespace = NamespaceId([42; 16]);
-    let console_output_name = Name::new(namespace, "ConsoleOutput".to_string());
-    let console_output_type = Type::Named(console_output_name);
 
     let first_string = Arc::new(Value::from_string("Hello, ").unwrap());
     let first_string_ref = storage
@@ -24,15 +22,12 @@ async fn effect() {
         message: first_string_ref,
     };
     let first_console_output_value = Arc::new(first_console_output.to_value());
-    let first_console_output_expression = TypedExpression::new(
-        DeepExpression(Expression::make_literal(
-            storage
-                .store_value(&HashedValue::from(first_console_output_value.clone()))
-                .await
-                .unwrap(),
-        )),
-        console_output_type.clone(),
-    );
+    let first_console_output_expression = DeepExpression(Expression::make_literal(
+        storage
+            .store_value(&HashedValue::from(first_console_output_value.clone()))
+            .await
+            .unwrap(),
+    ));
 
     let second_string = Arc::new(Value::from_string(" world!\n").unwrap());
     let second_string_ref = storage
@@ -43,36 +38,28 @@ async fn effect() {
         message: second_string_ref,
     };
     let second_console_output_value = Arc::new(second_console_output.to_value());
-    let second_console_output_expression = TypedExpression::new(
-        DeepExpression(Expression::make_literal(
-            storage
-                .store_value(&HashedValue::from(second_console_output_value.clone()))
-                .await
-                .unwrap(),
-        )),
-        console_output_type.clone(),
-    );
+    let second_console_output_expression = DeepExpression(Expression::make_literal(
+        storage
+            .store_value(&HashedValue::from(second_console_output_value.clone()))
+            .await
+            .unwrap(),
+    ));
 
     let and_then_lambda_parameter_name = Name::new(namespace, "previous_result".to_string());
     let and_then_lambda_expression = DeepExpression(Expression::make_lambda(
         and_then_lambda_parameter_name.clone(),
-        Arc::new(second_console_output_expression.expression),
+        Arc::new(second_console_output_expression),
     ));
 
-    let and_then_name = Name::new(namespace, "AndThen".to_string());
-    let and_then_type = Type::Named(and_then_name);
-    let construct_and_then_expression = TypedExpression::new(
-        DeepExpression(Expression::make_construct(vec![
-            Arc::new(first_console_output_expression.expression),
-            Arc::new(and_then_lambda_expression),
-        ])),
-        and_then_type.clone(),
-    );
+    let construct_and_then_expression = DeepExpression(Expression::make_construct(vec![
+        Arc::new(first_console_output_expression),
+        Arc::new(and_then_lambda_expression),
+    ]));
 
     let main_lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
     let main_lambda_expression = DeepExpression(Expression::make_lambda(
         main_lambda_parameter_name.clone(),
-        Arc::new(construct_and_then_expression.expression),
+        Arc::new(construct_and_then_expression),
     ));
     {
         let mut program_as_string = String::new();
