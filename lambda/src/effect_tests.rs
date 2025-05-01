@@ -1,5 +1,8 @@
 use crate::{
-    expressions::{evaluate, DeepExpression, Expression, PrintExpression, ReadVariable},
+    expressions::{
+        deserialize_recursively, evaluate, serialize_recursively, DeepExpression, Expression,
+        PrintExpression, ReadVariable,
+    },
     name::{Name, NamespaceId},
 };
 use astraea::{
@@ -95,8 +98,29 @@ async fn effect() {
                 .unwrap(),
         ))),
     ));
+
+    // verify that this complex expression roundtrips through serialization and deserialization correctly
+    let call_main_digest = serialize_recursively(&call_main, &*storage).await.unwrap();
+    let deserialized_call_main = deserialize_recursively(&call_main_digest, &*storage)
+        .await
+        .unwrap();
+    assert_eq!(call_main, deserialized_call_main);
+    assert_eq!(
+        concat!(
+            "fea4987e02d4cb0222418c4656c36f94944bc5fec9bf892253ad54f00a7d80c7",
+            "a35903b7593535d3baab40574eb0500fba02e4617a189d09c492638bb292a3bd"
+        ),
+        format!("{}", &call_main_digest)
+    );
+
     let main_result = evaluate(&call_main, &*storage, &*storage, &read_variable)
         .await
         .unwrap();
-    assert_eq!("fea4987e02d4cb0222418c4656c36f94944bc5fec9bf892253ad54f00a7d80c7a35903b7593535d3baab40574eb0500fba02e4617a189d09c492638bb292a3bd", format!("{}", &main_result))
+    assert_eq!(
+        concat!(
+            "07d6fedd9e6db23e540fb7b0213e425c62a6736172a8b77c868887f5ddd9a178",
+            "e1e85842741bcdd68d9b3e97a1380f0053c7df13dad7a1a2c8bd86012bc17433"
+        ),
+        format!("{}", &main_result)
+    );
 }
