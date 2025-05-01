@@ -210,13 +210,6 @@ impl Value {
             references: Vec::new(),
         }
     }
-
-    pub fn to_string(&self) -> Option<String> {
-        match std::str::from_utf8(self.blob.as_slice()) {
-            Ok(success) => Some(success.to_string()),
-            Err(_) => None,
-        }
-    }
 }
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
