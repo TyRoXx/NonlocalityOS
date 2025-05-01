@@ -1834,6 +1834,7 @@ dependencies = [
  "ssh2",
  "tar",
  "tempfile",
+ "test-log",
  "tokio",
  "tracing",
  "uzers",

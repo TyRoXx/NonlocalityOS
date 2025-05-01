@@ -35,7 +35,7 @@ mod tests {
         panic!()
     }
 
-    #[tokio::test]
+    #[test_log::test(tokio::test)]
     async fn test_podman() {
         enable_podman_unix_socket().await;
         let podman = podman_api::Podman::unix_versioned(
@@ -101,8 +101,11 @@ mod tests {
         info!("Container ID: {}", container_created.id);
 
         // there isn't really documentation for the podman API
-        let expected_status = match podman.version().await.unwrap().version.unwrap().as_str() {
+        let podman_version = podman.version().await.unwrap().version.unwrap();
+        info!("Podman version: {}", &podman_version);
+        let expected_status = match podman_version.as_str() {
             "3.4.4" => "configured",
+            "4.9.3" => "created",
             "5.2.2" => "created",
             _ => todo!(),
         };
