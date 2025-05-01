@@ -105,7 +105,9 @@ async fn parse_expression_start<'t>(
             ))),
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => Box::pin(parse_lambda(tokens, local_namespace)).await,
-            TokenContent::RightParenthesis => todo!(),
+            TokenContent::RightParenthesis => Err(ParserError::new(
+                "Expected expression, found right parenthesis.".to_string(),
+            )),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(content) => Ok(DeepExpression(Expression::Literal(
                 HashedValue::from(Arc::new(

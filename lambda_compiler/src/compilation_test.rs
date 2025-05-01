@@ -66,4 +66,22 @@ mod tests2 {
         let expected = CompilerOutput::new(Some(entry_point), Vec::new());
         assert_eq!(expected, output);
     }
+
+    #[test_log::test(tokio::test)]
+    async fn test_compile_extra_token() {
+        let output = compile(r#"(x) => x)"#, &TEST_NAMESPACE).await;
+        let name = Name::new(TEST_NAMESPACE, "x".to_string());
+        let entry_point = DeepExpression(Expression::make_lambda(
+            name.clone(),
+            Arc::new(DeepExpression(Expression::ReadVariable(name))),
+        ));
+        let expected = CompilerOutput::new(
+            Some(entry_point),
+            vec![CompilerError::new(
+                "Unexpected token after the entry point lambda".to_string(),
+                SourceLocation::new(0, 8),
+            )],
+        );
+        assert_eq!(expected, output);
+    }
 }

@@ -77,4 +77,20 @@ mod tests {
         );
         assert_eq!(expected, output);
     }
+
+    #[test_log::test(tokio::test)]
+    async fn test_parse_missing_argument() {
+        let tokens = tokenize_default_syntax(r#"(f) => f()"#);
+        let mut token_iterator = tokens.iter().peekable();
+        let output = parse_entry_point_lambda(&mut token_iterator, &TEST_NAMESPACE).await;
+        assert_eq!(None, token_iterator.next());
+        let expected = CompilerOutput::new(
+            None,
+            vec![CompilerError::new(
+                "Parser error: Expected expression, found right parenthesis.".to_string(),
+                SourceLocation::new(0, 0),
+            )],
+        );
+        assert_eq!(expected, output);
+    }
 }
