@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # https://github.com/mozilla/sccache/blob/main/docs/GHA.md
   SCCACHE_GHA_ENABLED: on
   RUST_BACKTRACE: 1
 
@@ -46,11 +47,13 @@ jobs:
         sudo mv sccache-${{ env.SCCACHE_VERSION }}-x86_64-unknown-linux-musl/sccache /usr/local/bin/
         sccache --version
 
+    # magic to make sccache work with GitHub Actions
+    # (copied from https://github.com/mozilla/sccache/blob/9fb942eec53fb67ac05dfaf73ee7ed6f87388bf2/docs/GHA.md)
     - name: Configure sccache
-      uses: actions/github-script@v6
+      uses: actions/github-script@v7
       with:
         script: |
-          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
           core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
     - name: Cache Rust toolset
