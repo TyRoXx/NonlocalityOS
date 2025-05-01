@@ -211,20 +211,6 @@ impl Value {
         }
     }
 
-    pub fn to_object<'t, 'u, D>(&'t self) -> Result<D, ValueDeserializationError>
-    where
-        D: Deserialize<'u>,
-        't: 'u,
-    {
-        if !self.references.is_empty() {
-            return Err(ValueDeserializationError::ReferencesNotAllowed);
-        }
-        match postcard::from_bytes::<D>(self.blob().as_slice()) {
-            Ok(success) => Ok(success),
-            Err(error) => Err(ValueDeserializationError::Postcard(error)),
-        }
-    }
-
     pub fn to_string(&self) -> Option<String> {
         match std::str::from_utf8(self.blob.as_slice()) {
             Ok(success) => Some(success.to_string()),
