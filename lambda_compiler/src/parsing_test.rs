@@ -2,6 +2,8 @@
 mod tests {
     use std::sync::Arc;
 
+    use crate::compilation::{CompilerError, CompilerOutput, SourceLocation};
+    use crate::parsing::parse_entry_point_lambda;
     use crate::{parsing::parse_expression, tokenization::tokenize_default_syntax};
     use lambda::expressions::{DeepExpression, Expression};
     use lambda::name::{Name, NamespaceId};
@@ -58,5 +60,21 @@ mod tests {
             Arc::new(DeepExpression(Expression::make_apply(f.clone(), f))),
         ));
         test_wellformed_parsing(r#"(f) => f(f)"#, expected).await;
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_parse_non_lambda_entry_point() {
+        let tokens = tokenize_default_syntax("f(a)");
+        let mut token_iterator = tokens.iter().peekable();
+        let output = parse_entry_point_lambda(&mut token_iterator, &TEST_NAMESPACE).await;
+        assert_eq!(None, token_iterator.next());
+        let expected = CompilerOutput::new(
+            None,
+            vec![CompilerError::new(
+                "The entry point is expected to be a lambda expression.".to_string(),
+                SourceLocation::new(0, 0),
+            )],
+        );
+        assert_eq!(expected, output);
     }
 }
