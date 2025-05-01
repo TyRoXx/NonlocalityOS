@@ -85,6 +85,12 @@ impl Display for ReferenceIndex {
     }
 }
 
+#[test]
+fn test_display_reference_index() {
+    let index = ReferenceIndex(123);
+    assert_eq!(format!("{}", index), "123");
+}
+
 pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
@@ -129,6 +135,13 @@ impl std::fmt::Debug for ValueBlob {
 mod tests {
     use crate::tree::{ValueBlob, VALUE_BLOB_MAX_LENGTH};
     use proptest::proptest;
+
+    #[test]
+    fn test_debug_value_blob() {
+        let blob = ValueBlob::empty();
+        assert_eq!(format!("{:?}", blob), "ValueBlob { content.len(): 0 }");
+    }
+
     proptest! {
         #[test]
         fn value_blob_try_from_success(length in 0usize..VALUE_BLOB_MAX_LENGTH) {
@@ -158,6 +171,12 @@ impl std::fmt::Display for ValueSerializationError {
     }
 }
 
+#[test]
+fn test_display_value_serialization_error() {
+    let error = ValueSerializationError::BlobTooLong;
+    assert_eq!(format!("{}", error), "BlobTooLong");
+}
+
 impl std::error::Error for ValueSerializationError {}
 
 #[derive(Debug)]
@@ -171,6 +190,28 @@ impl std::fmt::Display for ValueDeserializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
+}
+
+#[test]
+fn test_display_value_deserialization_error() {
+    assert_eq!(
+        format!("{}", ValueDeserializationError::ReferencesNotAllowed),
+        "ReferencesNotAllowed"
+    );
+    assert_eq!(
+        format!(
+            "{}",
+            ValueDeserializationError::Postcard(postcard::Error::DeserializeUnexpectedEnd)
+        ),
+        "Postcard(DeserializeUnexpectedEnd)"
+    );
+    assert_eq!(
+        format!(
+            "{}",
+            ValueDeserializationError::BlobUnavailable(BlobDigest::new(&[0u8; 64]),)
+        ),
+        "BlobUnavailable(BlobDigest(\"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\"))"
+    );
 }
 
 impl std::error::Error for ValueDeserializationError {}
@@ -237,6 +278,13 @@ impl Display for HashedValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.digest)
     }
+}
+
+#[test]
+fn test_display_hashed_value() {
+    let value = Arc::new(Value::empty());
+    let hashed_value = HashedValue::from(value.clone());
+    assert_eq!(format!("{}", hashed_value), format!("{}", hashed_value.digest));
 }
 
 impl std::hash::Hash for HashedValue {

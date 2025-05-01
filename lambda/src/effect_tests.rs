@@ -107,8 +107,8 @@ async fn effect() {
     assert_eq!(call_main, deserialized_call_main);
     assert_eq!(
         concat!(
-            "fea4987e02d4cb0222418c4656c36f94944bc5fec9bf892253ad54f00a7d80c7",
-            "a35903b7593535d3baab40574eb0500fba02e4617a189d09c492638bb292a3bd"
+            "07d6fedd9e6db23e540fb7b0213e425c62a6736172a8b77c868887f5ddd9a178",
+            "e1e85842741bcdd68d9b3e97a1380f0053c7df13dad7a1a2c8bd86012bc17433"
         ),
         format!("{}", &call_main_digest)
     );
@@ -118,8 +118,8 @@ async fn effect() {
         .unwrap();
     assert_eq!(
         concat!(
-            "07d6fedd9e6db23e540fb7b0213e425c62a6736172a8b77c868887f5ddd9a178",
-            "e1e85842741bcdd68d9b3e97a1380f0053c7df13dad7a1a2c8bd86012bc17433"
+            "fea4987e02d4cb0222418c4656c36f94944bc5fec9bf892253ad54f00a7d80c7",
+            "a35903b7593535d3baab40574eb0500fba02e4617a189d09c492638bb292a3bd"
         ),
         format!("{}", &main_result)
     );

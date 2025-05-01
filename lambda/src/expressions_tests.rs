@@ -1,5 +1,5 @@
 use crate::{
-    expressions::{DeepExpression, Expression, PrintExpression},
+    expressions::{DeepExpression, Expression, PrintExpression, ShallowExpression},
     name::{Name, NamespaceId},
 };
 use astraea::tree::BlobDigest;
@@ -17,5 +17,19 @@ async fn print_all_expression_types() {
         DeepExpression(Expression::make_apply(Arc::new(lambda), Arc::new(literal)));
     let mut writer = String::new();
     apply.print(&mut writer, 0).unwrap();
-    assert_eq!("(ffffffff-ffff-ffff-ffff-ffffffffffff.name) =>\n  construct(name, )(literal(00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000))", writer.as_str());
+    assert_eq!(
+        concat!(
+            "(ffffffff-ffff-ffff-ffff-ffffffffffff.name) =>\n",
+            "  construct(name, )(literal(00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000))"),
+        writer.as_str());
+}
+
+#[test_log::test(tokio::test)]
+async fn print_shallow_expression() {
+    let expression = ShallowExpression::make_literal(BlobDigest(([0; 32], [0; 32])));
+    let mut writer = String::new();
+    expression.print(&mut writer, 0).unwrap();
+    assert_eq!(
+        "literal(00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000)",
+        writer.as_str());
 }
