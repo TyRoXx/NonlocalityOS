@@ -284,14 +284,10 @@ impl Display for HashedValue {
 fn test_display_hashed_value() {
     let value = Arc::new(Value::empty());
     let hashed_value = HashedValue::from(value.clone());
-    assert_eq!(format!("{}", hashed_value), format!("{}", hashed_value.digest));
-}
-
-impl std::hash::Hash for HashedValue {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Using the actual value here is not necessessary because the digest covers it.
-        self.digest.hash(state);
-    }
+    assert_eq!(
+        format!("{}", hashed_value),
+        format!("{}", hashed_value.digest)
+    );
 }
 
 // TypeId doesn't exist anymore, but we still have them in the digest for backwards compatibility.
