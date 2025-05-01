@@ -37,16 +37,11 @@ async fn effect() {
         .store_value(&HashedValue::from(second_string))
         .await
         .unwrap();
-    let second_console_output = crate::standard_library::ConsoleOutput {
-        message: second_string_ref,
-    };
-    let second_console_output_value = Arc::new(second_console_output.to_value());
-    let second_console_output_expression = DeepExpression(Expression::make_literal(
-        storage
-            .store_value(&HashedValue::from(second_console_output_value.clone()))
-            .await
-            .unwrap(),
-    ));
+    let main_lambda_parameter_name = Name::new(namespace, "main_arg".to_string());
+    let second_console_output_expression =
+        DeepExpression(Expression::Construct(vec![Arc::new(DeepExpression(
+            Expression::make_read_variable(main_lambda_parameter_name.clone()),
+        ))]));
 
     let and_then_lambda_parameter_name = Name::new(namespace, "previous_result".to_string());
     let and_then_lambda_expression = DeepExpression(Expression::make_lambda(
@@ -59,7 +54,6 @@ async fn effect() {
         Arc::new(and_then_lambda_expression),
     ]));
 
-    let main_lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
     let main_lambda_expression = DeepExpression(Expression::make_lambda(
         main_lambda_parameter_name.clone(),
         Arc::new(construct_and_then_expression),
@@ -71,14 +65,15 @@ async fn effect() {
             .print(&mut program_as_string, 0)
             .unwrap();
         assert_eq!(concat!(
-            "(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.unused_arg) =>\n",
+            "(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.main_arg) =>\n",
             "  construct(literal(eabe5159d5b6c20554d74248e4f7c32021cbec092e1ce1221e90d2454e95c6e57b3524a5089a6dcbf7084f3389d61cbaf32e98559fe0684c2eb4883dcac1a322), (2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.previous_result) =>\n",
-            "    literal(2bdfb1e268c1fa3859cc589789da27b302a76cbeb278018dffe2706cc497a9f8a3069085871b6d40fd35b0c463ad29a2dc68f94daa77a003ef462b8c71c20d4f), )"),
+            "    construct(main_arg, ), )"),
             program_as_string.as_str());
     }
     let read_variable: Arc<ReadVariable> = Arc::new(
-        move |_name: &Name| -> Pin<Box<dyn core::future::Future<Output = BlobDigest> + Send>> {
-            todo!()
+        move |name: &Name| -> Pin<Box<dyn core::future::Future<Output = BlobDigest> + Send>> {
+            assert_eq!(name, &main_lambda_parameter_name);
+            Box::pin(async move { second_string_ref })
         },
     );
     let main_function = evaluate(
@@ -91,12 +86,7 @@ async fn effect() {
     .unwrap();
     let call_main = DeepExpression(Expression::make_apply(
         Arc::new(DeepExpression(Expression::make_literal(main_function))),
-        Arc::new(DeepExpression(Expression::make_literal(
-            storage
-                .store_value(&HashedValue::from(Arc::new(Value::empty())))
-                .await
-                .unwrap(),
-        ))),
+        Arc::new(DeepExpression(Expression::make_literal(second_string_ref))),
     ));
 
     // verify that this complex expression roundtrips through serialization and deserialization correctly
@@ -107,8 +97,8 @@ async fn effect() {
     assert_eq!(call_main, deserialized_call_main);
     assert_eq!(
         concat!(
-            "07d6fedd9e6db23e540fb7b0213e425c62a6736172a8b77c868887f5ddd9a178",
-            "e1e85842741bcdd68d9b3e97a1380f0053c7df13dad7a1a2c8bd86012bc17433"
+            "6ee32e09f73a6d4fee451f75b942e103e8ede078e7eb3358a64abece3de5664d",
+            "2e2c39984e63636616fedd658ab3e0b1d3a1b0aa76613baca335071efeaef872"
         ),
         format!("{}", &call_main_digest)
     );
@@ -118,8 +108,8 @@ async fn effect() {
         .unwrap();
     assert_eq!(
         concat!(
-            "fea4987e02d4cb0222418c4656c36f94944bc5fec9bf892253ad54f00a7d80c7",
-            "a35903b7593535d3baab40574eb0500fba02e4617a189d09c492638bb292a3bd"
+            "24fc8e4eed1a2eba5b0c1e5b9d260f12ead12f4d3fafd09fbc5cd90f8625da7f",
+            "2d6234fb3bca47bb1dba4c3250245736863822ddbe6b3ed5858a2710a5ae0edc"
         ),
         format!("{}", &main_result)
     );

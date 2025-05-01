@@ -97,6 +97,10 @@ where
         Expression::Construct(arguments)
     }
 
+    pub fn make_read_variable(name: Name) -> Self {
+        Expression::ReadVariable(name)
+    }
+
     pub async fn map_child_expressions<
         't,
         Expr: Clone + Display + PrintExpression,
