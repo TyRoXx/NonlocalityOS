@@ -2,7 +2,7 @@ use crate::{
     expressions::{DeepExpression, Expression, PrintExpression, ShallowExpression},
     name::{Name, NamespaceId},
 };
-use astraea::tree::BlobDigest;
+use astraea::tree::{BlobDigest, ReferenceIndex};
 use std::sync::Arc;
 
 #[test_log::test(tokio::test)]
@@ -22,6 +22,22 @@ async fn print_all_expression_types() {
             "(ffffffff-ffff-ffff-ffff-ffffffffffff.name) =>\n",
             "  construct(name, )(literal(00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000))"),
         writer.as_str());
+}
+
+#[test_log::test(tokio::test)]
+async fn test_print_expression_blob_digest() {
+    let blob_digest = BlobDigest(([0; 32], [0; 32]));
+    let mut writer = String::new();
+    blob_digest.print(&mut writer, 0).unwrap();
+    assert_eq!("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", writer.as_str());
+}
+
+#[test_log::test(tokio::test)]
+async fn test_print_expression_reference_index() {
+    let reference_index = ReferenceIndex(12);
+    let mut writer = String::new();
+    reference_index.print(&mut writer, 0).unwrap();
+    assert_eq!("12", writer.as_str());
 }
 
 #[test_log::test(tokio::test)]
