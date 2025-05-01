@@ -427,53 +427,6 @@ async fn call_method(
     .await
 }
 
-#[derive(Debug, Clone)]
-pub struct InMemoryValue {
-    pub blob: ValueBlob,
-    pub references: Vec<Pointer>,
-}
-
-impl InMemoryValue {
-    pub fn new(blob: ValueBlob, references: Vec<Pointer>) -> Self {
-        Self { blob, references }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum Pointer {
-    Value(HashedValue),
-    Reference(BlobDigest),
-    InMemoryValue(InMemoryValue),
-}
-
-impl Pointer {
-    pub fn serialize(self) -> HashedValue {
-        match self {
-            Pointer::Value(hashed_value) => hashed_value,
-            Pointer::Reference(_blob_digest) => todo!(),
-            Pointer::InMemoryValue(_in_memory_value) => {
-                todo!()
-            }
-        }
-    }
-
-    pub async fn serialize_to_flat_value(&self) -> Option<Arc<Value>> {
-        match self {
-            Pointer::Value(hashed_value) => {
-                if hashed_value.value().references().is_empty() {
-                    Some(hashed_value.value().clone())
-                } else {
-                    None
-                }
-            }
-            Pointer::Reference(_blob_digest) => todo!(),
-            Pointer::InMemoryValue(_in_memory_value) => {
-                todo!()
-            }
-        }
-    }
-}
-
 pub type ReadVariable =
     dyn Fn(&Name) -> Pin<Box<dyn core::future::Future<Output = BlobDigest> + Send>> + Send + Sync;
 
