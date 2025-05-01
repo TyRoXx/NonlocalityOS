@@ -13,7 +13,7 @@ mod tests2 {
     async fn test_compile_empty_source() {
         let output = compile("", &TEST_NAMESPACE).await;
         let expected = CompilerOutput::new(
-            DeepExpression(Expression::Unit),
+            None,
             vec![CompilerError::new(
                 "Parser error: Expected expression, got EOF.".to_string(),
                 SourceLocation::new(0, 0),
@@ -30,7 +30,7 @@ mod tests2 {
             name.clone(),
             Arc::new(DeepExpression(Expression::ReadVariable(name))),
         ));
-        let expected = CompilerOutput::new(entry_point, Vec::new());
+        let expected = CompilerOutput::new(Some(entry_point), Vec::new());
         assert_eq!(expected, output);
     }
 
@@ -43,7 +43,7 @@ mod tests2 {
             name,
             Arc::new(DeepExpression(Expression::make_apply(f.clone(), f))),
         ));
-        let expected = CompilerOutput::new(entry_point, Vec::new());
+        let expected = CompilerOutput::new(Some(entry_point), Vec::new());
         assert_eq!(expected, output);
     }
 
@@ -63,7 +63,7 @@ mod tests2 {
                 ))),
             ))),
         ));
-        let expected = CompilerOutput::new(entry_point, Vec::new());
+        let expected = CompilerOutput::new(Some(entry_point), Vec::new());
         assert_eq!(expected, output);
     }
 }

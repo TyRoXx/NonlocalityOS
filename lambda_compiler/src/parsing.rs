@@ -187,8 +187,7 @@ pub async fn parse_entry_point_lambda<'t>(
     let entry_point_result = parse_expression(tokens, local_namespace).await;
     match entry_point_result {
         Ok(entry_point) => match &entry_point.0 {
-            Expression::Unit
-            | Expression::Literal(_)
+            Expression::Literal(_)
             | Expression::Apply {
                 callee: _,
                 argument: _,
@@ -198,12 +197,12 @@ pub async fn parse_entry_point_lambda<'t>(
                     "The entry point is expected to be a lambda expression.".to_string(),
                     SourceLocation::new(0, 0),
                 ));
-                CompilerOutput::new(DeepExpression(Expression::Unit), errors)
+                CompilerOutput::new(None, errors)
             }
             Expression::Lambda {
                 parameter_name: _,
                 body: _,
-            } => CompilerOutput::new(entry_point, errors),
+            } => CompilerOutput::new(Some(entry_point), errors),
             Expression::Construct(_arguments) => {
                 todo!()
             }
@@ -213,7 +212,7 @@ pub async fn parse_entry_point_lambda<'t>(
                 format!("Parser error: {}", &error),
                 SourceLocation::new(0, 0),
             ));
-            CompilerOutput::new(DeepExpression(Expression::Unit), errors)
+            CompilerOutput::new(None, errors)
         }
     }
 }

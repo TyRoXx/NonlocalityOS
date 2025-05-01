@@ -31,12 +31,12 @@ impl CompilerError {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct CompilerOutput {
-    pub entry_point: DeepExpression,
+    pub entry_point: Option<DeepExpression>,
     pub errors: Vec<CompilerError>,
 }
 
 impl CompilerOutput {
-    pub fn new(entry_point: DeepExpression, errors: Vec<CompilerError>) -> CompilerOutput {
+    pub fn new(entry_point: Option<DeepExpression>, errors: Vec<CompilerError>) -> CompilerOutput {
         CompilerOutput {
             entry_point: entry_point,
             errors: errors,

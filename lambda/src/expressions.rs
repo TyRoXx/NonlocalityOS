@@ -24,7 +24,6 @@ where
     E: Clone + Display + PrintExpression,
     V: Clone + Display,
 {
-    Unit,
     Literal(V),
     Apply { callee: E, argument: E },
     ReadVariable(Name),
@@ -39,7 +38,6 @@ where
 {
     fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
         match self {
-            Expression::Unit => write!(writer, "()"),
             Expression::Literal(literal_value) => {
                 write!(writer, "literal({})", literal_value)
             }
@@ -80,16 +78,6 @@ where
     E: Clone + Display + PrintExpression,
     V: Clone + Display,
 {
-    pub fn to_string(&self) -> String {
-        let mut result = String::new();
-        self.print(&mut result, 0).unwrap();
-        result
-    }
-
-    pub fn make_unit() -> Self {
-        Expression::Unit
-    }
-
     pub fn make_literal(value: V) -> Self {
         Expression::Literal(value)
     }
@@ -126,7 +114,6 @@ where
         G: Fn(&V) -> Pin<Box<dyn Future<Output = Result<V2, Error>> + 't>>,
     {
         match self {
-            Expression::Unit => Ok(Expression::Unit),
             Expression::Literal(value) => Ok(Expression::Literal(transform_value(value).await?)),
             Expression::Apply { callee, argument } => Ok(Expression::Apply {
                 callee: transform_expression(callee).await?,
@@ -202,7 +189,6 @@ pub fn to_reference_expression(
     expression: &ShallowExpression,
 ) -> (ReferenceExpression, Vec<BlobDigest>) {
     match expression {
-        Expression::Unit => (ReferenceExpression::Unit, vec![]),
         Expression::Literal(value) => (
             ReferenceExpression::Literal(ReferenceIndex(0)),
             vec![*value],
@@ -493,7 +479,6 @@ pub type ReadVariable =
 
 fn find_captured_names(expression: &DeepExpression) -> BTreeSet<Name> {
     match &expression.0 {
-        Expression::Unit => BTreeSet::new(),
         Expression::Literal(_blob_digest) => BTreeSet::new(),
         Expression::Apply { callee, argument } => {
             let mut result = find_captured_names(callee);
@@ -526,11 +511,6 @@ pub async fn evaluate(
     read_variable: &Arc<ReadVariable>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     match &expression.0 {
-        Expression::Unit => {
-            return Ok(store_value
-                .store_value(&HashedValue::from(Arc::new(Value::empty())))
-                .await?)
-        }
         Expression::Literal(literal_value) => Ok(literal_value.clone()),
         Expression::Apply { callee, argument } => {
             let evaluated_callee =

@@ -55,7 +55,12 @@ async fn hello_world() {
         .unwrap();
     let call_main = DeepExpression(Expression::make_apply(
         Arc::new(DeepExpression(Expression::make_literal(main_function))),
-        Arc::new(DeepExpression(Expression::make_unit())),
+        Arc::new(DeepExpression(Expression::make_literal(
+            storage
+                .store_value(&HashedValue::from(Arc::new(Value::empty())))
+                .await
+                .unwrap(),
+        ))),
     ));
     let main_result = evaluate(&call_main, &*storage, &*storage, &read_variable)
         .await
