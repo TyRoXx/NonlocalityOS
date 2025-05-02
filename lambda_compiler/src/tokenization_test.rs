@@ -8,12 +8,12 @@ fn test_tokenize_default_syntax(source: &str, expected_tokens: &[Token]) {
     assert_eq!(&expected_tokens[..], &tokenized[..]);
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_empty_source() {
     test_tokenize_default_syntax("", &[]);
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_space() {
     test_tokenize_default_syntax(
         " ",
@@ -24,7 +24,7 @@ fn test_tokenize_default_syntax_space() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_newline() {
     test_tokenize_default_syntax(
         "\n",
@@ -35,7 +35,7 @@ fn test_tokenize_default_syntax_newline() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_source_locations() {
     test_tokenize_default_syntax(
         " \n  test=\n().\"\"=>",
@@ -92,7 +92,7 @@ fn test_tokenize_default_syntax_source_locations() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_assign_ambiguity_1() {
     test_tokenize_default_syntax(
         "==>==",
@@ -117,7 +117,7 @@ fn test_tokenize_default_syntax_assign_ambiguity_1() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_assign_ambiguity_2() {
     test_tokenize_default_syntax(
         "==>",
@@ -134,7 +134,7 @@ fn test_tokenize_default_syntax_assign_ambiguity_2() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_identifier() {
     test_tokenize_default_syntax(
         "test",
@@ -145,7 +145,7 @@ fn test_tokenize_default_syntax_identifier() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_assign() {
     test_tokenize_default_syntax(
         "=",
@@ -156,7 +156,7 @@ fn test_tokenize_default_syntax_assign() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_left_parenthesis() {
     test_tokenize_default_syntax(
         "(",
@@ -167,7 +167,7 @@ fn test_tokenize_default_syntax_left_parenthesis() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_right_parenthesis() {
     test_tokenize_default_syntax(
         ")",
@@ -178,7 +178,7 @@ fn test_tokenize_default_syntax_right_parenthesis() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_dot() {
     test_tokenize_default_syntax(
         ".",
@@ -189,7 +189,7 @@ fn test_tokenize_default_syntax_dot() {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_fat_arrow() {
     test_tokenize_default_syntax(
         "=>",
@@ -210,22 +210,22 @@ fn wellformed_quotes(string_content: &str) {
     );
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_string_empty() {
     wellformed_quotes("");
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_string_short() {
     wellformed_quotes("hello");
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_string_longer() {
     wellformed_quotes(&std::iter::repeat_n('A', 1000).collect::<String>());
 }
 
-#[test]
+#[test_log::test]
 fn test_tokenize_default_syntax_string_escape_sequences() {
     // TODO: support escape sequences, test \"
     wellformed_quotes("\\\\");

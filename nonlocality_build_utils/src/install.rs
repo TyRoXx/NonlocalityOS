@@ -21,7 +21,7 @@ fn format_bytes(size: u64) -> String {
 }
 
 #[cfg(test)]
-#[test]
+#[test_log::test]
 fn test_format() {
     assert_eq!("10.0 B", format_bytes(10));
     assert_eq!("1.0 KB", format_bytes(1000));

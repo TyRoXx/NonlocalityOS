@@ -5,7 +5,7 @@ use crate::{
 use bytes::Bytes;
 use std::sync::Arc;
 
-#[test]
+#[test_log::test]
 fn test_create_schema() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();

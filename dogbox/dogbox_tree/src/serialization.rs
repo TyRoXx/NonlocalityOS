@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 #[serde(try_from = "String")]
-struct FileNameContent(String);
+pub struct FileNameContent(String);
 
 /// forbidden characters on Linux and Windows according to https://stackoverflow.com/a/31976060
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -35,9 +35,13 @@ impl std::fmt::Display for FileNameError {
 }
 
 impl FileNameContent {
-    const MAX_LENGTH_IN_BYTES: usize = 4096;
+    pub const MAX_LENGTH_IN_BYTES: usize = 4096;
 
-    fn from(content: String) -> std::result::Result<FileNameContent, FileNameError> {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn from(content: String) -> std::result::Result<FileNameContent, FileNameError> {
         if content.is_empty() {
             return Err(FileNameError::Empty);
         }
@@ -56,71 +60,6 @@ impl FileNameContent {
         }
         Ok(FileNameContent(content))
     }
-}
-
-#[test]
-fn test_file_name_content_from() {
-    assert_eq!(
-        Err(FileNameError::Empty),
-        FileNameContent::from("".to_string())
-    );
-    assert_eq!(
-        Ok(FileNameContent(String::from_iter(std::iter::repeat_n(
-            'a',
-            FileNameContent::MAX_LENGTH_IN_BYTES
-        )))),
-        FileNameContent::from(String::from_iter(std::iter::repeat_n(
-            'a',
-            FileNameContent::MAX_LENGTH_IN_BYTES
-        )))
-    );
-    assert_eq!(
-        Err(FileNameError::TooLong),
-        FileNameContent::from(String::from_iter(std::iter::repeat_n(
-            'a',
-            FileNameContent::MAX_LENGTH_IN_BYTES + 1
-        )))
-    );
-    assert_eq!(
-        Err(FileNameError::Null),
-        FileNameContent::from("\0".to_string())
-    );
-    assert_eq!(
-        Err(FileNameError::AsciiControlCharacter),
-        FileNameContent::from("\x01".to_string())
-    );
-    assert_eq!(
-        Err(FileNameError::AsciiControlCharacter),
-        FileNameContent::from("\x1e".to_string())
-    );
-    assert_eq!(
-        Err(FileNameError::AsciiControlCharacter),
-        FileNameContent::from("\x1f".to_string())
-    );
-    assert_eq!(
-        Ok(FileNameContent(" ".to_string())),
-        FileNameContent::from("\x20".to_string())
-    );
-    assert_eq!(
-        Err(FileNameError::WindowsSpecialCharacter),
-        FileNameContent::from("<".to_string())
-    );
-    assert_eq!(
-        Err(FileNameError::WindowsSpecialCharacter),
-        FileNameContent::from("*".to_string())
-    );
-    assert_eq!(
-        Ok(FileNameContent(" ".to_string())),
-        FileNameContent::from(" ".to_string())
-    );
-    assert_eq!(
-        Ok(FileNameContent("a".to_string())),
-        FileNameContent::from("a".to_string())
-    );
-    assert_eq!(
-        Ok(FileNameContent("aaaaaaaaaaaaaaaaaaaaaaa".to_string())),
-        FileNameContent::from("aaaaaaaaaaaaaaaaaaaaaaa".to_string())
-    );
 }
 
 impl TryFrom<String> for FileNameContent {

@@ -6,3 +6,6 @@ edition = "2021"
 [lib]
 
 [dependencies]
+
+[dev-dependencies]
+test-log = {version = "0", features = ["trace", "log", "color"]}
