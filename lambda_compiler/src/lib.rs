@@ -11,3 +11,6 @@ pub mod parsing;
 mod parsing_test;
 
 pub mod tokenization;
+
+#[cfg(test)]
+mod tokenization_test;
