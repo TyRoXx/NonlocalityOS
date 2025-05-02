@@ -17,3 +17,6 @@ pub mod tree;
 
 #[cfg(test)]
 mod tree_benchmarks;
+
+#[cfg(test)]
+mod tree_tests;
