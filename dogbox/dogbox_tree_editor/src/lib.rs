@@ -1,6 +1,10 @@
 #![feature(test)]
+#[cfg(test)]
 mod benchmarks;
+
+#[cfg(test)]
 mod tests2;
+
 use astraea::{
     storage::{LoadStoreValue, StoreError},
     tree::{BlobDigest, HashedValue, ReferenceIndex, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},

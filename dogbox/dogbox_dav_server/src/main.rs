@@ -14,6 +14,7 @@ use tokio::{
 use tracing::{debug, error, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 mod file_system;
+#[cfg(test)]
 mod file_system_test;
 use file_system::DogBoxFileSystem;
 
