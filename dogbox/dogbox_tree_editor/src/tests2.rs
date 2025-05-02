@@ -278,7 +278,7 @@ lazy_static! {
     ]);
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_open_directory_get_meta_data() {
     let modified = test_clock();
     let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
@@ -297,7 +297,7 @@ async fn test_open_directory_get_meta_data() {
     assert_eq!(expected, meta_data);
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_open_directory_nothing_happens() {
     let modified = test_clock();
     let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
@@ -341,7 +341,7 @@ async fn test_open_directory_nothing_happens() {
     assert_eq!(0, storage.len().await);
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_open_directory_open_file() {
     let modified = test_clock();
     let storage = Arc::new(InMemoryValueStorage::empty());
@@ -377,7 +377,7 @@ async fn test_open_directory_open_file() {
     );
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_read_directory_after_file_write() {
     let modified = test_clock();
     let storage = Arc::new(InMemoryValueStorage::empty());
@@ -414,7 +414,7 @@ async fn test_read_directory_after_file_write() {
     );
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_get_meta_data_after_file_write() {
     let modified = test_clock();
     let storage = Arc::new(InMemoryValueStorage::empty());
@@ -448,7 +448,7 @@ async fn test_get_meta_data_after_file_write() {
     );
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_read_empty_root() {
     use futures::StreamExt;
     let modified = test_clock();
@@ -500,7 +500,7 @@ impl StoreValue for NeverUsedStorage {
 
 impl LoadStoreValue for NeverUsedStorage {}
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_root() {
     let modified = test_clock();
     let editor = TreeEditor::new(
@@ -524,7 +524,7 @@ async fn test_get_meta_data_of_root() {
     );
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_non_normalized_path() {
     let modified = test_clock();
     let editor = TreeEditor::new(
@@ -547,7 +547,7 @@ async fn test_get_meta_data_of_non_normalized_path() {
     assert_eq!(Error::NotFound("unknown.txt".to_string()), error);
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_unknown_path() {
     let modified = test_clock();
     let editor = TreeEditor::new(
@@ -570,7 +570,7 @@ async fn test_get_meta_data_of_unknown_path() {
     assert_eq!(Error::NotFound("unknown.txt".to_string()), error);
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
     let modified = test_clock();
     let editor = TreeEditor::new(
@@ -593,7 +593,7 @@ async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
     assert_eq!(Error::NotFound("unknown".to_string()), error);
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_read_directory_on_closed_regular_file() {
     let modified = test_clock();
     let editor = TreeEditor::new(
@@ -624,7 +624,7 @@ async fn test_read_directory_on_closed_regular_file() {
     );
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_read_directory_on_open_regular_file() {
     use relative_path::RelativePath;
     let modified = test_clock();
@@ -659,7 +659,7 @@ async fn test_read_directory_on_open_regular_file() {
     );
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_create_directory() {
     use futures::StreamExt;
     use relative_path::RelativePath;
@@ -697,7 +697,7 @@ async fn test_create_directory() {
     assert!(end.is_none());
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_read_created_directory() {
     use futures::StreamExt;
     use relative_path::RelativePath;
@@ -726,7 +726,7 @@ async fn test_read_created_directory() {
     assert!(end.is_none());
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_nested_create_directory() {
     use futures::StreamExt;
     use relative_path::RelativePath;
@@ -799,7 +799,7 @@ async fn test_nested_create_directory() {
     }
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn optimized_write_buffer_empty() {
     for write_position in [0, 1, 10, 100, 1000, u64::MAX] {
         let buffer = OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::new()).await;
@@ -809,7 +809,7 @@ async fn optimized_write_buffer_empty() {
     }
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn optimized_write_buffer_prefix_only() {
     for write_position in [
         0,
@@ -833,7 +833,7 @@ async fn optimized_write_buffer_prefix_only() {
     }
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn optimized_write_buffer_prefix_and_suffix_only() {
     for block_index in [0, 1, 10, 100, 1000] {
         for prefix_length in [1, 10, 100, 1000, VALUE_BLOB_MAX_LENGTH as u64 - 1] {
@@ -862,7 +862,7 @@ async fn optimized_write_buffer_prefix_and_suffix_only() {
         [1, 10, 63_999],
         [1, 2]
     )]
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn optimized_write_buffer_full_blocks(
     prefix_length: u64,
     suffix_length: u64,
@@ -901,7 +901,7 @@ async fn optimized_write_buffer_full_blocks(
     }
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn open_file_content_buffer_write_fill_zero_block() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);
@@ -961,7 +961,7 @@ fn random_bytes(len: usize, seed: u64) -> Vec<u8> {
     (0..len).map(|_| small_rng.random()).collect()
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn open_file_content_buffer_overwrite_full_block() {
     let original_data = random_bytes(VALUE_BLOB_MAX_LENGTH, 123);
     let last_known_digest_file_size = original_data.len();
@@ -1058,7 +1058,7 @@ fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
     });
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn open_file_content_buffer_store() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);

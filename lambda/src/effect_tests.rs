@@ -11,7 +11,7 @@ use astraea::{
 };
 use std::{pin::Pin, sync::Arc};
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn effect() {
     let storage = Arc::new(InMemoryValueStorage::empty());
     let namespace = NamespaceId([42; 16]);
