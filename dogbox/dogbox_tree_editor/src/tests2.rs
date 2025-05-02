@@ -1,15 +1,803 @@
-use crate::{OpenFileContentBlock, OpenFileContentBuffer, OptimizedWriteBuffer, Prefetcher};
+use crate::{
+    AccessOrderLowerIsMoreRecent, DigestStatus, DirectoryEntry, DirectoryEntryKind,
+    DirectoryEntryMetaData, Error, MutableDirectoryEntry, NamedEntry, NormalizedPath,
+    OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer,
+    OptimizedWriteBuffer, Prefetcher, StreakDirection, TreeEditor,
+};
+use astraea::storage::{
+    DelayedHashedValue, InMemoryValueStorage, LoadValue, StoreError, StoreValue,
+};
 use astraea::{
-    storage::{InMemoryValueStorage, LoadStoreValue},
+    storage::LoadStoreValue,
     tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
 };
+use async_trait::async_trait;
+use lazy_static::lazy_static;
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 use std::{
     collections::{BTreeSet, VecDeque},
     sync::Arc,
 };
 use test_case::{test_case, test_matrix};
 use tokio::runtime::Runtime;
+
+#[test_log::test(test)]
+fn test_normalized_path_new() {
+    assert_eq!(
+        NormalizedPath::root(),
+        NormalizedPath::new(&relative_path::RelativePath::new(""))
+    );
+}
+
+#[test_log::test(test)]
+fn test_streak_direction() {
+    assert_eq!(
+        StreakDirection::Neither,
+        StreakDirection::detect_from_block_access_order(&[])
+    );
+    assert_eq!(
+        StreakDirection::Neither,
+        StreakDirection::detect_from_block_access_order(&[AccessOrderLowerIsMoreRecent(0)])
+    );
+    assert_eq!(
+        StreakDirection::Up,
+        StreakDirection::detect_from_block_access_order(&[
+            AccessOrderLowerIsMoreRecent(1),
+            AccessOrderLowerIsMoreRecent(0)
+        ])
+    );
+    assert_eq!(
+        StreakDirection::Down,
+        StreakDirection::detect_from_block_access_order(&[
+            AccessOrderLowerIsMoreRecent(0),
+            AccessOrderLowerIsMoreRecent(1)
+        ])
+    );
+    assert_eq!(
+        StreakDirection::Up,
+        StreakDirection::detect_from_block_access_order(&[
+            AccessOrderLowerIsMoreRecent(2),
+            AccessOrderLowerIsMoreRecent(1),
+            AccessOrderLowerIsMoreRecent(0)
+        ])
+    );
+    assert_eq!(
+        StreakDirection::Up,
+        StreakDirection::detect_from_block_access_order(&[
+            AccessOrderLowerIsMoreRecent(3),
+            AccessOrderLowerIsMoreRecent(1),
+            AccessOrderLowerIsMoreRecent(0),
+            AccessOrderLowerIsMoreRecent(2),
+        ])
+    );
+}
+
+#[test_log::test(test)]
+fn test_find_blocks_to_prefetch_up() {
+    let mut prefetcher = Prefetcher::new();
+    let total_block_count: u64 = 10;
+    prefetcher.add_explicitly_requested_block(0);
+    assert_eq!(
+        BTreeSet::from([]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(1);
+    assert_eq!(
+        BTreeSet::from([2, 3, 4, 5]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(2);
+    assert_eq!(
+        BTreeSet::from([3, 4, 5, 6, 7, 8]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(3);
+    assert_eq!(
+        BTreeSet::from([4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(4);
+    assert_eq!(
+        BTreeSet::from([5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(5);
+    assert_eq!(
+        BTreeSet::from([6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(6);
+    assert_eq!(
+        BTreeSet::from([7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+}
+
+#[test_log::test(test)]
+fn test_find_blocks_to_prefetch_down() {
+    let mut prefetcher = Prefetcher::new();
+    let total_block_count: u64 = 10;
+    prefetcher.add_explicitly_requested_block(9);
+    assert_eq!(
+        BTreeSet::from([]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(8);
+    assert_eq!(
+        BTreeSet::from([4, 5, 6, 7]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(7);
+    assert_eq!(
+        BTreeSet::from([1, 2, 3, 4, 5, 6]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(6);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(5);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(4);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(3);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+}
+
+#[test_log::test(test)]
+fn test_find_blocks_to_prefetch_two_streaks() {
+    let mut prefetcher = Prefetcher::new();
+    let total_block_count: u64 = 20;
+    prefetcher.add_explicitly_requested_block(0);
+    assert_eq!(
+        BTreeSet::from([]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(9);
+    assert_eq!(
+        BTreeSet::from([]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(1);
+    assert_eq!(
+        BTreeSet::from([2, 3, 4, 5]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(8);
+    assert_eq!(
+        BTreeSet::from([2, 3, 4, 5, 6, 7]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(4);
+    assert_eq!(
+        BTreeSet::from([2, 3, 4, 5, 6, 7]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(5);
+    assert_eq!(
+        BTreeSet::from([2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(7);
+    assert_eq!(
+        BTreeSet::from([1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(6);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(3);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(10);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(11);
+    assert_eq!(
+        BTreeSet::from([0, 1, 2, 3, 4, 5]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+    prefetcher.add_explicitly_requested_block(12);
+    assert_eq!(
+        BTreeSet::from([2, 3, 4, 5, 13, 14, 15, 16, 17, 18, 19]),
+        prefetcher.find_blocks_to_prefetch(total_block_count)
+    );
+}
+
+#[test_log::test(test)]
+fn test_analyze_streak_0() {
+    let blocks_to_prefetch = Prefetcher::analyze_streak(1000, &[], 2000);
+    let expected = BTreeSet::from([]);
+    assert_eq!(expected, blocks_to_prefetch);
+}
+
+#[test_log::test(test)]
+fn test_analyze_streak_1() {
+    let blocks_to_prefetch =
+        Prefetcher::analyze_streak(1000, &[AccessOrderLowerIsMoreRecent(0)].to_vec(), 2000);
+    let expected = BTreeSet::from([]);
+    assert_eq!(expected, blocks_to_prefetch);
+}
+
+#[test_log::test(test)]
+fn test_analyze_streak_2() {
+    let blocks_to_prefetch = Prefetcher::analyze_streak(
+        1001,
+        &[1, 0]
+            .map(|order| AccessOrderLowerIsMoreRecent(order))
+            .to_vec(),
+        2000,
+    );
+    let expected = BTreeSet::from([1002, 1003, 1004, 1005]);
+    assert_eq!(expected, blocks_to_prefetch);
+}
+
+#[test_log::test(test)]
+fn test_analyze_streak_16() {
+    let blocks_to_prefetch = Prefetcher::analyze_streak(
+        1015,
+        &[15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
+            .map(|order| AccessOrderLowerIsMoreRecent(order))
+            .to_vec(),
+        2000,
+    );
+    let expected = BTreeSet::from([
+        1016, 1017, 1018, 1019, 1020, 1021, 1022, 1023, 1024, 1025, 1026, 1027, 1028, 1029, 1030,
+        1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039,
+    ]);
+    assert_eq!(expected, blocks_to_prefetch);
+}
+
+fn test_clock() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH
+}
+
+lazy_static! {
+    static ref DUMMY_DIGEST: BlobDigest = BlobDigest::new(&[
+        104, 239, 112, 74, 159, 151, 115, 53, 77, 79, 0, 61, 0, 255, 60, 199, 108, 6, 169, 103, 74,
+        159, 244, 189, 32, 88, 122, 64, 159, 105, 106, 157, 205, 186, 47, 210, 169, 3, 196, 19, 48,
+        211, 86, 202, 96, 177, 113, 146, 195, 171, 48, 102, 23, 244, 236, 205, 2, 38, 202, 233, 41,
+        2, 52, 27,
+    ]);
+}
+
+#[tokio::test]
+async fn test_open_directory_get_meta_data() {
+    let modified = test_clock();
+    let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
+    let directory = OpenDirectory::new(
+        DigestStatus::new(*DUMMY_DIGEST, false),
+        BTreeMap::from([(
+            "test.txt".to_string(),
+            NamedEntry::NotOpen(expected.clone(), BlobDigest::hash(&[])),
+        )]),
+        Arc::new(NeverUsedStorage {}),
+        modified,
+        test_clock,
+        1,
+    );
+    let meta_data = directory.get_meta_data("test.txt").await.unwrap();
+    assert_eq!(expected, meta_data);
+}
+
+#[tokio::test]
+async fn test_open_directory_nothing_happens() {
+    let modified = test_clock();
+    let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
+    let storage = Arc::new(InMemoryValueStorage::empty());
+    let directory = OpenDirectory::new(
+        DigestStatus::new(*DUMMY_DIGEST, false),
+        BTreeMap::from([(
+            "test.txt".to_string(),
+            NamedEntry::NotOpen(expected.clone(), BlobDigest::hash(&[])),
+        )]),
+        storage.clone(),
+        modified,
+        test_clock,
+        1,
+    );
+    let mut receiver = directory.watch().await;
+    let result =
+        tokio::time::timeout(std::time::Duration::from_millis(50), receiver.changed()).await;
+    assert_eq!("deadline has elapsed", format!("{}", result.unwrap_err()));
+    let status = *receiver.borrow();
+    assert_eq!(
+        OpenDirectoryStatus::new(
+            DigestStatus::new(
+                BlobDigest::new(&[
+                    104, 239, 112, 74, 159, 151, 115, 53, 77, 79, 0, 61, 0, 255, 60, 199, 108, 6,
+                    169, 103, 74, 159, 244, 189, 32, 88, 122, 64, 159, 105, 106, 157, 205, 186, 47,
+                    210, 169, 3, 196, 19, 48, 211, 86, 202, 96, 177, 113, 146, 195, 171, 48, 102,
+                    23, 244, 236, 205, 2, 38, 202, 233, 41, 2, 52, 27
+                ]),
+                false
+            ),
+            1,
+            0,
+            0,
+            0,
+            0,
+            0
+        ),
+        status
+    );
+    assert_eq!(0, storage.len().await);
+}
+
+#[tokio::test]
+async fn test_open_directory_open_file() {
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryValueStorage::empty());
+    let directory = Arc::new(OpenDirectory::new(
+        DigestStatus::new(*DUMMY_DIGEST, false),
+        BTreeMap::new(),
+        storage.clone(),
+        modified,
+        test_clock,
+        1,
+    ));
+    let file_name = "test.txt";
+    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
+    let opened = directory
+        .clone()
+        .open_file(file_name, &empty_file_digest)
+        .await
+        .unwrap();
+    opened.flush().await.unwrap();
+    assert_eq!(
+        DirectoryEntryMetaData::new(DirectoryEntryKind::File(0), modified),
+        directory.get_meta_data(file_name).await.unwrap()
+    );
+    use futures::StreamExt;
+    let directory_entries: Vec<MutableDirectoryEntry> = directory.read().await.collect().await;
+    assert_eq!(
+        &[MutableDirectoryEntry {
+            name: file_name.to_string(),
+            kind: DirectoryEntryKind::File(0),
+            modified: modified,
+        }][..],
+        &directory_entries[..]
+    );
+}
+
+#[tokio::test]
+async fn test_read_directory_after_file_write() {
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryValueStorage::empty());
+    let directory = Arc::new(OpenDirectory::new(
+        DigestStatus::new(*DUMMY_DIGEST, false),
+        BTreeMap::new(),
+        storage.clone(),
+        modified,
+        test_clock,
+        1,
+    ));
+    let file_name = "test.txt";
+    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
+    let opened = directory
+        .clone()
+        .open_file(file_name, &empty_file_digest)
+        .await
+        .unwrap();
+    let write_permission = opened.get_write_permission();
+    let file_content = &b"hello world"[..];
+    opened
+        .write_bytes(&write_permission, 0, file_content.into())
+        .await
+        .unwrap();
+    use futures::StreamExt;
+    let directory_entries: Vec<MutableDirectoryEntry> = directory.read().await.collect().await;
+    assert_eq!(
+        &[MutableDirectoryEntry {
+            name: file_name.to_string(),
+            kind: DirectoryEntryKind::File(file_content.len() as u64),
+            modified,
+        }][..],
+        &directory_entries[..]
+    );
+}
+
+#[tokio::test]
+async fn test_get_meta_data_after_file_write() {
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryValueStorage::empty());
+    let directory = Arc::new(OpenDirectory::new(
+        DigestStatus::new(*DUMMY_DIGEST, false),
+        BTreeMap::new(),
+        storage.clone(),
+        modified,
+        test_clock,
+        1,
+    ));
+    let file_name = "test.txt";
+    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
+    let opened = directory
+        .clone()
+        .open_file(file_name, &empty_file_digest)
+        .await
+        .unwrap();
+    let write_permission = opened.get_write_permission();
+    let file_content = &b"hello world"[..];
+    opened
+        .write_bytes(&write_permission, 0, file_content.into())
+        .await
+        .unwrap();
+    assert_eq!(
+        DirectoryEntryMetaData::new(
+            DirectoryEntryKind::File(file_content.len() as u64),
+            modified
+        ),
+        directory.get_meta_data(file_name).await.unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_read_empty_root() {
+    use futures::StreamExt;
+    let modified = test_clock();
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![],
+            Arc::new(NeverUsedStorage {}),
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    let mut directory = editor
+        .read_directory(NormalizedPath::new(relative_path::RelativePath::new("/")))
+        .await
+        .unwrap();
+    let end = directory.next().await;
+    assert!(end.is_none());
+}
+
+#[derive(Debug)]
+struct NeverUsedStorage {}
+
+#[async_trait]
+impl LoadValue for NeverUsedStorage {
+    async fn load_value(
+        &self,
+        _reference: &astraea::tree::BlobDigest,
+    ) -> Option<DelayedHashedValue> {
+        panic!()
+    }
+
+    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+        panic!()
+    }
+}
+
+#[async_trait]
+impl StoreValue for NeverUsedStorage {
+    async fn store_value(
+        &self,
+        _value: &HashedValue,
+    ) -> std::result::Result<astraea::tree::BlobDigest, StoreError> {
+        panic!()
+    }
+}
+
+impl LoadStoreValue for NeverUsedStorage {}
+
+#[tokio::test]
+async fn test_get_meta_data_of_root() {
+    let modified = test_clock();
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![],
+            Arc::new(NeverUsedStorage {}),
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    let meta_data = editor
+        .get_meta_data(NormalizedPath::new(relative_path::RelativePath::new("/")))
+        .await
+        .unwrap();
+    assert_eq!(
+        DirectoryEntryMetaData::new(DirectoryEntryKind::Directory, modified),
+        meta_data
+    );
+}
+
+#[tokio::test]
+async fn test_get_meta_data_of_non_normalized_path() {
+    let modified = test_clock();
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![],
+            Arc::new(NeverUsedStorage {}),
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    let error = editor
+        .get_meta_data(NormalizedPath::new(relative_path::RelativePath::new(
+            "unknown.txt",
+        )))
+        .await
+        .unwrap_err();
+    assert_eq!(Error::NotFound("unknown.txt".to_string()), error);
+}
+
+#[tokio::test]
+async fn test_get_meta_data_of_unknown_path() {
+    let modified = test_clock();
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![],
+            Arc::new(NeverUsedStorage {}),
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    let error = editor
+        .get_meta_data(NormalizedPath::new(relative_path::RelativePath::new(
+            "/unknown.txt",
+        )))
+        .await
+        .unwrap_err();
+    assert_eq!(Error::NotFound("unknown.txt".to_string()), error);
+}
+
+#[tokio::test]
+async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
+    let modified = test_clock();
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![],
+            Arc::new(NeverUsedStorage {}),
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    let error = editor
+        .get_meta_data(NormalizedPath::new(relative_path::RelativePath::new(
+            "/unknown/file.txt",
+        )))
+        .await
+        .unwrap_err();
+    assert_eq!(Error::NotFound("unknown".to_string()), error);
+}
+
+#[tokio::test]
+async fn test_read_directory_on_closed_regular_file() {
+    let modified = test_clock();
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![DirectoryEntry {
+                name: "test.txt".to_string(),
+                kind: DirectoryEntryKind::File(4),
+                digest: BlobDigest::hash(b"TEST"),
+            }],
+            Arc::new(NeverUsedStorage {}),
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    let result = editor
+        .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
+            "/test.txt",
+        )))
+        .await;
+    assert_eq!(
+        Some(Error::CannotOpenRegularFileAsDirectory(
+            "test.txt".to_string()
+        )),
+        result.err()
+    );
+}
+
+#[tokio::test]
+async fn test_read_directory_on_open_regular_file() {
+    use relative_path::RelativePath;
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryValueStorage::empty());
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![DirectoryEntry {
+                name: "test.txt".to_string(),
+                kind: DirectoryEntryKind::File(0),
+                digest: BlobDigest::hash(b""),
+            }],
+            storage,
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    let _open_file = editor
+        .open_file(NormalizedPath::new(RelativePath::new("/test.txt")))
+        .await
+        .unwrap();
+    let result = editor
+        .read_directory(NormalizedPath::new(RelativePath::new("/test.txt")))
+        .await;
+    assert_eq!(
+        Some(Error::CannotOpenRegularFileAsDirectory(
+            "test.txt".to_string()
+        )),
+        result.err()
+    );
+}
+
+#[tokio::test]
+async fn test_create_directory() {
+    use futures::StreamExt;
+    use relative_path::RelativePath;
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryValueStorage::empty());
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![],
+            storage,
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    editor
+        .create_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .await
+        .unwrap();
+    let mut reading = editor
+        .read_directory(NormalizedPath::new(RelativePath::new("/")))
+        .await
+        .unwrap();
+    let entry: MutableDirectoryEntry = reading.next().await.unwrap();
+    assert_eq!(
+        MutableDirectoryEntry {
+            name: "test".to_string(),
+            kind: DirectoryEntryKind::Directory,
+            modified,
+        },
+        entry
+    );
+    let end = reading.next().await;
+    assert!(end.is_none());
+}
+
+#[tokio::test]
+async fn test_read_created_directory() {
+    use futures::StreamExt;
+    use relative_path::RelativePath;
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryValueStorage::empty());
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![],
+            storage,
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    editor
+        .create_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .await
+        .unwrap();
+    let mut reading = editor
+        .read_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .await
+        .unwrap();
+    let end = reading.next().await;
+    assert!(end.is_none());
+}
+
+#[tokio::test]
+async fn test_nested_create_directory() {
+    use futures::StreamExt;
+    use relative_path::RelativePath;
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryValueStorage::empty());
+    let editor = TreeEditor::new(
+        Arc::new(OpenDirectory::from_entries(
+            DigestStatus::new(*DUMMY_DIGEST, false),
+            vec![],
+            storage,
+            modified,
+            test_clock,
+            1,
+        )),
+        None,
+    );
+    editor
+        .create_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .await
+        .unwrap();
+    editor
+        .create_directory(NormalizedPath::new(RelativePath::new("/test/subdir")))
+        .await
+        .unwrap();
+    {
+        let mut reading = editor
+            .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
+                "/test/subdir",
+            )))
+            .await
+            .unwrap();
+        let end = reading.next().await;
+        assert!(end.is_none());
+    }
+    {
+        let mut reading = editor
+            .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
+                "/test",
+            )))
+            .await
+            .unwrap();
+        let entry: MutableDirectoryEntry = reading.next().await.unwrap();
+        assert_eq!(
+            MutableDirectoryEntry {
+                name: "subdir".to_string(),
+                kind: DirectoryEntryKind::Directory,
+                modified,
+            },
+            entry
+        );
+        let end = reading.next().await;
+        assert!(end.is_none());
+    }
+    {
+        let mut reading = editor
+            .read_directory(NormalizedPath::new(relative_path::RelativePath::new("/")))
+            .await
+            .unwrap();
+        let entry: MutableDirectoryEntry = reading.next().await.unwrap();
+        assert_eq!(
+            MutableDirectoryEntry {
+                name: "test".to_string(),
+                kind: DirectoryEntryKind::Directory,
+                modified,
+            },
+            entry
+        );
+        let end = reading.next().await;
+        assert!(end.is_none());
+    }
+}
 
 #[tokio::test]
 async fn optimized_write_buffer_empty() {
