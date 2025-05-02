@@ -114,23 +114,23 @@ fn hashed_value_from(
 #[bench]
 fn hashed_value_from_max_blob_max_references(b: &mut Bencher) {
     hashed_value_from(b, VALUE_BLOB_MAX_LENGTH, 1000, &BlobDigest::parse_hex_string(
-            "9af05cec4e85264b70e5f72494fd0a6e75f928b0dce7733c15433e5461c784cef636ad2d644ce594e1747c5c0ec7360d394d9be92f5eaef647d8bd6807609fdd").unwrap());
+            "e33bdf70688ecf9ba89f83e43e4bb7d494b982fe4da53658caa6ca41f822280fb9b50ecf98b65276efe81bce8db3f474a01156410fc33b6ea1b49ee02d4c0f77").unwrap());
 }
 
 #[bench]
 fn hashed_value_from_max_blob_no_references(b: &mut Bencher) {
     hashed_value_from(b, VALUE_BLOB_MAX_LENGTH, 0, &BlobDigest::parse_hex_string(
-            "23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e393cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25").unwrap());
+            "d15454a6735a0bb995b758a221381c539eb16e7653fb6b1b4975377187cfd4f026495f5d6ad44b93d4738210700d88da92e876049aaffac298f9b3547479818a").unwrap());
 }
 
 #[bench]
 fn hashed_value_from_min_blob_max_references(b: &mut Bencher) {
     hashed_value_from(b, 0, 1000, &BlobDigest::parse_hex_string(
-            "e3bf9bdb9faad7419c7f99817269416d9bda1f2280df659ce1d978f9b894c4043f50eb21754babb577f5ab009531ac394d7b06cd43560ba5f1a0bbb3191004bc").unwrap());
+            "42f238ba350c07533609966f5ff913c3ed0e03f7a3fdfe5bb9c2d28933b24089277c3a69812d6c2ded04ea68f7f32d6e76fc3df2f6aca867bfb4273afe0b1097").unwrap());
 }
 
 #[bench]
 fn hashed_value_from_min_blob_no_references(b: &mut Bencher) {
     hashed_value_from(b, 0, 0, &BlobDigest::parse_hex_string(
-            "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26").unwrap());
+            "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap());
 }

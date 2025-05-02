@@ -7,6 +7,7 @@ use crate::{
 use astraea::storage::{
     DelayedHashedValue, InMemoryValueStorage, LoadValue, StoreError, StoreValue,
 };
+use astraea::tree::calculate_reference;
 use astraea::{
     storage::LoadStoreValue,
     tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
@@ -904,7 +905,10 @@ async fn optimized_write_buffer_full_blocks(
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_write_fill_zero_block() {
     let data = Vec::new();
-    let last_known_digest = BlobDigest::hash(&data);
+    let last_known_digest = calculate_reference(&Value::new(
+        ValueBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
+        vec![],
+    ));
     let last_known_digest_file_size = data.len();
     let mut buffer = OpenFileContentBuffer::from_data(
         data,
@@ -944,8 +948,8 @@ async fn open_file_content_buffer_write_fill_zero_block() {
     assert_eq!(expected_buffer, buffer);
     let expected_digests = BTreeSet::from_iter(
         [concat!(
-            "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6",
-            "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+            "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+            "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
         )]
         .map(BlobDigest::parse_hex_string)
         .map(Option::unwrap),
@@ -976,11 +980,14 @@ async fn open_file_content_buffer_overwrite_full_block() {
         &write_data_digest,
     );
     assert_ne!(&original_data[..], &write_data[..]);
-    let last_known_digest = BlobDigest::hash(&original_data);
+    let last_known_digest = calculate_reference(&Value::new(
+        ValueBlob::try_from(bytes::Bytes::copy_from_slice(&original_data)).unwrap(),
+        vec![],
+    ));
     assert_eq!(
         &BlobDigest::parse_hex_string(concat!(
-            "8d51e962d39ad493f724e4fcfe36c9d92fdbc6791f5152033368d45fe9e34632",
-            "0d5345d77d979c05ea62e23f294b2b3c8f2a98d8315a160de066a4db1713fe58"
+            "c0b6004d4fbd33c339eee2c99f92af59b617aae8de8f0b3a213819246f94cca2",
+            "b8305673ecbbfcd468d38433dd7c09f6dbc96df150993bb108f6155a78a2b4ac"
         ))
         .unwrap(),
         &last_known_digest,
@@ -1061,7 +1068,10 @@ fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_store() {
     let data = Vec::new();
-    let last_known_digest = BlobDigest::hash(&data);
+    let last_known_digest = calculate_reference(&Value::new(
+        ValueBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
+        vec![],
+    ));
     let last_known_digest_file_size = data.len();
     let mut buffer = OpenFileContentBuffer::from_data(
         data,
@@ -1084,18 +1094,26 @@ async fn open_file_content_buffer_store() {
         size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
         blocks: vec![
             OpenFileContentBlock::NotLoaded(
-                BlobDigest::hash(&vec![0; VALUE_BLOB_MAX_LENGTH]),
+                calculate_reference(&Value::new(
+                    ValueBlob::try_from(bytes::Bytes::from(vec![0; VALUE_BLOB_MAX_LENGTH]))
+                        .unwrap(),
+                    vec![],
+                )),
                 VALUE_BLOB_MAX_LENGTH as u16,
             ),
             OpenFileContentBlock::NotLoaded(
-                BlobDigest::hash(write_data.as_bytes()),
+                calculate_reference(&Value::new(
+                    ValueBlob::try_from(bytes::Bytes::copy_from_slice(write_data.as_bytes()))
+                        .unwrap(),
+                    vec![],
+                )),
                 write_data.len() as u16,
             ),
         ],
         digest: crate::DigestStatus {
             last_known_digest: BlobDigest::parse_hex_string(concat!(
-                "842a5f571599b6ccaa2b5aee1fc46e95ffd32a8392e33c1c6b6aabfe78392a0c",
-                "0bb3c1fa29056b093f784c4a1bd9eb6a6d30494d9e5105a1b8131214be40eae5"
+                "f770468c4e5b38323c05f83229aadcb680a0c3fed112fffdbb7650bc92f26a7e",
+                "e15e77fca5371b75463401b3bc2893c5aa667ff54d2aa4332ea445352697df99"
             ))
             .unwrap(),
             is_digest_up_to_date: true,
@@ -1110,20 +1128,20 @@ async fn open_file_content_buffer_store() {
     let expected_digests = BTreeSet::from_iter(
         [
             concat!(
-                "697f2d856172cb8309d6b8b97dac4de344b549d4dee61edfb4962d8698b7fa80",
-                "3f4f93ff24393586e28b5b957ac3d1d369420ce53332712f997bd336d09ab02a"
+                "713ddcb3450de2b0b98f2e8b69dbb1a5736b10db787eae6274ea4673b467e692",
+                "6415c7a14651bdfdaa973eaabbcf1814993bdc991e2891a72df2c7de4f8322c5"
             ),
             concat!(
-                "36708536177e3b63fe3cc7a9ab2e93c26394d2e00933b243c9f3ab93c245a825",
-                "3a731314365fbd5094ad33d64a083bf1b63b8471c55aab7a7efb4702d7e75459"
+                "708d4258f26a6d99a6cc10532bd66134f46fd537d51db057c5a083cf8994f07e",
+                "740534b6f795c49aa35513a65e3da7a5518fe163da200e24af0701088b290daa"
             ),
             concat!(
-                "842a5f571599b6ccaa2b5aee1fc46e95ffd32a8392e33c1c6b6aabfe78392a0c",
-                "0bb3c1fa29056b093f784c4a1bd9eb6a6d30494d9e5105a1b8131214be40eae5"
+                "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+                "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
             ),
             concat!(
-                "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6",
-                "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+                "f770468c4e5b38323c05f83229aadcb680a0c3fed112fffdbb7650bc92f26a7e",
+                "e15e77fca5371b75463401b3bc2893c5aa667ff54d2aa4332ea445352697df99"
             ),
         ]
         .map(BlobDigest::parse_hex_string)

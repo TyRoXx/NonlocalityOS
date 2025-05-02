@@ -189,12 +189,12 @@ async fn test_seek_and_write() {
         let expected_digests = BTreeSet::from_iter(
             [
                 concat!(
-                    "9ece086e9bac491fac5c1d1046ca11d737b92a2b2ebd93f005d7b710110c0a67",
-                    "8288166e7fbe796883a4f2e9b3ca9f484f521d0ce464345cc1aec96779149c14"
+                    "4f10e21ad7ef2048c73b1e1cd2b1d62b76cbf1240adbada00396aec2718fc897",
+                    "7258b448cf20d89ccd6534ca1d216e8f3cbff20ada9e7374c47af42fed87b71d"
                 ),
                 concat!(
-                    "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6",
-                    "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+                    "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+                    "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
                 ),
             ]
             .map(BlobDigest::parse_hex_string)
@@ -210,16 +210,16 @@ async fn test_seek_and_write() {
         let expected_digests = BTreeSet::from_iter(
             [
                 concat!(
-                    "b200e4afa7118a3d238d374dd657cc9bf667634e9f811dc5db071ae26e1b7b43",
-                    "ae085c659946f7d46c20a802d94a327ddc53ae5d11970e34d9dc68ae4da76be3"
+                    "636b0957579730d0588aac37a91d1bc6abb6f67553ed14d78cfdf6f094680690",
+                    "9ac563076350dea163f955cf785e13d241fe5850774c8bacb34a7f87c05d338c"
                 ),
                 concat!(
-                    "9ece086e9bac491fac5c1d1046ca11d737b92a2b2ebd93f005d7b710110c0a67",
-                    "8288166e7fbe796883a4f2e9b3ca9f484f521d0ce464345cc1aec96779149c14"
+                    "4f10e21ad7ef2048c73b1e1cd2b1d62b76cbf1240adbada00396aec2718fc897",
+                    "7258b448cf20d89ccd6534ca1d216e8f3cbff20ada9e7374c47af42fed87b71d"
                 ),
                 concat!(
-                    "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6",
-                    "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+                    "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+                    "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
                 ),
             ]
             .map(BlobDigest::parse_hex_string)
@@ -264,20 +264,20 @@ async fn test_seek_beyond_the_end() {
         let expected_digests = BTreeSet::from_iter(
             [
                 concat!(
-                    "f38a4f0c3e8e5eec4322ad6c1b4718f7731db33e5af24bd1acf660e8685056b8",
-                    "4d9d654a473ab558fc7b32c1a9cbafa61a471ed887b51b511f804a93e3bf2097"
+                    "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+                    "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
                 ),
                 concat!(
-                    "66d414061d3fea735e6e9e1cc7fe9cc68e89a46ab46c4a2aaa07d15c093cb895",
-                    "3e20a6552604a3f4875d7c53ead8ce64447242719dad24eac781feccbf67aca6"
+                    "33cb1f71a103e2bf443c27930a2fb9871b028a614de0c3acb3cc486074ef9dbd",
+                    "d1b4b776727729f4708548185682be845d1b081243105fff5bd4e11bea5fed6f"
                 ),
                 concat!(
-                    "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6",
-                    "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+                    "708d4258f26a6d99a6cc10532bd66134f46fd537d51db057c5a083cf8994f07e",
+                    "740534b6f795c49aa35513a65e3da7a5518fe163da200e24af0701088b290daa"
                 ),
                 concat!(
-                    "36708536177e3b63fe3cc7a9ab2e93c26394d2e00933b243c9f3ab93c245a8253",
-                    "a731314365fbd5094ad33d64a083bf1b63b8471c55aab7a7efb4702d7e75459"
+                    "053449bd3fcab54840b5d0ca72dceaa77446d6980d52a54f21ac8f6157e3f8f",
+                    "3748f87fbccb5d5071a6d95098468a1c50db64767963066803dca6a8083eb32a8"
                 ),
             ]
             .map(BlobDigest::parse_hex_string)
@@ -333,8 +333,8 @@ async fn test_write_out_of_bounds() {
         file.flush().await.unwrap();
         let expected_digests = BTreeSet::from_iter(
             [concat!(
-                "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6",
-                "15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+                "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+                "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
             )]
             .map(BlobDigest::parse_hex_string)
             .map(Option::unwrap),

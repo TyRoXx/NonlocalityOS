@@ -41,7 +41,7 @@ async fn hello_world() {
         assert_eq!(
             concat!(
             "(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.unused_arg) =>\n",
-            "  literal(09e593654f7d4be82ed8ef897a98f0c23c45d5b49ec58a5c8e9df679bf204e0bd2d7b184002cf1348726dfc5ae6d25a5ce57b36177839f474388486aa27f5ece)"),
+            "  literal(9e86496e4fc3adcfd51c8c6682e52126e7aef897832893ceeeb0fae69a44705132bb8b008efcaa4e00ac1459bfefd01e80f098c5e6dd08aec60175d0d334d5a4)"),
             program_as_string.as_str()
         );
     }

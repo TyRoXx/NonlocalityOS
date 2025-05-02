@@ -66,7 +66,7 @@ async fn effect() {
             .unwrap();
         assert_eq!(concat!(
             "(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.main_arg) =>\n",
-            "  construct(literal(eabe5159d5b6c20554d74248e4f7c32021cbec092e1ce1221e90d2454e95c6e57b3524a5089a6dcbf7084f3389d61cbaf32e98559fe0684c2eb4883dcac1a322), (2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.previous_result) =>\n",
+            "  construct(literal(3d68922f2a62988e48e9734f5107de0aef4f1d088bb67bfada36bcd8d9288a750d6217bd9a88f498c78b76040ef29bbb136bfaea876601d02405546160b2fd9d), (2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.previous_result) =>\n",
             "    construct(main_arg, ), )"),
             program_as_string.as_str());
     }
@@ -97,8 +97,8 @@ async fn effect() {
     assert_eq!(call_main, deserialized_call_main);
     assert_eq!(
         concat!(
-            "6ee32e09f73a6d4fee451f75b942e103e8ede078e7eb3358a64abece3de5664d",
-            "2e2c39984e63636616fedd658ab3e0b1d3a1b0aa76613baca335071efeaef872"
+            "e43bae530b6c212df1e2fc3284723a87f3f1449a76f6a0ee45b048391ffe182a",
+            "ed2f88975a478a7db6001879ac12d4d837b988401b1be1cb4e14789600f134a9"
         ),
         format!("{}", &call_main_digest)
     );
@@ -108,8 +108,8 @@ async fn effect() {
         .unwrap();
     assert_eq!(
         concat!(
-            "24fc8e4eed1a2eba5b0c1e5b9d260f12ead12f4d3fafd09fbc5cd90f8625da7f",
-            "2d6234fb3bca47bb1dba4c3250245736863822ddbe6b3ed5858a2710a5ae0edc"
+            "37efb7833e4c3b04558ab90bfb56209ea92657f4791332d97e40556b57be4554",
+            "04a5a202d58718994be05dbeece093c57a2a708bfaee625db1a3136bb591b457"
         ),
         format!("{}", &main_result)
     );

@@ -21,12 +21,7 @@ async fn test_store_unit_first_time() {
         .await
         .unwrap();
     assert_eq!(
-        BlobDigest::new(&[
-            166, 159, 115, 204, 162, 58, 154, 197, 200, 181, 103, 220, 24, 90, 117, 110, 151, 201,
-            130, 22, 79, 226, 88, 89, 224, 209, 220, 193, 71, 92, 128, 166, 21, 178, 18, 58, 241,
-            245, 249, 76, 17, 227, 233, 64, 44, 58, 197, 88, 245, 0, 25, 157, 149, 182, 211, 227,
-            1, 117, 133, 134, 40, 29, 205, 38
-        ]),
+        BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap(),
         reference
     );
     let loaded_back = storage
@@ -58,12 +53,7 @@ async fn test_store_unit_again() {
         .await
         .unwrap();
     assert_eq!(
-        BlobDigest::new(&[
-            166, 159, 115, 204, 162, 58, 154, 197, 200, 181, 103, 220, 24, 90, 117, 110, 151, 201,
-            130, 22, 79, 226, 88, 89, 224, 209, 220, 193, 71, 92, 128, 166, 21, 178, 18, 58, 241,
-            245, 249, 76, 17, 227, 233, 64, 44, 58, 197, 88, 245, 0, 25, 157, 149, 182, 211, 227,
-            1, 117, 133, 134, 40, 29, 205, 38
-        ]),
+        BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap(),
         reference_1
     );
 
@@ -106,12 +96,7 @@ async fn test_store_blob() {
         .await
         .unwrap();
     assert_eq!(
-        BlobDigest::new(&[
-            130, 115, 235, 131, 140, 52, 158, 195, 128, 151, 52, 84, 4, 23, 120, 30, 186, 184, 216,
-            102, 157, 132, 234, 172, 95, 141, 225, 255, 103, 69, 15, 200, 28, 184, 128, 242, 157,
-            50, 240, 255, 14, 154, 197, 128, 74, 128, 191, 86, 117, 225, 34, 104, 53, 16, 115, 92,
-            235, 146, 231, 135, 79, 204, 161, 250
-        ]),
+        BlobDigest::parse_hex_string("9be8213097a391e7b693a99d6645d11297b72113314f5e9ef98704205a7c795e41819a670fb10a60b4ca6aa92b4abd8a50932503ec843df6c40219d49f08a623").unwrap(),
         reference
     );
     let expected = HashedValue::from(value);
@@ -149,12 +134,7 @@ async fn test_store_reference() {
         .await
         .unwrap();
     assert_eq!(
-        BlobDigest::new(&[
-            152, 182, 130, 212, 237, 124, 174, 45, 113, 181, 43, 5, 72, 243, 126, 181, 225, 36, 48,
-            119, 180, 191, 92, 196, 61, 215, 192, 223, 229, 14, 244, 98, 164, 29, 13, 112, 236, 65,
-            171, 221, 49, 239, 74, 43, 206, 121, 210, 155, 155, 175, 238, 69, 255, 222, 33, 84,
-            166, 21, 144, 147, 44, 156, 146, 215
-        ]),
+        BlobDigest::parse_hex_string("f9e26873d85cf34136a52d16c95dcbb557c302a60d6f2dadebea15dc769e0c8b1ca4137804bf82b4c668d65943c110db29bd6cef8493abe14b504b961e728e17").unwrap(),
         reference
     );
     let expected = HashedValue::from(value);
@@ -195,7 +175,7 @@ async fn test_store_two_references() {
         .await
         .unwrap();
     assert_eq!(
-            BlobDigest::parse_hex_string("7a94d90a60e67e6f1eaa209b308250e7260824a0e1b44f28afbdec93ba48ce674ebc68535a375b63589e99c1e1333a99402f039be481163501b3ff21d6d5f095").unwrap(),
+            BlobDigest::parse_hex_string("ba085996952452402912ed9165e1515b30283897608e4a82d6c48740397c9cdac50321835d2749adb1f8278038dd2ab00b9a7e6a128a082e8b6ed7b0f00fd225").unwrap(),
             reference
         );
     let expected = HashedValue::from(value);
@@ -236,7 +216,7 @@ async fn test_store_three_references() {
         .await
         .unwrap();
     assert_eq!(
-            BlobDigest::parse_hex_string("28ce0d016af6bdd104fe0f1fbc5c7a8802d3c2d4b50fee71dd3041b69ae9766dbaea94ef1e82666deece16748e1e3ad720e9b260e2a82a9836a4c05336eec93c").unwrap(),
+            BlobDigest::parse_hex_string("73dc0c58f0627b29dd0d09967e98318201504969e476b390e38e11b131faca075de24d114ba3d00524a402b88437d5b9c8ee654bbf3bb96e2ff23164a3ca4e49").unwrap(),
             reference
         );
     let expected = HashedValue::from(value);

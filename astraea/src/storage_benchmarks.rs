@@ -149,8 +149,8 @@ fn sqlite_in_memory_load_and_hash_value(b: &mut Bencher, value_count_in_database
         .unwrap();
     assert_eq!(
         BlobDigest::parse_hex_string(concat!(
-            "23f3c29d5ead1d624ce6a64c730d6bb84acd6f9e6a51d411e189d396825ae4e3",
-            "93cdf18ddbe5a23b820c975f9efaa96d25cbfa14af369f5665fce583b44abc25"
+            "d15454a6735a0bb995b758a221381c539eb16e7653fb6b1b4975377187cfd4f0",
+            "26495f5d6ad44b93d4738210700d88da92e876049aaffac298f9b3547479818a"
         ))
         .unwrap(),
         reference

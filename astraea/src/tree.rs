@@ -199,18 +199,15 @@ impl Display for HashedValue {
     }
 }
 
-// TypeId doesn't exist anymore, but we still have them in the digest for backwards compatibility.
-// TODO: remove it to make hashing slightly faster
-pub const DEPRECATED_TYPE_ID_IN_DIGEST: u64 = 0;
-
 pub fn calculate_digest_fixed<D>(referenced: &Value) -> sha3::digest::Output<D>
 where
     D: sha3::Digest,
 {
     let mut hasher = D::new();
+    hasher.update(&(referenced.blob.len() as u64).to_be_bytes());
     hasher.update(referenced.blob.as_slice());
+    hasher.update(&(referenced.references.len() as u64).to_be_bytes());
     for item in &referenced.references {
-        hasher.update(&DEPRECATED_TYPE_ID_IN_DIGEST.to_be_bytes());
         hasher.update(&item.0 .0);
         hasher.update(&item.0 .1);
     }
@@ -224,9 +221,10 @@ where
     D: core::default::Default + sha3::digest::Update + sha3::digest::ExtendableOutput,
 {
     let mut hasher = D::default();
+    hasher.update(&(referenced.blob.len() as u64).to_be_bytes());
     hasher.update(referenced.blob.as_slice());
+    hasher.update(&(referenced.references.len() as u64).to_be_bytes());
     for item in &referenced.references {
-        hasher.update(&DEPRECATED_TYPE_ID_IN_DIGEST.to_be_bytes());
         hasher.update(&item.0 .0);
         hasher.update(&item.0 .1);
     }

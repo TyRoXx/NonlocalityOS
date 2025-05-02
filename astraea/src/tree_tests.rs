@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use crate::tree::{
     calculate_reference, BlobDigest, HashedValue, ReferenceIndex, Value, ValueBlob,
-    ValueDeserializationError, ValueSerializationError, DEPRECATED_TYPE_ID_IN_DIGEST,
-    VALUE_BLOB_MAX_LENGTH,
+    ValueDeserializationError, ValueSerializationError, VALUE_BLOB_MAX_LENGTH,
 };
 use proptest::proptest;
 
@@ -99,7 +98,7 @@ fn test_calculate_reference_blob_no_references_0() {
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
-            "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26").unwrap());
+            "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap());
 }
 
 #[test_log::test]
@@ -112,7 +111,7 @@ fn test_calculate_reference_blob_yes_references_0() {
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
-            "8e47f1185ffd014d238fabd02a1a32defe698cbf38c037a90e3c0a0a32370fb52cbd641250508502295fcabcbf676c09470b27443868c8e5f70e26dc337288af").unwrap());
+            "f671d56d459e4cc29611ca33f39d4f9dc500d23d69a6b07540dca1a0313057b0a48a4e8859fbcc76242b6fa6bc8179d37201384ea96b7c2bbc61c0bd89b9f7d2").unwrap());
 }
 
 #[test_log::test]
@@ -125,7 +124,7 @@ fn test_calculate_reference_blob_no_references_1() {
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
-            "f8d76fdd8a082a67eaab47b5518ac486cb9a90dcb9f3c9efcfd86d5c8b3f1831601d3c8435f84b9e56da91283d5b98040e6e7b2c8dd9aa5bd4ebdf1823a7cf29").unwrap());
+            "e32b9bb31183fcfe17c1a29367ad4e5dabd5b73ab1679fc0244ad627f63312edd74c6e0ebc767d2f9d97f3acf07fb4c5b83b75c98599413b3e8b8db4a69dac19").unwrap());
 }
 
 #[test_log::test]
@@ -138,7 +137,7 @@ fn test_calculate_reference_blob_yes_references_1() {
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
-            "9bcc4c3988a38c854a4bacd9e09e438655453e12f1b5196771c52bd87e280b28012145c21a7488c05c2c7909003c1b694532b22ec38f6cb1d3b7067defe2b58d").unwrap());
+            "9cc8ca04fdc28c56986b8f3c690a80691035536f02f45a571ae09f845bc29b6e7671592eb1bcfd15013676eac61db04b33ba3fc23950adf2b29e9eabaf985f67").unwrap());
 }
 
 #[test_log::test]
@@ -154,7 +153,7 @@ fn test_calculate_reference_blob_no_references_2() {
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
-            "92a55955611e3ba7f935fe2e518504c7e37dfd9f9809faa1be93cd91e3c14a5914acd44ea9f442389a8ee3649de60ede71a8d9b85d3560d8ced78216597db304").unwrap());
+            "075df311abbec692910aa752e93ed32049a55793235558a8a741c5dfdcbb9e7e7b6fa06b0060e29c7d4c3ea2e89200638b1dc2925db7c81ae99e11957c53b11f").unwrap());
 }
 
 #[test_log::test]
@@ -170,36 +169,5 @@ fn test_calculate_reference_blob_yes_references_2() {
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
-            "a8f64b8aabe17bc2091f8a801d67501f69c26b8a9164890c4e185a03ff82cf98c72baed1c78a4281aed776ca757cbe5d573e3874bacf8cd45cec5c3c5d0b1279").unwrap());
-}
-
-#[test_log::test]
-fn test_calculate_reference_collision() {
-    let digest = BlobDigest(([0u8; 32], [0u8; 32]));
-    let digest_in_reference = Arc::new(Value::new(ValueBlob::empty(), vec![digest.clone()]));
-    let digest_in_blob = Arc::new(Value::new(
-        ValueBlob::try_from(
-            [
-                &DEPRECATED_TYPE_ID_IN_DIGEST.to_be_bytes(),
-                &digest.0 .0[..],
-                &digest.0 .1[..],
-            ]
-            .concat()
-            .into(),
-        )
-        .unwrap(),
-        vec![],
-    ));
-    let digest_in_reference_digest = calculate_reference(&digest_in_reference);
-    assert_eq!(
-        digest_in_reference_digest,
-        BlobDigest::parse_hex_string(
-            "f8d76fdd8a082a67eaab47b5518ac486cb9a90dcb9f3c9efcfd86d5c8b3f1831601d3c8435f84b9e56da91283d5b98040e6e7b2c8dd9aa5bd4ebdf1823a7cf29").unwrap());
-    let digest_in_blob_digest = calculate_reference(&digest_in_blob);
-    assert_eq!(
-        digest_in_blob_digest,
-        BlobDigest::parse_hex_string(
-            "f8d76fdd8a082a67eaab47b5518ac486cb9a90dcb9f3c9efcfd86d5c8b3f1831601d3c8435f84b9e56da91283d5b98040e6e7b2c8dd9aa5bd4ebdf1823a7cf29").unwrap());
-    // this collision is a design error and should be corrected
-    assert_eq!(digest_in_reference_digest, digest_in_blob_digest);
+            "ed2f76ba42ecee524b9cbdd10a8eedd879b0a2a1a8f51f633c40a8293fee31f2d75c8b07b95f1f4696ddb3b9aef71b9a1fe45e04347224f2ae405b6bb3a96124").unwrap());
 }
