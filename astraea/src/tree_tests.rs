@@ -34,7 +34,7 @@ fn test_display_reference_index() {
 #[test_log::test]
 fn test_debug_tree_blob() {
     let blob = TreeBlob::empty();
-    assert_eq!(format!("{:?}", blob), "ValueBlob { content.len(): 0 }");
+    assert_eq!(format!("{:?}", blob), "TreeBlob { content.len(): 0 }");
 }
 
 proptest! {

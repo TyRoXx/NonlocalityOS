@@ -51,8 +51,8 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
             return dav_server::fs::FsError::GeneralFailure;
         }
         dogbox_tree_editor::Error::CannotRename => FsError::Forbidden,
-        dogbox_tree_editor::Error::MissingValue(missing) => {
-            error!("Missing value for digest: {:?}", missing);
+        dogbox_tree_editor::Error::MissingTree(missing) => {
+            error!("Missing tree for digest: {:?}", missing);
             return dav_server::fs::FsError::GeneralFailure;
         }
         dogbox_tree_editor::Error::Storage(_) => todo!(),

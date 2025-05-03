@@ -37,7 +37,7 @@ pub enum Error {
         directory_entry_size: u64,
     },
     CannotRename,
-    MissingValue(BlobDigest),
+    MissingTree(BlobDigest),
     Storage(StoreError),
     TooManyReferences(BlobDigest),
 }
@@ -1266,14 +1266,14 @@ impl OpenFileContentBlock {
         } else {
             let delayed = match storage.load_tree(blob_digest).await {
                 Some(success) => success,
-                None => return Err(Error::MissingValue(*blob_digest)),
+                None => return Err(Error::MissingTree(*blob_digest)),
             };
             let hashed = tokio::task::spawn_blocking(move || delayed.hash())
                 .await
                 .unwrap();
             match hashed {
                 Some(success) => success,
-                None => return Err(Error::MissingValue(*blob_digest)),
+                None => return Err(Error::MissingTree(*blob_digest)),
             }
         };
         if loaded.tree().blob().as_slice().len() != size as usize {
@@ -1783,11 +1783,11 @@ pub enum StoreChanges {
 
 #[derive(Debug)]
 pub struct OptimizedWriteBuffer {
-    // less than VALUE_BLOB_MAX_LENGTH
+    // less than TREE_BLOB_MAX_LENGTH
     prefix: bytes::Bytes,
-    // each one is exactly VALUE_BLOB_MAX_LENGTH
+    // each one is exactly TREE_BLOB_MAX_LENGTH
     full_blocks: Vec<HashedTree>,
-    // less than VALUE_BLOB_MAX_LENGTH
+    // less than TREE_BLOB_MAX_LENGTH
     suffix: bytes::Bytes,
 }
 
@@ -1979,11 +1979,11 @@ impl OpenFileContentBuffer {
                 } else {
                     let delayed_hashed_tree = match storage.load_tree(digest).await {
                         Some(success) => success,
-                        None => return Err(Error::MissingValue(*digest)),
+                        None => return Err(Error::MissingTree(*digest)),
                     };
                     let hashed_tree = match delayed_hashed_tree.hash() {
                         Some(success) => success,
-                        None => return Err(Error::MissingValue(*digest)),
+                        None => return Err(Error::MissingTree(*digest)),
                     };
                     let info: SegmentedBlob =
                         match postcard::from_bytes(&hashed_tree.tree().blob().as_slice()) {
