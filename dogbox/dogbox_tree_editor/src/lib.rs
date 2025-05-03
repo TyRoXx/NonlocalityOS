@@ -7,7 +7,7 @@ mod tests2;
 
 use astraea::{
     storage::{LoadStoreTree, StoreError},
-    tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
 use async_stream::stream;
 use bytes::Buf;
@@ -96,26 +96,26 @@ impl MutableDirectoryEntry {
 
 #[derive(Debug, PartialEq)]
 pub struct CacheDropStats {
-    hashed_values_dropped: usize,
+    hashed_trees_dropped: usize,
     open_files_closed: usize,
     open_directories_closed: usize,
 }
 
 impl CacheDropStats {
     pub fn new(
-        hashed_values_dropped: usize,
+        hashed_trees_dropped: usize,
         open_files_closed: usize,
         open_directories_closed: usize,
     ) -> Self {
         Self {
-            hashed_values_dropped,
+            hashed_trees_dropped,
             open_files_closed,
             open_directories_closed,
         }
     }
 
     pub fn add(&mut self, other: &CacheDropStats) {
-        self.hashed_values_dropped += other.hashed_values_dropped;
+        self.hashed_trees_dropped += other.hashed_trees_dropped;
         self.open_files_closed += other.open_files_closed;
         self.open_directories_closed += other.open_directories_closed;
     }
@@ -1248,7 +1248,7 @@ impl OpenFileContentBlock {
                 assert_eq!(blob_digest, prepared.digest())
             }
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(_hashed_value) => assert!(false),
+                LoadedBlock::KnownDigest(_hashed_tree) => assert!(false),
                 LoadedBlock::UnknownDigest(_vec) => assert!(false),
             },
         }
@@ -1310,9 +1310,7 @@ impl OpenFileContentBlock {
         Ok(match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(hashed_value) => {
-                    hashed_value.tree().blob().content.clone()
-                }
+                LoadedBlock::KnownDigest(hashed_tree) => hashed_tree.tree().blob().content.clone(),
                 LoadedBlock::UnknownDigest(vec) => bytes::Bytes::copy_from_slice(&vec),
             },
         })
@@ -1332,9 +1330,9 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(hashed_value) => {
+                LoadedBlock::KnownDigest(hashed_tree) => {
                     *loaded =
-                        LoadedBlock::UnknownDigest(hashed_value.tree().blob().as_slice().to_vec());
+                        LoadedBlock::UnknownDigest(hashed_tree.tree().blob().as_slice().to_vec());
                 }
                 LoadedBlock::UnknownDigest(_vec) => {}
             },
@@ -1342,7 +1340,7 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(_hashed_value) => {
+                LoadedBlock::KnownDigest(_hashed_tree) => {
                     panic!()
                 }
                 LoadedBlock::UnknownDigest(vec) => Ok(vec),
@@ -1373,7 +1371,7 @@ impl OpenFileContentBlock {
                     (buf.clone(), 0)
                 }
             };
-        let remaining_capacity: u16 = (VALUE_BLOB_MAX_LENGTH as u16 - (data.len() as u16)) as u16;
+        let remaining_capacity: u16 = (TREE_BLOB_MAX_LENGTH as u16 - (data.len() as u16)) as u16;
         let extension_size = usize::min(for_extending.len(), remaining_capacity as usize);
         let rest = for_extending.split_off(extension_size);
         assert_eq!(buf.len(), (overwritten + extension_size + rest.len()));
@@ -1389,24 +1387,24 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, _) => Ok(Some(*blob_digest)),
             OpenFileContentBlock::Loaded(loaded) => {
-                let hashed_value = match loaded {
-                    LoadedBlock::KnownDigest(hashed_value) => hashed_value.clone(),
+                let hashed_tree = match loaded {
+                    LoadedBlock::KnownDigest(hashed_tree) => hashed_tree.clone(),
                     LoadedBlock::UnknownDigest(vec) => {
-                        assert!(vec.len() <= VALUE_BLOB_MAX_LENGTH);
+                        assert!(vec.len() <= TREE_BLOB_MAX_LENGTH);
                         if !is_allowed_to_calculate_digest {
                             return Ok(None);
                         }
                         debug!("Calculating unknown digest of size {}", vec.len());
-                        let hashed_value = HashedTree::from(Arc::new(Tree::new(
+                        let hashed_tree = HashedTree::from(Arc::new(Tree::new(
                             TreeBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
                             vec![],
                         )));
-                        hashed_value
+                        hashed_tree
                     }
                 };
-                let size = hashed_value.tree().blob().len();
-                let result = storage.store_tree(&hashed_value).await?;
-                assert_eq!(hashed_value.digest(), &result);
+                let size = hashed_tree.tree().blob().len();
+                let result = storage.store_tree(&hashed_tree).await?;
+                assert_eq!(hashed_tree.digest(), &result);
                 // free the memory
                 *self = OpenFileContentBlock::NotLoaded(result, size);
                 Ok(Some(result))
@@ -1418,7 +1416,7 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, size) => *size,
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(hashed_value) => hashed_value.tree().blob().len(),
+                LoadedBlock::KnownDigest(hashed_tree) => hashed_tree.tree().blob().len(),
                 LoadedBlock::UnknownDigest(vec) => vec.len() as u16,
             },
         }
@@ -1428,11 +1426,11 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => CacheDropStats::new(0, 0, 0),
             OpenFileContentBlock::Loaded(loaded_block) => match loaded_block {
-                LoadedBlock::KnownDigest(hashed_value) => {
+                LoadedBlock::KnownDigest(hashed_tree) => {
                     // free some memory:
                     *self = OpenFileContentBlock::NotLoaded(
-                        *hashed_value.digest(),
-                        hashed_value.tree().blob().len(),
+                        *hashed_tree.digest(),
+                        hashed_tree.tree().blob().len(),
                     );
                     CacheDropStats::new(1, 0, 0)
                 }
@@ -1716,9 +1714,9 @@ impl OpenFileContentBufferLoaded {
     fn verify_integrity(&self) {
         let length = self.blocks.len();
         for (index, block) in self.blocks.iter().enumerate() {
-            assert!(block.size() <= VALUE_BLOB_MAX_LENGTH as u16);
+            assert!(block.size() <= TREE_BLOB_MAX_LENGTH as u16);
             if index < (length - 1) {
-                assert_eq!(VALUE_BLOB_MAX_LENGTH as u16, block.size());
+                assert_eq!(TREE_BLOB_MAX_LENGTH as u16, block.size());
             }
         }
     }
@@ -1745,12 +1743,12 @@ impl OpenFileContentBufferLoaded {
         let info = SegmentedBlob {
             size_in_bytes: self.size,
         };
-        let value = Tree::new(
+        let tree = Tree::new(
             TreeBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap())).unwrap(),
             blocks_stored,
         );
         let reference = storage
-            .store_tree(&HashedTree::from(Arc::new(value)))
+            .store_tree(&HashedTree::from(Arc::new(tree)))
             .await?;
         Ok(self.update_digest(reference))
     }
@@ -1808,25 +1806,24 @@ impl OptimizedWriteBuffer {
 
     //#[instrument(skip(content))]
     pub async fn from_bytes(write_position: u64, content: bytes::Bytes) -> OptimizedWriteBuffer {
-        let first_block_offset = (write_position % VALUE_BLOB_MAX_LENGTH as u64) as usize;
-        let first_block_capacity = VALUE_BLOB_MAX_LENGTH - first_block_offset;
+        let first_block_offset = (write_position % TREE_BLOB_MAX_LENGTH as u64) as usize;
+        let first_block_capacity = TREE_BLOB_MAX_LENGTH - first_block_offset;
         let mut block_aligned_content = content.clone();
-        let prefix = if (first_block_offset == 0)
-            && (block_aligned_content.len() >= VALUE_BLOB_MAX_LENGTH)
-        {
-            bytes::Bytes::new()
-        } else {
-            let prefix = block_aligned_content.split_to(std::cmp::min(
-                block_aligned_content.len(),
-                first_block_capacity,
-            ));
-            assert!(prefix.len() <= first_block_capacity);
-            assert!((first_block_offset + prefix.len()) <= VALUE_BLOB_MAX_LENGTH);
-            prefix
-        };
+        let prefix =
+            if (first_block_offset == 0) && (block_aligned_content.len() >= TREE_BLOB_MAX_LENGTH) {
+                bytes::Bytes::new()
+            } else {
+                let prefix = block_aligned_content.split_to(std::cmp::min(
+                    block_aligned_content.len(),
+                    first_block_capacity,
+                ));
+                assert!(prefix.len() <= first_block_capacity);
+                assert!((first_block_offset + prefix.len()) <= TREE_BLOB_MAX_LENGTH);
+                prefix
+            };
         let mut full_block_hashing: Vec<tokio::task::JoinHandle<HashedTree>> = Vec::new();
         loop {
-            if block_aligned_content.len() < VALUE_BLOB_MAX_LENGTH {
+            if block_aligned_content.len() < TREE_BLOB_MAX_LENGTH {
                 let mut full_blocks = Vec::new();
                 full_blocks.reserve(full_block_hashing.len());
                 for handle in full_block_hashing.into_iter() {
@@ -1837,13 +1834,13 @@ impl OptimizedWriteBuffer {
                     full_blocks: full_blocks,
                     suffix: block_aligned_content,
                 };
-                assert!((first_block_offset + result.prefix.len()) <= VALUE_BLOB_MAX_LENGTH);
-                assert!(result.prefix.len() < VALUE_BLOB_MAX_LENGTH);
-                assert!(result.suffix.len() < VALUE_BLOB_MAX_LENGTH);
+                assert!((first_block_offset + result.prefix.len()) <= TREE_BLOB_MAX_LENGTH);
+                assert!(result.prefix.len() < TREE_BLOB_MAX_LENGTH);
+                assert!(result.suffix.len() < TREE_BLOB_MAX_LENGTH);
                 assert_eq!(content.len(), result.len());
                 return result;
             }
-            let next = block_aligned_content.split_to(VALUE_BLOB_MAX_LENGTH);
+            let next = block_aligned_content.split_to(TREE_BLOB_MAX_LENGTH);
 
             // Calculating the SHA-3 digest of 64 KB of data can take surprisingly long, especially in Debug mode.
             // Parallelizing the computations should save a lot of time.
@@ -1858,7 +1855,7 @@ impl OptimizedWriteBuffer {
     }
 
     pub fn len(&self) -> usize {
-        self.prefix.len() + (self.full_blocks.len() * VALUE_BLOB_MAX_LENGTH) + self.suffix.len()
+        self.prefix.len() + (self.full_blocks.len() * TREE_BLOB_MAX_LENGTH) + self.suffix.len()
     }
 }
 
@@ -1887,7 +1884,7 @@ impl OpenFileContentBuffer {
         last_known_digest_file_size: u64,
         write_buffer_in_blocks: usize,
     ) -> Option<Self> {
-        if data.len() > VALUE_BLOB_MAX_LENGTH {
+        if data.len() > TREE_BLOB_MAX_LENGTH {
             None
         } else {
             let size = data.len() as u64;
@@ -1977,19 +1974,19 @@ impl OpenFileContentBuffer {
                 size,
                 write_buffer_in_blocks,
             } => {
-                let blocks = if *size <= VALUE_BLOB_MAX_LENGTH as u64 {
+                let blocks = if *size <= TREE_BLOB_MAX_LENGTH as u64 {
                     vec![OpenFileContentBlock::NotLoaded(*digest, *size as u16)]
                 } else {
-                    let delayed_hashed_value = match storage.load_tree(digest).await {
+                    let delayed_hashed_tree = match storage.load_tree(digest).await {
                         Some(success) => success,
                         None => return Err(Error::MissingValue(*digest)),
                     };
-                    let hashed_value = match delayed_hashed_value.hash() {
+                    let hashed_tree = match delayed_hashed_tree.hash() {
                         Some(success) => success,
                         None => return Err(Error::MissingValue(*digest)),
                     };
                     let info: SegmentedBlob =
-                        match postcard::from_bytes(&hashed_value.tree().blob().as_slice()) {
+                        match postcard::from_bytes(&hashed_tree.tree().blob().as_slice()) {
                             Ok(success) => success,
                             Err(error) => return Err(Error::Postcard(error)),
                         };
@@ -2000,31 +1997,28 @@ impl OpenFileContentBuffer {
                             directory_entry_size: *size,
                         });
                     }
-                    if hashed_value.tree().references().len() < 1 {
+                    if hashed_tree.tree().references().len() < 1 {
                         todo!()
                     }
-                    let full_blocks = hashed_value
+                    let full_blocks = hashed_tree
                         .tree()
                         .references()
                         .iter()
-                        .take(hashed_value.tree().references().len() - 1)
+                        .take(hashed_tree.tree().references().len() - 1)
                         .map(|reference| {
-                            OpenFileContentBlock::NotLoaded(
-                                *reference,
-                                VALUE_BLOB_MAX_LENGTH as u16,
-                            )
+                            OpenFileContentBlock::NotLoaded(*reference, TREE_BLOB_MAX_LENGTH as u16)
                         });
-                    let full_blocks_size = full_blocks.len() as u64 * VALUE_BLOB_MAX_LENGTH as u64;
+                    let full_blocks_size = full_blocks.len() as u64 * TREE_BLOB_MAX_LENGTH as u64;
                     if full_blocks_size > *size {
                         todo!()
                     }
                     let final_block_size = *size - full_blocks_size;
-                    if final_block_size > VALUE_BLOB_MAX_LENGTH as u64 {
+                    if final_block_size > TREE_BLOB_MAX_LENGTH as u64 {
                         todo!()
                     }
                     full_blocks
                         .chain(std::iter::once(OpenFileContentBlock::NotLoaded(
-                            *hashed_value.tree().references().last().unwrap(),
+                            *hashed_tree.tree().references().last().unwrap(),
                             final_block_size as u16,
                         )))
                         .collect()
@@ -2059,7 +2053,7 @@ impl OpenFileContentBuffer {
         count: usize,
         storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
     ) -> Result<bytes::Bytes> {
-        let block_size = VALUE_BLOB_MAX_LENGTH;
+        let block_size = TREE_BLOB_MAX_LENGTH;
         let first_block_index = position / (block_size as u64);
         let blocks = &mut loaded.blocks;
         if first_block_index >= (blocks.len() as u64) {
@@ -2078,7 +2072,7 @@ impl OpenFileContentBuffer {
 
         let block = &mut blocks[first_block_index as usize];
         let mut data = block.access_content_for_reading(storage).await?;
-        let position_in_block = (position % VALUE_BLOB_MAX_LENGTH as u64) as usize;
+        let position_in_block = (position % TREE_BLOB_MAX_LENGTH as u64) as usize;
         Ok(if position_in_block > data.len() {
             bytes::Bytes::new()
         } else {
@@ -2140,10 +2134,10 @@ impl OpenFileContentBuffer {
         assert!(new_size >= loaded.size);
         loaded.size = new_size;
 
-        let first_block_index = position / (VALUE_BLOB_MAX_LENGTH as u64);
+        let first_block_index = position / (TREE_BLOB_MAX_LENGTH as u64);
         if first_block_index >= (loaded.blocks.len() as u64) {
             if let Some(last_block) = loaded.blocks.last_mut() {
-                let filler = VALUE_BLOB_MAX_LENGTH - last_block.size() as usize;
+                let filler = TREE_BLOB_MAX_LENGTH - last_block.size() as usize;
                 let write_result = last_block
                     .write(
                         last_block.size(),
@@ -2157,7 +2151,7 @@ impl OpenFileContentBuffer {
             while first_block_index > (loaded.blocks.len() as u64) {
                 // TODO: make this a static constant
                 let filler = HashedTree::from(Arc::new(Tree::new(
-                    TreeBlob::try_from(bytes::Bytes::from(vec![0u8; VALUE_BLOB_MAX_LENGTH]))
+                    TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH]))
                         .unwrap(),
                     vec![],
                 )));
@@ -2171,16 +2165,16 @@ impl OpenFileContentBuffer {
         }
 
         let mut next_block_index = first_block_index as usize;
-        let position_in_block = (position % (VALUE_BLOB_MAX_LENGTH as u64)) as u16;
+        let position_in_block = (position % (TREE_BLOB_MAX_LENGTH as u64)) as u16;
         if buf.prefix.is_empty() && (position_in_block == 0) {
             // special case where we do nothing
         } else {
-            assert!((position_in_block != 0) || (buf.prefix.len() < VALUE_BLOB_MAX_LENGTH));
+            assert!((position_in_block != 0) || (buf.prefix.len() < TREE_BLOB_MAX_LENGTH));
             if next_block_index == loaded.blocks.len() {
                 let block_content: Vec<u8> = std::iter::repeat_n(0u8, position_in_block as usize)
                     .chain(buf.prefix)
                     .collect();
-                assert!(block_content.len() <= VALUE_BLOB_MAX_LENGTH);
+                assert!(block_content.len() <= TREE_BLOB_MAX_LENGTH);
                 debug!(
                     "Writing prefix creates an unknown digest block at {}",
                     next_block_index
@@ -2192,9 +2186,9 @@ impl OpenFileContentBuffer {
                     )));
             } else {
                 let block = &mut loaded.blocks[next_block_index];
-                assert!(buf.prefix.len() < VALUE_BLOB_MAX_LENGTH);
-                assert!((position_in_block as usize) < VALUE_BLOB_MAX_LENGTH);
-                assert!((position_in_block as usize + buf.prefix.len()) <= VALUE_BLOB_MAX_LENGTH);
+                assert!(buf.prefix.len() < TREE_BLOB_MAX_LENGTH);
+                assert!((position_in_block as usize) < TREE_BLOB_MAX_LENGTH);
+                assert!((position_in_block as usize + buf.prefix.len()) <= TREE_BLOB_MAX_LENGTH);
                 let write_result = block
                         .write(position_in_block, buf.prefix, storage.clone())
                         .await.unwrap(/*TODO: somehow recover and fix loaded.size*/);
@@ -2350,7 +2344,7 @@ impl OpenFile {
             content.size(),
             last_known_digest_file_size,
             is_open_for_writing,
-            content.unsaved_blocks() * (VALUE_BLOB_MAX_LENGTH as u64),
+            content.unsaved_blocks() * (TREE_BLOB_MAX_LENGTH as u64),
         );
         if change_event_sender.send_if_modified(|last_status| {
             if *last_status == status {

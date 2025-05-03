@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::tree::{
     calculate_reference, BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob,
-    TreeDeserializationError, TreeSerializationError, VALUE_BLOB_MAX_LENGTH,
+    TreeDeserializationError, TreeSerializationError, TREE_BLOB_MAX_LENGTH,
 };
 use proptest::proptest;
 
@@ -39,14 +39,14 @@ fn test_debug_tree_blob() {
 
 proptest! {
     #[test_log::test]
-    fn tree_blob_try_from_success(length in 0usize..VALUE_BLOB_MAX_LENGTH) {
+    fn tree_blob_try_from_success(length in 0usize..TREE_BLOB_MAX_LENGTH) {
         let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, length));
         let tree_blob = TreeBlob::try_from(content.clone()).unwrap();
         assert_eq!(content, tree_blob.content);
     }
 
     #[test_log::test]
-    fn tree_blob_try_from_failure(length in (VALUE_BLOB_MAX_LENGTH + 1)..(VALUE_BLOB_MAX_LENGTH * 3) /*We don't want to allocate too much memory here.*/) {
+    fn tree_blob_try_from_failure(length in (TREE_BLOB_MAX_LENGTH + 1)..(TREE_BLOB_MAX_LENGTH * 3) /*We don't want to allocate too much memory here.*/) {
         let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, length));
         let result = TreeBlob::try_from(content.clone());
         assert_eq!(None, result);
@@ -54,13 +54,13 @@ proptest! {
 }
 
 #[test_log::test]
-fn test_display_value_serialization_error() {
+fn test_display_tree_serialization_error() {
     let error = TreeSerializationError::BlobTooLong;
     assert_eq!(format!("{}", error), "BlobTooLong");
 }
 
 #[test_log::test]
-fn test_display_value_deserialization_error() {
+fn test_display_tree_deserialization_error() {
     assert_eq!(
         format!("{}", TreeDeserializationError::ReferencesNotAllowed),
         "ReferencesNotAllowed"
@@ -82,19 +82,19 @@ fn test_display_value_deserialization_error() {
 }
 
 #[test_log::test]
-fn test_display_hashed_value() {
-    let value = Arc::new(Tree::empty());
-    let hashed_value = HashedTree::from(value.clone());
+fn test_display_hashed_tree() {
+    let tree = Arc::new(Tree::empty());
+    let hashed_tree = HashedTree::from(tree.clone());
     assert_eq!(
-        format!("{}", hashed_value),
-        format!("{}", hashed_value.digest())
+        format!("{}", hashed_tree),
+        format!("{}", hashed_tree.digest())
     );
 }
 
 #[test_log::test]
 fn test_calculate_reference_blob_no_references_0() {
-    let value = Arc::new(Tree::empty());
-    let reference = calculate_reference(&value);
+    let tree = Arc::new(Tree::empty());
+    let reference = calculate_reference(&tree);
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
@@ -103,11 +103,11 @@ fn test_calculate_reference_blob_no_references_0() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_yes_references_0() {
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
         Vec::new(),
     ));
-    let reference = calculate_reference(&value);
+    let reference = calculate_reference(&tree);
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
@@ -116,11 +116,11 @@ fn test_calculate_reference_blob_yes_references_0() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_no_references_1() {
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::empty(),
         vec![BlobDigest(([0u8; 32], [0u8; 32]))],
     ));
-    let reference = calculate_reference(&value);
+    let reference = calculate_reference(&tree);
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
@@ -129,11 +129,11 @@ fn test_calculate_reference_blob_no_references_1() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_yes_references_1() {
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
         vec![BlobDigest(([0u8; 32], [0u8; 32]))],
     ));
-    let reference = calculate_reference(&value);
+    let reference = calculate_reference(&tree);
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
@@ -142,14 +142,14 @@ fn test_calculate_reference_blob_yes_references_1() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_no_references_2() {
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::empty(),
         vec![
             BlobDigest(([0u8; 32], [0u8; 32])),
             BlobDigest(([1u8; 32], [1u8; 32])),
         ],
     ));
-    let reference = calculate_reference(&value);
+    let reference = calculate_reference(&tree);
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(
@@ -158,14 +158,14 @@ fn test_calculate_reference_blob_no_references_2() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_yes_references_2() {
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
         vec![
             BlobDigest(([0u8; 32], [0u8; 32])),
             BlobDigest(([1u8; 32], [1u8; 32])),
         ],
     ));
-    let reference = calculate_reference(&value);
+    let reference = calculate_reference(&tree);
     assert_eq!(
         reference,
         BlobDigest::parse_hex_string(

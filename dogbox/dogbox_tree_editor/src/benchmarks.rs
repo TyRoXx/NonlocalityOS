@@ -6,7 +6,7 @@ use astraea::storage::InMemoryTreeStorage;
 use astraea::storage::LoadCache;
 use astraea::storage::LoadStoreTree;
 use astraea::storage::SQLiteStorage;
-use astraea::tree::{BlobDigest, VALUE_BLOB_MAX_LENGTH};
+use astraea::tree::{BlobDigest, TREE_BLOB_MAX_LENGTH};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -76,7 +76,7 @@ fn read_large_file<S: Fn() -> Arc<(dyn LoadStoreTree + Send + Sync)>>(
     )
     .unwrap();
     let mut small_rng = SmallRng::seed_from_u64(123);
-    let file_size_in_bytes = file_size_in_blocks * VALUE_BLOB_MAX_LENGTH;
+    let file_size_in_bytes = file_size_in_blocks * TREE_BLOB_MAX_LENGTH;
     let storage = create_storage_for_iteration();
     let content = bytes::Bytes::from_iter((0..file_size_in_bytes).map(|_| small_rng.random()));
     {

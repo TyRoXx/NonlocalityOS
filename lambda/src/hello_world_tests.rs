@@ -20,10 +20,10 @@ async fn hello_world() {
     let console_output = crate::standard_library::ConsoleOutput {
         message: hello_world_string_ref,
     };
-    let console_output_value = Arc::new(console_output.to_value());
+    let console_output_tree = Arc::new(console_output.to_tree());
     let console_output_expression = DeepExpression(Expression::make_literal(
         storage
-            .store_tree(&HashedTree::from(console_output_value.clone()))
+            .store_tree(&HashedTree::from(console_output_tree.clone()))
             .await
             .unwrap(),
     ));
@@ -72,6 +72,6 @@ async fn hello_world() {
         .hash()
         .unwrap();
     let deserialized_result =
-        crate::standard_library::ConsoleOutput::from_value(serialized_result.tree()).unwrap();
+        crate::standard_library::ConsoleOutput::from_tree(serialized_result.tree()).unwrap();
     assert_eq!(&console_output, &deserialized_result);
 }

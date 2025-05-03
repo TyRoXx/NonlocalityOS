@@ -1,5 +1,5 @@
 extern crate test;
-use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH};
+use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -10,7 +10,7 @@ fn make_test_tree() -> Tree {
     let mut small_rng = SmallRng::seed_from_u64(123);
     Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_iter(
-            (0..VALUE_BLOB_MAX_LENGTH).map(|_| small_rng.gen()),
+            (0..TREE_BLOB_MAX_LENGTH).map(|_| small_rng.gen()),
         ))
         .unwrap(),
         vec![],
@@ -88,7 +88,7 @@ fn hashed_tree_from(
     expected_digest: &BlobDigest,
 ) {
     let mut small_rng = SmallRng::seed_from_u64(123);
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_iter(
             (0..blob_size).map(|_| small_rng.gen()),
         ))
@@ -104,22 +104,22 @@ fn hashed_tree_from(
             .collect(),
     ));
     b.iter(|| {
-        let hashed_value = HashedTree::from(value.clone());
-        assert_eq!(expected_digest, hashed_value.digest());
-        hashed_value
+        let hashed_tree = HashedTree::from(tree.clone());
+        assert_eq!(expected_digest, hashed_tree.digest());
+        hashed_tree
     });
-    b.bytes = value.blob().len() as u64 + value.references().len() as u64 * 64;
+    b.bytes = tree.blob().len() as u64 + tree.references().len() as u64 * 64;
 }
 
 #[bench]
 fn hashed_tree_from_max_blob_max_references(b: &mut Bencher) {
-    hashed_tree_from(b, VALUE_BLOB_MAX_LENGTH, 1000, &BlobDigest::parse_hex_string(
+    hashed_tree_from(b, TREE_BLOB_MAX_LENGTH, 1000, &BlobDigest::parse_hex_string(
             "e33bdf70688ecf9ba89f83e43e4bb7d494b982fe4da53658caa6ca41f822280fb9b50ecf98b65276efe81bce8db3f474a01156410fc33b6ea1b49ee02d4c0f77").unwrap());
 }
 
 #[bench]
 fn hashed_tree_from_max_blob_no_references(b: &mut Bencher) {
-    hashed_tree_from(b, VALUE_BLOB_MAX_LENGTH, 0, &BlobDigest::parse_hex_string(
+    hashed_tree_from(b, TREE_BLOB_MAX_LENGTH, 0, &BlobDigest::parse_hex_string(
             "d15454a6735a0bb995b758a221381c539eb16e7653fb6b1b4975377187cfd4f026495f5d6ad44b93d4738210700d88da92e876049aaffac298f9b3547479818a").unwrap());
 }
 

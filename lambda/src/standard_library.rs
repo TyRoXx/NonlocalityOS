@@ -6,19 +6,19 @@ pub struct ConsoleOutput {
 }
 
 impl ConsoleOutput {
-    pub fn to_value(&self) -> Tree {
+    pub fn to_tree(&self) -> Tree {
         Tree::new(TreeBlob::empty(), vec![self.message])
     }
 
-    pub fn from_value(value: &Tree) -> Option<ConsoleOutput> {
-        if value.blob().len() != 0 {
+    pub fn from_tree(tree: &Tree) -> Option<ConsoleOutput> {
+        if tree.blob().len() != 0 {
             return None;
         }
-        if value.references().len() != 1 {
+        if tree.references().len() != 1 {
             return None;
         }
         Some(ConsoleOutput {
-            message: value.references()[0],
+            message: tree.references()[0],
         })
     }
 }

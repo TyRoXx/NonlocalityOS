@@ -24,10 +24,10 @@ async fn effect() {
     let first_console_output = crate::standard_library::ConsoleOutput {
         message: first_string_ref,
     };
-    let first_console_output_value = Arc::new(first_console_output.to_value());
+    let first_console_output_tree = Arc::new(first_console_output.to_tree());
     let first_console_output_expression = DeepExpression(Expression::make_literal(
         storage
-            .store_tree(&HashedTree::from(first_console_output_value.clone()))
+            .store_tree(&HashedTree::from(first_console_output_tree.clone()))
             .await
             .unwrap(),
     ));

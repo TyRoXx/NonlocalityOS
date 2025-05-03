@@ -19,12 +19,12 @@ pub trait PrintExpression {
 }
 
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone, Serialize, Deserialize)]
-pub enum Expression<E, V>
+pub enum Expression<E, TreeLike>
 where
     E: Clone + Display + PrintExpression,
-    V: Clone + Display,
+    TreeLike: Clone + Display,
 {
-    Literal(V),
+    Literal(TreeLike),
     Apply { callee: E, argument: E },
     ReadVariable(Name),
     Lambda { parameter_name: Name, body: E },
@@ -73,12 +73,12 @@ where
     }
 }
 
-impl<E, V> Expression<E, V>
+impl<E, TreeLike> Expression<E, TreeLike>
 where
     E: Clone + Display + PrintExpression,
-    V: Clone + Display,
+    TreeLike: Clone + Display,
 {
-    pub fn make_literal(value: V) -> Self {
+    pub fn make_literal(value: TreeLike) -> Self {
         Expression::Literal(value)
     }
 
@@ -104,21 +104,21 @@ where
     pub async fn map_child_expressions<
         't,
         Expr: Clone + Display + PrintExpression,
-        V2: Clone + Display,
+        TreeLike2: Clone + Display,
         Error,
         F,
         G,
     >(
         &self,
         transform_expression: &'t F,
-        transform_value: &'t G,
-    ) -> Result<Expression<Expr, V2>, Error>
+        transform_tree: &'t G,
+    ) -> Result<Expression<Expr, TreeLike2>, Error>
     where
         F: Fn(&E) -> Pin<Box<dyn Future<Output = Result<Expr, Error>> + 't>>,
-        G: Fn(&V) -> Pin<Box<dyn Future<Output = Result<V2, Error>> + 't>>,
+        G: Fn(&TreeLike) -> Pin<Box<dyn Future<Output = Result<TreeLike2, Error>> + 't>>,
     {
         match self {
-            Expression::Literal(value) => Ok(Expression::Literal(transform_value(value).await?)),
+            Expression::Literal(value) => Ok(Expression::Literal(transform_tree(value).await?)),
             Expression::Apply { callee, argument } => Ok(Expression::Apply {
                 callee: transform_expression(callee).await?,
                 argument: transform_expression(argument).await?,
@@ -228,17 +228,17 @@ pub fn to_reference_expression(
     }
 }
 
-pub async fn deserialize_shallow(value: &Tree) -> Result<ShallowExpression, ()> {
-    let reference_expression: ReferenceExpression = postcard::from_bytes(value.blob().as_slice())
+pub async fn deserialize_shallow(tree: &Tree) -> Result<ShallowExpression, ()> {
+    let reference_expression: ReferenceExpression = postcard::from_bytes(tree.blob().as_slice())
         .unwrap(/*TODO*/);
     reference_expression
         .map_child_expressions(
             &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<BlobDigest, ()>>>> {
-                let child = value.references()[child.0 as usize].clone();
+                let child = tree.references()[child.0 as usize].clone();
                 Box::pin(async move { Ok(child) })
             },
             &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<BlobDigest, ()>>>> {
-                let child = value.references()[child.0 as usize].clone();
+                let child = tree.references()[child.0 as usize].clone();
                 Box::pin(async move { Ok(child) })
             },
         )
@@ -247,15 +247,15 @@ pub async fn deserialize_shallow(value: &Tree) -> Result<ShallowExpression, ()> 
 
 pub async fn deserialize_recursively(
     root: &BlobDigest,
-    load_value: &(dyn LoadTree + Sync),
+    load_tree: &(dyn LoadTree + Sync),
 ) -> Result<DeepExpression, ()> {
-    let root_loaded = load_value.load_tree(root).await.unwrap(/*TODO*/).hash().unwrap(/*TODO*/);
+    let root_loaded = load_tree.load_tree(root).await.unwrap(/*TODO*/).hash().unwrap(/*TODO*/);
     let shallow = deserialize_shallow(&root_loaded.tree()).await?;
     let deep = shallow
         .map_child_expressions(
             &|child: &BlobDigest| -> Pin<Box<dyn Future<Output = Result<Arc<DeepExpression>, ()>>>> {
                 let child = child.clone();
-                Box::pin(async move { deserialize_recursively(&child, load_value)
+                Box::pin(async move { deserialize_recursively(&child, load_tree)
                     .await
                     .map(|success| Arc::new(success)) })
             },
@@ -268,7 +268,7 @@ pub async fn deserialize_recursively(
     Ok(DeepExpression(deep))
 }
 
-pub fn expression_to_value(expression: &ShallowExpression) -> Tree {
+pub fn expression_to_tree(expression: &ShallowExpression) -> Tree {
     let (reference_expression, references) = to_reference_expression(expression);
     let blob = postcard::to_allocvec(&reference_expression).unwrap(/*TODO*/);
     Tree::new(
@@ -281,8 +281,8 @@ pub async fn serialize_shallow(
     expression: &ShallowExpression,
     storage: &(dyn StoreTree + Sync),
 ) -> std::result::Result<BlobDigest, StoreError> {
-    let value = expression_to_value(expression);
-    storage.store_tree(&HashedTree::from(Arc::new(value))).await
+    let tree = expression_to_tree(expression);
+    storage.store_tree(&HashedTree::from(Arc::new(tree))).await
 }
 
 pub async fn serialize_recursively(
@@ -348,9 +348,9 @@ impl Closure {
 
     pub async fn serialize(
         &self,
-        store_value: &(dyn StoreTree + Sync),
+        store_tree: &(dyn StoreTree + Sync),
     ) -> Result<BlobDigest, StoreError> {
-        let mut references = vec![serialize_recursively(&self.body, store_value).await?];
+        let mut references = vec![serialize_recursively(&self.body, store_tree).await?];
         let mut captured_variables = BTreeMap::new();
         for (name, reference) in self.captured_variables.iter() {
             let index = ReferenceIndex(references.len() as u64);
@@ -359,7 +359,7 @@ impl Closure {
         }
         let closure_blob = ClosureBlob::new(self.parameter_name.clone(), captured_variables);
         let closure_blob_bytes = postcard::to_allocvec(&closure_blob).unwrap(/*TODO*/);
-        store_value
+        store_tree
             .store_tree(&HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::try_from(bytes::Bytes::from_owner(closure_blob_bytes)).unwrap(/*TODO*/),
                 references,
@@ -369,9 +369,9 @@ impl Closure {
 
     pub async fn deserialize(
         root: &BlobDigest,
-        load_value: &(dyn LoadTree + Sync),
+        load_tree: &(dyn LoadTree + Sync),
     ) -> Result<Closure, TreeDeserializationError> {
-        let loaded_root = match load_value.load_tree(root).await {
+        let loaded_root = match load_tree.load_tree(root).await {
             Some(success) => success,
             None => return Err(TreeDeserializationError::BlobUnavailable(root.clone())),
         };
@@ -381,7 +381,7 @@ impl Closure {
             Err(error) => return Err(TreeDeserializationError::Postcard(error)),
         };
         let body_reference = &root_tree.references()[0];
-        let body = deserialize_recursively(body_reference, load_value).await.unwrap(/*TODO*/);
+        let body = deserialize_recursively(body_reference, load_tree).await.unwrap(/*TODO*/);
         let mut captured_variables = BTreeMap::new();
         for (name, index) in closure_blob.captured_variables {
             let reference = &root_tree.references()[index.0 as usize];
@@ -400,8 +400,8 @@ async fn call_method(
     captured_variables: &BTreeMap<Name, BlobDigest>,
     body: &DeepExpression,
     argument: &BlobDigest,
-    load_value: &(dyn LoadTree + Sync),
-    store_value: &(dyn StoreTree + Sync),
+    load_tree: &(dyn LoadTree + Sync),
+    store_tree: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     let read_variable_in_body: Arc<ReadVariable> = Arc::new({
@@ -422,8 +422,8 @@ async fn call_method(
     });
     Box::pin(evaluate(
         &body,
-        load_value,
-        store_value,
+        load_tree,
+        store_tree,
         &read_variable_in_body,
     ))
     .await
@@ -461,18 +461,18 @@ fn find_captured_names(expression: &DeepExpression) -> BTreeSet<Name> {
 
 pub async fn evaluate(
     expression: &DeepExpression,
-    load_value: &(dyn LoadTree + Sync),
-    store_value: &(dyn StoreTree + Sync),
+    load_tree: &(dyn LoadTree + Sync),
+    store_tree: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     match &expression.0 {
         Expression::Literal(literal_value) => Ok(literal_value.clone()),
         Expression::Apply { callee, argument } => {
             let evaluated_callee =
-                Box::pin(evaluate(callee, load_value, store_value, read_variable)).await?;
+                Box::pin(evaluate(callee, load_tree, store_tree, read_variable)).await?;
             let evaluated_argument =
-                Box::pin(evaluate(argument, load_value, store_value, read_variable)).await?;
-            let closure = match Closure::deserialize(&evaluated_callee, load_value).await {
+                Box::pin(evaluate(argument, load_tree, store_tree, read_variable)).await?;
+            let closure = match Closure::deserialize(&evaluated_callee, load_tree).await {
                 Ok(success) => success,
                 Err(_) => todo!(),
             };
@@ -481,8 +481,8 @@ pub async fn evaluate(
                 &closure.captured_variables,
                 &closure.body,
                 &evaluated_argument,
-                load_value,
-                store_value,
+                load_tree,
+                store_tree,
                 read_variable,
             )
             .await
@@ -494,18 +494,18 @@ pub async fn evaluate(
         } => {
             let mut captured_variables = BTreeMap::new();
             for captured_name in find_captured_names(body).into_iter() {
-                let captured_value = read_variable(&captured_name).await;
-                captured_variables.insert(captured_name, captured_value);
+                let captured_variable_value = read_variable(&captured_name).await;
+                captured_variables.insert(captured_name, captured_variable_value);
             }
             let closure = Closure::new(parameter_name.clone(), body.clone(), captured_variables);
-            let serialized = closure.serialize(store_value).await?;
+            let serialized = closure.serialize(store_tree).await?;
             Ok(serialized)
         }
         Expression::Construct(arguments) => {
             let mut evaluated_arguments = Vec::new();
             for argument in arguments {
                 let evaluated_argument =
-                    Box::pin(evaluate(argument, load_value, store_value, read_variable)).await?;
+                    Box::pin(evaluate(argument, load_tree, store_tree, read_variable)).await?;
                 evaluated_arguments.push(evaluated_argument);
             }
             Ok(

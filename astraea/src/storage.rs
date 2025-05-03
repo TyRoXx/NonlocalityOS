@@ -1,4 +1,4 @@
-use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH};
+use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH};
 use async_trait::async_trait;
 use cached::Cached;
 use std::{
@@ -197,7 +197,7 @@ impl SQLiteStorage {
                 CONSTRAINT digest_length_matches_sha3_512 CHECK (LENGTH(digest) == 64),
                 CONSTRAINT value_blob_max_length CHECK (LENGTH(value_blob) <= {})
             ) STRICT",
-                VALUE_BLOB_MAX_LENGTH
+                TREE_BLOB_MAX_LENGTH
             );
             connection
                 .execute(&query, ())

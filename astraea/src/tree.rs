@@ -66,7 +66,7 @@ impl Display for ReferenceIndex {
     }
 }
 
-pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
+pub const TREE_BLOB_MAX_LENGTH: usize = 64_000;
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct TreeBlob {
@@ -81,19 +81,19 @@ impl TreeBlob {
     }
 
     pub fn try_from(content: bytes::Bytes) -> Option<TreeBlob> {
-        if content.len() > VALUE_BLOB_MAX_LENGTH {
+        if content.len() > TREE_BLOB_MAX_LENGTH {
             return None;
         }
         Some(Self { content: content })
     }
 
     pub fn as_slice<'t>(&'t self) -> &'t [u8] {
-        assert!(self.content.len() <= VALUE_BLOB_MAX_LENGTH);
+        assert!(self.content.len() <= TREE_BLOB_MAX_LENGTH);
         &self.content
     }
 
     pub fn len(&self) -> u16 {
-        assert!(self.content.len() <= VALUE_BLOB_MAX_LENGTH);
+        assert!(self.content.len() <= TREE_BLOB_MAX_LENGTH);
         self.content.len() as u16
     }
 }
@@ -174,18 +174,18 @@ impl Tree {
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct HashedTree {
-    value: Arc<Tree>,
+    tree: Arc<Tree>,
     digest: BlobDigest,
 }
 
 impl HashedTree {
-    pub fn from(value: Arc<Tree>) -> HashedTree {
-        let digest = calculate_reference(&value);
-        Self { value, digest }
+    pub fn from(tree: Arc<Tree>) -> HashedTree {
+        let digest = calculate_reference(&tree);
+        Self { tree, digest }
     }
 
     pub fn tree(&self) -> &Arc<Tree> {
-        &self.value
+        &self.tree
     }
 
     pub fn digest(&self) -> &BlobDigest {

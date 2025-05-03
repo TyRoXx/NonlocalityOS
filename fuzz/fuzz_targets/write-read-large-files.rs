@@ -8,7 +8,7 @@ fn main() {
 
 use astraea::{
     storage::{InMemoryTreeStorage, StoreTree},
-    tree::{HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
+    tree::{HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
 use dogbox_tree_editor::{OpenFileContentBuffer, OptimizedWriteBuffer};
 use libfuzzer_sys::{fuzz_target, Corpus};
@@ -139,7 +139,7 @@ async fn save_all_buffers(buffers: &mut [BufferState]) {
 fn run_generated_test(test: GeneratedTest) -> Corpus {
     let runtime = Runtime::new().unwrap();
     runtime.block_on(async move {
-        let max_tested_file_size = VALUE_BLOB_MAX_LENGTH * 128;
+        let max_tested_file_size = TREE_BLOB_MAX_LENGTH * 128;
         use rand::rngs::SmallRng;
         use rand::Rng;
         use rand::SeedableRng;
@@ -202,39 +202,39 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                 }
                 FileOperation::Nothing => {}
                 FileOperation::WriteWholeBlockOfRandomData { block_index } => {
-                    if ((*block_index as u64 + 1) * VALUE_BLOB_MAX_LENGTH as u64)
+                    if ((*block_index as u64 + 1) * TREE_BLOB_MAX_LENGTH as u64)
                         > max_tested_file_size as u64
                     {
                         return Corpus::Reject;
                     }
                     let data = bytes::Bytes::from_iter(
-                        (0..VALUE_BLOB_MAX_LENGTH).map(|_| small_rng.random()),
+                        (0..TREE_BLOB_MAX_LENGTH).map(|_| small_rng.random()),
                     );
-                    let position = *block_index as u64 * VALUE_BLOB_MAX_LENGTH as u64;
+                    let position = *block_index as u64 * TREE_BLOB_MAX_LENGTH as u64;
                     write_to_all_buffers(&mut buffers, position, &data).await;
                 }
                 FileOperation::CopyBlock {
                     from_block_index,
                     to_block_index,
                 } => {
-                    if ((*from_block_index as u64 + 1) * VALUE_BLOB_MAX_LENGTH as u64)
+                    if ((*from_block_index as u64 + 1) * TREE_BLOB_MAX_LENGTH as u64)
                         > max_tested_file_size as u64
                     {
                         return Corpus::Reject;
                     }
-                    if ((*to_block_index as u64 + 1) * VALUE_BLOB_MAX_LENGTH as u64)
+                    if ((*to_block_index as u64 + 1) * TREE_BLOB_MAX_LENGTH as u64)
                         > max_tested_file_size as u64
                     {
                         return Corpus::Reject;
                     }
-                    let read_position = *from_block_index as u64 * VALUE_BLOB_MAX_LENGTH as u64;
+                    let read_position = *from_block_index as u64 * TREE_BLOB_MAX_LENGTH as u64;
                     let maybe_data =
-                        read_from_all_buffers(&mut buffers, read_position, VALUE_BLOB_MAX_LENGTH)
+                        read_from_all_buffers(&mut buffers, read_position, TREE_BLOB_MAX_LENGTH)
                             .await;
                     match maybe_data {
                         Some(data) => {
                             let write_position =
-                                *to_block_index as u64 * VALUE_BLOB_MAX_LENGTH as u64;
+                                *to_block_index as u64 * TREE_BLOB_MAX_LENGTH as u64;
                             write_to_all_buffers(&mut buffers, write_position, &data).await;
                         }
                         None => {}

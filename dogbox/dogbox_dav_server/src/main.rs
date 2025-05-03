@@ -1,6 +1,6 @@
 use astraea::{
     storage::{CommitChanges, LoadRoot, SQLiteStorage, UpdateRoot},
-    tree::VALUE_BLOB_MAX_LENGTH,
+    tree::TREE_BLOB_MAX_LENGTH,
 };
 use dav_server::{fakels::FakeLs, DavHandler};
 use dogbox_tree_editor::{CacheDropStats, OpenDirectory, OpenDirectoryStatus, WallClock};
@@ -33,7 +33,7 @@ async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
     };
     let io = TokioIo::new(stream);
     if let Err(err) = http1::Builder::new()
-        .max_buf_size(VALUE_BLOB_MAX_LENGTH * 500)
+        .max_buf_size(TREE_BLOB_MAX_LENGTH * 500)
         .serve_connection(io, hyper::service::service_fn(make_service))
         .await
     {

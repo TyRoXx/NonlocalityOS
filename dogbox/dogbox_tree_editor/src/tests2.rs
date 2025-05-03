@@ -8,7 +8,7 @@ use astraea::storage::{DelayedHashedTree, InMemoryTreeStorage, LoadTree, StoreEr
 use astraea::tree::calculate_reference;
 use astraea::{
     storage::LoadStoreTree,
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
 use lazy_static::lazy_static;
@@ -813,9 +813,9 @@ async fn optimized_write_buffer_prefix_only() {
         10,
         100,
         1000,
-        VALUE_BLOB_MAX_LENGTH as u64,
-        VALUE_BLOB_MAX_LENGTH as u64 - 1,
-        VALUE_BLOB_MAX_LENGTH as u64 + 1,
+        TREE_BLOB_MAX_LENGTH as u64,
+        TREE_BLOB_MAX_LENGTH as u64 - 1,
+        TREE_BLOB_MAX_LENGTH as u64 + 1,
         u64::MAX - 1,
     ] {
         let buffer = OptimizedWriteBuffer::from_bytes(
@@ -832,11 +832,11 @@ async fn optimized_write_buffer_prefix_only() {
 #[test_log::test(tokio::test)]
 async fn optimized_write_buffer_prefix_and_suffix_only() {
     for block_index in [0, 1, 10, 100, 1000] {
-        for prefix_length in [1, 10, 100, 1000, VALUE_BLOB_MAX_LENGTH as u64 - 1] {
-            for suffix_length in [1, 10, 100, 1000, VALUE_BLOB_MAX_LENGTH as u64 - 1] {
-                let position_in_block: u64 = VALUE_BLOB_MAX_LENGTH as u64 - prefix_length;
+        for prefix_length in [1, 10, 100, 1000, TREE_BLOB_MAX_LENGTH as u64 - 1] {
+            for suffix_length in [1, 10, 100, 1000, TREE_BLOB_MAX_LENGTH as u64 - 1] {
+                let position_in_block: u64 = TREE_BLOB_MAX_LENGTH as u64 - prefix_length;
                 let write_position =
-                    (block_index * VALUE_BLOB_MAX_LENGTH as u64) + position_in_block;
+                    (block_index * TREE_BLOB_MAX_LENGTH as u64) + position_in_block;
                 let prefix =
                     bytes::Bytes::from_iter(std::iter::repeat_n(b'p', prefix_length as usize));
                 let suffix =
@@ -868,7 +868,7 @@ async fn optimized_write_buffer_full_blocks(
     let prefix = bytes::Bytes::from_iter(std::iter::repeat_n(b'p', prefix_length as usize));
     //TODO: use more interesting content for suffix
     let suffix = bytes::Bytes::from_iter(std::iter::repeat_n(b's', suffix_length as usize));
-    let position_in_block: u64 = VALUE_BLOB_MAX_LENGTH as u64 - prefix_length;
+    let position_in_block: u64 = TREE_BLOB_MAX_LENGTH as u64 - prefix_length;
     let write_data = bytes::Bytes::from_iter(
         prefix
             .clone()
@@ -876,12 +876,12 @@ async fn optimized_write_buffer_full_blocks(
             //TODO: use more interesting content for full_blocks
             .chain(std::iter::repeat_n(
                 b'f',
-                (full_block_count * VALUE_BLOB_MAX_LENGTH) as usize,
+                (full_block_count * TREE_BLOB_MAX_LENGTH) as usize,
             ))
             .chain(suffix.clone().into_iter()),
     );
     for block_index in [0, 100] {
-        let write_position = (block_index * VALUE_BLOB_MAX_LENGTH as u64) + position_in_block;
+        let write_position = (block_index * TREE_BLOB_MAX_LENGTH as u64) + position_in_block;
         let buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
         assert_eq!(prefix, buffer.prefix());
         assert_eq!(full_block_count, buffer.full_blocks().len());
@@ -912,7 +912,7 @@ async fn open_file_content_buffer_write_fill_zero_block() {
         1,
     )
     .unwrap();
-    let write_position = VALUE_BLOB_MAX_LENGTH as u64;
+    let write_position = TREE_BLOB_MAX_LENGTH as u64;
     let write_data = "a";
     let write_buffer =
         OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::from(write_data)).await;
@@ -922,10 +922,10 @@ async fn open_file_content_buffer_write_fill_zero_block() {
         .await
         .unwrap();
     let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
-        size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
+        size: TREE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
         blocks: vec![
             OpenFileContentBlock::Loaded(crate::LoadedBlock::UnknownDigest(
-                vec![0; VALUE_BLOB_MAX_LENGTH],
+                vec![0; TREE_BLOB_MAX_LENGTH],
             )),
             OpenFileContentBlock::Loaded(crate::LoadedBlock::UnknownDigest(
                 write_data.as_bytes().to_vec(),
@@ -962,7 +962,7 @@ fn random_bytes(len: usize, seed: u64) -> Vec<u8> {
 
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_overwrite_full_block() {
-    let original_data = random_bytes(VALUE_BLOB_MAX_LENGTH, 123);
+    let original_data = random_bytes(TREE_BLOB_MAX_LENGTH, 123);
     let last_known_digest_file_size = original_data.len();
     let write_data = bytes::Bytes::from(random_bytes(last_known_digest_file_size, 124));
     let write_data_digest = BlobDigest::hash(&write_data);
@@ -1030,7 +1030,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
 #[test_case(200_000)]
 fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
     Runtime::new().unwrap().block_on(async {
-        let original_content = random_bytes(VALUE_BLOB_MAX_LENGTH, 123);
+        let original_content = random_bytes(TREE_BLOB_MAX_LENGTH, 123);
         let last_known_digest = BlobDigest::hash(&original_content);
         let last_known_digest_file_size = original_content.len();
         let mut buffer = OpenFileContentBuffer::from_data(
@@ -1075,7 +1075,7 @@ async fn open_file_content_buffer_store() {
         1,
     )
     .unwrap();
-    let write_position = VALUE_BLOB_MAX_LENGTH as u64;
+    let write_position = TREE_BLOB_MAX_LENGTH as u64;
     let write_data = "a";
     let write_buffer =
         OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::from(write_data)).await;
@@ -1086,14 +1086,14 @@ async fn open_file_content_buffer_store() {
         .unwrap();
     buffer.store_all(storage.clone()).await.unwrap();
     let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
-        size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
+        size: TREE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
         blocks: vec![
             OpenFileContentBlock::NotLoaded(
                 calculate_reference(&Tree::new(
-                    TreeBlob::try_from(bytes::Bytes::from(vec![0; VALUE_BLOB_MAX_LENGTH])).unwrap(),
+                    TreeBlob::try_from(bytes::Bytes::from(vec![0; TREE_BLOB_MAX_LENGTH])).unwrap(),
                     vec![],
                 )),
-                VALUE_BLOB_MAX_LENGTH as u16,
+                TREE_BLOB_MAX_LENGTH as u16,
             ),
             OpenFileContentBlock::NotLoaded(
                 calculate_reference(&Tree::new(
@@ -1112,7 +1112,7 @@ async fn open_file_content_buffer_store() {
             .unwrap(),
             is_digest_up_to_date: true,
         },
-        last_known_digest_file_size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
+        last_known_digest_file_size: TREE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
         dirty_blocks: VecDeque::new(),
         write_buffer_in_blocks: 1,
         prefetcher: Prefetcher::new(),
@@ -1214,7 +1214,7 @@ fn open_file_content_buffer_write_completes_a_block(write_position: u16) {
             1,
         )
         .unwrap();
-        let write_size = VALUE_BLOB_MAX_LENGTH - write_position as usize;
+        let write_size = TREE_BLOB_MAX_LENGTH - write_position as usize;
         let write_data = bytes::Bytes::from(random_bytes(write_size, 123));
         let write_buffer =
             OptimizedWriteBuffer::from_bytes(write_position as u64, write_data.clone()).await;
@@ -1224,7 +1224,7 @@ fn open_file_content_buffer_write_completes_a_block(write_position: u16) {
             .write(write_position as u64, write_buffer, storage.clone())
             .await
             .unwrap();
-        let expected_size = VALUE_BLOB_MAX_LENGTH as u64;
+        let expected_size = TREE_BLOB_MAX_LENGTH as u64;
         assert_eq!(expected_size, buffer.size());
         let expected_content = bytes::Bytes::from_iter(
             original_content
@@ -1240,7 +1240,7 @@ fn open_file_content_buffer_write_completes_a_block(write_position: u16) {
 #[test_case(63_999)]
 fn open_file_content_buffer_write_creates_full_block_with_zero_fill(write_position: u16) {
     Runtime::new().unwrap().block_on(async {
-        let original_content: Vec<u8> = std::iter::repeat_n(1u8, VALUE_BLOB_MAX_LENGTH).collect();
+        let original_content: Vec<u8> = std::iter::repeat_n(1u8, TREE_BLOB_MAX_LENGTH).collect();
         let last_known_digest = BlobDigest::hash(&original_content);
         let last_known_digest_file_size = original_content.len();
         let mut buffer = OpenFileContentBuffer::from_data(
@@ -1250,7 +1250,7 @@ fn open_file_content_buffer_write_creates_full_block_with_zero_fill(write_positi
             1,
         )
         .unwrap();
-        let write_size = VALUE_BLOB_MAX_LENGTH - write_position as usize;
+        let write_size = TREE_BLOB_MAX_LENGTH - write_position as usize;
         let write_data = bytes::Bytes::from(random_bytes(write_size, 123));
         let write_buffer =
             OptimizedWriteBuffer::from_bytes(write_position as u64, write_data.clone()).await;
@@ -1264,7 +1264,7 @@ fn open_file_content_buffer_write_creates_full_block_with_zero_fill(write_positi
             )
             .await
             .unwrap();
-        let expected_size = original_content.len() as u64 + VALUE_BLOB_MAX_LENGTH as u64;
+        let expected_size = original_content.len() as u64 + TREE_BLOB_MAX_LENGTH as u64;
         assert_eq!(expected_size, buffer.size());
         let expected_content = bytes::Bytes::from_iter(
             original_content

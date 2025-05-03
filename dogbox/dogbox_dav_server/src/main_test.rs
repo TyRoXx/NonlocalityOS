@@ -1,5 +1,5 @@
 use crate::run_dav_server;
-use astraea::tree::VALUE_BLOB_MAX_LENGTH;
+use astraea::tree::TREE_BLOB_MAX_LENGTH;
 use dogbox_tree_editor::WallClock;
 use reqwest_dav::{list_cmd::ListEntity, Auth, Client, ClientBuilder, Depth};
 use std::{future::Future, net::SocketAddr, pin::Pin};
@@ -293,12 +293,12 @@ async fn test_create_file_random_tiny() {
 
 #[test_log::test(tokio::test)]
 async fn test_create_file_tree_blob_max_length_minus_one() {
-    test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH - 1)).await
+    test_create_file(random_bytes(TREE_BLOB_MAX_LENGTH - 1)).await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_create_file_tree_blob_max_length_plus_one() {
-    test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH + 1)).await
+    test_create_file(random_bytes(TREE_BLOB_MAX_LENGTH + 1)).await
 }
 
 #[test_log::test(tokio::test)]
