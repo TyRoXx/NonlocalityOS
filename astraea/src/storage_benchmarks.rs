@@ -7,12 +7,12 @@ use std::sync::Arc;
 use test::Bencher;
 use tokio::runtime::Runtime;
 
-fn sqlite_in_memory_store_value_redundantly(b: &mut Bencher, value_blob_size: usize) {
+fn sqlite_in_memory_store_value_redundantly(b: &mut Bencher, tree_blob_size: usize) {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let stored_value = HashedTree::from(Arc::new(Tree::new(
-        TreeBlob::try_from(bytes::Bytes::from(random_bytes(value_blob_size))).unwrap(),
+        TreeBlob::try_from(bytes::Bytes::from(random_bytes(tree_blob_size))).unwrap(),
         vec![],
     )));
     let runtime = Runtime::new().unwrap();
@@ -23,7 +23,7 @@ fn sqlite_in_memory_store_value_redundantly(b: &mut Bencher, value_blob_size: us
         assert_eq!(stored_value.digest(), &reference);
         reference
     });
-    b.bytes = value_blob_size as u64;
+    b.bytes = tree_blob_size as u64;
 }
 
 #[bench]
@@ -43,7 +43,7 @@ fn sqlite_in_memory_store_value_redundantly_large(b: &mut Bencher) {
 
 fn sqlite_in_memory_store_value_newly(
     b: &mut Bencher,
-    value_blob_size: usize,
+    tree_blob_size: usize,
     reference_count: usize,
 ) {
     use rand::rngs::SmallRng;
@@ -56,7 +56,7 @@ fn sqlite_in_memory_store_value_newly(
         .map(|_| {
             HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::try_from(bytes::Bytes::from_iter(
-                    (0..value_blob_size).map(|_| small_rng.gen()),
+                    (0..tree_blob_size).map(|_| small_rng.gen()),
                 ))
                 .unwrap(),
                 (0..reference_count)
@@ -78,7 +78,7 @@ fn sqlite_in_memory_store_value_newly(
         }
         storage
     });
-    b.bytes = store_count as u64 * (value_blob_size as u64 + reference_count as u64 * 64);
+    b.bytes = store_count as u64 * (tree_blob_size as u64 + reference_count as u64 * 64);
 }
 
 #[bench]
@@ -164,7 +164,7 @@ fn sqlite_in_memory_load_and_hash_value(b: &mut Bencher, value_count_in_database
         assert_eq!(stored_value.digest(), loaded.digest());
         loaded
     });
-    b.bytes = stored_value.value().blob().len() as u64;
+    b.bytes = stored_value.tree().blob().len() as u64;
     assert_eq!(
         Ok(value_count_in_database + 1),
         runtime.block_on(storage.approximate_value_count())

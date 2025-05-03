@@ -267,15 +267,15 @@ impl StoreValue for SQLiteStorage {
         let mut statement = connection_locked.prepare_cached(
             "INSERT INTO value (digest, value_blob) VALUES (?1, ?2)").unwrap(/*TODO*/);
         let rows_inserted = statement.execute(
-            (&origin_digest, value.value().blob().as_slice()),
+            (&origin_digest, value.tree().blob().as_slice()),
         ).unwrap(/*TODO*/);
         assert_eq!(1, rows_inserted);
 
-        if !value.value().references().is_empty() {
+        if !value.tree().references().is_empty() {
             let inserted_value_rowid = connection_locked.last_insert_rowid();
             let mut statement = connection_locked.prepare_cached(
                 "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",).unwrap(/*TODO*/);
-            for (index, reference) in value.value().references().iter().enumerate() {
+            for (index, reference) in value.tree().references().iter().enumerate() {
                 let target_digest: [u8; 64] = (*reference).into();
                 let rows_inserted = statement.execute(
                     (&inserted_value_rowid, &index, &target_digest),
@@ -297,13 +297,13 @@ impl LoadValue for SQLiteStorage {
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = (*reference).into();
         let mut statement = connection_locked.prepare_cached("SELECT id, value_blob FROM value WHERE digest = ?1").unwrap(/*TODO*/);
-        let (id, value_blob) = statement.query_row(
+        let (id, tree_blob) = statement.query_row(
             (&digest, ),
             |row| -> rusqlite::Result<_> {
                 let id : i64 = row.get(0).unwrap(/*TODO*/);
-                let value_blob_raw : Vec<u8> = row.get(1).unwrap(/*TODO*/);
-                let value_blob = TreeBlob::try_from(value_blob_raw.into()).unwrap(/*TODO*/);
-                Ok((id, value_blob))
+                let tree_blob_raw : Vec<u8> = row.get(1).unwrap(/*TODO*/);
+                let tree_blob = TreeBlob::try_from(tree_blob_raw.into()).unwrap(/*TODO*/);
+                Ok((id, tree_blob))
             } ).unwrap(/*TODO*/);
         let mut statement = connection_locked.prepare_cached(concat!("SELECT zero_based_index, target FROM reference",
             " WHERE origin = ? ORDER BY zero_based_index ASC")).unwrap(/*TODO*/);
@@ -324,7 +324,7 @@ impl LoadValue for SQLiteStorage {
             })
             .collect();
         Some(DelayedHashedValue::delayed(
-            Arc::new(Tree::new(value_blob, references)),
+            Arc::new(Tree::new(tree_blob, references)),
             *reference,
         ))
     }

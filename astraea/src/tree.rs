@@ -184,7 +184,7 @@ impl HashedTree {
         Self { value, digest }
     }
 
-    pub fn value(&self) -> &Arc<Tree> {
+    pub fn tree(&self) -> &Arc<Tree> {
         &self.value
     }
 

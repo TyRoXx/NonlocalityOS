@@ -292,12 +292,12 @@ async fn test_create_file_random_tiny() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_create_file_value_blob_max_length_minus_one() {
+async fn test_create_file_tree_blob_max_length_minus_one() {
     test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH - 1)).await
 }
 
 #[test_log::test(tokio::test)]
-async fn test_create_file_value_blob_max_length_plus_one() {
+async fn test_create_file_tree_blob_max_length_plus_one() {
     test_create_file(random_bytes(VALUE_BLOB_MAX_LENGTH + 1)).await
 }
 

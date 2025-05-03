@@ -72,6 +72,6 @@ async fn hello_world() {
         .hash()
         .unwrap();
     let deserialized_result =
-        crate::standard_library::ConsoleOutput::from_value(serialized_result.value()).unwrap();
+        crate::standard_library::ConsoleOutput::from_value(serialized_result.tree()).unwrap();
     assert_eq!(&console_output, &deserialized_result);
 }

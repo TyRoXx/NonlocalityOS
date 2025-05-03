@@ -543,7 +543,7 @@ impl OpenDirectory {
             Some(delayed_loaded) => {
                 let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
                 let parsed_directory: DirectoryTree =
-                    match postcard::from_bytes(loaded.value().blob().as_slice()) {
+                    match postcard::from_bytes(loaded.tree().blob().as_slice()) {
                         Ok(success) => success,
                         Err(error) => return Err(Error::Postcard(error)),
                     };
@@ -566,10 +566,10 @@ impl OpenDirectory {
                         serialization::ReferenceIndexOrInlineContent::Indirect(reference_index) => {
                             let index: usize = usize::try_from(reference_index.0)
                                 .map_err(|_error| Error::ReferenceIndexOutOfRange)?;
-                            if index >= loaded.value().references().len() {
+                            if index >= loaded.tree().references().len() {
                                 return Err(Error::ReferenceIndexOutOfRange);
                             }
-                            let digest = loaded.value().references()[index];
+                            let digest = loaded.tree().references()[index];
                             Ok(DirectoryEntry::new(child.0.clone().into(), kind, digest))
                         }
                         serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
@@ -647,7 +647,7 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<OpenDirectory> {
-        let value_blob = TreeBlob::try_from(bytes::Bytes::from(
+        let tree_blob = TreeBlob::try_from(bytes::Bytes::from(
             postcard::to_allocvec(&DirectoryTree {
                 children: BTreeMap::new(),
             })
@@ -656,7 +656,7 @@ impl OpenDirectory {
         .unwrap();
         debug!("Storing empty directory");
         let empty_directory_digest = match storage
-            .store_value(&HashedTree::from(Arc::new(Tree::new(value_blob, vec![]))))
+            .store_value(&HashedTree::from(Arc::new(Tree::new(tree_blob, vec![]))))
             .await
         {
             Ok(success) => success,
@@ -1055,17 +1055,17 @@ impl OpenDirectory {
         } else {
             info!("Saving directory: {:?}", &serialization_children);
         }
-        let maybe_value_blob = TreeBlob::try_from(bytes::Bytes::from(
+        let maybe_tree_blob = TreeBlob::try_from(bytes::Bytes::from(
             postcard::to_allocvec(&DirectoryTree {
                 children: serialization_children,
             })
             .unwrap(),
         ));
-        match maybe_value_blob {
-            Some(value_blob) => {
+        match maybe_tree_blob {
+            Some(tree_blob) => {
                 storage
                     .store_value(&HashedTree::from(Arc::new(Tree::new(
-                        value_blob,
+                        tree_blob,
                         serialization_references,
                     ))))
                     .await
@@ -1276,20 +1276,20 @@ impl OpenFileContentBlock {
                 None => return Err(Error::MissingValue(*blob_digest)),
             }
         };
-        if loaded.value().blob().as_slice().len() != size as usize {
+        if loaded.tree().blob().as_slice().len() != size as usize {
             error!(
                 "Loaded blob {:?} of size {}, but it was expected to be {} long",
                 blob_digest,
-                loaded.value().blob().as_slice().len(),
+                loaded.tree().blob().as_slice().len(),
                 size
             );
             return Err(Error::FileSizeMismatch);
         }
-        if !loaded.value().references().is_empty() {
+        if !loaded.tree().references().is_empty() {
             error!(
                 "Loaded blob {:?} of size {}, and its size was correct, but it had unexpected references (number: {}).",
                 blob_digest,
-                size, loaded.value().references().len()
+                size, loaded.tree().references().len()
             );
             return Err(Error::TooManyReferences(*blob_digest));
         }
@@ -1311,7 +1311,7 @@ impl OpenFileContentBlock {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
                 LoadedBlock::KnownDigest(hashed_value) => {
-                    hashed_value.value().blob().content.clone()
+                    hashed_value.tree().blob().content.clone()
                 }
                 LoadedBlock::UnknownDigest(vec) => bytes::Bytes::copy_from_slice(&vec),
             },
@@ -1334,7 +1334,7 @@ impl OpenFileContentBlock {
             OpenFileContentBlock::Loaded(loaded) => match loaded {
                 LoadedBlock::KnownDigest(hashed_value) => {
                     *loaded =
-                        LoadedBlock::UnknownDigest(hashed_value.value().blob().as_slice().to_vec());
+                        LoadedBlock::UnknownDigest(hashed_value.tree().blob().as_slice().to_vec());
                 }
                 LoadedBlock::UnknownDigest(_vec) => {}
             },
@@ -1404,7 +1404,7 @@ impl OpenFileContentBlock {
                         hashed_value
                     }
                 };
-                let size = hashed_value.value().blob().len();
+                let size = hashed_value.tree().blob().len();
                 let result = storage.store_value(&hashed_value).await?;
                 assert_eq!(hashed_value.digest(), &result);
                 // free the memory
@@ -1418,7 +1418,7 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, size) => *size,
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(hashed_value) => hashed_value.value().blob().len(),
+                LoadedBlock::KnownDigest(hashed_value) => hashed_value.tree().blob().len(),
                 LoadedBlock::UnknownDigest(vec) => vec.len() as u16,
             },
         }
@@ -1432,7 +1432,7 @@ impl OpenFileContentBlock {
                     // free some memory:
                     *self = OpenFileContentBlock::NotLoaded(
                         *hashed_value.digest(),
-                        hashed_value.value().blob().len(),
+                        hashed_value.tree().blob().len(),
                     );
                     CacheDropStats::new(1, 0, 0)
                 }
@@ -1989,7 +1989,7 @@ impl OpenFileContentBuffer {
                         None => return Err(Error::MissingValue(*digest)),
                     };
                     let info: SegmentedBlob =
-                        match postcard::from_bytes(&hashed_value.value().blob().as_slice()) {
+                        match postcard::from_bytes(&hashed_value.tree().blob().as_slice()) {
                             Ok(success) => success,
                             Err(error) => return Err(Error::Postcard(error)),
                         };
@@ -2000,14 +2000,14 @@ impl OpenFileContentBuffer {
                             directory_entry_size: *size,
                         });
                     }
-                    if hashed_value.value().references().len() < 1 {
+                    if hashed_value.tree().references().len() < 1 {
                         todo!()
                     }
                     let full_blocks = hashed_value
-                        .value()
+                        .tree()
                         .references()
                         .iter()
-                        .take(hashed_value.value().references().len() - 1)
+                        .take(hashed_value.tree().references().len() - 1)
                         .map(|reference| {
                             OpenFileContentBlock::NotLoaded(
                                 *reference,
@@ -2024,7 +2024,7 @@ impl OpenFileContentBuffer {
                     }
                     full_blocks
                         .chain(std::iter::once(OpenFileContentBlock::NotLoaded(
-                            *hashed_value.value().references().last().unwrap(),
+                            *hashed_value.tree().references().last().unwrap(),
                             final_block_size as u16,
                         )))
                         .collect()

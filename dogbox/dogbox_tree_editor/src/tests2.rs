@@ -892,7 +892,7 @@ async fn optimized_write_buffer_full_blocks(
         assert_eq!(full_block_count, buffer.full_blocks().len());
         assert!(buffer.full_blocks().iter().all(|full_block| {
             full_block
-                .value()
+                .tree()
                 .blob()
                 .as_slice()
                 .iter()

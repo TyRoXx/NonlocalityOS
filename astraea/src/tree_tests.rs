@@ -32,21 +32,21 @@ fn test_display_reference_index() {
 }
 
 #[test_log::test]
-fn test_debug_value_blob() {
+fn test_debug_tree_blob() {
     let blob = TreeBlob::empty();
     assert_eq!(format!("{:?}", blob), "ValueBlob { content.len(): 0 }");
 }
 
 proptest! {
     #[test_log::test]
-    fn value_blob_try_from_success(length in 0usize..VALUE_BLOB_MAX_LENGTH) {
+    fn tree_blob_try_from_success(length in 0usize..VALUE_BLOB_MAX_LENGTH) {
         let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, length));
-        let value_blob = TreeBlob::try_from(content.clone()).unwrap();
-        assert_eq!(content, value_blob.content);
+        let tree_blob = TreeBlob::try_from(content.clone()).unwrap();
+        assert_eq!(content, tree_blob.content);
     }
 
     #[test_log::test]
-    fn value_blob_try_from_failure(length in (VALUE_BLOB_MAX_LENGTH + 1)..(VALUE_BLOB_MAX_LENGTH * 3) /*We don't want to allocate too much memory here.*/) {
+    fn tree_blob_try_from_failure(length in (VALUE_BLOB_MAX_LENGTH + 1)..(VALUE_BLOB_MAX_LENGTH * 3) /*We don't want to allocate too much memory here.*/) {
         let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, length));
         let result = TreeBlob::try_from(content.clone());
         assert_eq!(None, result);

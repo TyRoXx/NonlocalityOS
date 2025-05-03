@@ -250,7 +250,7 @@ pub async fn deserialize_recursively(
     load_value: &(dyn LoadValue + Sync),
 ) -> Result<DeepExpression, ()> {
     let root_loaded = load_value.load_value(root).await.unwrap(/*TODO*/).hash().unwrap(/*TODO*/);
-    let shallow = deserialize_shallow(&root_loaded.value()).await?;
+    let shallow = deserialize_shallow(&root_loaded.tree()).await?;
     let deep = shallow
         .map_child_expressions(
             &|child: &BlobDigest| -> Pin<Box<dyn Future<Output = Result<Arc<DeepExpression>, ()>>>> {
@@ -377,16 +377,16 @@ impl Closure {
             Some(success) => success,
             None => return Err(TreeDeserializationError::BlobUnavailable(root.clone())),
         };
-        let root_value = loaded_root.hash().unwrap(/*TODO*/).value().clone();
-        let closure_blob: ClosureBlob = match postcard::from_bytes(&root_value.blob().as_slice()) {
+        let root_tree = loaded_root.hash().unwrap(/*TODO*/).tree().clone();
+        let closure_blob: ClosureBlob = match postcard::from_bytes(&root_tree.blob().as_slice()) {
             Ok(success) => success,
             Err(error) => return Err(TreeDeserializationError::Postcard(error)),
         };
-        let body_reference = &root_value.references()[0];
+        let body_reference = &root_tree.references()[0];
         let body = deserialize_recursively(body_reference, load_value).await.unwrap(/*TODO*/);
         let mut captured_variables = BTreeMap::new();
         for (name, index) in closure_blob.captured_variables {
-            let reference = &root_value.references()[index.0 as usize];
+            let reference = &root_tree.references()[index.0 as usize];
             captured_variables.insert(name, reference.clone());
         }
         Ok(Closure::new(
