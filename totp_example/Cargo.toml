@@ -7,7 +7,14 @@ edition = "2021"
 
 [dependencies]
 totp-rs = {version = "5", features = ["qr", "gen_secret", "zeroize"]}
-tokio = {version = "1", features = ["rt-multi-thread", "macros", "time"]}
 tracing = "0"
 tracing-subscriber = "0"
 qrcode = "0"
+
+[target.'cfg(target_env = "msvc")'.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+# https://github.com/madsim-rs/madsim
+madsim = "0.2"
+tokio = { version = "0.2", package = "madsim-tokio", features = ["rt-multi-thread", "macros", "time"] }

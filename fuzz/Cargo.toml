@@ -12,13 +12,20 @@ libfuzzer-sys = "0.4"
 dogbox_tree_editor = { path ="../dogbox/dogbox_tree_editor" }
 dogbox_tree = { path ="../dogbox/dogbox_tree" }
 astraea = { path ="../astraea" }
-tokio = { version = "1", features = ["full"] }
 bytes = "1"
 postcard = {version = "1", features = ["alloc"]}
 tracing = "0"
 serde = "1"
 tokio-macros = "2"
 rand = { version = "0", features = [ "small_rng" ]}
+
+[target.'cfg(target_env = "msvc")'.dependencies]
+tokio = { version = "1", features = ["full"] }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+# https://github.com/madsim-rs/madsim
+madsim = "0.2"
+tokio = { version = "0.2", package = "madsim-tokio", features = ["full"] }
 
 [[bin]]
 name = "write-read-large-files"

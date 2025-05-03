@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 hippeus_parser_generator = { path ="../hippeus_parser_generator" }
-tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "sync"]}
 tokio-stream = "0"
 async-stream = "0"
 futures-util = "0"
@@ -25,10 +24,16 @@ async-trait = "0"
 async-scoped = {version = "0", features = ["use-tokio"]}
 rusqlite = {version = "0", features = ["bundled"]}
 
+#[target.'cfg(target_env = "msvc")'.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0"
+# https://github.com/madsim-rs/madsim
+#madsim = "0.2"
+#tokio = { version = "0.2", package = "madsim-tokio", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
 [dev-dependencies]
 proptest = "1"
 rand = { version = "0", features = [ "small_rng", "min_const_gen" ]}
 test-log = {version = "0", features = ["trace", "log", "color"]}
-
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0"

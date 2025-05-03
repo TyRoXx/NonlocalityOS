@@ -8,10 +8,7 @@ use file_system::DogBoxFileSystem;
 use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
 use std::{convert::Infallible, net::SocketAddr, path::Path, pin::Pin, sync::Arc};
-use tokio::{
-    net::{TcpListener, TcpStream},
-    runtime::Handle,
-};
+use tokio::net::{TcpListener, TcpStream};
 use tracing::{debug, error, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 mod file_system;
@@ -168,13 +165,7 @@ async fn persist_root_on_change(
                 blob_storage_update
                     .update_root(root_name, &root_status.digest.last_known_digest)
                     .await;
-                tokio::task::spawn_blocking({
-                     let blob_storage_commit = blob_storage_commit.clone();
-                     move || {
-                         Handle::current().block_on(  blob_storage_commit.commit_changes()).unwrap(/*TODO*/);
-                }})
-                .await
-                .unwrap();
+                blob_storage_commit.commit_changes().await.unwrap(/*TODO*/);
             }
             let save_status = if root_status.digest.is_digest_up_to_date {
                 assert_eq!(0, root_status.bytes_unflushed_count);

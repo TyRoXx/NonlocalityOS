@@ -212,7 +212,7 @@ async fn expect_file(
     }
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_file_not_found() {
     let verify_changes = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
@@ -268,12 +268,12 @@ async fn test_create_file(content: Vec<u8>) {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_create_file_empty() {
     test_create_file(vec![]).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_create_file_with_small_content() {
     test_create_file(vec![b'a']).await
 }
@@ -286,27 +286,27 @@ fn random_bytes(len: usize) -> Vec<u8> {
     (0..len).map(|_| small_rng.random()).collect()
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_create_file_random_tiny() {
     test_create_file(random_bytes(42)).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_create_file_tree_blob_max_length_minus_one() {
     test_create_file(random_bytes(TREE_BLOB_MAX_LENGTH - 1)).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_create_file_tree_blob_max_length_plus_one() {
     test_create_file(random_bytes(TREE_BLOB_MAX_LENGTH + 1)).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_create_file_random_100k() {
     test_create_file(random_bytes(100_000)).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_create_file_truncate() {
     let file_name = "test.txt";
     let long_content = "looooooong";
@@ -339,7 +339,7 @@ async fn test_create_file_truncate() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_create_directory() {
     let dir_name = "Dir4";
     let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -365,7 +365,7 @@ async fn test_create_directory() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_two_nested_directories() {
     let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
@@ -397,7 +397,7 @@ async fn test_two_nested_directories() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_three_nested_directories() {
     let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
@@ -436,7 +436,7 @@ async fn test_three_nested_directories() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_list_infinity() {
     // WebDAV servers sometimes refuse "depth: infinity" PROPFIND requests. The library we use does this as well.
     let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -453,7 +453,7 @@ async fn test_list_infinity() {
     test_fresh_dav_server(None, &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_rename_root() {
     let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
@@ -470,7 +470,7 @@ async fn test_rename_root() {
     test_fresh_dav_server(None, &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_rename_file_to_already_existing_path() {
     let content_a = "test";
     let content_b = "foo";
@@ -499,7 +499,7 @@ async fn test_rename_file_to_already_existing_path() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_rename_file() {
     let content = "test";
     let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -526,7 +526,7 @@ async fn test_rename_file() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_rename_directory() {
     let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
@@ -545,7 +545,7 @@ async fn test_rename_directory() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_rename_with_different_directories() {
     let content = "test";
     let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -576,7 +576,7 @@ async fn test_rename_with_different_directories() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_rename_with_different_directories_locking() {
     let content = "test";
     let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -610,7 +610,7 @@ async fn test_rename_with_different_directories_locking() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_remove_file() {
     let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
@@ -632,7 +632,7 @@ async fn test_remove_file() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_remove_directory() {
     let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
@@ -654,7 +654,7 @@ async fn test_remove_directory() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_copy_file() {
     let content = "content";
     let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -689,7 +689,7 @@ async fn test_copy_file() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_copy_file_independent_content() {
     let content_1 = "1";
     let content_2 = "2";
@@ -726,7 +726,7 @@ async fn test_copy_file_independent_content() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_copy_file_into_different_folder() {
     let content = "content";
     let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -765,7 +765,7 @@ async fn test_copy_file_into_different_folder() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_copy_file_to_already_existing_target() {
     let content = "content";
     let other_content = "some other content";
@@ -807,7 +807,7 @@ async fn test_copy_file_to_already_existing_target() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_copy_file_to_itself() {
     let content = "content";
     let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -872,7 +872,7 @@ async fn test_copy_file_to_itself() {
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_copy_non_existing_file() {
     let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {

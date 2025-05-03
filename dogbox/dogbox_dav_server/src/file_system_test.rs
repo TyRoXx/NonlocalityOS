@@ -20,7 +20,7 @@ fn test_clock() -> std::time::SystemTime {
     std::time::SystemTime::UNIX_EPOCH
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_dav_access() {
     let blob_storage = Arc::new(InMemoryTreeStorage::new(Mutex::new(BTreeMap::new())));
     let dav_server = DavHandler::builder()
@@ -114,7 +114,7 @@ async fn test_dav_access() {
     }
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_seek_operations() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);
@@ -161,7 +161,7 @@ async fn test_seek_operations() {
     assert_eq!(BTreeSet::new(), storage.digests().await);
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_seek_and_write() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);
@@ -229,7 +229,7 @@ async fn test_seek_and_write() {
     }
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_seek_beyond_the_end() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);
@@ -290,7 +290,7 @@ async fn test_seek_beyond_the_end() {
     }
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(madsim::test)]
 async fn test_write_out_of_bounds() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);
