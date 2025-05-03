@@ -1,5 +1,5 @@
 use crate::{
-    storage::{CommitChanges, LoadRoot, LoadValue, SQLiteStorage, StoreTree, UpdateRoot},
+    storage::{CommitChanges, LoadRoot, LoadTree, SQLiteStorage, StoreTree, UpdateRoot},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob},
 };
 use bytes::Bytes;
@@ -24,22 +24,12 @@ async fn test_store_unit_first_time() {
         BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap(),
         reference
     );
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(HashedTree::from(Arc::new(Tree::empty())), loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(HashedTree::from(Arc::new(Tree::empty())), loaded_back);
 }
 
@@ -64,7 +54,7 @@ async fn test_store_unit_again() {
     assert_eq!(reference_1, reference_2);
 
     let loaded_back = storage
-        .load_value(&reference_1)
+        .load_tree(&reference_1)
         .await
         .unwrap()
         .hash()
@@ -74,7 +64,7 @@ async fn test_store_unit_again() {
     storage.commit_changes().await.unwrap();
 
     let loaded_back = storage
-        .load_value(&reference_1)
+        .load_tree(&reference_1)
         .await
         .unwrap()
         .hash()
@@ -100,22 +90,12 @@ async fn test_store_blob() {
         reference
     );
     let expected = HashedTree::from(value);
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 }
 
@@ -138,22 +118,12 @@ async fn test_store_reference() {
         reference
     );
     let expected = HashedTree::from(value);
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 }
 
@@ -179,22 +149,12 @@ async fn test_store_two_references() {
             reference
         );
     let expected = HashedTree::from(value);
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 }
 
@@ -220,22 +180,12 @@ async fn test_store_three_references() {
             reference
         );
     let expected = HashedTree::from(value);
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage
-        .load_value(&reference)
-        .await
-        .unwrap()
-        .hash()
-        .unwrap();
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 }
 

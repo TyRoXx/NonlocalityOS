@@ -68,12 +68,12 @@ impl DelayedHashedValue {
 }
 
 #[async_trait::async_trait]
-pub trait LoadValue: std::fmt::Debug {
-    async fn load_value(&self, reference: &BlobDigest) -> Option<DelayedHashedValue>;
-    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError>;
+pub trait LoadTree: std::fmt::Debug {
+    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedValue>;
+    async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError>;
 }
 
-pub trait LoadStoreValue: LoadValue + StoreTree {}
+pub trait LoadStoreValue: LoadTree + StoreTree {}
 
 #[async_trait]
 pub trait UpdateRoot {
@@ -130,14 +130,14 @@ impl StoreTree for InMemoryValueStorage {
 }
 
 #[async_trait]
-impl LoadValue for InMemoryValueStorage {
-    async fn load_value(&self, reference: &BlobDigest) -> Option<DelayedHashedValue> {
+impl LoadTree for InMemoryValueStorage {
+    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedValue> {
         let lock = self.reference_to_value.lock().await;
         lock.get(reference)
             .map(|found| DelayedHashedValue::immediate(found.clone()))
     }
 
-    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+    async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
         let lock = self.reference_to_value.lock().await;
         Ok(lock.len() as u64)
     }
@@ -289,9 +289,9 @@ impl StoreTree for SQLiteStorage {
 }
 
 #[async_trait]
-impl LoadValue for SQLiteStorage {
+impl LoadTree for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn load_value(&self, reference: &BlobDigest) -> Option<DelayedHashedValue> {
+    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedValue> {
         let references: Vec<crate::tree::BlobDigest>;
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
@@ -329,7 +329,7 @@ impl LoadValue for SQLiteStorage {
         ))
     }
 
-    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+    async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         connection_locked
@@ -423,15 +423,15 @@ impl LoadCache {
 }
 
 #[async_trait]
-impl LoadValue for LoadCache {
-    async fn load_value(&self, reference: &BlobDigest) -> Option<DelayedHashedValue> {
+impl LoadTree for LoadCache {
+    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedValue> {
         {
             let mut entries_locked = self.entries.lock().await;
             if let Some(found) = entries_locked.cache_get(reference) {
                 return Some(DelayedHashedValue::immediate(found.clone()));
             }
         }
-        let loaded = match self.next.load_value(reference).await {
+        let loaded = match self.next.load_tree(reference).await {
             Some(loaded) => loaded,
             None => return None,
         };
@@ -446,8 +446,8 @@ impl LoadValue for LoadCache {
         }
     }
 
-    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
-        self.next.approximate_value_count().await
+    async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
+        self.next.approximate_tree_count().await
     }
 }
 

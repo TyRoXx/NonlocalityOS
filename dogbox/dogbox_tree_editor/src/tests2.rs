@@ -4,9 +4,7 @@ use crate::{
     OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer,
     OptimizedWriteBuffer, Prefetcher, StreakDirection, TreeEditor,
 };
-use astraea::storage::{
-    DelayedHashedValue, InMemoryValueStorage, LoadValue, StoreError, StoreTree,
-};
+use astraea::storage::{DelayedHashedValue, InMemoryValueStorage, LoadTree, StoreError, StoreTree};
 use astraea::tree::calculate_reference;
 use astraea::{
     storage::LoadStoreValue,
@@ -476,15 +474,15 @@ async fn test_read_empty_root() {
 struct NeverUsedStorage {}
 
 #[async_trait]
-impl LoadValue for NeverUsedStorage {
-    async fn load_value(
+impl LoadTree for NeverUsedStorage {
+    async fn load_tree(
         &self,
         _reference: &astraea::tree::BlobDigest,
     ) -> Option<DelayedHashedValue> {
         panic!()
     }
 
-    async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError> {
+    async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
         panic!()
     }
 }

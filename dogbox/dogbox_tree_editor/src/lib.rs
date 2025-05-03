@@ -539,7 +539,7 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<Arc<OpenDirectory>> {
-        match storage.load_value(digest).await {
+        match storage.load_tree(digest).await {
             Some(delayed_loaded) => {
                 let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
                 let parsed_directory: DirectoryTree =
@@ -1264,7 +1264,7 @@ impl OpenFileContentBlock {
             // there is nothing to load
             HashedTree::from(Arc::new(Tree::new(TreeBlob::empty(), Vec::new())))
         } else {
-            let delayed = match storage.load_value(blob_digest).await {
+            let delayed = match storage.load_tree(blob_digest).await {
                 Some(success) => success,
                 None => return Err(Error::MissingValue(*blob_digest)),
             };
@@ -1980,7 +1980,7 @@ impl OpenFileContentBuffer {
                 let blocks = if *size <= VALUE_BLOB_MAX_LENGTH as u64 {
                     vec![OpenFileContentBlock::NotLoaded(*digest, *size as u16)]
                 } else {
-                    let delayed_hashed_value = match storage.load_value(digest).await {
+                    let delayed_hashed_value = match storage.load_tree(digest).await {
                         Some(success) => success,
                         None => return Err(Error::MissingValue(*digest)),
                     };

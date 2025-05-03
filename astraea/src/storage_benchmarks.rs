@@ -1,6 +1,6 @@
 extern crate test;
 use crate::{
-    storage::{LoadValue, SQLiteStorage, StoreTree},
+    storage::{LoadTree, SQLiteStorage, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use std::sync::Arc;
@@ -113,7 +113,7 @@ fn generate_random_values_1000(b: &mut Bencher) {
         runtime.block_on(generate_random_values(value_count_in_database, &storage));
         assert_eq!(
             Ok(value_count_in_database),
-            runtime.block_on(storage.approximate_value_count())
+            runtime.block_on(storage.approximate_tree_count())
         );
     });
 }
@@ -134,7 +134,7 @@ fn sqlite_in_memory_load_and_hash_value(b: &mut Bencher, value_count_in_database
     runtime.block_on(generate_random_values(value_count_in_database, &storage));
     assert_eq!(
         Ok(value_count_in_database as u64),
-        runtime.block_on(storage.approximate_value_count())
+        runtime.block_on(storage.approximate_tree_count())
     );
     let stored_value = HashedTree::from(Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from(random_bytes(VALUE_BLOB_MAX_LENGTH))).unwrap(),
@@ -151,7 +151,7 @@ fn sqlite_in_memory_load_and_hash_value(b: &mut Bencher, value_count_in_database
     );
     b.iter(|| {
         let loaded = runtime
-            .block_on(storage.load_value(&reference))
+            .block_on(storage.load_tree(&reference))
             .unwrap()
             .hash()
             .unwrap();
@@ -161,7 +161,7 @@ fn sqlite_in_memory_load_and_hash_value(b: &mut Bencher, value_count_in_database
     b.bytes = stored_value.tree().blob().len() as u64;
     assert_eq!(
         Ok(value_count_in_database + 1),
-        runtime.block_on(storage.approximate_value_count())
+        runtime.block_on(storage.approximate_tree_count())
     );
 }
 

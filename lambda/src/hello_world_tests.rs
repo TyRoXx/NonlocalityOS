@@ -3,7 +3,7 @@ use crate::{
     name::{Name, NamespaceId},
 };
 use astraea::{
-    storage::{InMemoryValueStorage, LoadValue, StoreTree},
+    storage::{InMemoryValueStorage, LoadTree, StoreTree},
     tree::{BlobDigest, HashedTree, Tree},
 };
 use std::{pin::Pin, sync::Arc};
@@ -66,7 +66,7 @@ async fn hello_world() {
         .await
         .unwrap();
     let serialized_result = storage
-        .load_value(&main_result)
+        .load_tree(&main_result)
         .await
         .unwrap()
         .hash()
