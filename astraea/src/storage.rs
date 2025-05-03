@@ -190,12 +190,12 @@ impl SQLiteStorage {
             // Why are we using format! instead of an SQL parameter here?
             // Answer is the SQLite error: "parameters prohibited in CHECK constraints" (because why should anything ever work)
             let query = format!(
-                "CREATE TABLE value (
+                "CREATE TABLE tree (
                 id INTEGER PRIMARY KEY NOT NULL,
                 digest BLOB UNIQUE NOT NULL,
-                value_blob BLOB NOT NULL,
+                tree_blob BLOB NOT NULL,
                 CONSTRAINT digest_length_matches_sha3_512 CHECK (LENGTH(digest) == 64),
-                CONSTRAINT value_blob_max_length CHECK (LENGTH(value_blob) <= {})
+                CONSTRAINT tree_blob_max_length CHECK (LENGTH(tree_blob) <= {})
             ) STRICT",
                 TREE_BLOB_MAX_LENGTH
             );
@@ -207,7 +207,7 @@ impl SQLiteStorage {
             .execute(
                 "CREATE TABLE reference (
                 id INTEGER PRIMARY KEY NOT NULL,
-                origin INTEGER NOT NULL REFERENCES value,
+                origin INTEGER NOT NULL REFERENCES tree,
                 zero_based_index INTEGER NOT NULL,
                 target BLOB NOT NULL,
                 UNIQUE (origin, zero_based_index),
@@ -248,7 +248,7 @@ impl StoreTree for SQLiteStorage {
         let connection_locked = &state_locked.connection;
         {
             let mut statement = connection_locked.prepare_cached(
-                "SELECT COUNT(*) FROM value WHERE digest = ?").unwrap(/*TODO*/);
+                "SELECT COUNT(*) FROM tree WHERE digest = ?").unwrap(/*TODO*/);
             let existing_count: i64 = statement
                 .query_row(
                     (&origin_digest,),
@@ -263,20 +263,20 @@ impl StoreTree for SQLiteStorage {
         }
 
         let mut statement = connection_locked.prepare_cached(
-            "INSERT INTO value (digest, value_blob) VALUES (?1, ?2)").unwrap(/*TODO*/);
+            "INSERT INTO tree (digest, tree_blob) VALUES (?1, ?2)").unwrap(/*TODO*/);
         let rows_inserted = statement.execute(
             (&origin_digest, tree.tree().blob().as_slice()),
         ).unwrap(/*TODO*/);
         assert_eq!(1, rows_inserted);
 
         if !tree.tree().references().is_empty() {
-            let inserted_value_rowid = connection_locked.last_insert_rowid();
+            let inserted_tree_rowid = connection_locked.last_insert_rowid();
             let mut statement = connection_locked.prepare_cached(
                 "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",).unwrap(/*TODO*/);
             for (index, reference) in tree.tree().references().iter().enumerate() {
                 let target_digest: [u8; 64] = (*reference).into();
                 let rows_inserted = statement.execute(
-                    (&inserted_value_rowid, &index, &target_digest),
+                    (&inserted_tree_rowid, &index, &target_digest),
                 ).unwrap(/*TODO*/);
                 assert_eq!(1, rows_inserted);
             }
@@ -294,7 +294,7 @@ impl LoadTree for SQLiteStorage {
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = (*reference).into();
-        let mut statement = connection_locked.prepare_cached("SELECT id, value_blob FROM value WHERE digest = ?1").unwrap(/*TODO*/);
+        let mut statement = connection_locked.prepare_cached("SELECT id, tree_blob FROM tree WHERE digest = ?1").unwrap(/*TODO*/);
         let (id, tree_blob) = statement.query_row(
             (&digest, ),
             |row| -> rusqlite::Result<_> {
@@ -332,7 +332,7 @@ impl LoadTree for SQLiteStorage {
         let connection_locked = &state_locked.connection;
         connection_locked
             .query_row_and_then(
-                "SELECT COUNT(*) FROM value",
+                "SELECT COUNT(*) FROM tree",
                 (),
                 |row| -> rusqlite::Result<_> {
                     let count: u64 = row.get(0).unwrap(/*TODO*/);
