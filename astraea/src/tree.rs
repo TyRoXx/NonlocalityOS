@@ -107,33 +107,33 @@ impl std::fmt::Debug for TreeBlob {
 }
 
 #[derive(Debug)]
-pub enum ValueSerializationError {
+pub enum TreeSerializationError {
     Postcard(postcard::Error),
     BlobTooLong,
 }
 
-impl std::fmt::Display for ValueSerializationError {
+impl std::fmt::Display for TreeSerializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl std::error::Error for ValueSerializationError {}
+impl std::error::Error for TreeSerializationError {}
 
 #[derive(Debug)]
-pub enum ValueDeserializationError {
+pub enum TreeDeserializationError {
     ReferencesNotAllowed,
     Postcard(postcard::Error),
     BlobUnavailable(BlobDigest),
 }
 
-impl std::fmt::Display for ValueDeserializationError {
+impl std::fmt::Display for TreeDeserializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl std::error::Error for ValueDeserializationError {}
+impl std::error::Error for TreeDeserializationError {}
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct Value {

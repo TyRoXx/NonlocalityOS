@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::tree::{
-    calculate_reference, BlobDigest, HashedValue, ReferenceIndex, Value, TreeBlob,
-    ValueDeserializationError, ValueSerializationError, VALUE_BLOB_MAX_LENGTH,
+    calculate_reference, BlobDigest, HashedValue, ReferenceIndex, TreeBlob,
+    TreeDeserializationError, TreeSerializationError, Value, VALUE_BLOB_MAX_LENGTH,
 };
 use proptest::proptest;
 
@@ -55,27 +55,27 @@ proptest! {
 
 #[test_log::test]
 fn test_display_value_serialization_error() {
-    let error = ValueSerializationError::BlobTooLong;
+    let error = TreeSerializationError::BlobTooLong;
     assert_eq!(format!("{}", error), "BlobTooLong");
 }
 
 #[test_log::test]
 fn test_display_value_deserialization_error() {
     assert_eq!(
-        format!("{}", ValueDeserializationError::ReferencesNotAllowed),
+        format!("{}", TreeDeserializationError::ReferencesNotAllowed),
         "ReferencesNotAllowed"
     );
     assert_eq!(
         format!(
             "{}",
-            ValueDeserializationError::Postcard(postcard::Error::DeserializeUnexpectedEnd)
+            TreeDeserializationError::Postcard(postcard::Error::DeserializeUnexpectedEnd)
         ),
         "Postcard(DeserializeUnexpectedEnd)"
     );
     assert_eq!(
         format!(
             "{}",
-            ValueDeserializationError::BlobUnavailable(BlobDigest::new(&[0u8; 64]),)
+            TreeDeserializationError::BlobUnavailable(BlobDigest::new(&[0u8; 64]),)
         ),
         "BlobUnavailable(BlobDigest(\"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\"))"
     );

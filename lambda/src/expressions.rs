@@ -1,5 +1,5 @@
 use crate::name::Name;
-use astraea::tree::{BlobDigest, HashedValue, ReferenceIndex, Value, ValueDeserializationError};
+use astraea::tree::{BlobDigest, HashedValue, ReferenceIndex, TreeDeserializationError, Value};
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
     tree::TreeBlob,
@@ -372,15 +372,15 @@ impl Closure {
     pub async fn deserialize(
         root: &BlobDigest,
         load_value: &(dyn LoadValue + Sync),
-    ) -> Result<Closure, ValueDeserializationError> {
+    ) -> Result<Closure, TreeDeserializationError> {
         let loaded_root = match load_value.load_value(root).await {
             Some(success) => success,
-            None => return Err(ValueDeserializationError::BlobUnavailable(root.clone())),
+            None => return Err(TreeDeserializationError::BlobUnavailable(root.clone())),
         };
         let root_value = loaded_root.hash().unwrap(/*TODO*/).value().clone();
         let closure_blob: ClosureBlob = match postcard::from_bytes(&root_value.blob().as_slice()) {
             Ok(success) => success,
-            Err(error) => return Err(ValueDeserializationError::Postcard(error)),
+            Err(error) => return Err(TreeDeserializationError::Postcard(error)),
         };
         let body_reference = &root_value.references()[0];
         let body = deserialize_recursively(body_reference, load_value).await.unwrap(/*TODO*/);
@@ -510,12 +510,11 @@ pub async fn evaluate(
                     Box::pin(evaluate(argument, load_value, store_value, read_variable)).await?;
                 evaluated_arguments.push(evaluated_argument);
             }
-            Ok(HashedValue::from(Arc::new(Value::new(
-                TreeBlob::empty(),
-                evaluated_arguments,
-            )))
-            .digest()
-            .clone())
+            Ok(
+                HashedValue::from(Arc::new(Value::new(TreeBlob::empty(), evaluated_arguments)))
+                    .digest()
+                    .clone(),
+            )
         }
     }
 }
