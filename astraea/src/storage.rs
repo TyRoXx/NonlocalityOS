@@ -23,8 +23,8 @@ impl std::fmt::Display for StoreError {
 impl std::error::Error for StoreError {}
 
 #[async_trait::async_trait]
-pub trait StoreValue {
-    async fn store_value(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError>;
+pub trait StoreTree {
+    async fn store_tree(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError>;
 }
 
 #[derive(Debug, Clone)]
@@ -73,7 +73,7 @@ pub trait LoadValue: std::fmt::Debug {
     async fn approximate_value_count(&self) -> std::result::Result<u64, StoreError>;
 }
 
-pub trait LoadStoreValue: LoadValue + StoreValue {}
+pub trait LoadStoreValue: LoadValue + StoreTree {}
 
 #[async_trait]
 pub trait UpdateRoot {
@@ -118,8 +118,8 @@ impl InMemoryValueStorage {
 }
 
 #[async_trait]
-impl StoreValue for InMemoryValueStorage {
-    async fn store_value(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+impl StoreTree for InMemoryValueStorage {
+    async fn store_tree(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
         let mut lock = self.reference_to_value.lock().await;
         let reference = *value.digest();
         if !lock.contains_key(&reference) {
@@ -240,9 +240,9 @@ impl SQLiteStorage {
 }
 
 #[async_trait]
-impl StoreValue for SQLiteStorage {
+impl StoreTree for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn store_value(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_tree(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
         let mut state_locked = self.state.lock().await;
         let reference = *value.digest();
         let origin_digest: [u8; 64] = reference.into();
@@ -452,9 +452,9 @@ impl LoadValue for LoadCache {
 }
 
 #[async_trait]
-impl StoreValue for LoadCache {
-    async fn store_value(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
-        self.next.store_value(value).await
+impl StoreTree for LoadCache {
+    async fn store_tree(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+        self.next.store_tree(value).await
     }
 }
 

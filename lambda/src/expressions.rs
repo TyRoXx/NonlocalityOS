@@ -1,7 +1,7 @@
 use crate::name::Name;
 use astraea::tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeDeserializationError};
 use astraea::{
-    storage::{LoadValue, StoreError, StoreValue},
+    storage::{LoadValue, StoreError, StoreTree},
     tree::TreeBlob,
 };
 use serde::{Deserialize, Serialize};
@@ -279,17 +279,17 @@ pub fn expression_to_value(expression: &ShallowExpression) -> Tree {
 
 pub async fn serialize_shallow(
     expression: &ShallowExpression,
-    storage: &(dyn StoreValue + Sync),
+    storage: &(dyn StoreTree + Sync),
 ) -> std::result::Result<BlobDigest, StoreError> {
     let value = expression_to_value(expression);
     storage
-        .store_value(&HashedTree::from(Arc::new(value)))
+        .store_tree(&HashedTree::from(Arc::new(value)))
         .await
 }
 
 pub async fn serialize_recursively(
     expression: &DeepExpression,
-    storage: &(dyn StoreValue + Sync),
+    storage: &(dyn StoreTree + Sync),
 ) -> std::result::Result<BlobDigest, StoreError> {
     let shallow_expression: ShallowExpression = expression
         .0
@@ -350,7 +350,7 @@ impl Closure {
 
     pub async fn serialize(
         &self,
-        store_value: &(dyn StoreValue + Sync),
+        store_value: &(dyn StoreTree + Sync),
     ) -> Result<BlobDigest, StoreError> {
         let mut references = vec![serialize_recursively(&self.body, store_value).await?];
         let mut captured_variables = BTreeMap::new();
@@ -362,7 +362,7 @@ impl Closure {
         let closure_blob = ClosureBlob::new(self.parameter_name.clone(), captured_variables);
         let closure_blob_bytes = postcard::to_allocvec(&closure_blob).unwrap(/*TODO*/);
         store_value
-            .store_value(&HashedTree::from(Arc::new(Tree::new(
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::try_from(bytes::Bytes::from_owner(closure_blob_bytes)).unwrap(/*TODO*/),
                 references,
             ))))
@@ -403,7 +403,7 @@ async fn call_method(
     body: &DeepExpression,
     argument: &BlobDigest,
     load_value: &(dyn LoadValue + Sync),
-    store_value: &(dyn StoreValue + Sync),
+    store_value: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     let read_variable_in_body: Arc<ReadVariable> = Arc::new({
@@ -464,7 +464,7 @@ fn find_captured_names(expression: &DeepExpression) -> BTreeSet<Name> {
 pub async fn evaluate(
     expression: &DeepExpression,
     load_value: &(dyn LoadValue + Sync),
-    store_value: &(dyn StoreValue + Sync),
+    store_value: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     match &expression.0 {

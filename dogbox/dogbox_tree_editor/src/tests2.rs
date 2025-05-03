@@ -5,7 +5,7 @@ use crate::{
     OptimizedWriteBuffer, Prefetcher, StreakDirection, TreeEditor,
 };
 use astraea::storage::{
-    DelayedHashedValue, InMemoryValueStorage, LoadValue, StoreError, StoreValue,
+    DelayedHashedValue, InMemoryValueStorage, LoadValue, StoreError, StoreTree,
 };
 use astraea::tree::calculate_reference;
 use astraea::{
@@ -490,8 +490,8 @@ impl LoadValue for NeverUsedStorage {
 }
 
 #[async_trait]
-impl StoreValue for NeverUsedStorage {
-    async fn store_value(
+impl StoreTree for NeverUsedStorage {
+    async fn store_tree(
         &self,
         _value: &HashedTree,
     ) -> std::result::Result<astraea::tree::BlobDigest, StoreError> {

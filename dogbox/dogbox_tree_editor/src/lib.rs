@@ -656,7 +656,7 @@ impl OpenDirectory {
         .unwrap();
         debug!("Storing empty directory");
         let empty_directory_digest = match storage
-            .store_value(&HashedTree::from(Arc::new(Tree::new(tree_blob, vec![]))))
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(tree_blob, vec![]))))
             .await
         {
             Ok(success) => success,
@@ -1064,7 +1064,7 @@ impl OpenDirectory {
         match maybe_tree_blob {
             Some(tree_blob) => {
                 storage
-                    .store_value(&HashedTree::from(Arc::new(Tree::new(
+                    .store_tree(&HashedTree::from(Arc::new(Tree::new(
                         tree_blob,
                         serialization_references,
                     ))))
@@ -1405,7 +1405,7 @@ impl OpenFileContentBlock {
                     }
                 };
                 let size = hashed_value.tree().blob().len();
-                let result = storage.store_value(&hashed_value).await?;
+                let result = storage.store_tree(&hashed_value).await?;
                 assert_eq!(hashed_value.digest(), &result);
                 // free the memory
                 *self = OpenFileContentBlock::NotLoaded(result, size);
@@ -1750,7 +1750,7 @@ impl OpenFileContentBufferLoaded {
             blocks_stored,
         );
         let reference = storage
-            .store_value(&HashedTree::from(Arc::new(value)))
+            .store_tree(&HashedTree::from(Arc::new(value)))
             .await?;
         Ok(self.update_digest(reference))
     }
@@ -2586,7 +2586,7 @@ impl TreeEditor {
     ) -> Result<BlobDigest> {
         debug!("Storing empty file");
         match storage
-            .store_value(&HashedTree::from(Arc::new(Tree::new(
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::empty(),
                 Vec::new(),
             ))))

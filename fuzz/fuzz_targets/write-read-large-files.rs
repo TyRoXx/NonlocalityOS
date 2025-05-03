@@ -7,7 +7,7 @@ fn main() {
 }
 
 use astraea::{
-    storage::{InMemoryValueStorage, StoreValue},
+    storage::{InMemoryValueStorage, StoreTree},
     tree::{HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use dogbox_tree_editor::{OpenFileContentBuffer, OptimizedWriteBuffer};
@@ -151,7 +151,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
         for _ in 0..3 {
             let storage = Arc::new(InMemoryValueStorage::empty());
             let last_known_digest = storage
-                .store_value(&HashedTree::from(Arc::new(Tree::new(
+                .store_tree(&HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::empty(),
                     Vec::new(),
                 ))))

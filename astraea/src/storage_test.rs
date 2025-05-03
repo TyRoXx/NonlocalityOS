@@ -1,5 +1,5 @@
 use crate::{
-    storage::{CommitChanges, LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
+    storage::{CommitChanges, LoadRoot, LoadValue, SQLiteStorage, StoreTree, UpdateRoot},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob},
 };
 use bytes::Bytes;
@@ -17,7 +17,7 @@ async fn test_store_unit_first_time() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let reference = storage
-        .store_value(&HashedTree::from(Arc::new(Tree::empty())))
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     assert_eq!(
@@ -49,7 +49,7 @@ async fn test_store_unit_again() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let reference_1 = storage
-        .store_value(&HashedTree::from(Arc::new(Tree::empty())))
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     assert_eq!(
@@ -58,7 +58,7 @@ async fn test_store_unit_again() {
     );
 
     let reference_2 = storage
-        .store_value(&HashedTree::from(Arc::new(Tree::empty())))
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     assert_eq!(reference_1, reference_2);
@@ -92,7 +92,7 @@ async fn test_store_blob() {
         vec![],
     ));
     let reference = storage
-        .store_value(&HashedTree::from(value.clone()))
+        .store_tree(&HashedTree::from(value.clone()))
         .await
         .unwrap();
     assert_eq!(
@@ -130,7 +130,7 @@ async fn test_store_reference() {
         vec![referenced_digest],
     ));
     let reference = storage
-        .store_value(&HashedTree::from(value.clone()))
+        .store_tree(&HashedTree::from(value.clone()))
         .await
         .unwrap();
     assert_eq!(
@@ -171,7 +171,7 @@ async fn test_store_two_references() {
         referenced_digests,
     ));
     let reference = storage
-        .store_value(&HashedTree::from(value.clone()))
+        .store_tree(&HashedTree::from(value.clone()))
         .await
         .unwrap();
     assert_eq!(
@@ -212,7 +212,7 @@ async fn test_store_three_references() {
         referenced_digests,
     ));
     let reference = storage
-        .store_value(&HashedTree::from(value.clone()))
+        .store_tree(&HashedTree::from(value.clone()))
         .await
         .unwrap();
     assert_eq!(
@@ -245,11 +245,11 @@ async fn test_update_root() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let reference_1 = storage
-        .store_value(&HashedTree::from(Arc::new(Tree::empty())))
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     let reference_2 = storage
-        .store_value(&HashedTree::from(Arc::new(Tree::new(
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
             vec![],
         ))))
@@ -272,7 +272,7 @@ async fn test_roots_may_be_equal() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let reference_1 = storage
-        .store_value(&HashedTree::from(Arc::new(Tree::empty())))
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     let name_1 = "testA";

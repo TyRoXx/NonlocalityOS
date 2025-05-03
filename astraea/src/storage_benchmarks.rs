@@ -1,6 +1,6 @@
 extern crate test;
 use crate::{
-    storage::{LoadValue, SQLiteStorage, StoreValue},
+    storage::{LoadValue, SQLiteStorage, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use std::sync::Arc;
@@ -17,9 +17,7 @@ fn sqlite_in_memory_store_value_redundantly(b: &mut Bencher, tree_blob_size: usi
     )));
     let runtime = Runtime::new().unwrap();
     b.iter(|| {
-        let reference = runtime
-            .block_on(storage.store_value(&stored_value))
-            .unwrap();
+        let reference = runtime.block_on(storage.store_tree(&stored_value)).unwrap();
         assert_eq!(stored_value.digest(), &reference);
         reference
     });
@@ -71,9 +69,7 @@ fn sqlite_in_memory_store_value_newly(
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
         for stored_value in &stored_values {
-            let reference = runtime
-                .block_on(storage.store_value(&stored_value))
-                .unwrap();
+            let reference = runtime.block_on(storage.store_tree(&stored_value)).unwrap();
             assert_eq!(stored_value.digest(), &reference);
         }
         storage
@@ -96,13 +92,13 @@ fn sqlite_in_memory_store_value_newly_only_refs(b: &mut Bencher) {
     sqlite_in_memory_store_value_newly(b, 0, 100);
 }
 
-async fn generate_random_values<T: StoreValue>(value_count_in_database: u64, storage: &T) {
+async fn generate_random_values<T: StoreTree>(value_count_in_database: u64, storage: &T) {
     for index in 0..value_count_in_database {
         let stored_value = HashedTree::from(Arc::new(Tree::new(
             TreeBlob::try_from(bytes::Bytes::copy_from_slice(&index.to_be_bytes())).unwrap(),
             vec![],
         )));
-        let _reference = storage.store_value(&stored_value).await.unwrap();
+        let _reference = storage.store_tree(&stored_value).await.unwrap();
     }
 }
 
@@ -144,9 +140,7 @@ fn sqlite_in_memory_load_and_hash_value(b: &mut Bencher, value_count_in_database
         TreeBlob::try_from(bytes::Bytes::from(random_bytes(VALUE_BLOB_MAX_LENGTH))).unwrap(),
         vec![],
     )));
-    let reference = runtime
-        .block_on(storage.store_value(&stored_value))
-        .unwrap();
+    let reference = runtime.block_on(storage.store_tree(&stored_value)).unwrap();
     assert_eq!(
         BlobDigest::parse_hex_string(concat!(
             "d15454a6735a0bb995b758a221381c539eb16e7653fb6b1b4975377187cfd4f0",
