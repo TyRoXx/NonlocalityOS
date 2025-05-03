@@ -2,7 +2,7 @@ use crate::name::Name;
 use astraea::tree::{BlobDigest, HashedValue, ReferenceIndex, Value, ValueDeserializationError};
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
-    tree::ValueBlob,
+    tree::TreeBlob,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
@@ -272,7 +272,7 @@ pub fn expression_to_value(expression: &ShallowExpression) -> Value {
     let (reference_expression, references) = to_reference_expression(expression);
     let blob = postcard::to_allocvec(&reference_expression).unwrap(/*TODO*/);
     Value::new(
-        ValueBlob::try_from(bytes::Bytes::from_owner(blob)).unwrap(/*TODO*/),
+        TreeBlob::try_from(bytes::Bytes::from_owner(blob)).unwrap(/*TODO*/),
         references,
     )
 }
@@ -363,7 +363,7 @@ impl Closure {
         let closure_blob_bytes = postcard::to_allocvec(&closure_blob).unwrap(/*TODO*/);
         store_value
             .store_value(&HashedValue::from(Arc::new(Value::new(
-                ValueBlob::try_from(bytes::Bytes::from_owner(closure_blob_bytes)).unwrap(/*TODO*/),
+                TreeBlob::try_from(bytes::Bytes::from_owner(closure_blob_bytes)).unwrap(/*TODO*/),
                 references,
             ))))
             .await
@@ -511,7 +511,7 @@ pub async fn evaluate(
                 evaluated_arguments.push(evaluated_argument);
             }
             Ok(HashedValue::from(Arc::new(Value::new(
-                ValueBlob::empty(),
+                TreeBlob::empty(),
                 evaluated_arguments,
             )))
             .digest()

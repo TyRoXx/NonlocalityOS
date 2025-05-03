@@ -1,4 +1,4 @@
-use crate::tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH};
+use crate::tree::{BlobDigest, HashedValue, Value, TreeBlob, VALUE_BLOB_MAX_LENGTH};
 use async_trait::async_trait;
 use cached::Cached;
 use std::{
@@ -309,7 +309,7 @@ impl LoadValue for SQLiteStorage {
             |row| -> rusqlite::Result<_> {
                 let id : i64 = row.get(0).unwrap(/*TODO*/);
                 let value_blob_raw : Vec<u8> = row.get(1).unwrap(/*TODO*/);
-                let value_blob = ValueBlob::try_from(value_blob_raw.into()).unwrap(/*TODO*/);
+                let value_blob = TreeBlob::try_from(value_blob_raw.into()).unwrap(/*TODO*/);
                 Ok((id, value_blob))
             } ).unwrap(/*TODO*/);
         let mut statement = connection_locked.prepare_cached(concat!("SELECT zero_based_index, target FROM reference",

@@ -1,6 +1,6 @@
 use crate::{
     storage::{CommitChanges, LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
-    tree::{BlobDigest, HashedValue, Value, ValueBlob},
+    tree::{BlobDigest, HashedValue, Value, TreeBlob},
 };
 use bytes::Bytes;
 use std::sync::Arc;
@@ -88,7 +88,7 @@ async fn test_store_blob() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let value = Arc::new(Value::new(
-        ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
+        TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         vec![],
     ));
     let reference = storage
@@ -126,7 +126,7 @@ async fn test_store_reference() {
     let storage = SQLiteStorage::from(connection).unwrap();
     let referenced_digest = BlobDigest::hash(b"ref");
     let value = Arc::new(Value::new(
-        ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
+        TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         vec![referenced_digest],
     ));
     let reference = storage
@@ -167,7 +167,7 @@ async fn test_store_two_references() {
         .map(|element: &[u8]| BlobDigest::hash(element))
         .collect();
     let value = Arc::new(Value::new(
-        ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
+        TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         referenced_digests,
     ));
     let reference = storage
@@ -208,7 +208,7 @@ async fn test_store_three_references() {
         .map(|element: &[u8]| BlobDigest::hash(element))
         .collect();
     let value = Arc::new(Value::new(
-        ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
+        TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         referenced_digests,
     ));
     let reference = storage
@@ -250,7 +250,7 @@ async fn test_update_root() {
         .unwrap();
     let reference_2 = storage
         .store_value(&HashedValue::from(Arc::new(Value::new(
-            ValueBlob::try_from(Bytes::from("test 123")).unwrap(),
+            TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
             vec![],
         ))))
         .await

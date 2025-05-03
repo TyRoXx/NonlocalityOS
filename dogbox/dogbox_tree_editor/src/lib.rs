@@ -7,7 +7,7 @@ mod tests2;
 
 use astraea::{
     storage::{LoadStoreValue, StoreError},
-    tree::{BlobDigest, HashedValue, ReferenceIndex, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedValue, ReferenceIndex, Value, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use async_stream::stream;
 use bytes::Buf;
@@ -647,7 +647,7 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<OpenDirectory> {
-        let value_blob = ValueBlob::try_from(bytes::Bytes::from(
+        let value_blob = TreeBlob::try_from(bytes::Bytes::from(
             postcard::to_allocvec(&DirectoryTree {
                 children: BTreeMap::new(),
             })
@@ -1055,7 +1055,7 @@ impl OpenDirectory {
         } else {
             info!("Saving directory: {:?}", &serialization_children);
         }
-        let maybe_value_blob = ValueBlob::try_from(bytes::Bytes::from(
+        let maybe_value_blob = TreeBlob::try_from(bytes::Bytes::from(
             postcard::to_allocvec(&DirectoryTree {
                 children: serialization_children,
             })
@@ -1262,7 +1262,7 @@ impl OpenFileContentBlock {
     ) -> Result<HashedValue> {
         let loaded = if size == 0 {
             // there is nothing to load
-            HashedValue::from(Arc::new(Value::new(ValueBlob::empty(), Vec::new())))
+            HashedValue::from(Arc::new(Value::new(TreeBlob::empty(), Vec::new())))
         } else {
             let delayed = match storage.load_value(blob_digest).await {
                 Some(success) => success,
@@ -1398,7 +1398,7 @@ impl OpenFileContentBlock {
                         }
                         debug!("Calculating unknown digest of size {}", vec.len());
                         let hashed_value = HashedValue::from(Arc::new(Value::new(
-                            ValueBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
+                            TreeBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
                             vec![],
                         )));
                         hashed_value
@@ -1746,7 +1746,7 @@ impl OpenFileContentBufferLoaded {
             size_in_bytes: self.size,
         };
         let value = Value::new(
-            ValueBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap())).unwrap(),
+            TreeBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap())).unwrap(),
             blocks_stored,
         );
         let reference = storage
@@ -1849,7 +1849,7 @@ impl OptimizedWriteBuffer {
             // Parallelizing the computations should save a lot of time.
             let blocking_task = tokio::task::spawn_blocking(|| {
                 HashedValue::from(Arc::new(Value::new(
-                    ValueBlob::try_from(next).unwrap(),
+                    TreeBlob::try_from(next).unwrap(),
                     vec![],
                 )))
             });
@@ -2157,7 +2157,7 @@ impl OpenFileContentBuffer {
             while first_block_index > (loaded.blocks.len() as u64) {
                 // TODO: make this a static constant
                 let filler = HashedValue::from(Arc::new(Value::new(
-                    ValueBlob::try_from(bytes::Bytes::from(vec![0u8; VALUE_BLOB_MAX_LENGTH]))
+                    TreeBlob::try_from(bytes::Bytes::from(vec![0u8; VALUE_BLOB_MAX_LENGTH]))
                         .unwrap(),
                     vec![],
                 )));
@@ -2587,7 +2587,7 @@ impl TreeEditor {
         debug!("Storing empty file");
         match storage
             .store_value(&HashedValue::from(Arc::new(Value::new(
-                ValueBlob::empty(),
+                TreeBlob::empty(),
                 Vec::new(),
             ))))
             .await

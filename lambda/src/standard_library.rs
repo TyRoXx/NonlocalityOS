@@ -1,4 +1,4 @@
-use astraea::tree::{BlobDigest, Value, ValueBlob};
+use astraea::tree::{BlobDigest, TreeBlob, Value};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConsoleOutput {
@@ -7,7 +7,7 @@ pub struct ConsoleOutput {
 
 impl ConsoleOutput {
     pub fn to_value(&self) -> Value {
-        Value::new(ValueBlob::empty(), vec![self.message])
+        Value::new(TreeBlob::empty(), vec![self.message])
     }
 
     pub fn from_value(value: &Value) -> Option<ConsoleOutput> {

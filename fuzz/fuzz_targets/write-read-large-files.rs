@@ -8,7 +8,7 @@ fn main() {
 
 use astraea::{
     storage::{InMemoryValueStorage, StoreValue},
-    tree::{HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
+    tree::{HashedValue, Value, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use dogbox_tree_editor::{OpenFileContentBuffer, OptimizedWriteBuffer};
 use libfuzzer_sys::{fuzz_target, Corpus};
@@ -152,7 +152,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
             let storage = Arc::new(InMemoryValueStorage::empty());
             let last_known_digest = storage
                 .store_value(&HashedValue::from(Arc::new(Value::new(
-                    ValueBlob::empty(),
+                    TreeBlob::empty(),
                     Vec::new(),
                 ))))
                 .await

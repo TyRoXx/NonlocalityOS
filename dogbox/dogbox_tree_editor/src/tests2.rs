@@ -10,7 +10,7 @@ use astraea::storage::{
 use astraea::tree::calculate_reference;
 use astraea::{
     storage::LoadStoreValue,
-    tree::{BlobDigest, HashedValue, Value, ValueBlob, VALUE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedValue, Value, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
 use lazy_static::lazy_static;
@@ -906,7 +906,7 @@ async fn optimized_write_buffer_full_blocks(
 async fn open_file_content_buffer_write_fill_zero_block() {
     let data = Vec::new();
     let last_known_digest = calculate_reference(&Value::new(
-        ValueBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
+        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
         vec![],
     ));
     let last_known_digest_file_size = data.len();
@@ -981,7 +981,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
     );
     assert_ne!(&original_data[..], &write_data[..]);
     let last_known_digest = calculate_reference(&Value::new(
-        ValueBlob::try_from(bytes::Bytes::copy_from_slice(&original_data)).unwrap(),
+        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&original_data)).unwrap(),
         vec![],
     ));
     assert_eq!(
@@ -1010,7 +1010,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
         size: last_known_digest_file_size as u64,
         blocks: vec![OpenFileContentBlock::Loaded(
             crate::LoadedBlock::KnownDigest(HashedValue::from(Arc::new(Value::new(
-                ValueBlob::try_from(write_data.clone()).unwrap(),
+                TreeBlob::try_from(write_data.clone()).unwrap(),
                 Vec::new(),
             )))),
         )],
@@ -1069,7 +1069,7 @@ fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
 async fn open_file_content_buffer_store() {
     let data = Vec::new();
     let last_known_digest = calculate_reference(&Value::new(
-        ValueBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
+        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
         vec![],
     ));
     let last_known_digest_file_size = data.len();
@@ -1095,7 +1095,7 @@ async fn open_file_content_buffer_store() {
         blocks: vec![
             OpenFileContentBlock::NotLoaded(
                 calculate_reference(&Value::new(
-                    ValueBlob::try_from(bytes::Bytes::from(vec![0; VALUE_BLOB_MAX_LENGTH]))
+                    TreeBlob::try_from(bytes::Bytes::from(vec![0; VALUE_BLOB_MAX_LENGTH]))
                         .unwrap(),
                     vec![],
                 )),
@@ -1103,7 +1103,7 @@ async fn open_file_content_buffer_store() {
             ),
             OpenFileContentBlock::NotLoaded(
                 calculate_reference(&Value::new(
-                    ValueBlob::try_from(bytes::Bytes::copy_from_slice(write_data.as_bytes()))
+                    TreeBlob::try_from(bytes::Bytes::copy_from_slice(write_data.as_bytes()))
                         .unwrap(),
                     vec![],
                 )),

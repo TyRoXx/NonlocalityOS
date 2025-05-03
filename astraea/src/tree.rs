@@ -69,18 +69,18 @@ impl Display for ReferenceIndex {
 pub const VALUE_BLOB_MAX_LENGTH: usize = 64_000;
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
-pub struct ValueBlob {
+pub struct TreeBlob {
     pub content: bytes::Bytes,
 }
 
-impl ValueBlob {
-    pub fn empty() -> ValueBlob {
+impl TreeBlob {
+    pub fn empty() -> TreeBlob {
         Self {
             content: bytes::Bytes::new(),
         }
     }
 
-    pub fn try_from(content: bytes::Bytes) -> Option<ValueBlob> {
+    pub fn try_from(content: bytes::Bytes) -> Option<TreeBlob> {
         if content.len() > VALUE_BLOB_MAX_LENGTH {
             return None;
         }
@@ -98,7 +98,7 @@ impl ValueBlob {
     }
 }
 
-impl std::fmt::Debug for ValueBlob {
+impl std::fmt::Debug for TreeBlob {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ValueBlob")
             .field("content.len()", &self.content.len())
@@ -137,19 +137,19 @@ impl std::error::Error for ValueDeserializationError {}
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct Value {
-    pub blob: ValueBlob,
+    pub blob: TreeBlob,
     pub references: Vec<BlobDigest>,
 }
 
 impl Value {
-    pub fn new(blob: ValueBlob, references: Vec<BlobDigest>) -> Value {
+    pub fn new(blob: TreeBlob, references: Vec<BlobDigest>) -> Value {
         Value {
             blob,
             references: references,
         }
     }
 
-    pub fn blob(&self) -> &ValueBlob {
+    pub fn blob(&self) -> &TreeBlob {
         &self.blob
     }
 
@@ -158,7 +158,7 @@ impl Value {
     }
 
     pub fn from_string(value: &str) -> Option<Value> {
-        ValueBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes())).map(|blob| Value {
+        TreeBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes())).map(|blob| Value {
             blob,
             references: Vec::new(),
         })
@@ -166,7 +166,7 @@ impl Value {
 
     pub fn empty() -> Value {
         Value {
-            blob: ValueBlob::empty(),
+            blob: TreeBlob::empty(),
             references: Vec::new(),
         }
     }
