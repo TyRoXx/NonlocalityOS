@@ -3,14 +3,14 @@ use crate::{
     name::{Name, NamespaceId},
 };
 use astraea::{
-    storage::{InMemoryValueStorage, LoadTree, StoreTree},
+    storage::{InMemoryTreeStorage, LoadTree, StoreTree},
     tree::{BlobDigest, HashedTree, Tree},
 };
 use std::{pin::Pin, sync::Arc};
 
 #[test_log::test(tokio::test)]
 async fn hello_world() {
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let namespace = NamespaceId([42; 16]);
     let hello_world_string = Arc::new(Tree::from_string("Hello, world!\n").unwrap());
     let hello_world_string_ref = storage

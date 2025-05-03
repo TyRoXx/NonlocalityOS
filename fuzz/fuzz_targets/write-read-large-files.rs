@@ -7,7 +7,7 @@ fn main() {
 }
 
 use astraea::{
-    storage::{InMemoryValueStorage, StoreTree},
+    storage::{InMemoryTreeStorage, StoreTree},
     tree::{HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use dogbox_tree_editor::{OpenFileContentBuffer, OptimizedWriteBuffer};
@@ -18,12 +18,12 @@ use tokio::runtime::Runtime;
 use tracing::info;
 
 struct BufferState {
-    storage: Arc<InMemoryValueStorage>,
+    storage: Arc<InMemoryTreeStorage>,
     buffer: OpenFileContentBuffer,
 }
 
 impl BufferState {
-    fn new(storage: Arc<InMemoryValueStorage>, buffer: OpenFileContentBuffer) -> Self {
+    fn new(storage: Arc<InMemoryTreeStorage>, buffer: OpenFileContentBuffer) -> Self {
         Self { storage, buffer }
     }
 }
@@ -149,7 +149,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
         let last_known_digest_file_size = initial_content.len();
         let mut buffers = Vec::new();
         for _ in 0..3 {
-            let storage = Arc::new(InMemoryValueStorage::empty());
+            let storage = Arc::new(InMemoryTreeStorage::empty());
             let last_known_digest = storage
                 .store_tree(&HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::empty(),

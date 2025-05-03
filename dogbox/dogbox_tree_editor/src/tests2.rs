@@ -4,7 +4,7 @@ use crate::{
     OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer,
     OptimizedWriteBuffer, Prefetcher, StreakDirection, TreeEditor,
 };
-use astraea::storage::{DelayedHashedTree, InMemoryValueStorage, LoadTree, StoreError, StoreTree};
+use astraea::storage::{DelayedHashedTree, InMemoryTreeStorage, LoadTree, StoreError, StoreTree};
 use astraea::tree::calculate_reference;
 use astraea::{
     storage::LoadStoreTree,
@@ -300,7 +300,7 @@ async fn test_open_directory_get_meta_data() {
 async fn test_open_directory_nothing_happens() {
     let modified = test_clock();
     let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let directory = OpenDirectory::new(
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::from([(
@@ -343,7 +343,7 @@ async fn test_open_directory_nothing_happens() {
 #[test_log::test(tokio::test)]
 async fn test_open_directory_open_file() {
     let modified = test_clock();
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let directory = Arc::new(OpenDirectory::new(
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::new(),
@@ -379,7 +379,7 @@ async fn test_open_directory_open_file() {
 #[test_log::test(tokio::test)]
 async fn test_read_directory_after_file_write() {
     let modified = test_clock();
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let directory = Arc::new(OpenDirectory::new(
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::new(),
@@ -416,7 +416,7 @@ async fn test_read_directory_after_file_write() {
 #[test_log::test(tokio::test)]
 async fn test_get_meta_data_after_file_write() {
     let modified = test_clock();
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let directory = Arc::new(OpenDirectory::new(
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::new(),
@@ -488,7 +488,7 @@ impl LoadTree for NeverUsedStorage {
 impl StoreTree for NeverUsedStorage {
     async fn store_tree(
         &self,
-        _value: &HashedTree,
+        _tree: &HashedTree,
     ) -> std::result::Result<astraea::tree::BlobDigest, StoreError> {
         panic!()
     }
@@ -624,7 +624,7 @@ async fn test_read_directory_on_closed_regular_file() {
 async fn test_read_directory_on_open_regular_file() {
     use relative_path::RelativePath;
     let modified = test_clock();
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
             DigestStatus::new(*DUMMY_DIGEST, false),
@@ -660,7 +660,7 @@ async fn test_create_directory() {
     use futures::StreamExt;
     use relative_path::RelativePath;
     let modified = test_clock();
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
             DigestStatus::new(*DUMMY_DIGEST, false),
@@ -698,7 +698,7 @@ async fn test_read_created_directory() {
     use futures::StreamExt;
     use relative_path::RelativePath;
     let modified = test_clock();
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
             DigestStatus::new(*DUMMY_DIGEST, false),
@@ -727,7 +727,7 @@ async fn test_nested_create_directory() {
     use futures::StreamExt;
     use relative_path::RelativePath;
     let modified = test_clock();
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
             DigestStatus::new(*DUMMY_DIGEST, false),
@@ -916,7 +916,7 @@ async fn open_file_content_buffer_write_fill_zero_block() {
     let write_data = "a";
     let write_buffer =
         OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::from(write_data)).await;
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let _write_result: () = buffer
         .write(write_position, write_buffer, storage.clone())
         .await
@@ -996,7 +996,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
     .unwrap();
     let write_position = 0 as u64;
     let write_buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let _write_result: () = buffer
         .write(write_position, write_buffer, storage.clone())
         .await
@@ -1043,7 +1043,7 @@ fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
         let write_data = bytes::Bytes::new();
         let write_buffer =
             OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
-        let storage = Arc::new(InMemoryValueStorage::empty());
+        let storage = Arc::new(InMemoryTreeStorage::empty());
         let _write_result: () = buffer
             .write(write_position, write_buffer, storage.clone())
             .await
@@ -1079,7 +1079,7 @@ async fn open_file_content_buffer_store() {
     let write_data = "a";
     let write_buffer =
         OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::from(write_data)).await;
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let _write_result: () = buffer
         .write(write_position, write_buffer, storage.clone())
         .await
@@ -1186,7 +1186,7 @@ fn open_file_content_buffer_sizes(size: usize) {
         )
         .unwrap();
         let new_content = bytes::Bytes::from(random_bytes(size, 123));
-        let storage = Arc::new(InMemoryValueStorage::empty());
+        let storage = Arc::new(InMemoryTreeStorage::empty());
         buffer
             .write(
                 0,
@@ -1219,7 +1219,7 @@ fn open_file_content_buffer_write_completes_a_block(write_position: u16) {
         let write_buffer =
             OptimizedWriteBuffer::from_bytes(write_position as u64, write_data.clone()).await;
         assert_eq!(write_size, write_buffer.prefix().len());
-        let storage = Arc::new(InMemoryValueStorage::empty());
+        let storage = Arc::new(InMemoryTreeStorage::empty());
         let _write_result: () = buffer
             .write(write_position as u64, write_buffer, storage.clone())
             .await
@@ -1255,7 +1255,7 @@ fn open_file_content_buffer_write_creates_full_block_with_zero_fill(write_positi
         let write_buffer =
             OptimizedWriteBuffer::from_bytes(write_position as u64, write_data.clone()).await;
         assert_eq!(write_size, write_buffer.prefix().len());
-        let storage = Arc::new(InMemoryValueStorage::empty());
+        let storage = Arc::new(InMemoryTreeStorage::empty());
         let _write_result: () = buffer
             .write(
                 original_content.len() as u64 + write_position as u64,

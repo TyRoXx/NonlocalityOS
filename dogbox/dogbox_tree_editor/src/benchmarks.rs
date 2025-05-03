@@ -2,7 +2,7 @@ extern crate test;
 use crate::OpenFileContentBuffer;
 use crate::OptimizedWriteBuffer;
 use crate::StoreChanges;
-use astraea::storage::InMemoryValueStorage;
+use astraea::storage::InMemoryTreeStorage;
 use astraea::storage::LoadCache;
 use astraea::storage::LoadStoreTree;
 use astraea::storage::SQLiteStorage;
@@ -46,7 +46,7 @@ async fn check_open_file_content_buffer(
 }
 
 fn make_in_memory_storage() -> Arc<(dyn LoadStoreTree + Send + Sync)> {
-    Arc::new(InMemoryValueStorage::empty())
+    Arc::new(InMemoryTreeStorage::empty())
 }
 
 fn make_sqlite_in_memory_storage() -> Arc<(dyn LoadStoreTree + Send + Sync)> {

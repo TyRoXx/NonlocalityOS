@@ -1,5 +1,5 @@
 use crate::file_system::{DogBoxFileSystem, DogBoxOpenFile};
-use astraea::{storage::InMemoryValueStorage, tree::BlobDigest};
+use astraea::{storage::InMemoryTreeStorage, tree::BlobDigest};
 use dav_server::{fakels::FakeLs, fs::DavFile, DavHandler};
 use dogbox_tree_editor::{OpenDirectory, OpenFile};
 use hyper::{body, server::conn::http1, Request};
@@ -22,7 +22,7 @@ fn test_clock() -> std::time::SystemTime {
 
 #[test_log::test(tokio::test)]
 async fn test_dav_access() {
-    let blob_storage = Arc::new(InMemoryValueStorage::new(Mutex::new(BTreeMap::new())));
+    let blob_storage = Arc::new(InMemoryTreeStorage::new(Mutex::new(BTreeMap::new())));
     let dav_server = DavHandler::builder()
         .filesystem(Box::new(DogBoxFileSystem::new(
             dogbox_tree_editor::TreeEditor::new(
@@ -119,7 +119,7 @@ async fn test_seek_operations() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);
     let last_known_digest_file_size = data.len() as u64;
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     {
         let handle = Arc::new(OpenFile::new(
             dogbox_tree_editor::OpenFileContentBuffer::from_data(
@@ -166,7 +166,7 @@ async fn test_seek_and_write() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);
     let last_known_digest_file_size = data.len() as u64;
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     {
         let handle = Arc::new(OpenFile::new(
             dogbox_tree_editor::OpenFileContentBuffer::from_data(
@@ -234,7 +234,7 @@ async fn test_seek_beyond_the_end() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);
     let last_known_digest_file_size = data.len() as u64;
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     {
         let handle = Arc::new(OpenFile::new(
             dogbox_tree_editor::OpenFileContentBuffer::from_data(
@@ -295,7 +295,7 @@ async fn test_write_out_of_bounds() {
     let data = Vec::new();
     let last_known_digest = BlobDigest::hash(&data);
     let last_known_digest_file_size = data.len() as u64;
-    let storage = Arc::new(InMemoryValueStorage::empty());
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     {
         let handle = Arc::new(OpenFile::new(
             dogbox_tree_editor::OpenFileContentBuffer::from_data(

@@ -77,19 +77,19 @@ async fn test_store_blob() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         vec![],
     ));
     let reference = storage
-        .store_tree(&HashedTree::from(value.clone()))
+        .store_tree(&HashedTree::from(tree.clone()))
         .await
         .unwrap();
     assert_eq!(
         BlobDigest::parse_hex_string("9be8213097a391e7b693a99d6645d11297b72113314f5e9ef98704205a7c795e41819a670fb10a60b4ca6aa92b4abd8a50932503ec843df6c40219d49f08a623").unwrap(),
         reference
     );
-    let expected = HashedTree::from(value);
+    let expected = HashedTree::from(tree);
     let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 
@@ -105,19 +105,19 @@ async fn test_store_reference() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let referenced_digest = BlobDigest::hash(b"ref");
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         vec![referenced_digest],
     ));
     let reference = storage
-        .store_tree(&HashedTree::from(value.clone()))
+        .store_tree(&HashedTree::from(tree.clone()))
         .await
         .unwrap();
     assert_eq!(
         BlobDigest::parse_hex_string("f9e26873d85cf34136a52d16c95dcbb557c302a60d6f2dadebea15dc769e0c8b1ca4137804bf82b4c668d65943c110db29bd6cef8493abe14b504b961e728e17").unwrap(),
         reference
     );
-    let expected = HashedTree::from(value);
+    let expected = HashedTree::from(tree);
     let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 
@@ -136,19 +136,19 @@ async fn test_store_two_references() {
         .into_iter()
         .map(|element: &[u8]| BlobDigest::hash(element))
         .collect();
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         referenced_digests,
     ));
     let reference = storage
-        .store_tree(&HashedTree::from(value.clone()))
+        .store_tree(&HashedTree::from(tree.clone()))
         .await
         .unwrap();
     assert_eq!(
             BlobDigest::parse_hex_string("ba085996952452402912ed9165e1515b30283897608e4a82d6c48740397c9cdac50321835d2749adb1f8278038dd2ab00b9a7e6a128a082e8b6ed7b0f00fd225").unwrap(),
             reference
         );
-    let expected = HashedTree::from(value);
+    let expected = HashedTree::from(tree);
     let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 
@@ -167,19 +167,19 @@ async fn test_store_three_references() {
         .into_iter()
         .map(|element: &[u8]| BlobDigest::hash(element))
         .collect();
-    let value = Arc::new(Tree::new(
+    let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         referenced_digests,
     ));
     let reference = storage
-        .store_tree(&HashedTree::from(value.clone()))
+        .store_tree(&HashedTree::from(tree.clone()))
         .await
         .unwrap();
     assert_eq!(
             BlobDigest::parse_hex_string("73dc0c58f0627b29dd0d09967e98318201504969e476b390e38e11b131faca075de24d114ba3d00524a402b88437d5b9c8ee654bbf3bb96e2ff23164a3ca4e49").unwrap(),
             reference
         );
-    let expected = HashedTree::from(value);
+    let expected = HashedTree::from(tree);
     let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
     assert_eq!(expected, loaded_back);
 

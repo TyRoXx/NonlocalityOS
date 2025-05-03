@@ -24,7 +24,7 @@ impl std::error::Error for StoreError {}
 
 #[async_trait::async_trait]
 pub trait StoreTree {
-    async fn store_tree(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError>;
+    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError>;
 }
 
 #[derive(Debug, Clone)]
@@ -86,29 +86,27 @@ pub trait LoadRoot {
 }
 
 #[derive(Debug)]
-pub struct InMemoryValueStorage {
-    reference_to_value: Mutex<BTreeMap<BlobDigest, HashedTree>>,
+pub struct InMemoryTreeStorage {
+    reference_to_tree: Mutex<BTreeMap<BlobDigest, HashedTree>>,
 }
 
-impl InMemoryValueStorage {
-    pub fn new(
-        reference_to_value: Mutex<BTreeMap<BlobDigest, HashedTree>>,
-    ) -> InMemoryValueStorage {
-        InMemoryValueStorage { reference_to_value }
+impl InMemoryTreeStorage {
+    pub fn new(reference_to_tree: Mutex<BTreeMap<BlobDigest, HashedTree>>) -> InMemoryTreeStorage {
+        InMemoryTreeStorage { reference_to_tree }
     }
 
-    pub fn empty() -> InMemoryValueStorage {
+    pub fn empty() -> InMemoryTreeStorage {
         Self {
-            reference_to_value: Mutex::new(BTreeMap::new()),
+            reference_to_tree: Mutex::new(BTreeMap::new()),
         }
     }
 
     pub async fn len(&self) -> usize {
-        self.reference_to_value.lock().await.len()
+        self.reference_to_tree.lock().await.len()
     }
 
     pub async fn digests(&self) -> BTreeSet<BlobDigest> {
-        self.reference_to_value
+        self.reference_to_tree
             .lock()
             .await
             .keys()
@@ -118,32 +116,32 @@ impl InMemoryValueStorage {
 }
 
 #[async_trait]
-impl StoreTree for InMemoryValueStorage {
-    async fn store_tree(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
-        let mut lock = self.reference_to_value.lock().await;
-        let reference = *value.digest();
+impl StoreTree for InMemoryTreeStorage {
+    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+        let mut lock = self.reference_to_tree.lock().await;
+        let reference = *tree.digest();
         if !lock.contains_key(&reference) {
-            lock.insert(reference.clone(), value.clone());
+            lock.insert(reference.clone(), tree.clone());
         }
         Ok(reference)
     }
 }
 
 #[async_trait]
-impl LoadTree for InMemoryValueStorage {
+impl LoadTree for InMemoryTreeStorage {
     async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree> {
-        let lock = self.reference_to_value.lock().await;
+        let lock = self.reference_to_tree.lock().await;
         lock.get(reference)
             .map(|found| DelayedHashedTree::immediate(found.clone()))
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
-        let lock = self.reference_to_value.lock().await;
+        let lock = self.reference_to_tree.lock().await;
         Ok(lock.len() as u64)
     }
 }
 
-impl LoadStoreTree for InMemoryValueStorage {}
+impl LoadStoreTree for InMemoryTreeStorage {}
 
 #[derive(Debug)]
 struct SQLiteState {
@@ -242,9 +240,9 @@ impl SQLiteStorage {
 #[async_trait]
 impl StoreTree for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn store_tree(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
         let mut state_locked = self.state.lock().await;
-        let reference = *value.digest();
+        let reference = *tree.digest();
         let origin_digest: [u8; 64] = reference.into();
         state_locked.require_transaction().unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
@@ -267,15 +265,15 @@ impl StoreTree for SQLiteStorage {
         let mut statement = connection_locked.prepare_cached(
             "INSERT INTO value (digest, value_blob) VALUES (?1, ?2)").unwrap(/*TODO*/);
         let rows_inserted = statement.execute(
-            (&origin_digest, value.tree().blob().as_slice()),
+            (&origin_digest, tree.tree().blob().as_slice()),
         ).unwrap(/*TODO*/);
         assert_eq!(1, rows_inserted);
 
-        if !value.tree().references().is_empty() {
+        if !tree.tree().references().is_empty() {
             let inserted_value_rowid = connection_locked.last_insert_rowid();
             let mut statement = connection_locked.prepare_cached(
                 "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",).unwrap(/*TODO*/);
-            for (index, reference) in value.tree().references().iter().enumerate() {
+            for (index, reference) in tree.tree().references().iter().enumerate() {
                 let target_digest: [u8; 64] = (*reference).into();
                 let rows_inserted = statement.execute(
                     (&inserted_value_rowid, &index, &target_digest),
@@ -435,8 +433,8 @@ impl LoadTree for LoadCache {
             Some(loaded) => loaded,
             None => return None,
         };
-        let hashed_value = loaded.hash();
-        match hashed_value {
+        let maybe_hashed_tree = loaded.hash();
+        match maybe_hashed_tree {
             Some(success) => {
                 let mut entries_locked = self.entries.lock().await;
                 entries_locked.cache_set(*reference, success.clone());
@@ -453,8 +451,8 @@ impl LoadTree for LoadCache {
 
 #[async_trait]
 impl StoreTree for LoadCache {
-    async fn store_tree(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
-        self.next.store_tree(value).await
+    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+        self.next.store_tree(tree).await
     }
 }
 
