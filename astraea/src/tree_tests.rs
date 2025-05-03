@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::tree::{
-    calculate_reference, BlobDigest, HashedValue, ReferenceIndex, TreeBlob,
-    TreeDeserializationError, TreeSerializationError, Value, VALUE_BLOB_MAX_LENGTH,
+    calculate_reference, BlobDigest, HashedValue, ReferenceIndex, Tree, TreeBlob,
+    TreeDeserializationError, TreeSerializationError, VALUE_BLOB_MAX_LENGTH,
 };
 use proptest::proptest;
 
@@ -83,7 +83,7 @@ fn test_display_value_deserialization_error() {
 
 #[test_log::test]
 fn test_display_hashed_value() {
-    let value = Arc::new(Value::empty());
+    let value = Arc::new(Tree::empty());
     let hashed_value = HashedValue::from(value.clone());
     assert_eq!(
         format!("{}", hashed_value),
@@ -93,7 +93,7 @@ fn test_display_hashed_value() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_no_references_0() {
-    let value = Arc::new(Value::empty());
+    let value = Arc::new(Tree::empty());
     let reference = calculate_reference(&value);
     assert_eq!(
         reference,
@@ -103,7 +103,7 @@ fn test_calculate_reference_blob_no_references_0() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_yes_references_0() {
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
         Vec::new(),
     ));
@@ -116,7 +116,7 @@ fn test_calculate_reference_blob_yes_references_0() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_no_references_1() {
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::empty(),
         vec![BlobDigest(([0u8; 32], [0u8; 32]))],
     ));
@@ -129,7 +129,7 @@ fn test_calculate_reference_blob_no_references_1() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_yes_references_1() {
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
         vec![BlobDigest(([0u8; 32], [0u8; 32]))],
     ));
@@ -142,7 +142,7 @@ fn test_calculate_reference_blob_yes_references_1() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_no_references_2() {
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::empty(),
         vec![
             BlobDigest(([0u8; 32], [0u8; 32])),
@@ -158,7 +158,7 @@ fn test_calculate_reference_blob_no_references_2() {
 
 #[test_log::test]
 fn test_calculate_reference_blob_yes_references_2() {
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
         vec![
             BlobDigest(([0u8; 32], [0u8; 32])),

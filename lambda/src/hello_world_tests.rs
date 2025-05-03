@@ -4,7 +4,7 @@ use crate::{
 };
 use astraea::{
     storage::{InMemoryValueStorage, LoadValue, StoreValue},
-    tree::{BlobDigest, HashedValue, Value},
+    tree::{BlobDigest, HashedValue, Tree},
 };
 use std::{pin::Pin, sync::Arc};
 
@@ -12,7 +12,7 @@ use std::{pin::Pin, sync::Arc};
 async fn hello_world() {
     let storage = Arc::new(InMemoryValueStorage::empty());
     let namespace = NamespaceId([42; 16]);
-    let hello_world_string = Arc::new(Value::from_string("Hello, world!\n").unwrap());
+    let hello_world_string = Arc::new(Tree::from_string("Hello, world!\n").unwrap());
     let hello_world_string_ref = storage
         .store_value(&HashedValue::from(hello_world_string))
         .await
@@ -57,7 +57,7 @@ async fn hello_world() {
         Arc::new(DeepExpression(Expression::make_literal(main_function))),
         Arc::new(DeepExpression(Expression::make_literal(
             storage
-                .store_value(&HashedValue::from(Arc::new(Value::empty())))
+                .store_value(&HashedValue::from(Arc::new(Tree::empty())))
                 .await
                 .unwrap(),
         ))),

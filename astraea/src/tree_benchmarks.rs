@@ -1,14 +1,14 @@
 extern crate test;
-use crate::tree::{BlobDigest, HashedValue, Value, TreeBlob, VALUE_BLOB_MAX_LENGTH};
+use crate::tree::{BlobDigest, HashedValue, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 use std::sync::Arc;
 use test::Bencher;
 
-fn make_test_value() -> Value {
+fn make_test_value() -> Tree {
     let mut small_rng = SmallRng::seed_from_u64(123);
-    Value::new(
+    Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_iter(
             (0..VALUE_BLOB_MAX_LENGTH).map(|_| small_rng.gen()),
         ))
@@ -88,7 +88,7 @@ fn hashed_value_from(
     expected_digest: &BlobDigest,
 ) {
     let mut small_rng = SmallRng::seed_from_u64(123);
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_iter(
             (0..blob_size).map(|_| small_rng.gen()),
         ))

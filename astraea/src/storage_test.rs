@@ -1,6 +1,6 @@
 use crate::{
     storage::{CommitChanges, LoadRoot, LoadValue, SQLiteStorage, StoreValue, UpdateRoot},
-    tree::{BlobDigest, HashedValue, Value, TreeBlob},
+    tree::{BlobDigest, HashedValue, Tree, TreeBlob},
 };
 use bytes::Bytes;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ async fn test_store_unit_first_time() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let reference = storage
-        .store_value(&HashedValue::from(Arc::new(Value::empty())))
+        .store_value(&HashedValue::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     assert_eq!(
@@ -30,7 +30,7 @@ async fn test_store_unit_first_time() {
         .unwrap()
         .hash()
         .unwrap();
-    assert_eq!(HashedValue::from(Arc::new(Value::empty())), loaded_back);
+    assert_eq!(HashedValue::from(Arc::new(Tree::empty())), loaded_back);
 
     storage.commit_changes().await.unwrap();
 
@@ -40,7 +40,7 @@ async fn test_store_unit_first_time() {
         .unwrap()
         .hash()
         .unwrap();
-    assert_eq!(HashedValue::from(Arc::new(Value::empty())), loaded_back);
+    assert_eq!(HashedValue::from(Arc::new(Tree::empty())), loaded_back);
 }
 
 #[test_log::test(tokio::test(flavor = "multi_thread"))]
@@ -49,7 +49,7 @@ async fn test_store_unit_again() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let reference_1 = storage
-        .store_value(&HashedValue::from(Arc::new(Value::empty())))
+        .store_value(&HashedValue::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     assert_eq!(
@@ -58,7 +58,7 @@ async fn test_store_unit_again() {
     );
 
     let reference_2 = storage
-        .store_value(&HashedValue::from(Arc::new(Value::empty())))
+        .store_value(&HashedValue::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     assert_eq!(reference_1, reference_2);
@@ -69,7 +69,7 @@ async fn test_store_unit_again() {
         .unwrap()
         .hash()
         .unwrap();
-    assert_eq!(HashedValue::from(Arc::new(Value::empty())), loaded_back);
+    assert_eq!(HashedValue::from(Arc::new(Tree::empty())), loaded_back);
 
     storage.commit_changes().await.unwrap();
 
@@ -79,7 +79,7 @@ async fn test_store_unit_again() {
         .unwrap()
         .hash()
         .unwrap();
-    assert_eq!(HashedValue::from(Arc::new(Value::empty())), loaded_back);
+    assert_eq!(HashedValue::from(Arc::new(Tree::empty())), loaded_back);
 }
 
 #[test_log::test(tokio::test)]
@@ -87,7 +87,7 @@ async fn test_store_blob() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         vec![],
     ));
@@ -125,7 +125,7 @@ async fn test_store_reference() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let referenced_digest = BlobDigest::hash(b"ref");
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         vec![referenced_digest],
     ));
@@ -166,7 +166,7 @@ async fn test_store_two_references() {
         .into_iter()
         .map(|element: &[u8]| BlobDigest::hash(element))
         .collect();
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         referenced_digests,
     ));
@@ -207,7 +207,7 @@ async fn test_store_three_references() {
         .into_iter()
         .map(|element: &[u8]| BlobDigest::hash(element))
         .collect();
-    let value = Arc::new(Value::new(
+    let value = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         referenced_digests,
     ));
@@ -245,11 +245,11 @@ async fn test_update_root() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let reference_1 = storage
-        .store_value(&HashedValue::from(Arc::new(Value::empty())))
+        .store_value(&HashedValue::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     let reference_2 = storage
-        .store_value(&HashedValue::from(Arc::new(Value::new(
+        .store_value(&HashedValue::from(Arc::new(Tree::new(
             TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
             vec![],
         ))))
@@ -272,7 +272,7 @@ async fn test_roots_may_be_equal() {
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
     let reference_1 = storage
-        .store_value(&HashedValue::from(Arc::new(Value::empty())))
+        .store_value(&HashedValue::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     let name_1 = "testA";

@@ -1,4 +1,4 @@
-use crate::tree::{BlobDigest, HashedValue, Value, TreeBlob, VALUE_BLOB_MAX_LENGTH};
+use crate::tree::{BlobDigest, HashedValue, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH};
 use async_trait::async_trait;
 use cached::Cached;
 use std::{
@@ -30,7 +30,7 @@ pub trait StoreValue {
 
 #[derive(Debug, Clone)]
 enum DelayedHashedValueAlternatives {
-    Delayed(Arc<Value>, BlobDigest),
+    Delayed(Arc<Tree>, BlobDigest),
     Immediate(HashedValue),
 }
 
@@ -40,7 +40,7 @@ pub struct DelayedHashedValue {
 }
 
 impl DelayedHashedValue {
-    pub fn delayed(value: Arc<Value>, expected_digest: BlobDigest) -> Self {
+    pub fn delayed(value: Arc<Tree>, expected_digest: BlobDigest) -> Self {
         Self {
             alternatives: DelayedHashedValueAlternatives::Delayed(value, expected_digest),
         }
@@ -331,7 +331,7 @@ impl LoadValue for SQLiteStorage {
             })
             .collect();
         Some(DelayedHashedValue::delayed(
-            Arc::new(Value::new(value_blob, references)),
+            Arc::new(Tree::new(value_blob, references)),
             *reference,
         ))
     }

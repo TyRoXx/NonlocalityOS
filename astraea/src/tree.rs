@@ -136,14 +136,14 @@ impl std::fmt::Display for TreeDeserializationError {
 impl std::error::Error for TreeDeserializationError {}
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
-pub struct Value {
+pub struct Tree {
     pub blob: TreeBlob,
     pub references: Vec<BlobDigest>,
 }
 
-impl Value {
-    pub fn new(blob: TreeBlob, references: Vec<BlobDigest>) -> Value {
-        Value {
+impl Tree {
+    pub fn new(blob: TreeBlob, references: Vec<BlobDigest>) -> Tree {
+        Tree {
             blob,
             references: references,
         }
@@ -157,15 +157,15 @@ impl Value {
         &self.references
     }
 
-    pub fn from_string(value: &str) -> Option<Value> {
-        TreeBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes())).map(|blob| Value {
+    pub fn from_string(value: &str) -> Option<Tree> {
+        TreeBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes())).map(|blob| Tree {
             blob,
             references: Vec::new(),
         })
     }
 
-    pub fn empty() -> Value {
-        Value {
+    pub fn empty() -> Tree {
+        Tree {
             blob: TreeBlob::empty(),
             references: Vec::new(),
         }
@@ -174,17 +174,17 @@ impl Value {
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct HashedValue {
-    value: Arc<Value>,
+    value: Arc<Tree>,
     digest: BlobDigest,
 }
 
 impl HashedValue {
-    pub fn from(value: Arc<Value>) -> HashedValue {
+    pub fn from(value: Arc<Tree>) -> HashedValue {
         let digest = calculate_reference(&value);
         Self { value, digest }
     }
 
-    pub fn value(&self) -> &Arc<Value> {
+    pub fn value(&self) -> &Arc<Tree> {
         &self.value
     }
 
@@ -199,7 +199,7 @@ impl Display for HashedValue {
     }
 }
 
-pub fn calculate_digest_fixed<D>(referenced: &Value) -> sha3::digest::Output<D>
+pub fn calculate_digest_fixed<D>(referenced: &Tree) -> sha3::digest::Output<D>
 where
     D: sha3::Digest,
 {
@@ -215,7 +215,7 @@ where
 }
 
 pub fn calculate_digest_extendable<D>(
-    referenced: &Value,
+    referenced: &Tree,
 ) -> <D as sha3::digest::ExtendableOutput>::Reader
 where
     D: core::default::Default + sha3::digest::Update + sha3::digest::ExtendableOutput,
@@ -231,7 +231,7 @@ where
     hasher.finalize_xof()
 }
 
-pub fn calculate_reference(referenced: &Value) -> BlobDigest {
+pub fn calculate_reference(referenced: &Tree) -> BlobDigest {
     let result: [u8; 64] = calculate_digest_fixed::<sha3::Sha3_512>(referenced).into();
     BlobDigest::new(&result)
 }

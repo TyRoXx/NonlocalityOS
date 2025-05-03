@@ -1,5 +1,5 @@
 use crate::name::Name;
-use astraea::tree::{BlobDigest, HashedValue, ReferenceIndex, TreeDeserializationError, Value};
+use astraea::tree::{BlobDigest, HashedValue, ReferenceIndex, Tree, TreeDeserializationError};
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
     tree::TreeBlob,
@@ -228,7 +228,7 @@ pub fn to_reference_expression(
     }
 }
 
-pub async fn deserialize_shallow(value: &Value) -> Result<ShallowExpression, ()> {
+pub async fn deserialize_shallow(value: &Tree) -> Result<ShallowExpression, ()> {
     let reference_expression: ReferenceExpression = postcard::from_bytes(value.blob().as_slice())
         .unwrap(/*TODO*/);
     reference_expression
@@ -268,10 +268,10 @@ pub async fn deserialize_recursively(
     Ok(DeepExpression(deep))
 }
 
-pub fn expression_to_value(expression: &ShallowExpression) -> Value {
+pub fn expression_to_value(expression: &ShallowExpression) -> Tree {
     let (reference_expression, references) = to_reference_expression(expression);
     let blob = postcard::to_allocvec(&reference_expression).unwrap(/*TODO*/);
-    Value::new(
+    Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_owner(blob)).unwrap(/*TODO*/),
         references,
     )
@@ -362,7 +362,7 @@ impl Closure {
         let closure_blob = ClosureBlob::new(self.parameter_name.clone(), captured_variables);
         let closure_blob_bytes = postcard::to_allocvec(&closure_blob).unwrap(/*TODO*/);
         store_value
-            .store_value(&HashedValue::from(Arc::new(Value::new(
+            .store_value(&HashedValue::from(Arc::new(Tree::new(
                 TreeBlob::try_from(bytes::Bytes::from_owner(closure_blob_bytes)).unwrap(/*TODO*/),
                 references,
             ))))
@@ -511,7 +511,7 @@ pub async fn evaluate(
                 evaluated_arguments.push(evaluated_argument);
             }
             Ok(
-                HashedValue::from(Arc::new(Value::new(TreeBlob::empty(), evaluated_arguments)))
+                HashedValue::from(Arc::new(Tree::new(TreeBlob::empty(), evaluated_arguments)))
                     .digest()
                     .clone(),
             )

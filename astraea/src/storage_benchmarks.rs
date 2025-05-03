@@ -1,7 +1,7 @@
 extern crate test;
 use crate::{
     storage::{LoadValue, SQLiteStorage, StoreValue},
-    tree::{BlobDigest, HashedValue, TreeBlob, Value, VALUE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedValue, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use std::sync::Arc;
 use test::Bencher;
@@ -11,7 +11,7 @@ fn sqlite_in_memory_store_value_redundantly(b: &mut Bencher, value_blob_size: us
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
-    let stored_value = HashedValue::from(Arc::new(Value::new(
+    let stored_value = HashedValue::from(Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from(random_bytes(value_blob_size))).unwrap(),
         vec![],
     )));
@@ -54,7 +54,7 @@ fn sqlite_in_memory_store_value_newly(
     let store_count = 15;
     let stored_values: Vec<_> = (0..store_count)
         .map(|_| {
-            HashedValue::from(Arc::new(Value::new(
+            HashedValue::from(Arc::new(Tree::new(
                 TreeBlob::try_from(bytes::Bytes::from_iter(
                     (0..value_blob_size).map(|_| small_rng.gen()),
                 ))
@@ -98,7 +98,7 @@ fn sqlite_in_memory_store_value_newly_only_refs(b: &mut Bencher) {
 
 async fn generate_random_values<T: StoreValue>(value_count_in_database: u64, storage: &T) {
     for index in 0..value_count_in_database {
-        let stored_value = HashedValue::from(Arc::new(Value::new(
+        let stored_value = HashedValue::from(Arc::new(Tree::new(
             TreeBlob::try_from(bytes::Bytes::copy_from_slice(&index.to_be_bytes())).unwrap(),
             vec![],
         )));
@@ -140,7 +140,7 @@ fn sqlite_in_memory_load_and_hash_value(b: &mut Bencher, value_count_in_database
         Ok(value_count_in_database as u64),
         runtime.block_on(storage.approximate_value_count())
     );
-    let stored_value = HashedValue::from(Arc::new(Value::new(
+    let stored_value = HashedValue::from(Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from(random_bytes(VALUE_BLOB_MAX_LENGTH))).unwrap(),
         vec![],
     )));

@@ -7,7 +7,7 @@ use crate::{
 };
 use astraea::{
     storage::{InMemoryValueStorage, StoreValue},
-    tree::{BlobDigest, HashedValue, Value},
+    tree::{BlobDigest, HashedValue, Tree},
 };
 use std::{pin::Pin, sync::Arc};
 
@@ -16,7 +16,7 @@ async fn effect() {
     let storage = Arc::new(InMemoryValueStorage::empty());
     let namespace = NamespaceId([42; 16]);
 
-    let first_string = Arc::new(Value::from_string("Hello, ").unwrap());
+    let first_string = Arc::new(Tree::from_string("Hello, ").unwrap());
     let first_string_ref = storage
         .store_value(&HashedValue::from(first_string))
         .await
@@ -32,7 +32,7 @@ async fn effect() {
             .unwrap(),
     ));
 
-    let second_string = Arc::new(Value::from_string(" world!\n").unwrap());
+    let second_string = Arc::new(Tree::from_string(" world!\n").unwrap());
     let second_string_ref = storage
         .store_value(&HashedValue::from(second_string))
         .await

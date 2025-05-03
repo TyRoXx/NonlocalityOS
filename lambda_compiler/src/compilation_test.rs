@@ -1,5 +1,5 @@
 use crate::compilation::{compile, CompilerError, CompilerOutput, SourceLocation};
-use astraea::tree::{HashedValue, Value};
+use astraea::tree::{HashedValue, Tree};
 use lambda::expressions::{DeepExpression, Expression};
 use lambda::name::{Name, NamespaceId};
 use std::sync::Arc;
@@ -55,7 +55,7 @@ async fn test_compile_quotes() {
         Arc::new(DeepExpression(Expression::make_apply(
             print.clone(),
             Arc::new(DeepExpression(Expression::make_literal(
-                HashedValue::from(Arc::new(Value::from_string("Hello, world!").unwrap()))
+                HashedValue::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
                     .digest()
                     .clone(),
             ))),

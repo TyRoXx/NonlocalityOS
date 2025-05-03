@@ -1,4 +1,4 @@
-use astraea::tree::{BlobDigest, TreeBlob, Value};
+use astraea::tree::{BlobDigest, Tree, TreeBlob};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConsoleOutput {
@@ -6,11 +6,11 @@ pub struct ConsoleOutput {
 }
 
 impl ConsoleOutput {
-    pub fn to_value(&self) -> Value {
-        Value::new(TreeBlob::empty(), vec![self.message])
+    pub fn to_value(&self) -> Tree {
+        Tree::new(TreeBlob::empty(), vec![self.message])
     }
 
-    pub fn from_value(value: &Value) -> Option<ConsoleOutput> {
+    pub fn from_value(value: &Tree) -> Option<ConsoleOutput> {
         if value.blob().len() != 0 {
             return None;
         }

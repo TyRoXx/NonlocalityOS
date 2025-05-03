@@ -10,7 +10,7 @@ use astraea::storage::{
 use astraea::tree::calculate_reference;
 use astraea::{
     storage::LoadStoreValue,
-    tree::{BlobDigest, HashedValue, Value, TreeBlob, VALUE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedValue, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
 use lazy_static::lazy_static;
@@ -905,7 +905,7 @@ async fn optimized_write_buffer_full_blocks(
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_write_fill_zero_block() {
     let data = Vec::new();
-    let last_known_digest = calculate_reference(&Value::new(
+    let last_known_digest = calculate_reference(&Tree::new(
         TreeBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
         vec![],
     ));
@@ -980,7 +980,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
         &write_data_digest,
     );
     assert_ne!(&original_data[..], &write_data[..]);
-    let last_known_digest = calculate_reference(&Value::new(
+    let last_known_digest = calculate_reference(&Tree::new(
         TreeBlob::try_from(bytes::Bytes::copy_from_slice(&original_data)).unwrap(),
         vec![],
     ));
@@ -1009,7 +1009,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
     let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
         size: last_known_digest_file_size as u64,
         blocks: vec![OpenFileContentBlock::Loaded(
-            crate::LoadedBlock::KnownDigest(HashedValue::from(Arc::new(Value::new(
+            crate::LoadedBlock::KnownDigest(HashedValue::from(Arc::new(Tree::new(
                 TreeBlob::try_from(write_data.clone()).unwrap(),
                 Vec::new(),
             )))),
@@ -1068,7 +1068,7 @@ fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_store() {
     let data = Vec::new();
-    let last_known_digest = calculate_reference(&Value::new(
+    let last_known_digest = calculate_reference(&Tree::new(
         TreeBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
         vec![],
     ));
@@ -1094,15 +1094,14 @@ async fn open_file_content_buffer_store() {
         size: VALUE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
         blocks: vec![
             OpenFileContentBlock::NotLoaded(
-                calculate_reference(&Value::new(
-                    TreeBlob::try_from(bytes::Bytes::from(vec![0; VALUE_BLOB_MAX_LENGTH]))
-                        .unwrap(),
+                calculate_reference(&Tree::new(
+                    TreeBlob::try_from(bytes::Bytes::from(vec![0; VALUE_BLOB_MAX_LENGTH])).unwrap(),
                     vec![],
                 )),
                 VALUE_BLOB_MAX_LENGTH as u16,
             ),
             OpenFileContentBlock::NotLoaded(
-                calculate_reference(&Value::new(
+                calculate_reference(&Tree::new(
                     TreeBlob::try_from(bytes::Bytes::copy_from_slice(write_data.as_bytes()))
                         .unwrap(),
                     vec![],
