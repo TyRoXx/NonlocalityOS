@@ -14,3 +14,6 @@ pub mod tokenization;
 
 #[cfg(test)]
 mod tokenization_test;
+
+#[cfg(test)]
+mod examples_test;
