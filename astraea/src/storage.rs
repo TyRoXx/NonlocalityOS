@@ -28,52 +28,52 @@ pub trait StoreTree {
 }
 
 #[derive(Debug, Clone)]
-enum DelayedHashedValueAlternatives {
+enum DelayedHashedTreeAlternatives {
     Delayed(Arc<Tree>, BlobDigest),
     Immediate(HashedTree),
 }
 
 #[derive(Debug, Clone)]
-pub struct DelayedHashedValue {
-    alternatives: DelayedHashedValueAlternatives,
+pub struct DelayedHashedTree {
+    alternatives: DelayedHashedTreeAlternatives,
 }
 
-impl DelayedHashedValue {
-    pub fn delayed(value: Arc<Tree>, expected_digest: BlobDigest) -> Self {
+impl DelayedHashedTree {
+    pub fn delayed(tree: Arc<Tree>, expected_digest: BlobDigest) -> Self {
         Self {
-            alternatives: DelayedHashedValueAlternatives::Delayed(value, expected_digest),
+            alternatives: DelayedHashedTreeAlternatives::Delayed(tree, expected_digest),
         }
     }
 
-    pub fn immediate(value: HashedTree) -> Self {
+    pub fn immediate(tree: HashedTree) -> Self {
         Self {
-            alternatives: DelayedHashedValueAlternatives::Immediate(value),
+            alternatives: DelayedHashedTreeAlternatives::Immediate(tree),
         }
     }
 
     //#[instrument(skip_all)]
     pub fn hash(self) -> Option<HashedTree> {
         match self.alternatives {
-            DelayedHashedValueAlternatives::Delayed(value, expected_digest) => {
-                let hashed_value = HashedTree::from(value);
-                if hashed_value.digest() == &expected_digest {
-                    Some(hashed_value)
+            DelayedHashedTreeAlternatives::Delayed(tree, expected_digest) => {
+                let hashed_tree = HashedTree::from(tree);
+                if hashed_tree.digest() == &expected_digest {
+                    Some(hashed_tree)
                 } else {
                     None
                 }
             }
-            DelayedHashedValueAlternatives::Immediate(hashed_value) => Some(hashed_value),
+            DelayedHashedTreeAlternatives::Immediate(hashed_tree) => Some(hashed_tree),
         }
     }
 }
 
 #[async_trait::async_trait]
 pub trait LoadTree: std::fmt::Debug {
-    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedValue>;
+    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree>;
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError>;
 }
 
-pub trait LoadStoreValue: LoadTree + StoreTree {}
+pub trait LoadStoreTree: LoadTree + StoreTree {}
 
 #[async_trait]
 pub trait UpdateRoot {
@@ -131,10 +131,10 @@ impl StoreTree for InMemoryValueStorage {
 
 #[async_trait]
 impl LoadTree for InMemoryValueStorage {
-    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedValue> {
+    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree> {
         let lock = self.reference_to_value.lock().await;
         lock.get(reference)
-            .map(|found| DelayedHashedValue::immediate(found.clone()))
+            .map(|found| DelayedHashedTree::immediate(found.clone()))
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
@@ -143,7 +143,7 @@ impl LoadTree for InMemoryValueStorage {
     }
 }
 
-impl LoadStoreValue for InMemoryValueStorage {}
+impl LoadStoreTree for InMemoryValueStorage {}
 
 #[derive(Debug)]
 struct SQLiteState {
@@ -291,7 +291,7 @@ impl StoreTree for SQLiteStorage {
 #[async_trait]
 impl LoadTree for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedValue> {
+    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree> {
         let references: Vec<crate::tree::BlobDigest>;
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
@@ -323,7 +323,7 @@ impl LoadTree for SQLiteStorage {
                 reference
             })
             .collect();
-        Some(DelayedHashedValue::delayed(
+        Some(DelayedHashedTree::delayed(
             Arc::new(Tree::new(tree_blob, references)),
             *reference,
         ))
@@ -345,7 +345,7 @@ impl LoadTree for SQLiteStorage {
     }
 }
 
-impl LoadStoreValue for SQLiteStorage {}
+impl LoadStoreTree for SQLiteStorage {}
 
 #[async_trait]
 impl UpdateRoot for SQLiteStorage {
@@ -409,12 +409,12 @@ impl CommitChanges for SQLiteStorage {
 
 #[derive(Debug)]
 pub struct LoadCache {
-    next: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    next: Arc<(dyn LoadStoreTree + Send + Sync)>,
     entries: Mutex<cached::stores::SizedCache<BlobDigest, HashedTree>>,
 }
 
 impl LoadCache {
-    pub fn new(next: Arc<(dyn LoadStoreValue + Send + Sync)>, max_entries: usize) -> Self {
+    pub fn new(next: Arc<(dyn LoadStoreTree + Send + Sync)>, max_entries: usize) -> Self {
         Self {
             next,
             entries: Mutex::new(cached::stores::SizedCache::with_size(max_entries)),
@@ -424,11 +424,11 @@ impl LoadCache {
 
 #[async_trait]
 impl LoadTree for LoadCache {
-    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedValue> {
+    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree> {
         {
             let mut entries_locked = self.entries.lock().await;
             if let Some(found) = entries_locked.cache_get(reference) {
-                return Some(DelayedHashedValue::immediate(found.clone()));
+                return Some(DelayedHashedTree::immediate(found.clone()));
             }
         }
         let loaded = match self.next.load_tree(reference).await {
@@ -440,7 +440,7 @@ impl LoadTree for LoadCache {
             Some(success) => {
                 let mut entries_locked = self.entries.lock().await;
                 entries_locked.cache_set(*reference, success.clone());
-                Some(DelayedHashedValue::immediate(success))
+                Some(DelayedHashedTree::immediate(success))
             }
             None => None,
         }
@@ -458,4 +458,4 @@ impl StoreTree for LoadCache {
     }
 }
 
-impl LoadStoreValue for LoadCache {}
+impl LoadStoreTree for LoadCache {}

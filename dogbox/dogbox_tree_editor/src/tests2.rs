@@ -4,10 +4,10 @@ use crate::{
     OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer,
     OptimizedWriteBuffer, Prefetcher, StreakDirection, TreeEditor,
 };
-use astraea::storage::{DelayedHashedValue, InMemoryValueStorage, LoadTree, StoreError, StoreTree};
+use astraea::storage::{DelayedHashedTree, InMemoryValueStorage, LoadTree, StoreError, StoreTree};
 use astraea::tree::calculate_reference;
 use astraea::{
-    storage::LoadStoreValue,
+    storage::LoadStoreTree,
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
@@ -475,10 +475,7 @@ struct NeverUsedStorage {}
 
 #[async_trait]
 impl LoadTree for NeverUsedStorage {
-    async fn load_tree(
-        &self,
-        _reference: &astraea::tree::BlobDigest,
-    ) -> Option<DelayedHashedValue> {
+    async fn load_tree(&self, _reference: &astraea::tree::BlobDigest) -> Option<DelayedHashedTree> {
         panic!()
     }
 
@@ -497,7 +494,7 @@ impl StoreTree for NeverUsedStorage {
     }
 }
 
-impl LoadStoreValue for NeverUsedStorage {}
+impl LoadStoreTree for NeverUsedStorage {}
 
 #[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_root() {
@@ -1151,7 +1148,7 @@ async fn open_file_content_buffer_store() {
 async fn check_open_file_content_buffer(
     buffer: &mut OpenFileContentBuffer,
     expected_content: bytes::Bytes,
-    storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
 ) {
     let mut checked = 0;
     while checked < expected_content.len() {

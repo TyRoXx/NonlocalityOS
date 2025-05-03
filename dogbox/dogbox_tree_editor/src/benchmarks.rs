@@ -4,7 +4,7 @@ use crate::OptimizedWriteBuffer;
 use crate::StoreChanges;
 use astraea::storage::InMemoryValueStorage;
 use astraea::storage::LoadCache;
-use astraea::storage::LoadStoreValue;
+use astraea::storage::LoadStoreTree;
 use astraea::storage::SQLiteStorage;
 use astraea::tree::{BlobDigest, VALUE_BLOB_MAX_LENGTH};
 use rand::rngs::SmallRng;
@@ -23,7 +23,7 @@ async fn check_open_file_content_buffer(
     buffer: &mut OpenFileContentBuffer,
     expected_content: &[u8],
     max_read_size: usize,
-    storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
+    storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
 ) {
     assert_ne!(0, max_read_size);
     let mut checked = 0;
@@ -45,17 +45,17 @@ async fn check_open_file_content_buffer(
     assert_eq!(expected_content.len(), checked);
 }
 
-fn make_in_memory_storage() -> Arc<(dyn LoadStoreValue + Send + Sync)> {
+fn make_in_memory_storage() -> Arc<(dyn LoadStoreTree + Send + Sync)> {
     Arc::new(InMemoryValueStorage::empty())
 }
 
-fn make_sqlite_in_memory_storage() -> Arc<(dyn LoadStoreValue + Send + Sync)> {
+fn make_sqlite_in_memory_storage() -> Arc<(dyn LoadStoreTree + Send + Sync)> {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
     Arc::new(SQLiteStorage::from(connection).unwrap())
 }
 
-fn read_large_file<S: Fn() -> Arc<(dyn LoadStoreValue + Send + Sync)>>(
+fn read_large_file<S: Fn() -> Arc<(dyn LoadStoreTree + Send + Sync)>>(
     b: &mut Bencher,
     is_buffer_hot: bool,
     max_read_size: usize,
