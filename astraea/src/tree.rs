@@ -173,13 +173,13 @@ impl Tree {
 }
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
-pub struct HashedValue {
+pub struct HashedTree {
     value: Arc<Tree>,
     digest: BlobDigest,
 }
 
-impl HashedValue {
-    pub fn from(value: Arc<Tree>) -> HashedValue {
+impl HashedTree {
+    pub fn from(value: Arc<Tree>) -> HashedTree {
         let digest = calculate_reference(&value);
         Self { value, digest }
     }
@@ -193,7 +193,7 @@ impl HashedValue {
     }
 }
 
-impl Display for HashedValue {
+impl Display for HashedTree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.digest)
     }

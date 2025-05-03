@@ -1,5 +1,5 @@
 extern crate test;
-use crate::tree::{BlobDigest, HashedValue, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH};
+use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -104,7 +104,7 @@ fn hashed_value_from(
             .collect(),
     ));
     b.iter(|| {
-        let hashed_value = HashedValue::from(value.clone());
+        let hashed_value = HashedTree::from(value.clone());
         assert_eq!(expected_digest, hashed_value.digest());
         hashed_value
     });

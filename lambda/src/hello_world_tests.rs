@@ -4,7 +4,7 @@ use crate::{
 };
 use astraea::{
     storage::{InMemoryValueStorage, LoadValue, StoreValue},
-    tree::{BlobDigest, HashedValue, Tree},
+    tree::{BlobDigest, HashedTree, Tree},
 };
 use std::{pin::Pin, sync::Arc};
 
@@ -14,7 +14,7 @@ async fn hello_world() {
     let namespace = NamespaceId([42; 16]);
     let hello_world_string = Arc::new(Tree::from_string("Hello, world!\n").unwrap());
     let hello_world_string_ref = storage
-        .store_value(&HashedValue::from(hello_world_string))
+        .store_value(&HashedTree::from(hello_world_string))
         .await
         .unwrap();
     let console_output = crate::standard_library::ConsoleOutput {
@@ -23,7 +23,7 @@ async fn hello_world() {
     let console_output_value = Arc::new(console_output.to_value());
     let console_output_expression = DeepExpression(Expression::make_literal(
         storage
-            .store_value(&HashedValue::from(console_output_value.clone()))
+            .store_value(&HashedTree::from(console_output_value.clone()))
             .await
             .unwrap(),
     ));
@@ -57,7 +57,7 @@ async fn hello_world() {
         Arc::new(DeepExpression(Expression::make_literal(main_function))),
         Arc::new(DeepExpression(Expression::make_literal(
             storage
-                .store_value(&HashedValue::from(Arc::new(Tree::empty())))
+                .store_value(&HashedTree::from(Arc::new(Tree::empty())))
                 .await
                 .unwrap(),
         ))),

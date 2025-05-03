@@ -1,4 +1,4 @@
-use crate::tree::{BlobDigest, HashedValue, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH};
+use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH};
 use async_trait::async_trait;
 use cached::Cached;
 use std::{
@@ -24,14 +24,13 @@ impl std::error::Error for StoreError {}
 
 #[async_trait::async_trait]
 pub trait StoreValue {
-    async fn store_value(&self, value: &HashedValue)
-        -> std::result::Result<BlobDigest, StoreError>;
+    async fn store_value(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError>;
 }
 
 #[derive(Debug, Clone)]
 enum DelayedHashedValueAlternatives {
     Delayed(Arc<Tree>, BlobDigest),
-    Immediate(HashedValue),
+    Immediate(HashedTree),
 }
 
 #[derive(Debug, Clone)]
@@ -46,17 +45,17 @@ impl DelayedHashedValue {
         }
     }
 
-    pub fn immediate(value: HashedValue) -> Self {
+    pub fn immediate(value: HashedTree) -> Self {
         Self {
             alternatives: DelayedHashedValueAlternatives::Immediate(value),
         }
     }
 
     //#[instrument(skip_all)]
-    pub fn hash(self) -> Option<HashedValue> {
+    pub fn hash(self) -> Option<HashedTree> {
         match self.alternatives {
             DelayedHashedValueAlternatives::Delayed(value, expected_digest) => {
-                let hashed_value = HashedValue::from(value);
+                let hashed_value = HashedTree::from(value);
                 if hashed_value.digest() == &expected_digest {
                     Some(hashed_value)
                 } else {
@@ -88,12 +87,12 @@ pub trait LoadRoot {
 
 #[derive(Debug)]
 pub struct InMemoryValueStorage {
-    reference_to_value: Mutex<BTreeMap<BlobDigest, HashedValue>>,
+    reference_to_value: Mutex<BTreeMap<BlobDigest, HashedTree>>,
 }
 
 impl InMemoryValueStorage {
     pub fn new(
-        reference_to_value: Mutex<BTreeMap<BlobDigest, HashedValue>>,
+        reference_to_value: Mutex<BTreeMap<BlobDigest, HashedTree>>,
     ) -> InMemoryValueStorage {
         InMemoryValueStorage { reference_to_value }
     }
@@ -120,10 +119,7 @@ impl InMemoryValueStorage {
 
 #[async_trait]
 impl StoreValue for InMemoryValueStorage {
-    async fn store_value(
-        &self,
-        value: &HashedValue,
-    ) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_value(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
         let mut lock = self.reference_to_value.lock().await;
         let reference = *value.digest();
         if !lock.contains_key(&reference) {
@@ -246,10 +242,7 @@ impl SQLiteStorage {
 #[async_trait]
 impl StoreValue for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn store_value(
-        &self,
-        value: &HashedValue,
-    ) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_value(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
         let mut state_locked = self.state.lock().await;
         let reference = *value.digest();
         let origin_digest: [u8; 64] = reference.into();
@@ -417,7 +410,7 @@ impl CommitChanges for SQLiteStorage {
 #[derive(Debug)]
 pub struct LoadCache {
     next: Arc<(dyn LoadStoreValue + Send + Sync)>,
-    entries: Mutex<cached::stores::SizedCache<BlobDigest, HashedValue>>,
+    entries: Mutex<cached::stores::SizedCache<BlobDigest, HashedTree>>,
 }
 
 impl LoadCache {
@@ -460,10 +453,7 @@ impl LoadValue for LoadCache {
 
 #[async_trait]
 impl StoreValue for LoadCache {
-    async fn store_value(
-        &self,
-        value: &HashedValue,
-    ) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_value(&self, value: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
         self.next.store_value(value).await
     }
 }

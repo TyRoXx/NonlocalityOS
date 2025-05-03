@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::tree::{
-    calculate_reference, BlobDigest, HashedValue, ReferenceIndex, Tree, TreeBlob,
+    calculate_reference, BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob,
     TreeDeserializationError, TreeSerializationError, VALUE_BLOB_MAX_LENGTH,
 };
 use proptest::proptest;
@@ -84,7 +84,7 @@ fn test_display_value_deserialization_error() {
 #[test_log::test]
 fn test_display_hashed_value() {
     let value = Arc::new(Tree::empty());
-    let hashed_value = HashedValue::from(value.clone());
+    let hashed_value = HashedTree::from(value.clone());
     assert_eq!(
         format!("{}", hashed_value),
         format!("{}", hashed_value.digest())

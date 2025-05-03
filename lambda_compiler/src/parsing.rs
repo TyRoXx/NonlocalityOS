@@ -2,7 +2,7 @@ use crate::{
     compilation::{CompilerError, CompilerOutput, SourceLocation},
     tokenization::{Token, TokenContent},
 };
-use astraea::tree::{HashedValue, Tree};
+use astraea::tree::{HashedTree, Tree};
 use lambda::expressions::{DeepExpression, Expression};
 use lambda::name::{Name, NamespaceId};
 use std::sync::Arc;
@@ -110,7 +110,7 @@ async fn parse_expression_start<'t>(
             )),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(content) => Ok(DeepExpression(Expression::Literal(
-                HashedValue::from(Arc::new(
+                HashedTree::from(Arc::new(
                     Tree::from_string(&content).expect("It's too long. That's what she said."),
                 ))
                 .digest()

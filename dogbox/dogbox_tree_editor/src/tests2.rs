@@ -10,7 +10,7 @@ use astraea::storage::{
 use astraea::tree::calculate_reference;
 use astraea::{
     storage::LoadStoreValue,
-    tree::{BlobDigest, HashedValue, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
 use lazy_static::lazy_static;
@@ -493,7 +493,7 @@ impl LoadValue for NeverUsedStorage {
 impl StoreValue for NeverUsedStorage {
     async fn store_value(
         &self,
-        _value: &HashedValue,
+        _value: &HashedTree,
     ) -> std::result::Result<astraea::tree::BlobDigest, StoreError> {
         panic!()
     }
@@ -805,7 +805,7 @@ async fn optimized_write_buffer_empty() {
     for write_position in [0, 1, 10, 100, 1000, u64::MAX] {
         let buffer = OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::new()).await;
         assert_eq!(bytes::Bytes::new(), buffer.prefix());
-        assert_eq!(Vec::<HashedValue>::new(), *buffer.full_blocks());
+        assert_eq!(Vec::<HashedTree>::new(), *buffer.full_blocks());
         assert_eq!(bytes::Bytes::new(), buffer.suffix());
     }
 }
@@ -829,7 +829,7 @@ async fn optimized_write_buffer_prefix_only() {
         )
         .await;
         assert_eq!(bytes::Bytes::copy_from_slice(&[b'x']), buffer.prefix());
-        assert_eq!(Vec::<HashedValue>::new(), *buffer.full_blocks());
+        assert_eq!(Vec::<HashedTree>::new(), *buffer.full_blocks());
         assert_eq!(bytes::Bytes::new(), buffer.suffix());
     }
 }
@@ -851,7 +851,7 @@ async fn optimized_write_buffer_prefix_and_suffix_only() {
                 );
                 let buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data).await;
                 assert_eq!(prefix, buffer.prefix());
-                assert_eq!(Vec::<HashedValue>::new(), *buffer.full_blocks());
+                assert_eq!(Vec::<HashedTree>::new(), *buffer.full_blocks());
                 assert_eq!(suffix, buffer.suffix());
             }
         }
@@ -1009,7 +1009,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
     let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
         size: last_known_digest_file_size as u64,
         blocks: vec![OpenFileContentBlock::Loaded(
-            crate::LoadedBlock::KnownDigest(HashedValue::from(Arc::new(Tree::new(
+            crate::LoadedBlock::KnownDigest(HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::try_from(write_data.clone()).unwrap(),
                 Vec::new(),
             )))),

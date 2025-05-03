@@ -1,5 +1,5 @@
 use crate::name::Name;
-use astraea::tree::{BlobDigest, HashedValue, ReferenceIndex, Tree, TreeDeserializationError};
+use astraea::tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeDeserializationError};
 use astraea::{
     storage::{LoadValue, StoreError, StoreValue},
     tree::TreeBlob,
@@ -283,7 +283,7 @@ pub async fn serialize_shallow(
 ) -> std::result::Result<BlobDigest, StoreError> {
     let value = expression_to_value(expression);
     storage
-        .store_value(&HashedValue::from(Arc::new(value)))
+        .store_value(&HashedTree::from(Arc::new(value)))
         .await
 }
 
@@ -362,7 +362,7 @@ impl Closure {
         let closure_blob = ClosureBlob::new(self.parameter_name.clone(), captured_variables);
         let closure_blob_bytes = postcard::to_allocvec(&closure_blob).unwrap(/*TODO*/);
         store_value
-            .store_value(&HashedValue::from(Arc::new(Tree::new(
+            .store_value(&HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::try_from(bytes::Bytes::from_owner(closure_blob_bytes)).unwrap(/*TODO*/),
                 references,
             ))))
@@ -511,7 +511,7 @@ pub async fn evaluate(
                 evaluated_arguments.push(evaluated_argument);
             }
             Ok(
-                HashedValue::from(Arc::new(Tree::new(TreeBlob::empty(), evaluated_arguments)))
+                HashedTree::from(Arc::new(Tree::new(TreeBlob::empty(), evaluated_arguments)))
                     .digest()
                     .clone(),
             )

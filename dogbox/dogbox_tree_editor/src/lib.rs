@@ -7,7 +7,7 @@ mod tests2;
 
 use astraea::{
     storage::{LoadStoreValue, StoreError},
-    tree::{BlobDigest, HashedValue, ReferenceIndex, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob, VALUE_BLOB_MAX_LENGTH},
 };
 use async_stream::stream;
 use bytes::Buf;
@@ -656,7 +656,7 @@ impl OpenDirectory {
         .unwrap();
         debug!("Storing empty directory");
         let empty_directory_digest = match storage
-            .store_value(&HashedValue::from(Arc::new(Tree::new(value_blob, vec![]))))
+            .store_value(&HashedTree::from(Arc::new(Tree::new(value_blob, vec![]))))
             .await
         {
             Ok(success) => success,
@@ -1064,7 +1064,7 @@ impl OpenDirectory {
         match maybe_value_blob {
             Some(value_blob) => {
                 storage
-                    .store_value(&HashedValue::from(Arc::new(Tree::new(
+                    .store_value(&HashedTree::from(Arc::new(Tree::new(
                         value_blob,
                         serialization_references,
                     ))))
@@ -1203,7 +1203,7 @@ impl WriteResult {
 
 #[derive(PartialEq)]
 pub enum LoadedBlock {
-    KnownDigest(HashedValue),
+    KnownDigest(HashedTree),
     UnknownDigest(Vec<u8>),
 }
 
@@ -1229,7 +1229,7 @@ impl OpenFileContentBlock {
     pub fn prepare_for_reading<'t>(
         &self,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
-    ) -> Option<Future<'t, HashedValue>> {
+    ) -> Option<Future<'t, HashedTree>> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
                 let blob_digest = *blob_digest;
@@ -1242,7 +1242,7 @@ impl OpenFileContentBlock {
         }
     }
 
-    pub fn set_prepare_for_reading_result(&mut self, prepared: HashedValue) {
+    pub fn set_prepare_for_reading_result(&mut self, prepared: HashedTree) {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, _size) => {
                 assert_eq!(blob_digest, prepared.digest())
@@ -1259,10 +1259,10 @@ impl OpenFileContentBlock {
         blob_digest: &BlobDigest,
         size: u16,
         storage: Arc<(dyn LoadStoreValue + Send + Sync)>,
-    ) -> Result<HashedValue> {
+    ) -> Result<HashedTree> {
         let loaded = if size == 0 {
             // there is nothing to load
-            HashedValue::from(Arc::new(Tree::new(TreeBlob::empty(), Vec::new())))
+            HashedTree::from(Arc::new(Tree::new(TreeBlob::empty(), Vec::new())))
         } else {
             let delayed = match storage.load_value(blob_digest).await {
                 Some(success) => success,
@@ -1397,7 +1397,7 @@ impl OpenFileContentBlock {
                             return Ok(None);
                         }
                         debug!("Calculating unknown digest of size {}", vec.len());
-                        let hashed_value = HashedValue::from(Arc::new(Tree::new(
+                        let hashed_value = HashedTree::from(Arc::new(Tree::new(
                             TreeBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
                             vec![],
                         )));
@@ -1613,14 +1613,14 @@ impl Prefetcher {
             explicitly_requested_blocks_right_now.take(self.max_number_of_blocks_tracked()),
         );
 
-        let futures: Vec<Future<(u64, Result<HashedValue>)>> = blocks_to_load
+        let futures: Vec<Future<(u64, Result<HashedTree>)>> = blocks_to_load
             .into_iter()
             .map(|block_index| {
                 let block = &mut blocks[block_index as usize];
-                let result: Option<Future<(u64, Result<HashedValue>)>> = block
+                let result: Option<Future<(u64, Result<HashedTree>)>> = block
                     .prepare_for_reading(storage.clone())
-                    .map(|future: Future<HashedValue>| {
-                        let result2: Future<(u64, Result<HashedValue>)> =
+                    .map(|future: Future<HashedTree>| {
+                        let result2: Future<(u64, Result<HashedTree>)> =
                             Box::pin(async move { Ok((block_index, future.await)) });
                         result2
                     });
@@ -1633,7 +1633,7 @@ impl Prefetcher {
             return;
         }
 
-        let joined: Vec<Result<(u64, Result<HashedValue>)>> = join_all(futures).await;
+        let joined: Vec<Result<(u64, Result<HashedTree>)>> = join_all(futures).await;
         for join_result in joined.into_iter() {
             let (block_index, prepare_result) = join_result.unwrap();
             let prepared = match prepare_result {
@@ -1750,7 +1750,7 @@ impl OpenFileContentBufferLoaded {
             blocks_stored,
         );
         let reference = storage
-            .store_value(&HashedValue::from(Arc::new(value)))
+            .store_value(&HashedTree::from(Arc::new(value)))
             .await?;
         Ok(self.update_digest(reference))
     }
@@ -1788,7 +1788,7 @@ pub struct OptimizedWriteBuffer {
     // less than VALUE_BLOB_MAX_LENGTH
     prefix: bytes::Bytes,
     // each one is exactly VALUE_BLOB_MAX_LENGTH
-    full_blocks: Vec<HashedValue>,
+    full_blocks: Vec<HashedTree>,
     // less than VALUE_BLOB_MAX_LENGTH
     suffix: bytes::Bytes,
 }
@@ -1798,7 +1798,7 @@ impl OptimizedWriteBuffer {
         &self.prefix
     }
 
-    pub fn full_blocks(&self) -> &Vec<HashedValue> {
+    pub fn full_blocks(&self) -> &Vec<HashedTree> {
         &self.full_blocks
     }
 
@@ -1824,7 +1824,7 @@ impl OptimizedWriteBuffer {
             assert!((first_block_offset + prefix.len()) <= VALUE_BLOB_MAX_LENGTH);
             prefix
         };
-        let mut full_block_hashing: Vec<tokio::task::JoinHandle<HashedValue>> = Vec::new();
+        let mut full_block_hashing: Vec<tokio::task::JoinHandle<HashedTree>> = Vec::new();
         loop {
             if block_aligned_content.len() < VALUE_BLOB_MAX_LENGTH {
                 let mut full_blocks = Vec::new();
@@ -1848,7 +1848,7 @@ impl OptimizedWriteBuffer {
             // Calculating the SHA-3 digest of 64 KB of data can take surprisingly long, especially in Debug mode.
             // Parallelizing the computations should save a lot of time.
             let blocking_task = tokio::task::spawn_blocking(|| {
-                HashedValue::from(Arc::new(Tree::new(
+                HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::try_from(next).unwrap(),
                     vec![],
                 )))
@@ -2156,7 +2156,7 @@ impl OpenFileContentBuffer {
             }
             while first_block_index > (loaded.blocks.len() as u64) {
                 // TODO: make this a static constant
-                let filler = HashedValue::from(Arc::new(Tree::new(
+                let filler = HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::try_from(bytes::Bytes::from(vec![0u8; VALUE_BLOB_MAX_LENGTH]))
                         .unwrap(),
                     vec![],
@@ -2586,7 +2586,7 @@ impl TreeEditor {
     ) -> Result<BlobDigest> {
         debug!("Storing empty file");
         match storage
-            .store_value(&HashedValue::from(Arc::new(Tree::new(
+            .store_value(&HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::empty(),
                 Vec::new(),
             ))))

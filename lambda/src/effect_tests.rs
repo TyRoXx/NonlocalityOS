@@ -7,7 +7,7 @@ use crate::{
 };
 use astraea::{
     storage::{InMemoryValueStorage, StoreValue},
-    tree::{BlobDigest, HashedValue, Tree},
+    tree::{BlobDigest, HashedTree, Tree},
 };
 use std::{pin::Pin, sync::Arc};
 
@@ -18,7 +18,7 @@ async fn effect() {
 
     let first_string = Arc::new(Tree::from_string("Hello, ").unwrap());
     let first_string_ref = storage
-        .store_value(&HashedValue::from(first_string))
+        .store_value(&HashedTree::from(first_string))
         .await
         .unwrap();
     let first_console_output = crate::standard_library::ConsoleOutput {
@@ -27,14 +27,14 @@ async fn effect() {
     let first_console_output_value = Arc::new(first_console_output.to_value());
     let first_console_output_expression = DeepExpression(Expression::make_literal(
         storage
-            .store_value(&HashedValue::from(first_console_output_value.clone()))
+            .store_value(&HashedTree::from(first_console_output_value.clone()))
             .await
             .unwrap(),
     ));
 
     let second_string = Arc::new(Tree::from_string(" world!\n").unwrap());
     let second_string_ref = storage
-        .store_value(&HashedValue::from(second_string))
+        .store_value(&HashedTree::from(second_string))
         .await
         .unwrap();
     let main_lambda_parameter_name = Name::new(namespace, "main_arg".to_string());
