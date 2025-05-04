@@ -1,5 +1,8 @@
 use crate::compilation::{compile, CompilerOutput};
-use astraea::tree::{HashedTree, Tree};
+use astraea::{
+    storage::InMemoryTreeStorage,
+    tree::{HashedTree, Tree},
+};
 use lambda::{
     expressions::{DeepExpression, Expression},
     name::{Name, NamespaceId},
@@ -12,7 +15,8 @@ const TEST_NAMESPACE: NamespaceId =
 #[test_log::test(tokio::test)]
 async fn test_hello_world() {
     let source = include_str!("../examples/hello_world.tl");
-    let output = compile(source, &TEST_NAMESPACE).await;
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let output = compile(source, &TEST_NAMESPACE, &*storage).await;
     let print_name = Name::new(TEST_NAMESPACE, "print".to_string());
     let print = Arc::new(DeepExpression(Expression::ReadVariable(print_name.clone())));
     let entry_point = DeepExpression(Expression::make_lambda(
@@ -27,5 +31,5 @@ async fn test_hello_world() {
         ))),
     ));
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
-    assert_eq!(expected, output);
+    assert_eq!(Ok(expected), output);
 }

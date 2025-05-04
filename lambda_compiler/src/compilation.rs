@@ -1,7 +1,9 @@
 use crate::{
-    parsing::{parse_entry_point_lambda, pop_next_non_whitespace_token},
+    parsing::{parse_expression_tolerantly, pop_next_non_whitespace_token},
     tokenization::tokenize_default_syntax,
+    type_checking::check_types,
 };
+use astraea::storage::{StoreError, StoreTree};
 use lambda::{expressions::DeepExpression, name::NamespaceId};
 use serde::{Deserialize, Serialize};
 
@@ -44,10 +46,14 @@ impl CompilerOutput {
     }
 }
 
-pub async fn compile(source: &str, local_namespace: &NamespaceId) -> CompilerOutput {
+pub async fn compile(
+    source: &str,
+    local_namespace: &NamespaceId,
+    storage: &dyn StoreTree,
+) -> Result<CompilerOutput, StoreError> {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter().peekable();
-    let mut result = parse_entry_point_lambda(&mut token_iterator, local_namespace).await;
+    let mut result = parse_expression_tolerantly(&mut token_iterator, local_namespace);
     match pop_next_non_whitespace_token(&mut token_iterator) {
         Some(extra_token) => {
             result.errors.push(CompilerError::new(
@@ -57,5 +63,15 @@ pub async fn compile(source: &str, local_namespace: &NamespaceId) -> CompilerOut
         }
         None => {}
     }
-    result
+    match &result.entry_point {
+        Some(entry_point) => {
+            let type_check_result = check_types(entry_point, storage).await?;
+            result.errors.extend(type_check_result.errors);
+            Ok(CompilerOutput::new(
+                type_check_result.entry_point,
+                result.errors,
+            ))
+        }
+        None => Ok(CompilerOutput::new(None, result.errors)),
+    }
 }

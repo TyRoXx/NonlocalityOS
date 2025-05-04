@@ -1,11 +1,9 @@
 use crate::{
-    compilation::{CompilerError, CompilerOutput, SourceLocation},
+    ast,
+    compilation::{CompilerError, SourceLocation},
     tokenization::{Token, TokenContent},
 };
-use astraea::tree::{HashedTree, Tree};
-use lambda::expressions::{DeepExpression, Expression};
 use lambda::name::{Name, NamespaceId};
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct ParserError {
@@ -93,29 +91,24 @@ fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>
     }
 }
 
-async fn parse_expression_start<'t>(
+fn parse_expression_start<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
-) -> ParserResult<DeepExpression> {
+) -> ParserResult<ast::Expression> {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
-            TokenContent::Identifier(identifier) => Ok(DeepExpression(Expression::ReadVariable(
-                Name::new(*local_namespace, identifier.clone()),
+            TokenContent::Identifier(identifier) => Ok(ast::Expression::Identifier(Name::new(
+                *local_namespace,
+                identifier.clone(),
             ))),
             TokenContent::Assign => todo!(),
-            TokenContent::LeftParenthesis => Box::pin(parse_lambda(tokens, local_namespace)).await,
+            TokenContent::LeftParenthesis => parse_lambda(tokens, local_namespace),
             TokenContent::RightParenthesis => Err(ParserError::new(
                 "Expected expression, found right parenthesis.".to_string(),
             )),
             TokenContent::Dot => todo!(),
-            TokenContent::Quotes(content) => Ok(DeepExpression(Expression::Literal(
-                HashedTree::from(Arc::new(
-                    Tree::from_string(&content).expect("It's too long. That's what she said."),
-                ))
-                .digest()
-                .clone(),
-            ))),
+            TokenContent::Quotes(content) => Ok(ast::Expression::StringLiteral(content.clone())),
             TokenContent::FatArrow => todo!(),
         },
         None => Err(ParserError::new(
@@ -124,11 +117,11 @@ async fn parse_expression_start<'t>(
     }
 }
 
-pub async fn parse_expression<'t>(
+pub fn parse_expression<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
-) -> ParserResult<DeepExpression> {
-    let start = parse_expression_start(tokens, local_namespace).await?;
+) -> ParserResult<ast::Expression> {
+    let start = parse_expression_start(tokens, local_namespace)?;
     match peek_next_non_whitespace_token(tokens) {
         Some(more) => match &more.content {
             TokenContent::Whitespace => unreachable!(),
@@ -136,12 +129,12 @@ pub async fn parse_expression<'t>(
             TokenContent::Assign => Ok(start),
             TokenContent::LeftParenthesis => {
                 tokens.next();
-                let argument = Box::pin(parse_expression(tokens, local_namespace)).await?;
+                let argument = parse_expression(tokens, local_namespace)?;
                 expect_right_parenthesis(tokens);
-                Ok(DeepExpression(Expression::make_apply(
-                    Arc::new(start),
-                    Arc::new(argument),
-                )))
+                Ok(ast::Expression::Apply {
+                    callee: Box::new(start),
+                    argument: Box::new(argument),
+                })
             }
             TokenContent::RightParenthesis => Ok(start),
             TokenContent::Dot => todo!(),
@@ -152,10 +145,10 @@ pub async fn parse_expression<'t>(
     }
 }
 
-async fn parse_lambda<'t>(
+fn parse_lambda<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
-) -> ParserResult<DeepExpression> {
+) -> ParserResult<ast::Expression> {
     let parameter_name: Name = Name::new(
         *local_namespace,
         match pop_next_non_whitespace_token(tokens) {
@@ -174,47 +167,42 @@ async fn parse_lambda<'t>(
     );
     expect_right_parenthesis(tokens);
     expect_fat_arrow(tokens);
-    let body = parse_expression(tokens, local_namespace).await?;
-    Ok(DeepExpression(Expression::make_lambda(
-        parameter_name,
-        Arc::new(body),
-    )))
+    let body = parse_expression(tokens, local_namespace)?;
+    Ok(ast::Expression::Lambda {
+        parameter_name: parameter_name,
+        body: Box::new(body),
+    })
 }
 
-pub async fn parse_entry_point_lambda<'t>(
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+pub struct ParserOutput {
+    pub entry_point: Option<ast::Expression>,
+    pub errors: Vec<CompilerError>,
+}
+
+impl ParserOutput {
+    pub fn new(entry_point: Option<ast::Expression>, errors: Vec<CompilerError>) -> ParserOutput {
+        ParserOutput {
+            entry_point: entry_point,
+            errors: errors,
+        }
+    }
+}
+
+pub fn parse_expression_tolerantly<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
-) -> CompilerOutput {
+) -> ParserOutput {
     let mut errors = Vec::new();
-    let entry_point_result = parse_expression(tokens, local_namespace).await;
+    let entry_point_result = parse_expression(tokens, local_namespace);
     match entry_point_result {
-        Ok(entry_point) => match &entry_point.0 {
-            Expression::Literal(_)
-            | Expression::Apply {
-                callee: _,
-                argument: _,
-            }
-            | Expression::ReadVariable(_) => {
-                errors.push(CompilerError::new(
-                    "The entry point is expected to be a lambda expression.".to_string(),
-                    SourceLocation::new(0, 0),
-                ));
-                CompilerOutput::new(None, errors)
-            }
-            Expression::Lambda {
-                parameter_name: _,
-                body: _,
-            } => CompilerOutput::new(Some(entry_point), errors),
-            Expression::Construct(_arguments) => {
-                todo!()
-            }
-        },
+        Ok(entry_point) => ParserOutput::new(Some(entry_point), errors),
         Err(error) => {
             errors.push(CompilerError::new(
                 format!("Parser error: {}", &error),
                 SourceLocation::new(0, 0),
             ));
-            CompilerOutput::new(None, errors)
+            ParserOutput::new(None, errors)
         }
     }
 }

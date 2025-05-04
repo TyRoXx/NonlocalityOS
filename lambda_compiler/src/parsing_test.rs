@@ -1,88 +1,71 @@
-use std::sync::Arc;
-
-use crate::compilation::{CompilerError, CompilerOutput, SourceLocation};
-use crate::parsing::parse_entry_point_lambda;
+use crate::ast;
+use crate::compilation::{CompilerError, SourceLocation};
+use crate::parsing::{parse_expression_tolerantly, ParserOutput};
 use crate::{parsing::parse_expression, tokenization::tokenize_default_syntax};
-use lambda::expressions::{DeepExpression, Expression};
 use lambda::name::{Name, NamespaceId};
 
 const TEST_NAMESPACE: NamespaceId =
     NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 
-async fn parse_wellformed_expression(source: &str) -> DeepExpression {
+fn parse_wellformed_expression(source: &str) -> ast::Expression {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter().peekable();
-    let output = parse_expression(&mut token_iterator, &TEST_NAMESPACE)
-        .await
-        .unwrap();
+    let output = parse_expression(&mut token_iterator, &TEST_NAMESPACE).unwrap();
     assert_eq!(None, token_iterator.next());
     output
 }
 
-async fn test_wellformed_parsing(source: &str, expected: DeepExpression) {
-    let output = parse_wellformed_expression(source).await;
+fn test_wellformed_parsing(source: &str, expected: ast::Expression) {
+    let output = parse_wellformed_expression(source);
     assert_eq!(expected, output);
     assert_eq!(expected.to_string(), output.to_string());
 }
 
-#[test_log::test(tokio::test)]
-async fn test_parse_lambda() {
+#[test_log::test]
+fn test_parse_lambda() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
-    let expected = DeepExpression(Expression::make_lambda(
-        name.clone(),
-        Arc::new(DeepExpression(Expression::ReadVariable(name))),
-    ));
-    test_wellformed_parsing(r#"(f) => f"#, expected).await;
+    let expected = ast::Expression::Lambda {
+        parameter_name: name.clone(),
+        body: Box::new(ast::Expression::Identifier(name)),
+    };
+    test_wellformed_parsing(r#"(f) => f"#, expected);
 }
 
-#[test_log::test(tokio::test)]
-async fn test_parse_nested_lambda() {
+#[test_log::test]
+fn test_parse_nested_lambda() {
     let f = Name::new(TEST_NAMESPACE, "f".to_string());
     let g = Name::new(TEST_NAMESPACE, "g".to_string());
-    let expected = DeepExpression(Expression::make_lambda(
-        f.clone(),
-        Arc::new(DeepExpression(Expression::make_lambda(
-            g,
-            Arc::new(DeepExpression(Expression::ReadVariable(f))),
-        ))),
-    ));
-    test_wellformed_parsing(r#"(f) => (g) => f"#, expected).await;
+    let expected = ast::Expression::Lambda {
+        parameter_name: f.clone(),
+        body: Box::new(ast::Expression::Lambda {
+            parameter_name: g,
+            body: Box::new(ast::Expression::Identifier(f)),
+        }),
+    };
+    test_wellformed_parsing(r#"(f) => (g) => f"#, expected);
 }
 
-#[test_log::test(tokio::test)]
-async fn test_parse_function_call() {
+#[test_log::test]
+fn test_parse_function_call() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
-    let f = Arc::new(DeepExpression(Expression::ReadVariable(name.clone())));
-    let expected = DeepExpression(Expression::make_lambda(
-        name,
-        Arc::new(DeepExpression(Expression::make_apply(f.clone(), f))),
-    ));
-    test_wellformed_parsing(r#"(f) => f(f)"#, expected).await;
+    let f = Box::new(ast::Expression::Identifier(name.clone()));
+    let expected = ast::Expression::Lambda {
+        parameter_name: name,
+        body: Box::new(ast::Expression::Apply {
+            callee: f.clone(),
+            argument: f,
+        }),
+    };
+    test_wellformed_parsing(r#"(f) => f(f)"#, expected);
 }
 
-#[test_log::test(tokio::test)]
-async fn test_parse_non_lambda_entry_point() {
-    let tokens = tokenize_default_syntax("f(a)");
-    let mut token_iterator = tokens.iter().peekable();
-    let output = parse_entry_point_lambda(&mut token_iterator, &TEST_NAMESPACE).await;
-    assert_eq!(None, token_iterator.next());
-    let expected = CompilerOutput::new(
-        None,
-        vec![CompilerError::new(
-            "The entry point is expected to be a lambda expression.".to_string(),
-            SourceLocation::new(0, 0),
-        )],
-    );
-    assert_eq!(expected, output);
-}
-
-#[test_log::test(tokio::test)]
-async fn test_parse_missing_argument() {
+#[test_log::test]
+fn test_parse_missing_argument() {
     let tokens = tokenize_default_syntax(r#"(f) => f()"#);
     let mut token_iterator = tokens.iter().peekable();
-    let output = parse_entry_point_lambda(&mut token_iterator, &TEST_NAMESPACE).await;
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(None, token_iterator.next());
-    let expected = CompilerOutput::new(
+    let expected = ParserOutput::new(
         None,
         vec![CompilerError::new(
             "Parser error: Expected expression, found right parenthesis.".to_string(),
