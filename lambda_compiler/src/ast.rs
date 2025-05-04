@@ -12,6 +12,7 @@ pub enum Expression {
         parameter_name: Name,
         body: Box<Expression>,
     },
+    ConstructTree(Vec<Expression>),
 }
 
 impl Expression {

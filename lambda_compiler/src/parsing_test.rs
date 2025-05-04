@@ -74,3 +74,11 @@ fn test_parse_missing_argument() {
     );
     assert_eq!(expected, output);
 }
+
+#[test_log::test]
+fn test_parse_tree_construction() {
+    let name = Name::new(TEST_NAMESPACE, "a".to_string());
+    let a = ast::Expression::Identifier(name.clone());
+    let expected = ast::Expression::ConstructTree(vec![a]);
+    test_wellformed_parsing(r#"[a]"#, expected);
+}

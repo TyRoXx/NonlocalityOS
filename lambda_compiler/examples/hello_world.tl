@@ -1,1 +1,1 @@
-(print) => print("Hello, world!")
+(unused) => ["Hello, world!"]

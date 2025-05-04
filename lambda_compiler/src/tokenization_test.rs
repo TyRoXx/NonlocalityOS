@@ -38,7 +38,7 @@ fn test_tokenize_default_syntax_newline() {
 #[test_log::test]
 fn test_tokenize_default_syntax_source_locations() {
     test_tokenize_default_syntax(
-        " \n  test=\n().\"\"=>",
+        " \n  test=\n().\"\"=>[]",
         &[
             Token {
                 content: TokenContent::Whitespace,
@@ -87,6 +87,14 @@ fn test_tokenize_default_syntax_source_locations() {
             Token {
                 content: TokenContent::FatArrow,
                 location: SourceLocation { line: 2, column: 5 },
+            },
+            Token {
+                content: TokenContent::LeftBracket,
+                location: SourceLocation { line: 2, column: 7 },
+            },
+            Token {
+                content: TokenContent::RightBracket,
+                location: SourceLocation { line: 2, column: 8 },
             },
         ],
     );
@@ -173,6 +181,28 @@ fn test_tokenize_default_syntax_right_parenthesis() {
         ")",
         &[Token {
             content: TokenContent::RightParenthesis,
+            location: SourceLocation { line: 0, column: 0 },
+        }],
+    );
+}
+
+#[test_log::test]
+fn test_tokenize_default_syntax_left_bracket() {
+    test_tokenize_default_syntax(
+        "[",
+        &[Token {
+            content: TokenContent::LeftBracket,
+            location: SourceLocation { line: 0, column: 0 },
+        }],
+    );
+}
+
+#[test_log::test]
+fn test_tokenize_default_syntax_right_bracket() {
+    test_tokenize_default_syntax(
+        "]",
+        &[Token {
+            content: TokenContent::RightBracket,
             location: SourceLocation { line: 0, column: 0 },
         }],
     );

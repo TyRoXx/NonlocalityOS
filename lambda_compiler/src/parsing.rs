@@ -50,6 +50,8 @@ pub fn peek_next_non_whitespace_token<'t>(
                 | TokenContent::Assign
                 | TokenContent::LeftParenthesis
                 | TokenContent::RightParenthesis
+                | TokenContent::LeftBracket
+                | TokenContent::RightBracket
                 | TokenContent::Dot
                 | TokenContent::Quotes(_)
                 | TokenContent::FatArrow => return Some(token),
@@ -67,6 +69,26 @@ fn expect_right_parenthesis(tokens: &mut std::iter::Peekable<std::slice::Iter<'_
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => {}
+            TokenContent::LeftBracket => todo!(),
+            TokenContent::RightBracket => todo!(),
+            TokenContent::Dot => todo!(),
+            TokenContent::Quotes(_) => todo!(),
+            TokenContent::FatArrow => todo!(),
+        },
+        None => todo!(),
+    }
+}
+
+fn expect_right_bracket(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
+    match pop_next_non_whitespace_token(tokens) {
+        Some(non_whitespace) => match &non_whitespace.content {
+            TokenContent::Whitespace => todo!(),
+            TokenContent::Identifier(_) => todo!(),
+            TokenContent::Assign => todo!(),
+            TokenContent::LeftParenthesis => todo!(),
+            TokenContent::RightParenthesis => todo!(),
+            TokenContent::LeftBracket => todo!(),
+            TokenContent::RightBracket => {}
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => todo!(),
@@ -83,12 +105,25 @@ fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
+            TokenContent::LeftBracket => todo!(),
+            TokenContent::RightBracket => todo!(),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => {}
         },
         None => todo!(),
     }
+}
+
+fn parse_tree_construction(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+    local_namespace: &NamespaceId,
+) -> ParserResult<ast::Expression> {
+    let mut elements = Vec::new();
+    let element = parse_expression(tokens, local_namespace)?;
+    elements.push(element);
+    expect_right_bracket(tokens);
+    Ok(ast::Expression::ConstructTree(elements))
 }
 
 fn parse_expression_start<'t>(
@@ -107,6 +142,8 @@ fn parse_expression_start<'t>(
             TokenContent::RightParenthesis => Err(ParserError::new(
                 "Expected expression, found right parenthesis.".to_string(),
             )),
+            TokenContent::LeftBracket => parse_tree_construction(tokens, local_namespace),
+            TokenContent::RightBracket => todo!(),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(content) => Ok(ast::Expression::StringLiteral(content.clone())),
             TokenContent::FatArrow => todo!(),
@@ -137,6 +174,8 @@ pub fn parse_expression<'t>(
                 })
             }
             TokenContent::RightParenthesis => Ok(start),
+            TokenContent::LeftBracket => todo!(),
+            TokenContent::RightBracket => Ok(start),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => todo!(),
@@ -158,6 +197,8 @@ fn parse_lambda<'t>(
                 TokenContent::Assign => todo!(),
                 TokenContent::LeftParenthesis => todo!(),
                 TokenContent::RightParenthesis => todo!(),
+                TokenContent::LeftBracket => todo!(),
+                TokenContent::RightBracket => todo!(),
                 TokenContent::Dot => todo!(),
                 TokenContent::Quotes(_) => todo!(),
                 TokenContent::FatArrow => todo!(),

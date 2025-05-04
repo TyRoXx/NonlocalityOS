@@ -12,6 +12,10 @@ pub enum TokenContent {
     LeftParenthesis,
     // )
     RightParenthesis,
+    // [
+    LeftBracket,
+    // ]
+    RightBracket,
     // .
     Dot,
     // "..."
@@ -173,12 +177,16 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(11);
     const TOKEN_TAG_RIGHT_PARENTHESIS: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(12);
-    const TOKEN_TAG_DOT: hippeus_parser_generator::RegisterId =
+    const TOKEN_TAG_LEFT_BRACKET: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(13);
-    const TOKEN_TAG_QUOTES: hippeus_parser_generator::RegisterId =
+    const TOKEN_TAG_RIGHT_BRACKET: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(14);
-    const TOKEN_TAG_FAT_ARROW: hippeus_parser_generator::RegisterId =
+    const TOKEN_TAG_DOT: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(15);
+    const TOKEN_TAG_QUOTES: hippeus_parser_generator::RegisterId =
+        hippeus_parser_generator::RegisterId(16);
+    const TOKEN_TAG_FAT_ARROW: hippeus_parser_generator::RegisterId =
+        hippeus_parser_generator::RegisterId(17);
     lazy_static! {
         static ref TOKEN_PARSER: hippeus_parser_generator::Parser =
             hippeus_parser_generator::Parser::Sequence(vec![
@@ -305,7 +313,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                                 hippeus_parser_generator::Parser::ReadInputByte(SUBSEQUENT_INPUT),
                                                 hippeus_parser_generator::Parser::Constant(
                                                     TOKEN_TAG_FAT_ARROW,
-                                                    hippeus_parser_generator::RegisterValue::Byte(7)
+                                                    hippeus_parser_generator::RegisterValue::Byte(9)
                                                 ),
                                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                                     TOKEN_TAG_FAT_ARROW
@@ -377,6 +385,50 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::no_op())
                         ),
 
+                        // left bracket
+                        hippeus_parser_generator::Parser::IsAnyOf {
+                            input: FIRST_INPUT,
+                            result: IS_ANY_OF_RESULT,
+                            candidates: vec![
+                                hippeus_parser_generator::RegisterValue::Byte(b'[')
+                            ]
+                        },
+                        hippeus_parser_generator::Parser::IfElse(
+                            IS_ANY_OF_RESULT,
+                            Box::new(hippeus_parser_generator::Parser::Sequence(vec![
+                                hippeus_parser_generator::Parser::Constant(
+                                    TOKEN_TAG_LEFT_BRACKET,
+                                    hippeus_parser_generator::RegisterValue::Byte(5)
+                                ),
+                                hippeus_parser_generator::Parser::WriteOutputByte(
+                                    TOKEN_TAG_LEFT_BRACKET
+                                )
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
+                        ),
+
+                        // right bracket
+                        hippeus_parser_generator::Parser::IsAnyOf {
+                            input: FIRST_INPUT,
+                            result: IS_ANY_OF_RESULT,
+                            candidates: vec![
+                                hippeus_parser_generator::RegisterValue::Byte(b']')
+                            ]
+                        },
+                        hippeus_parser_generator::Parser::IfElse(
+                            IS_ANY_OF_RESULT,
+                            Box::new(hippeus_parser_generator::Parser::Sequence(vec![
+                                hippeus_parser_generator::Parser::Constant(
+                                    TOKEN_TAG_RIGHT_BRACKET,
+                                    hippeus_parser_generator::RegisterValue::Byte(6)
+                                ),
+                                hippeus_parser_generator::Parser::WriteOutputByte(
+                                    TOKEN_TAG_RIGHT_BRACKET
+                                )
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
+                        ),
+
                         // dot
                         hippeus_parser_generator::Parser::IsAnyOf {
                             input: FIRST_INPUT,
@@ -390,7 +442,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
                                     TOKEN_TAG_DOT,
-                                    hippeus_parser_generator::RegisterValue::Byte(5)
+                                    hippeus_parser_generator::RegisterValue::Byte(7)
                                 ),
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_DOT
@@ -410,7 +462,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             Box::new(hippeus_parser_generator::Parser::Sequence(vec![
                                 hippeus_parser_generator::Parser::Constant(
                                     TOKEN_TAG_QUOTES,
-                                    hippeus_parser_generator::RegisterValue::Byte(6)
+                                    hippeus_parser_generator::RegisterValue::Byte(8)
                                 ),
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_QUOTES

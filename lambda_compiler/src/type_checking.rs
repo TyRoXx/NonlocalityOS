@@ -67,5 +67,24 @@ pub async fn check_types(
                 None => return Ok(CompilerOutput::new(None, body_output.errors)),
             }
         }
+        ast::Expression::ConstructTree(expressions) => {
+            let mut errors = Vec::new();
+            let mut children = Vec::new();
+            for expression in expressions {
+                let output = Box::pin(check_types(expression, storage)).await?;
+                errors.extend(output.errors);
+                if let Some(checked) = output.entry_point {
+                    children.push(Arc::new(checked));
+                } else {
+                    return Ok(CompilerOutput::new(None, errors));
+                }
+            }
+            Ok(CompilerOutput {
+                entry_point: Some(lambda::expressions::DeepExpression(
+                    lambda::expressions::Expression::Construct(children),
+                )),
+                errors: errors,
+            })
+        }
     }
 }

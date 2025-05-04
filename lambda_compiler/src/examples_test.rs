@@ -17,18 +17,16 @@ async fn test_hello_world() {
     let source = include_str!("../examples/hello_world.tl");
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let output = compile(source, &TEST_NAMESPACE, &*storage).await;
-    let print_name = Name::new(TEST_NAMESPACE, "print".to_string());
-    let print = Arc::new(DeepExpression(Expression::ReadVariable(print_name.clone())));
+    let parameter_name = Name::new(TEST_NAMESPACE, "unused".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
-        print_name,
-        Arc::new(DeepExpression(Expression::make_apply(
-            print.clone(),
-            Arc::new(DeepExpression(Expression::make_literal(
+        parameter_name,
+        Arc::new(DeepExpression(Expression::make_construct(vec![Arc::new(
+            DeepExpression(Expression::make_literal(
                 HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
                     .digest()
                     .clone(),
-            ))),
-        ))),
+            )),
+        )]))),
     ));
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
