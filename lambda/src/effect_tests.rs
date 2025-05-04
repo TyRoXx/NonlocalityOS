@@ -39,7 +39,7 @@ async fn effect() {
         .unwrap();
     let main_lambda_parameter_name = Name::new(namespace, "main_arg".to_string());
     let second_console_output_expression =
-        DeepExpression(Expression::Construct(vec![Arc::new(DeepExpression(
+        DeepExpression(Expression::ConstructTree(vec![Arc::new(DeepExpression(
             Expression::make_read_variable(main_lambda_parameter_name.clone()),
         ))]));
 
@@ -49,7 +49,7 @@ async fn effect() {
         Arc::new(second_console_output_expression),
     ));
 
-    let construct_and_then_expression = DeepExpression(Expression::make_construct(vec![
+    let construct_and_then_expression = DeepExpression(Expression::make_construct_tree(vec![
         Arc::new(first_console_output_expression),
         Arc::new(and_then_lambda_expression),
     ]));
@@ -66,8 +66,8 @@ async fn effect() {
             .unwrap();
         assert_eq!(concat!(
             "(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.main_arg) =>\n",
-            "  construct(literal(3d68922f2a62988e48e9734f5107de0aef4f1d088bb67bfada36bcd8d9288a750d6217bd9a88f498c78b76040ef29bbb136bfaea876601d02405546160b2fd9d), (2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.previous_result) =>\n",
-            "    construct(main_arg, ), )"),
+            "  [literal(3d68922f2a62988e48e9734f5107de0aef4f1d088bb67bfada36bcd8d9288a750d6217bd9a88f498c78b76040ef29bbb136bfaea876601d02405546160b2fd9d), (2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.previous_result) =>\n",
+            "    [main_arg, ], ]"),
             program_as_string.as_str());
     }
     let read_variable: Arc<ReadVariable> = Arc::new(

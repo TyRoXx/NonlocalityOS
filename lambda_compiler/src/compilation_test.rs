@@ -87,13 +87,13 @@ async fn test_compile_tree_construction() {
     let unused_name = Name::new(TEST_NAMESPACE, "unused".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
         unused_name,
-        Arc::new(DeepExpression(Expression::make_construct(vec![Arc::new(
-            DeepExpression(Expression::make_literal(
+        Arc::new(DeepExpression(Expression::make_construct_tree(vec![
+            Arc::new(DeepExpression(Expression::make_literal(
                 HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
                     .digest()
                     .clone(),
-            )),
-        )]))),
+            ))),
+        ]))),
     ));
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);

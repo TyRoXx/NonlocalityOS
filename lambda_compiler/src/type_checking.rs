@@ -81,7 +81,7 @@ pub async fn check_types(
             }
             Ok(CompilerOutput {
                 entry_point: Some(lambda::expressions::DeepExpression(
-                    lambda::expressions::Expression::Construct(children),
+                    lambda::expressions::Expression::ConstructTree(children),
                 )),
                 errors: errors,
             })

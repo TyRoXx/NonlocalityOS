@@ -24,7 +24,7 @@ async fn print_all_expression_types() {
         DeepExpression(Expression::make_literal(BlobDigest(([0; 32], [0; 32]))));
     let name = Name::new(NamespaceId([0xff; 16]), "name".to_string());
     let read_variable = DeepExpression(Expression::ReadVariable(name.clone()));
-    let construct = DeepExpression(Expression::make_construct(vec![Arc::new(read_variable)]));
+    let construct = DeepExpression(Expression::make_construct_tree(vec![Arc::new(read_variable)]));
     let lambda = DeepExpression(Expression::make_lambda(name, Arc::new(construct)));
     let apply: DeepExpression =
         DeepExpression(Expression::make_apply(Arc::new(lambda), Arc::new(literal)));
@@ -33,7 +33,7 @@ async fn print_all_expression_types() {
     assert_eq!(
         concat!(
             "(ffffffff-ffff-ffff-ffff-ffffffffffff.name) =>\n",
-            "  construct(name, )(literal(00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000))"),
+            "  [name, ](literal(00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000))"),
         writer.as_str());
 }
 

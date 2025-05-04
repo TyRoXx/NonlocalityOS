@@ -28,7 +28,7 @@ where
     Apply { callee: E, argument: E },
     ReadVariable(Name),
     Lambda { parameter_name: Name, body: E },
-    Construct(Vec<E>),
+    ConstructTree(Vec<E>),
 }
 
 impl<E, V> PrintExpression for Expression<E, V>
@@ -61,13 +61,13 @@ where
                 }
                 body.print(writer, indented)
             }
-            Expression::Construct(arguments) => {
-                write!(writer, "construct(")?;
+            Expression::ConstructTree(arguments) => {
+                write!(writer, "[")?;
                 for argument in arguments {
                     argument.print(writer, level)?;
                     write!(writer, ", ")?;
                 }
-                write!(writer, ")")
+                write!(writer, "]")
             }
         }
     }
@@ -93,8 +93,8 @@ where
         }
     }
 
-    pub fn make_construct(arguments: Vec<E>) -> Self {
-        Expression::Construct(arguments)
+    pub fn make_construct_tree(arguments: Vec<E>) -> Self {
+        Expression::ConstructTree(arguments)
     }
 
     pub fn make_read_variable(name: Name) -> Self {
@@ -131,12 +131,12 @@ where
                 parameter_name: parameter_name.clone(),
                 body: transform_expression(body).await?,
             }),
-            Expression::Construct(items) => {
+            Expression::ConstructTree(items) => {
                 let mut transformed_items = Vec::new();
                 for item in items.iter() {
                     transformed_items.push(transform_expression(item).await?);
                 }
-                Ok(Expression::Construct(transformed_items))
+                Ok(Expression::ConstructTree(transformed_items))
             }
         }
     }
@@ -216,8 +216,8 @@ pub fn to_reference_expression(
             },
             vec![*body],
         ),
-        Expression::Construct(items) => (
-            ReferenceExpression::Construct(
+        Expression::ConstructTree(items) => (
+            ReferenceExpression::ConstructTree(
                 (0..items.len())
                     .map(|index| ReferenceIndex(index as u64))
                     .collect(),
@@ -449,7 +449,7 @@ fn find_captured_names(expression: &DeepExpression) -> BTreeSet<Name> {
             result.remove(&parameter_name);
             result
         }
-        Expression::Construct(arguments) => {
+        Expression::ConstructTree(arguments) => {
             let mut result = BTreeSet::new();
             for argument in arguments {
                 result.append(&mut find_captured_names(argument));
@@ -501,7 +501,7 @@ pub async fn evaluate(
             let serialized = closure.serialize(store_tree).await?;
             Ok(serialized)
         }
-        Expression::Construct(arguments) => {
+        Expression::ConstructTree(arguments) => {
             let mut evaluated_arguments = Vec::new();
             for argument in arguments {
                 let evaluated_argument =
