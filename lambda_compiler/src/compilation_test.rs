@@ -76,7 +76,20 @@ async fn test_compile_quotes() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_compile_tree_construction() {
+async fn test_compile_tree_construction_0_children() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let output = compile(r#"(unused) => []"#, &TEST_NAMESPACE, &*storage).await;
+    let unused_name = Name::new(TEST_NAMESPACE, "unused".to_string());
+    let entry_point = DeepExpression(Expression::make_lambda(
+        unused_name,
+        Arc::new(DeepExpression(Expression::make_construct_tree(vec![]))),
+    ));
+    let expected = CompilerOutput::new(Some(entry_point), Vec::new());
+    assert_eq!(Ok(expected), output);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_compile_tree_construction_1_child() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let output = compile(
         r#"(unused) => ["Hello, world!"]"#,
@@ -90,6 +103,34 @@ async fn test_compile_tree_construction() {
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![
             Arc::new(DeepExpression(Expression::make_literal(
                 HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
+                    .digest()
+                    .clone(),
+            ))),
+        ]))),
+    ));
+    let expected = CompilerOutput::new(Some(entry_point), Vec::new());
+    assert_eq!(Ok(expected), output);
+}
+#[test_log::test(tokio::test)]
+async fn test_compile_tree_construction_2_children() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let output = compile(
+        r#"(unused) => ["Hello, ", "world!"]"#,
+        &TEST_NAMESPACE,
+        &*storage,
+    )
+    .await;
+    let unused_name = Name::new(TEST_NAMESPACE, "unused".to_string());
+    let entry_point = DeepExpression(Expression::make_lambda(
+        unused_name,
+        Arc::new(DeepExpression(Expression::make_construct_tree(vec![
+            Arc::new(DeepExpression(Expression::make_literal(
+                HashedTree::from(Arc::new(Tree::from_string("Hello, ").unwrap()))
+                    .digest()
+                    .clone(),
+            ))),
+            Arc::new(DeepExpression(Expression::make_literal(
+                HashedTree::from(Arc::new(Tree::from_string("world!").unwrap()))
                     .digest()
                     .clone(),
             ))),

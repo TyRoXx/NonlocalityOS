@@ -22,6 +22,8 @@ pub enum TokenContent {
     Quotes(String),
     // =>
     FatArrow,
+    // ,
+    Comma,
 }
 
 #[derive(PartialEq, Debug)]
@@ -183,10 +185,12 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(14);
     const TOKEN_TAG_DOT: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(15);
-    const TOKEN_TAG_QUOTES: hippeus_parser_generator::RegisterId =
+    const TOKEN_TAG_COMMA: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(16);
-    const TOKEN_TAG_FAT_ARROW: hippeus_parser_generator::RegisterId =
+    const TOKEN_TAG_QUOTES: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(17);
+    const TOKEN_TAG_FAT_ARROW: hippeus_parser_generator::RegisterId =
+        hippeus_parser_generator::RegisterId(18);
     lazy_static! {
         static ref TOKEN_PARSER: hippeus_parser_generator::Parser =
             hippeus_parser_generator::Parser::Sequence(vec![
@@ -446,6 +450,28 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 ),
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_DOT
+                                )
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
+                        ),
+
+                        // comma
+                        hippeus_parser_generator::Parser::IsAnyOf {
+                            input: FIRST_INPUT,
+                            result: IS_ANY_OF_RESULT,
+                            candidates: vec![
+                                hippeus_parser_generator::RegisterValue::Byte(b',')
+                            ]
+                        },
+                        hippeus_parser_generator::Parser::IfElse(
+                            IS_ANY_OF_RESULT,
+                            Box::new(hippeus_parser_generator::Parser::Sequence(vec![
+                                hippeus_parser_generator::Parser::Constant(
+                                    TOKEN_TAG_COMMA,
+                                    hippeus_parser_generator::RegisterValue::Byte(10)
+                                ),
+                                hippeus_parser_generator::Parser::WriteOutputByte(
+                                    TOKEN_TAG_COMMA
                                 )
                             ])),
                             Box::new(hippeus_parser_generator::Parser::no_op())

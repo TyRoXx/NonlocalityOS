@@ -76,9 +76,41 @@ fn test_parse_missing_argument() {
 }
 
 #[test_log::test]
-fn test_parse_tree_construction() {
-    let name = Name::new(TEST_NAMESPACE, "a".to_string());
-    let a = ast::Expression::Identifier(name.clone());
-    let expected = ast::Expression::ConstructTree(vec![a]);
-    test_wellformed_parsing(r#"[a]"#, expected);
+fn test_parse_tree_construction_0_children() {
+    for source in &["[]", " []", "[ ]", " [] ", "[  ]", "[ ] "] {
+        let expected = ast::Expression::ConstructTree(vec![]);
+        test_wellformed_parsing(source, expected);
+    }
+}
+
+#[test_log::test]
+fn test_parse_tree_construction_1_child() {
+    for source in &[
+        "[a]", "[ a ]", "[ a, ]", "[a,]", "[a, ]", "[ a,]", "[ a ,]", " [ a ,] ",
+    ] {
+        let name = Name::new(TEST_NAMESPACE, "a".to_string());
+        let a = ast::Expression::Identifier(name.clone());
+        let expected = ast::Expression::ConstructTree(vec![a]);
+        test_wellformed_parsing(source, expected);
+    }
+}
+
+#[test_log::test]
+fn test_parse_tree_construction_2_children() {
+    for source in &[
+        "[a, b]",
+        "[ a, b ]",
+        "[ a, b, ]",
+        "[a, b,]",
+        "[a, b, ]",
+        "[ a , b]",
+        "[ a , b ]",
+        "[ a , b, ]",
+        " [ a , b , ] ",
+    ] {
+        let a = ast::Expression::Identifier(Name::new(TEST_NAMESPACE, "a".to_string()));
+        let b = ast::Expression::Identifier(Name::new(TEST_NAMESPACE, "b".to_string()));
+        let expected = ast::Expression::ConstructTree(vec![a, b]);
+        test_wellformed_parsing(source, expected);
+    }
 }
