@@ -9,7 +9,7 @@ pub enum Expression {
         argument: Box<Expression>,
     },
     Lambda {
-        parameter_name: Name,
+        parameter_names: Vec<Name>,
         body: Box<Expression>,
     },
     ConstructTree(Vec<Expression>),

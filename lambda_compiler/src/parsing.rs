@@ -231,30 +231,32 @@ fn parse_lambda<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
 ) -> ParserResult<ast::Expression> {
-    let parameter_name: Name = Name::new(
-        *local_namespace,
-        match pop_next_non_whitespace_token(tokens) {
-            Some(non_whitespace) => match &non_whitespace.content {
-                TokenContent::Whitespace => todo!(),
-                TokenContent::Identifier(identifier) => identifier.clone(),
-                TokenContent::Assign => todo!(),
-                TokenContent::LeftParenthesis => todo!(),
-                TokenContent::RightParenthesis => todo!(),
-                TokenContent::LeftBracket => todo!(),
-                TokenContent::RightBracket => todo!(),
-                TokenContent::Dot => todo!(),
-                TokenContent::Quotes(_) => todo!(),
-                TokenContent::FatArrow => todo!(),
-                TokenContent::Comma => todo!(),
-            },
-            None => todo!(),
+    let mut parameter_names = Vec::new();
+    while let Some(name) = match peek_next_non_whitespace_token(tokens) {
+        Some(non_whitespace) => match &non_whitespace.content {
+            TokenContent::Whitespace => todo!(),
+            TokenContent::Identifier(identifier) => Some(identifier.clone()),
+            TokenContent::Assign => todo!(),
+            TokenContent::LeftParenthesis => todo!(),
+            TokenContent::RightParenthesis => None,
+            TokenContent::LeftBracket => todo!(),
+            TokenContent::RightBracket => todo!(),
+            TokenContent::Dot => todo!(),
+            TokenContent::Quotes(_) => todo!(),
+            TokenContent::FatArrow => todo!(),
+            TokenContent::Comma => todo!(),
         },
-    );
+        None => None,
+    } {
+        let parameter_name: Name = Name::new(*local_namespace, name);
+        parameter_names.push(parameter_name);
+        // TODO: skip commas
+    }
     expect_right_parenthesis(tokens);
     expect_fat_arrow(tokens);
     let body = parse_expression(tokens, local_namespace)?;
     Ok(ast::Expression::Lambda {
-        parameter_name: parameter_name,
+        parameter_names: parameter_names,
         body: Box::new(body),
     })
 }

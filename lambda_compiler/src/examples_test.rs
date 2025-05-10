@@ -9,15 +9,25 @@ use lambda::{
 };
 use std::sync::Arc;
 
-const TEST_NAMESPACE: NamespaceId =
+const TEST_SOURCE_NAMESPACE: NamespaceId =
     NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+const TEST_GENERATED_NAME_NAMESPACE: NamespaceId = NamespaceId([
+    17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+]);
 
 #[test_log::test(tokio::test)]
 async fn test_hello_world() {
     let source = include_str!("../examples/hello_world.tl");
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let output = compile(source, &TEST_NAMESPACE, &*storage).await;
-    let parameter_name = Name::new(TEST_NAMESPACE, "unused".to_string());
+    let output = compile(
+        source,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
+        &*storage,
+    )
+    .await;
+    let parameter_name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
         parameter_name,
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![

@@ -5,13 +5,23 @@ use lambda::expressions::{DeepExpression, Expression};
 use lambda::name::{Name, NamespaceId};
 use std::sync::Arc;
 
-const TEST_NAMESPACE: NamespaceId =
+const TEST_SOURCE_NAMESPACE: NamespaceId =
     NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+const TEST_GENERATED_NAME_NAMESPACE: NamespaceId = NamespaceId([
+    17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+]);
 
 #[test_log::test(tokio::test)]
 async fn test_compile_empty_source() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let output = compile("", &TEST_NAMESPACE, &*storage).await;
+    let output = compile(
+        "",
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
+        &*storage,
+    )
+    .await;
     let expected = CompilerOutput::new(
         None,
         vec![CompilerError::new(
@@ -25,8 +35,14 @@ async fn test_compile_empty_source() {
 #[test_log::test(tokio::test)]
 async fn test_compile_lambda() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let output = compile(r#"(x) => x"#, &TEST_NAMESPACE, &*storage).await;
-    let name = Name::new(TEST_NAMESPACE, "x".to_string());
+    let output = compile(
+        r#"(x) => x"#,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
+        &*storage,
+    )
+    .await;
+    let name = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
         name.clone(),
         Arc::new(DeepExpression(Expression::ReadVariable(name))),
@@ -38,8 +54,14 @@ async fn test_compile_lambda() {
 #[test_log::test(tokio::test)]
 async fn test_compile_function_call() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let output = compile(r#"(f) => f(f)"#, &TEST_NAMESPACE, &*storage).await;
-    let name = Name::new(TEST_NAMESPACE, "f".to_string());
+    let output = compile(
+        r#"(f) => f(f)"#,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
+        &*storage,
+    )
+    .await;
+    let name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "f".to_string());
     let f = Arc::new(DeepExpression(Expression::ReadVariable(name.clone())));
     let entry_point = DeepExpression(Expression::make_lambda(
         name,
@@ -54,14 +76,18 @@ async fn test_compile_quotes() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let output = compile(
         r#"(print) => print("Hello, world!")"#,
-        &TEST_NAMESPACE,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
         &*storage,
     )
     .await;
-    let print_name = Name::new(TEST_NAMESPACE, "print".to_string());
-    let print = Arc::new(DeepExpression(Expression::ReadVariable(print_name.clone())));
+    let print_source_name = Name::new(TEST_SOURCE_NAMESPACE, "print".to_string());
+    let print_generated_name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "print".to_string());
+    let print = Arc::new(DeepExpression(Expression::ReadVariable(
+        print_source_name.clone(),
+    )));
     let entry_point = DeepExpression(Expression::make_lambda(
-        print_name,
+        print_generated_name,
         Arc::new(DeepExpression(Expression::make_apply(
             print.clone(),
             Arc::new(DeepExpression(Expression::make_literal(
@@ -78,8 +104,14 @@ async fn test_compile_quotes() {
 #[test_log::test(tokio::test)]
 async fn test_compile_tree_construction_0_children() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let output = compile(r#"(unused) => []"#, &TEST_NAMESPACE, &*storage).await;
-    let unused_name = Name::new(TEST_NAMESPACE, "unused".to_string());
+    let output = compile(
+        r#"() => []"#,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
+        &*storage,
+    )
+    .await;
+    let unused_name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
         unused_name,
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![]))),
@@ -92,12 +124,13 @@ async fn test_compile_tree_construction_0_children() {
 async fn test_compile_tree_construction_1_child() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let output = compile(
-        r#"(unused) => ["Hello, world!"]"#,
-        &TEST_NAMESPACE,
+        r#"() => ["Hello, world!"]"#,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
         &*storage,
     )
     .await;
-    let unused_name = Name::new(TEST_NAMESPACE, "unused".to_string());
+    let unused_name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
         unused_name,
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![
@@ -116,12 +149,13 @@ async fn test_compile_tree_construction_1_child() {
 async fn test_compile_tree_construction_2_children() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let output = compile(
-        r#"(unused) => ["Hello, ", "world!"]"#,
-        &TEST_NAMESPACE,
+        r#"() => ["Hello, ", "world!"]"#,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
         &*storage,
     )
     .await;
-    let unused_name = Name::new(TEST_NAMESPACE, "unused".to_string());
+    let unused_name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
         unused_name,
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![
@@ -145,12 +179,13 @@ async fn test_compile_tree_construction_2_children() {
 async fn test_compile_tree_construction_nested() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let output = compile(
-        r#"(unused) => [["Hello, world!"]]"#,
-        &TEST_NAMESPACE,
+        r#"() => [["Hello, world!"]]"#,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
         &*storage,
     )
     .await;
-    let unused_name = Name::new(TEST_NAMESPACE, "unused".to_string());
+    let unused_name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
         unused_name,
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![
@@ -170,8 +205,14 @@ async fn test_compile_tree_construction_nested() {
 #[test_log::test(tokio::test)]
 async fn test_compile_extra_token() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let output = compile(r#"(x) => x)"#, &TEST_NAMESPACE, &*storage).await;
-    let name = Name::new(TEST_NAMESPACE, "x".to_string());
+    let output = compile(
+        r#"(x) => x)"#,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
+        &*storage,
+    )
+    .await;
+    let name = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
         name.clone(),
         Arc::new(DeepExpression(Expression::ReadVariable(name))),

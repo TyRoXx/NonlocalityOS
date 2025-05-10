@@ -1,1 +1,1 @@
-(unused) => ["Hello, world!"]
+() => ["Hello, world!"]

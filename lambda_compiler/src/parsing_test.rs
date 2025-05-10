@@ -22,13 +22,34 @@ fn test_wellformed_parsing(source: &str, expected: ast::Expression) {
 }
 
 #[test_log::test]
-fn test_parse_lambda() {
+fn test_parse_lambda_0_parameters() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let expected = ast::Expression::Lambda {
-        parameter_name: name.clone(),
+        parameter_names: vec![],
+        body: Box::new(ast::Expression::Identifier(name)),
+    };
+    test_wellformed_parsing(r#"() => f"#, expected);
+}
+
+#[test_log::test]
+fn test_parse_lambda_1_parameter() {
+    let name = Name::new(TEST_NAMESPACE, "f".to_string());
+    let expected = ast::Expression::Lambda {
+        parameter_names: vec![name.clone()],
         body: Box::new(ast::Expression::Identifier(name)),
     };
     test_wellformed_parsing(r#"(f) => f"#, expected);
+}
+
+#[test_log::test]
+fn test_parse_lambda_2_parameters() {
+    let f = Name::new(TEST_NAMESPACE, "f".to_string());
+    let g = Name::new(TEST_NAMESPACE, "g".to_string());
+    let expected = ast::Expression::Lambda {
+        parameter_names: vec![f.clone(), g],
+        body: Box::new(ast::Expression::Identifier(f)),
+    };
+    test_wellformed_parsing(r#"(f g) => f"#, expected);
 }
 
 #[test_log::test]
@@ -36,9 +57,9 @@ fn test_parse_nested_lambda() {
     let f = Name::new(TEST_NAMESPACE, "f".to_string());
     let g = Name::new(TEST_NAMESPACE, "g".to_string());
     let expected = ast::Expression::Lambda {
-        parameter_name: f.clone(),
+        parameter_names: vec![f.clone()],
         body: Box::new(ast::Expression::Lambda {
-            parameter_name: g,
+            parameter_names: vec![g],
             body: Box::new(ast::Expression::Identifier(f)),
         }),
     };
@@ -50,7 +71,7 @@ fn test_parse_function_call() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let f = Box::new(ast::Expression::Identifier(name.clone()));
     let expected = ast::Expression::Lambda {
-        parameter_name: name,
+        parameter_names: vec![name],
         body: Box::new(ast::Expression::Apply {
             callee: f.clone(),
             argument: f,
