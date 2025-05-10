@@ -235,7 +235,10 @@ fn parse_lambda<'t>(
     while let Some(name) = match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
-            TokenContent::Identifier(identifier) => Some(identifier.clone()),
+            TokenContent::Identifier(identifier) => {
+                pop_next_non_whitespace_token(tokens);
+                Some(identifier.clone())
+            }
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => None,

@@ -459,6 +459,49 @@ fn find_captured_names(expression: &DeepExpression) -> BTreeSet<Name> {
     }
 }
 
+pub async fn apply_evaluated_argument(
+    callee: &DeepExpression,
+    evaluated_argument: &BlobDigest,
+    load_tree: &(dyn LoadTree + Sync),
+    store_tree: &(dyn StoreTree + Sync),
+    read_variable: &Arc<ReadVariable>,
+) -> std::result::Result<BlobDigest, StoreError> {
+    let evaluated_callee = Box::pin(evaluate(callee, load_tree, store_tree, read_variable)).await?;
+    let closure = match Closure::deserialize(&evaluated_callee, load_tree).await {
+        Ok(success) => success,
+        Err(_) => todo!(),
+    };
+    call_method(
+        &closure.parameter_name,
+        &closure.captured_variables,
+        &closure.body,
+        evaluated_argument,
+        load_tree,
+        store_tree,
+        read_variable,
+    )
+    .await
+}
+
+pub async fn evaluate_apply(
+    callee: &DeepExpression,
+    argument: &DeepExpression,
+    load_tree: &(dyn LoadTree + Sync),
+    store_tree: &(dyn StoreTree + Sync),
+    read_variable: &Arc<ReadVariable>,
+) -> std::result::Result<BlobDigest, StoreError> {
+    let evaluated_argument =
+        Box::pin(evaluate(argument, load_tree, store_tree, read_variable)).await?;
+    apply_evaluated_argument(
+        callee,
+        &evaluated_argument,
+        load_tree,
+        store_tree,
+        read_variable,
+    )
+    .await
+}
+
 pub async fn evaluate(
     expression: &DeepExpression,
     load_tree: &(dyn LoadTree + Sync),
@@ -468,24 +511,7 @@ pub async fn evaluate(
     match &expression.0 {
         Expression::Literal(literal_value) => Ok(literal_value.clone()),
         Expression::Apply { callee, argument } => {
-            let evaluated_callee =
-                Box::pin(evaluate(callee, load_tree, store_tree, read_variable)).await?;
-            let evaluated_argument =
-                Box::pin(evaluate(argument, load_tree, store_tree, read_variable)).await?;
-            let closure = match Closure::deserialize(&evaluated_callee, load_tree).await {
-                Ok(success) => success,
-                Err(_) => todo!(),
-            };
-            call_method(
-                &closure.parameter_name,
-                &closure.captured_variables,
-                &closure.body,
-                &evaluated_argument,
-                load_tree,
-                store_tree,
-                read_variable,
-            )
-            .await
+            evaluate_apply(callee, argument, load_tree, store_tree, read_variable).await
         }
         Expression::ReadVariable(name) => Ok(read_variable(&name).await),
         Expression::Lambda {

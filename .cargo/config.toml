@@ -3,3 +3,8 @@ rustc-wrapper = "sccache"
 
 # disabled for sccache (https://github.com/mozilla/sccache?tab=readme-ov-file#rust)
 incremental = false
+
+[env]
+# Set environment variables for any process run by Cargo
+#SCCACHE_ERROR_LOG = "C:/dev/NonlocalityOS/target/sccache_log.txt"
+#SCCACHE_LOG = "info"

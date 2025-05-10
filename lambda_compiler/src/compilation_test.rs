@@ -42,10 +42,11 @@ async fn test_compile_lambda() {
         &*storage,
     )
     .await;
-    let name = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let name_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let name_in_output = Name::new(TEST_GENERATED_NAME_NAMESPACE, "x".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
-        name.clone(),
-        Arc::new(DeepExpression(Expression::ReadVariable(name))),
+        name_in_output,
+        Arc::new(DeepExpression(Expression::ReadVariable(name_in_source))),
     ));
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -61,10 +62,13 @@ async fn test_compile_function_call() {
         &*storage,
     )
     .await;
-    let name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "f".to_string());
-    let f = Arc::new(DeepExpression(Expression::ReadVariable(name.clone())));
+    let name_in_source = Name::new(TEST_SOURCE_NAMESPACE, "f".to_string());
+    let name_in_output = Name::new(TEST_GENERATED_NAME_NAMESPACE, "f".to_string());
+    let f = Arc::new(DeepExpression(Expression::ReadVariable(
+        name_in_source.clone(),
+    )));
     let entry_point = DeepExpression(Expression::make_lambda(
-        name,
+        name_in_output,
         Arc::new(DeepExpression(Expression::make_apply(f.clone(), f))),
     ));
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
@@ -212,10 +216,11 @@ async fn test_compile_extra_token() {
         &*storage,
     )
     .await;
-    let name = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let x_in_output = Name::new(TEST_GENERATED_NAME_NAMESPACE, "x".to_string());
     let entry_point = DeepExpression(Expression::make_lambda(
-        name.clone(),
-        Arc::new(DeepExpression(Expression::ReadVariable(name))),
+        x_in_output,
+        Arc::new(DeepExpression(Expression::ReadVariable(x_in_source))),
     ));
     let expected = CompilerOutput::new(
         Some(entry_point),
