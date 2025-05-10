@@ -4,4 +4,4 @@ $scripts_dir/install_sccache.sh || exit 1
 
 export RUSTC_WRAPPER=sccache
 echo "Installing cargo-tarpaulin"
-cargo install --version 0.32.3 --locked cargo-tarpaulin || exit 1
+cargo install --version 0.32.5 --locked cargo-tarpaulin || exit 1

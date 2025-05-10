@@ -2,7 +2,7 @@
 call .\scripts\install_sccache.bat || exit /B 1
 
 set RUSTC_WRAPPER=sccache
-cargo install --version 0.32.3 --locked cargo-tarpaulin || exit /B 1
+cargo install --version 0.32.5 --locked cargo-tarpaulin || exit /B 1
 
 sccache --zero-stats || exit /B 1
 
