@@ -91,3 +91,6 @@ jobs:
       with:
         file: target-coverage/lcov.info
         format: lcov
+
+    - name: Check code formatting
+      run: cargo fmt --all -- --check
