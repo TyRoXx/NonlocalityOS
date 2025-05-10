@@ -11,7 +11,7 @@ impl ConsoleOutput {
     }
 
     pub fn from_tree(tree: &Tree) -> Option<ConsoleOutput> {
-        if tree.blob().len() != 0 {
+        if !tree.blob().is_empty() {
             return None;
         }
         if tree.references().len() != 1 {

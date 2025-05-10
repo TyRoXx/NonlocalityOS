@@ -244,8 +244,8 @@ async fn run_dav_server(
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
-    let database_existed = std::fs::exists(&database_file_name).unwrap();
-    let sqlite_connection = rusqlite::Connection::open(&database_file_name)?;
+    let database_existed = std::fs::exists(database_file_name).unwrap();
+    let sqlite_connection = rusqlite::Connection::open(database_file_name)?;
     if !database_existed {
         match SQLiteStorage::create_schema(&sqlite_connection) {
             Ok(_) => {}
@@ -256,7 +256,7 @@ async fn run_dav_server(
                     &error
                 );
                 info!("Deleting {}", &database_file_name.display());
-                std::fs::remove_file(&database_file_name).unwrap();
+                std::fs::remove_file(database_file_name).unwrap();
                 panic!();
             }
         }
@@ -264,7 +264,7 @@ async fn run_dav_server(
     let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);
     let root_name = "latest";
     let open_file_write_buffer_in_blocks = 200;
-    let root = match blob_storage_database.load_root(&root_name).await {
+    let root = match blob_storage_database.load_root(root_name).await {
         Some(found) => {
             OpenDirectory::load_directory(blob_storage_database.clone(), &found, modified_default, clock, open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
         }
@@ -321,7 +321,7 @@ async fn run_dav_server(
                     async move {
                         persist_root_on_change(
                             root,
-                            &root_name,
+                            root_name,
                             &*blob_storage_database,
                             blob_storage_database.clone(),
                             save_status_sender,

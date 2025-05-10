@@ -32,19 +32,14 @@ impl BlobDigest {
 impl std::fmt::Debug for BlobDigest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("BlobDigest")
-            .field(&format!("{}", self))
+            .field(&format!("{self}"))
             .finish()
     }
 }
 
 impl std::fmt::Display for BlobDigest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}{}",
-            &hex::encode(&self.0 .0),
-            &hex::encode(&self.0 .1)
-        )
+        write!(f, "{}{}", &hex::encode(self.0 .0), &hex::encode(self.0 .1))
     }
 }
 
@@ -84,10 +79,10 @@ impl TreeBlob {
         if content.len() > TREE_BLOB_MAX_LENGTH {
             return None;
         }
-        Some(Self { content: content })
+        Some(Self { content })
     }
 
-    pub fn as_slice<'t>(&'t self) -> &'t [u8] {
+    pub fn as_slice(&self) -> &[u8] {
         assert!(self.content.len() <= TREE_BLOB_MAX_LENGTH);
         &self.content
     }
@@ -95,6 +90,10 @@ impl TreeBlob {
     pub fn len(&self) -> u16 {
         assert!(self.content.len() <= TREE_BLOB_MAX_LENGTH);
         self.content.len() as u16
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.content.is_empty()
     }
 }
 
@@ -114,7 +113,7 @@ pub enum TreeSerializationError {
 
 impl std::fmt::Display for TreeSerializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -129,7 +128,7 @@ pub enum TreeDeserializationError {
 
 impl std::fmt::Display for TreeDeserializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -143,10 +142,7 @@ pub struct Tree {
 
 impl Tree {
     pub fn new(blob: TreeBlob, references: Vec<BlobDigest>) -> Tree {
-        Tree {
-            blob,
-            references: references,
-        }
+        Tree { blob, references }
     }
 
     pub fn blob(&self) -> &TreeBlob {
@@ -204,12 +200,12 @@ where
     D: sha3::Digest,
 {
     let mut hasher = D::new();
-    hasher.update(&(referenced.blob.len() as u64).to_be_bytes());
+    hasher.update((referenced.blob.len() as u64).to_be_bytes());
     hasher.update(referenced.blob.as_slice());
-    hasher.update(&(referenced.references.len() as u64).to_be_bytes());
+    hasher.update((referenced.references.len() as u64).to_be_bytes());
     for item in &referenced.references {
-        hasher.update(&item.0 .0);
-        hasher.update(&item.0 .1);
+        hasher.update(item.0 .0);
+        hasher.update(item.0 .1);
     }
     hasher.finalize()
 }

@@ -96,10 +96,10 @@ pub async fn run_process_with_error_only_output(
     writeln!(message, "{}", &stderr).unwrap();
     progress_reporter.log(&message);
     error!("{}", &message);
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        format!("Process failed with exit code: {}", output.status),
-    ))
+    Err(std::io::Error::other(format!(
+        "Process failed with exit code: {}",
+        output.status
+    )))
 }
 
 pub async fn run_cargo(
@@ -132,7 +132,7 @@ pub async fn run_cargo_test(
             ("RUSTFLAGS".to_string(), "-Cinstrument-coverage".to_string()),
             (
                 "LLVM_PROFILE_FILE".to_string(),
-                format!("{}/cargo-test-%p-%m.profraw", coverage_info_directory_str),
+                format!("{coverage_info_directory_str}/cargo-test-%p-%m.profraw"),
             ),
         ])
     } else {

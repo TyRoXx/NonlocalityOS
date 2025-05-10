@@ -14,9 +14,3 @@ pub enum Expression {
     },
     ConstructTree(Vec<Expression>),
 }
-
-impl Expression {
-    pub fn to_string(&self) -> String {
-        format!("{:?}", self)
-    }
-}

@@ -25,7 +25,7 @@ use tokio::runtime::Runtime;
 fn test_normalized_path_new() {
     assert_eq!(
         NormalizedPath::root(),
-        NormalizedPath::new(&relative_path::RelativePath::new(""))
+        NormalizedPath::new(relative_path::RelativePath::new(""))
     );
 }
 
@@ -230,7 +230,7 @@ fn test_analyze_streak_0() {
 #[test_log::test(test)]
 fn test_analyze_streak_1() {
     let blocks_to_prefetch =
-        Prefetcher::analyze_streak(1000, &[AccessOrderLowerIsMoreRecent(0)].to_vec(), 2000);
+        Prefetcher::analyze_streak(1000, [AccessOrderLowerIsMoreRecent(0)].as_ref(), 2000);
     let expected = BTreeSet::from([]);
     assert_eq!(expected, blocks_to_prefetch);
 }
@@ -239,9 +239,7 @@ fn test_analyze_streak_1() {
 fn test_analyze_streak_2() {
     let blocks_to_prefetch = Prefetcher::analyze_streak(
         1001,
-        &[1, 0]
-            .map(|order| AccessOrderLowerIsMoreRecent(order))
-            .to_vec(),
+        [1, 0].map(AccessOrderLowerIsMoreRecent).as_ref(),
         2000,
     );
     let expected = BTreeSet::from([1002, 1003, 1004, 1005]);
@@ -252,9 +250,9 @@ fn test_analyze_streak_2() {
 fn test_analyze_streak_16() {
     let blocks_to_prefetch = Prefetcher::analyze_streak(
         1015,
-        &[15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
-            .map(|order| AccessOrderLowerIsMoreRecent(order))
-            .to_vec(),
+        [15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
+            .map(AccessOrderLowerIsMoreRecent)
+            .as_ref(),
         2000,
     );
     let expected = BTreeSet::from([
@@ -285,7 +283,7 @@ async fn test_open_directory_get_meta_data() {
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::from([(
             "test.txt".to_string(),
-            NamedEntry::NotOpen(expected.clone(), BlobDigest::hash(&[])),
+            NamedEntry::NotOpen(expected, BlobDigest::hash(&[])),
         )]),
         Arc::new(NeverUsedStorage {}),
         modified,
@@ -305,7 +303,7 @@ async fn test_open_directory_nothing_happens() {
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::from([(
             "test.txt".to_string(),
-            NamedEntry::NotOpen(expected.clone(), BlobDigest::hash(&[])),
+            NamedEntry::NotOpen(expected, BlobDigest::hash(&[])),
         )]),
         storage.clone(),
         modified,
@@ -337,7 +335,7 @@ async fn test_open_directory_nothing_happens() {
         ),
         status
     );
-    assert_eq!(0, storage.len().await);
+    assert_eq!(0, storage.number_of_trees().await);
 }
 
 #[test_log::test(tokio::test)]
@@ -370,7 +368,7 @@ async fn test_open_directory_open_file() {
         &[MutableDirectoryEntry {
             name: file_name.to_string(),
             kind: DirectoryEntryKind::File(0),
-            modified: modified,
+            modified,
         }][..],
         &directory_entries[..]
     );
@@ -818,12 +816,10 @@ async fn optimized_write_buffer_prefix_only() {
         TREE_BLOB_MAX_LENGTH as u64 + 1,
         u64::MAX - 1,
     ] {
-        let buffer = OptimizedWriteBuffer::from_bytes(
-            write_position,
-            bytes::Bytes::copy_from_slice(&[b'x']),
-        )
-        .await;
-        assert_eq!(bytes::Bytes::copy_from_slice(&[b'x']), buffer.prefix());
+        let buffer =
+            OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::copy_from_slice(b"x"))
+                .await;
+        assert_eq!(bytes::Bytes::copy_from_slice(b"x"), buffer.prefix());
         assert_eq!(Vec::<HashedTree>::new(), *buffer.full_blocks());
         assert_eq!(bytes::Bytes::new(), buffer.suffix());
     }
@@ -876,7 +872,7 @@ async fn optimized_write_buffer_full_blocks(
             //TODO: use more interesting content for full_blocks
             .chain(std::iter::repeat_n(
                 b'f',
-                (full_block_count * TREE_BLOB_MAX_LENGTH) as usize,
+                full_block_count * TREE_BLOB_MAX_LENGTH,
             ))
             .chain(suffix.clone().into_iter()),
     );
@@ -932,7 +928,7 @@ async fn open_file_content_buffer_write_fill_zero_block() {
             )),
         ],
         digest: crate::DigestStatus {
-            last_known_digest: last_known_digest,
+            last_known_digest,
             is_digest_up_to_date: false,
         },
         last_known_digest_file_size: last_known_digest_file_size as u64,
@@ -994,7 +990,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
         1,
     )
     .unwrap();
-    let write_position = 0 as u64;
+    let write_position = 0_u64;
     let write_buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let _write_result: () = buffer
@@ -1010,7 +1006,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
             )))),
         )],
         digest: crate::DigestStatus {
-            last_known_digest: last_known_digest,
+            last_known_digest,
             is_digest_up_to_date: false,
         },
         last_known_digest_file_size: last_known_digest_file_size as u64,

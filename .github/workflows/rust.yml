@@ -92,5 +92,10 @@ jobs:
         file: target-coverage/lcov.info
         format: lcov
 
+    - name: Check code linting
+      run: |
+        cargo clippy --version
+        cargo clippy --all-targets --all-features -- -D warnings
+
     - name: Check code formatting
       run: cargo fmt --all -- --check

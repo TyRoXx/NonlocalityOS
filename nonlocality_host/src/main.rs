@@ -12,7 +12,7 @@ async fn run_process(
     info!("Run process: {} {:?}", executable.display(), arguments);
     let output = tokio::process::Command::new(executable)
         .args(arguments)
-        .current_dir(&working_directory)
+        .current_dir(working_directory)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -34,10 +34,10 @@ async fn run_process(
         if !stderr.is_empty() {
             error!("Standard error:\n{}", stderr.trim_end());
         }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Process failed with exit code: {}", output.status),
-        ))
+        Err(std::io::Error::other(format!(
+            "Process failed with exit code: {}",
+            output.status
+        )))
     }
 }
 
@@ -60,7 +60,7 @@ async fn install(nonlocality_directory: &Path, host_binary_name: &OsStr) -> std:
 
     let initial_database = &nonlocality_directory.join(INITIAL_DATABASE_FILE_NAME);
     let installed_database = &nonlocality_directory.join(INSTALLED_DATABASE_FILE_NAME);
-    if std::fs::exists(&installed_database)? {
+    if std::fs::exists(installed_database)? {
         warn!(
             "Installed database already exists, not going to overwrite it: {}",
             installed_database.display()
@@ -167,7 +167,7 @@ async fn handle_command_line(
         "run" => run(nonlocality_directory).await,
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("Unknown command {}", command),
+            format!("Unknown command {command}"),
         )),
     }
 }

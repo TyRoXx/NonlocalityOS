@@ -26,14 +26,14 @@ impl DogBoxFileSystem {
 }
 
 fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
-    return match err {
+    match err {
         dogbox_tree_editor::Error::NotFound(path) => {
             debug!("File or directory not found: {}", path);
-            return dav_server::fs::FsError::NotFound;
+            dav_server::fs::FsError::NotFound
         }
         dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(path) => {
             info!("Cannot read regular file as a directory: {}", path);
-            return dav_server::fs::FsError::NotImplemented;
+            dav_server::fs::FsError::NotImplemented
         }
         dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
         dogbox_tree_editor::Error::Postcard(_error) => todo!(),
@@ -48,16 +48,16 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
                 "Segmented blob {} has internal size {}, but a directory listed it as size {}",
                 &digest, segmented_blob_internal_size, directory_entry_size
             );
-            return dav_server::fs::FsError::GeneralFailure;
+            dav_server::fs::FsError::GeneralFailure
         }
         dogbox_tree_editor::Error::CannotRename => FsError::Forbidden,
         dogbox_tree_editor::Error::MissingTree(missing) => {
             error!("Missing tree for digest: {:?}", missing);
-            return dav_server::fs::FsError::GeneralFailure;
+            dav_server::fs::FsError::GeneralFailure
         }
         dogbox_tree_editor::Error::Storage(_) => todo!(),
         dogbox_tree_editor::Error::TooManyReferences(_blob_digest) => todo!(),
-    };
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -140,7 +140,7 @@ impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
             })
                 as Box<(dyn dav_server::fs::DavMetaData + 'static)>,
             dogbox_tree_editor::DirectoryEntryKind::File(size) => Box::new(DogBoxFileMetaData {
-                size: size,
+                size,
                 modified: self.info.modified,
             })
                 as Box<(dyn dav_server::fs::DavMetaData + 'static)>,
@@ -189,16 +189,12 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
         let maybe_new_cursor = self.cursor.checked_add(buf.len() as u64);
         match maybe_new_cursor {
             Some(new_cursor) => self.cursor = new_cursor,
-            None => {
-                return Box::pin(async move {
-                    return Err(FsError::TooLarge);
-                })
-            }
+            None => return Box::pin(async move { Err(FsError::TooLarge) }),
         }
         let open_file = self.handle.clone();
         Box::pin(async move {
             match &self.write_permission {
-                Some(writeable) => match open_file.write_bytes(&writeable, write_at, buf).await {
+                Some(writeable) => match open_file.write_bytes(writeable, write_at, buf).await {
                     Ok(result) => Ok(result),
                     Err(error) => Err(handle_error(error)),
                 },
@@ -255,19 +251,16 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
 
 impl Drop for DogBoxOpenFile {
     fn drop(&mut self) {
-        match self.write_permission {
-            Some(_) => {
-                self.write_permission = None;
-                self.handle.notify_dropped_write_permission();
-            }
-            None => {}
+        if self.write_permission.is_some() {
+            self.write_permission = None;
+            self.handle.notify_dropped_write_permission();
         }
     }
 }
 
-fn convert_path<'t>(
-    path: &'t dav_server::davpath::DavPath,
-) -> dav_server::fs::FsResult<&'t relative_path::RelativePath> {
+fn convert_path(
+    path: &dav_server::davpath::DavPath,
+) -> dav_server::fs::FsResult<&relative_path::RelativePath> {
     match relative_path::RelativePath::from_path(path.as_rel_ospath()) {
         Ok(success) => Ok(success),
         Err(error) => {
@@ -302,7 +295,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
             }
         }
         Box::pin(async move {
-            let converted_path = convert_path(&path)?;
+            let converted_path = convert_path(path)?;
             let open_file = match self
                 .editor
                 .open_file(NormalizedPath::new(converted_path))
@@ -317,9 +310,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
             };
             if options.truncate {
                 match &write_permission {
-                    Some(writeable) => {
-                        open_file.truncate(&writeable).await.map_err(handle_error)?
-                    }
+                    Some(writeable) => open_file.truncate(writeable).await.map_err(handle_error)?,
                     None => return Err(FsError::Forbidden),
                 }
             }
@@ -340,7 +331,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     {
         debug!("Read dir {}", path);
         Box::pin(async move {
-            let converted_path = convert_path(&path)?;
+            let converted_path = convert_path(path)?;
             let mut directory = match self
                 .editor
                 .read_directory(NormalizedPath::new(converted_path))
@@ -366,7 +357,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, Box<dyn dav_server::fs::DavMetaData>> {
         Box::pin(async move {
-            let converted_path = convert_path(&path)?;
+            let converted_path = convert_path(path)?;
             match self
                 .editor
                 .get_meta_data(NormalizedPath::new(converted_path))
@@ -395,7 +386,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     ) -> dav_server::fs::FsFuture<'a, ()> {
         info!("Create directory {}", path);
         Box::pin(async move {
-            let converted_path = convert_path(&path)?;
+            let converted_path = convert_path(path)?;
             match self
                 .editor
                 .create_directory(NormalizedPath::new(converted_path))
@@ -413,7 +404,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     ) -> dav_server::fs::FsFuture<'a, ()> {
         info!("Removing directory {}", _path);
         Box::pin(async move {
-            let converted_path = convert_path(&_path)?;
+            let converted_path = convert_path(_path)?;
             match self
                 .editor
                 .remove(NormalizedPath::new(converted_path))
@@ -431,7 +422,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     ) -> dav_server::fs::FsFuture<'a, ()> {
         info!("Removing file {}", _path);
         Box::pin(async move {
-            let converted_path = convert_path(&_path)?;
+            let converted_path = convert_path(_path)?;
             match self
                 .editor
                 .remove(NormalizedPath::new(converted_path))
@@ -450,8 +441,8 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     ) -> dav_server::fs::FsFuture<'a, ()> {
         info!("Rename {} to {}", _from, _to);
         Box::pin(async move {
-            let from_converted_path = convert_path(&_from)?;
-            let to_converted_path = convert_path(&_to)?;
+            let from_converted_path = convert_path(_from)?;
+            let to_converted_path = convert_path(_to)?;
             match self
                 .editor
                 .rename(
@@ -474,8 +465,8 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     ) -> dav_server::fs::FsFuture<'a, ()> {
         info!("Copy {} to {}", from, to);
         Box::pin(async move {
-            let from_converted_path = convert_path(&from)?;
-            let to_converted_path = convert_path(&to)?;
+            let from_converted_path = convert_path(from)?;
+            let to_converted_path = convert_path(to)?;
             match self
                 .editor
                 .copy(

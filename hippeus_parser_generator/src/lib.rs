@@ -426,10 +426,9 @@ impl<'t> ReadInput for Slice<'t> {
 
 impl<'t> PeekInput for Slice<'t> {
     fn peek_input(&self) -> Option<u8> {
-        match self.remaining.split_at_checked(1) {
-            Some((head, _tail)) => Some(head[0]),
-            None => None,
-        }
+        self.remaining
+            .split_at_checked(1)
+            .map(|(head, _tail)| head[0])
     }
 }
 

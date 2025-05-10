@@ -16,7 +16,7 @@ pub enum StoreError {
 
 impl std::fmt::Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -101,7 +101,7 @@ impl InMemoryTreeStorage {
         }
     }
 
-    pub async fn len(&self) -> usize {
+    pub async fn number_of_trees(&self) -> usize {
         self.reference_to_tree.lock().await.len()
     }
 
@@ -110,7 +110,7 @@ impl InMemoryTreeStorage {
             .lock()
             .await
             .keys()
-            .map(|v| *v)
+            .copied()
             .collect()
     }
 }
@@ -120,9 +120,7 @@ impl StoreTree for InMemoryTreeStorage {
     async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
         let mut lock = self.reference_to_tree.lock().await;
         let reference = *tree.digest();
-        if !lock.contains_key(&reference) {
-            lock.insert(reference.clone(), tree.clone());
-        }
+        lock.entry(reference).or_insert_with(|| tree.clone());
         Ok(reference)
     }
 }
@@ -195,9 +193,8 @@ impl SQLiteStorage {
                 digest BLOB UNIQUE NOT NULL,
                 tree_blob BLOB NOT NULL,
                 CONSTRAINT digest_length_matches_sha3_512 CHECK (LENGTH(digest) == 64),
-                CONSTRAINT tree_blob_max_length CHECK (LENGTH(tree_blob) <= {})
-            ) STRICT",
-                TREE_BLOB_MAX_LENGTH
+                CONSTRAINT tree_blob_max_length CHECK (LENGTH(tree_blob) <= {TREE_BLOB_MAX_LENGTH})
+            ) STRICT"
             );
             connection
                 .execute(&query, ())
@@ -290,7 +287,6 @@ impl StoreTree for SQLiteStorage {
 impl LoadTree for SQLiteStorage {
     //#[instrument(skip_all)]
     async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree> {
-        let references: Vec<crate::tree::BlobDigest>;
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = (*reference).into();
@@ -310,7 +306,7 @@ impl LoadTree for SQLiteStorage {
             let target: [u8; 64] = row.get(1)?;
             Ok((index, BlobDigest::new(&target)))
             }).unwrap(/*TODO*/);
-        references = results
+        let references: Vec<crate::tree::BlobDigest> = results
             .enumerate()
             .map(|(expected_index, maybe_tuple)| {
                 let tuple = maybe_tuple.unwrap(/*YOLO*/);

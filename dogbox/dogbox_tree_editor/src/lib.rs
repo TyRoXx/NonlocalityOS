@@ -18,7 +18,6 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     pin::Pin,
     sync::Arc,
-    u64,
 };
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, info, warn};
@@ -144,7 +143,7 @@ pub enum NamedEntry {
 impl NamedEntry {
     async fn get_meta_data(&self) -> DirectoryEntryMetaData {
         match self {
-            NamedEntry::NotOpen(meta_data, _) => meta_data.clone(),
+            NamedEntry::NotOpen(meta_data, _) => *meta_data,
             NamedEntry::OpenRegularFile(open_file, _) => open_file.get_meta_data().await,
             NamedEntry::OpenSubdirectory(open_directory, _) => DirectoryEntryMetaData::new(
                 DirectoryEntryKind::Directory,
@@ -259,13 +258,9 @@ impl NamedEntry {
                     *blob_digest,
                 ))
             }
-            NamedEntry::OpenRegularFile(arc, _receiver) => {
-                Ok(NamedEntryStatus::Open(OpenNamedEntryStatus::File(
-                    arc.request_save()
-                        .await
-                        .map_err(|error| Error::Storage(error))?,
-                )))
-            }
+            NamedEntry::OpenRegularFile(arc, _receiver) => Ok(NamedEntryStatus::Open(
+                OpenNamedEntryStatus::File(arc.request_save().await.map_err(Error::Storage)?),
+            )),
             NamedEntry::OpenSubdirectory(arc, _receiver) => Ok(NamedEntryStatus::Open(
                 OpenNamedEntryStatus::Directory(arc.request_save().await?),
             )),
@@ -396,7 +391,7 @@ impl OpenDirectory {
             (
                 entry.name.clone(),
                 NamedEntry::NotOpen(
-                    DirectoryEntryMetaData::new(entry.kind.clone(), modified),
+                    DirectoryEntryMetaData::new(entry.kind, modified),
                     entry.digest,
                 ),
             )
@@ -467,7 +462,7 @@ impl OpenDirectory {
                         );
                         let open_file = Arc::new(OpenFile::new(
                             OpenFileContentBuffer::from_storage(
-                                digest.clone(),
+                                *digest,
                                 length,
                                 self.open_file_write_buffer_in_blocks,
                             ),
@@ -579,7 +574,7 @@ impl OpenDirectory {
                     entries.push(entry);
                 }
                 Ok(Arc::new(OpenDirectory::from_entries(
-                    DigestStatus::new(digest.clone(), true),
+                    DigestStatus::new(*digest, true),
                     entries,
                     storage,
                     modified,
@@ -754,7 +749,7 @@ impl OpenDirectory {
         let old_entry = state_locked.names.get(name_here).unwrap();
         let new_entry = Self::copy_named_entry(old_entry, self.clock)
             .await
-            .map_err(|error| Error::Storage(error))?;
+            .map_err(Error::Storage)?;
         match state_there_locked {
             Some(ref mut value) => {
                 Self::write_into_directory(self.clone(), value, name_there, new_entry)
@@ -1039,7 +1034,7 @@ impl OpenDirectory {
             serialization_children.insert(
                 name,
                 serialization::DirectoryEntry {
-                    kind: kind,
+                    kind,
                     content: serialization::ReferenceIndexOrInlineContent::Indirect(
                         reference_index,
                     ),
@@ -1248,8 +1243,8 @@ impl OpenFileContentBlock {
                 assert_eq!(blob_digest, prepared.digest())
             }
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(_hashed_tree) => assert!(false),
-                LoadedBlock::UnknownDigest(_vec) => assert!(false),
+                LoadedBlock::KnownDigest(_hashed_tree) => todo!(),
+                LoadedBlock::UnknownDigest(_vec) => todo!(),
             },
         }
         *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(prepared));
@@ -1296,13 +1291,13 @@ impl OpenFileContentBlock {
         Ok(loaded)
     }
 
-    pub async fn access_content_for_reading<'t>(
-        &'t mut self,
+    pub async fn access_content_for_reading(
+        &mut self,
         storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
     ) -> Result<bytes::Bytes> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
-                let loaded = Self::load(&blob_digest, *size, storage).await?;
+                let loaded = Self::load(blob_digest, *size, storage).await?;
                 *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(loaded));
             }
             OpenFileContentBlock::Loaded(_) => {}
@@ -1311,18 +1306,18 @@ impl OpenFileContentBlock {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
                 LoadedBlock::KnownDigest(hashed_tree) => hashed_tree.tree().blob().content.clone(),
-                LoadedBlock::UnknownDigest(vec) => bytes::Bytes::copy_from_slice(&vec),
+                LoadedBlock::UnknownDigest(vec) => bytes::Bytes::copy_from_slice(vec),
             },
         })
     }
 
-    pub async fn access_content_for_writing<'t>(
-        &'t mut self,
+    pub async fn access_content_for_writing(
+        &mut self,
         storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
-    ) -> Result<&'t mut Vec<u8>> {
+    ) -> Result<&mut Vec<u8>> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
-                let loaded = Self::load(&blob_digest, *size, storage).await?;
+                let loaded = Self::load(blob_digest, *size, storage).await?;
                 *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(loaded));
             }
             OpenFileContentBlock::Loaded(_) => {}
@@ -1366,12 +1361,12 @@ impl OpenFileContentBlock {
                 }
                 None => {
                     let previous_content_length = data.len();
-                    let zeroes = position_in_block as usize - (previous_content_length as usize);
-                    data.extend(std::iter::repeat(0u8).take(zeroes));
+                    let zeroes = position_in_block as usize - previous_content_length;
+                    data.extend(std::iter::repeat_n(0u8, zeroes));
                     (buf.clone(), 0)
                 }
             };
-        let remaining_capacity: u16 = (TREE_BLOB_MAX_LENGTH as u16 - (data.len() as u16)) as u16;
+        let remaining_capacity: u16 = TREE_BLOB_MAX_LENGTH as u16 - (data.len() as u16);
         let extension_size = usize::min(for_extending.len(), remaining_capacity as usize);
         let rest = for_extending.split_off(extension_size);
         assert_eq!(buf.len(), (overwritten + extension_size + rest.len()));
@@ -1395,11 +1390,11 @@ impl OpenFileContentBlock {
                             return Ok(None);
                         }
                         debug!("Calculating unknown digest of size {}", vec.len());
-                        let hashed_tree = HashedTree::from(Arc::new(Tree::new(
+
+                        HashedTree::from(Arc::new(Tree::new(
                             TreeBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
                             vec![],
-                        )));
-                        hashed_tree
+                        )))
                     }
                 };
                 let size = hashed_tree.tree().blob().len();
@@ -1477,6 +1472,12 @@ pub struct AccessOrderLowerIsMoreRecent(pub usize);
 #[derive(Debug, PartialEq)]
 pub struct Prefetcher {
     last_explicitly_requested_blocks: cached::stores::SizedCache<u64, ()>,
+}
+
+impl Default for Prefetcher {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Prefetcher {
@@ -1564,18 +1565,15 @@ impl Prefetcher {
         let mut maybe_previous_block_index = None;
         let mut streak_order = Vec::new();
         for (block_index, order) in recently_read_blocks {
-            match maybe_previous_block_index {
-                Some(previous_block_index) => {
-                    if previous_block_index + 1 != block_index {
-                        blocks_to_prefetch.append(&mut Self::analyze_streak(
-                            previous_block_index,
-                            &streak_order,
-                            total_block_count,
-                        ));
-                        streak_order.clear();
-                    }
+            if let Some(previous_block_index) = maybe_previous_block_index {
+                if previous_block_index + 1 != block_index {
+                    blocks_to_prefetch.append(&mut Self::analyze_streak(
+                        previous_block_index,
+                        &streak_order,
+                        total_block_count,
+                    ));
+                    streak_order.clear();
                 }
-                None => {}
             }
             streak_order.push(order);
             maybe_previous_block_index = Some(block_index);
@@ -1593,7 +1591,7 @@ impl Prefetcher {
     //#[instrument(skip_all)]
     pub async fn prefetch(
         &mut self,
-        blocks: &mut Vec<OpenFileContentBlock>,
+        blocks: &mut [OpenFileContentBlock],
         explicitly_requested_blocks_right_now: std::ops::Range<u64>,
         storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
     ) {
@@ -1613,7 +1611,7 @@ impl Prefetcher {
 
         let futures: Vec<Future<(u64, Result<HashedTree>)>> = blocks_to_load
             .into_iter()
-            .map(|block_index| {
+            .filter_map(|block_index| {
                 let block = &mut blocks[block_index as usize];
                 let result: Option<Future<(u64, Result<HashedTree>)>> = block
                     .prepare_for_reading(storage.clone())
@@ -1624,7 +1622,6 @@ impl Prefetcher {
                     });
                 result
             })
-            .filter_map(|maybe_future| maybe_future)
             .collect();
 
         if futures.len() < (blocks_to_prefetch_count / 2) {
@@ -1691,12 +1688,8 @@ impl OpenFileContentBufferLoaded {
         );
         self.verify_integrity();
         let mut skipped = 0;
-        loop {
-            let index = match self.dirty_blocks.get(skipped) {
-                Some(index) => *index,
-                None => break,
-            };
-            let block = &mut self.blocks[index];
+        while let Some(index) = self.dirty_blocks.get(skipped) {
+            let block = &mut self.blocks[*index];
             let block_stored: Option<BlobDigest> = block.try_store(false, storage.clone()).await?;
             match block_stored {
                 Some(_) => {
@@ -1736,7 +1729,7 @@ impl OpenFileContentBufferLoaded {
         }
         self.verify_integrity();
         self.dirty_blocks.clear();
-        assert!(blocks_stored.len() >= 1);
+        assert!(!blocks_stored.is_empty());
         if blocks_stored.len() == 1 {
             return Ok(self.update_digest(blocks_stored[0]));
         }
@@ -1824,20 +1817,19 @@ impl OptimizedWriteBuffer {
         let mut full_block_hashing: Vec<tokio::task::JoinHandle<HashedTree>> = Vec::new();
         loop {
             if block_aligned_content.len() < TREE_BLOB_MAX_LENGTH {
-                let mut full_blocks = Vec::new();
-                full_blocks.reserve(full_block_hashing.len());
+                let mut full_blocks = Vec::with_capacity(full_block_hashing.len());
                 for handle in full_block_hashing.into_iter() {
                     full_blocks.push(handle.await.unwrap());
                 }
                 let result = OptimizedWriteBuffer {
-                    prefix: prefix,
-                    full_blocks: full_blocks,
+                    prefix,
+                    full_blocks,
                     suffix: block_aligned_content,
                 };
                 assert!((first_block_offset + result.prefix.len()) <= TREE_BLOB_MAX_LENGTH);
                 assert!(result.prefix.len() < TREE_BLOB_MAX_LENGTH);
                 assert!(result.suffix.len() < TREE_BLOB_MAX_LENGTH);
-                assert_eq!(content.len(), result.len());
+                assert_eq!(content.len(), result.length_in_bytes());
                 return result;
             }
             let next = block_aligned_content.split_to(TREE_BLOB_MAX_LENGTH);
@@ -1854,7 +1846,7 @@ impl OptimizedWriteBuffer {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn length_in_bytes(&self) -> usize {
         self.prefix.len() + (self.full_blocks.len() * TREE_BLOB_MAX_LENGTH) + self.suffix.len()
     }
 }
@@ -1872,8 +1864,8 @@ pub enum OpenFileContentBuffer {
 impl OpenFileContentBuffer {
     pub fn from_storage(digest: BlobDigest, size: u64, write_buffer_in_blocks: usize) -> Self {
         Self::NotLoaded {
-            digest: digest,
-            size: size,
+            digest,
+            size,
             write_buffer_in_blocks,
         }
     }
@@ -1889,7 +1881,7 @@ impl OpenFileContentBuffer {
         } else {
             let size = data.len() as u64;
             Some(Self::Loaded(OpenFileContentBufferLoaded {
-                size: size,
+                size,
                 blocks: vec![OpenFileContentBlock::Loaded(LoadedBlock::UnknownDigest(
                     data,
                 ))],
@@ -1960,14 +1952,14 @@ impl OpenFileContentBuffer {
         count: usize,
         storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
     ) -> Result<bytes::Bytes> {
-        let mut loaded = self.require_loaded(storage.clone()).await?;
-        Self::read_from_blocks(&mut loaded, position, count, storage).await
+        let loaded = self.require_loaded(storage.clone()).await?;
+        Self::read_from_blocks(loaded, position, count, storage).await
     }
 
-    async fn require_loaded<'t>(
-        &'t mut self,
+    async fn require_loaded(
+        &mut self,
         storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
-    ) -> Result<&'t mut OpenFileContentBufferLoaded> {
+    ) -> Result<&mut OpenFileContentBufferLoaded> {
         match self {
             OpenFileContentBuffer::NotLoaded {
                 digest,
@@ -1986,7 +1978,7 @@ impl OpenFileContentBuffer {
                         None => return Err(Error::MissingTree(*digest)),
                     };
                     let info: SegmentedBlob =
-                        match postcard::from_bytes(&hashed_tree.tree().blob().as_slice()) {
+                        match postcard::from_bytes(hashed_tree.tree().blob().as_slice()) {
                             Ok(success) => success,
                             Err(error) => return Err(Error::Postcard(error)),
                         };
@@ -1997,7 +1989,7 @@ impl OpenFileContentBuffer {
                             directory_entry_size: *size,
                         });
                     }
-                    if hashed_tree.tree().references().len() < 1 {
+                    if hashed_tree.tree().references().is_empty() {
                         todo!()
                     }
                     let full_blocks = hashed_tree
@@ -2025,7 +2017,7 @@ impl OpenFileContentBuffer {
                 };
                 *self = Self::Loaded(OpenFileContentBufferLoaded {
                     size: *size,
-                    blocks: blocks,
+                    blocks,
                     digest: DigestStatus::new(*digest, true),
                     last_known_digest_file_size: *size,
                     dirty_blocks: VecDeque::new(),
@@ -2109,7 +2101,7 @@ impl OpenFileContentBuffer {
             loaded
                 .store_cheap_blocks(storage.clone())
                 .await
-                .map_err(|error| Error::Storage(error))?;
+                .map_err(Error::Storage)?;
 
             if (loaded.dirty_blocks.len() * 2) >= loaded.write_buffer_in_blocks {
                 debug!(
@@ -2120,7 +2112,7 @@ impl OpenFileContentBuffer {
                 loaded
                     .store_all(storage.clone())
                     .await
-                    .map_err(|error| Error::Storage(error))?;
+                    .map_err(Error::Storage)?;
                 assert_eq!(0, loaded.dirty_blocks.len());
             }
         } else {
@@ -2130,7 +2122,7 @@ impl OpenFileContentBuffer {
         // Consider the digest outdated because any write is very likely to change the digest.
         loaded.digest.is_digest_up_to_date = false;
 
-        let new_size = std::cmp::max(loaded.size, position + buf.len() as u64);
+        let new_size = std::cmp::max(loaded.size, position + buf.length_in_bytes() as u64);
         assert!(new_size >= loaded.size);
         loaded.size = new_size;
 
@@ -2298,7 +2290,7 @@ impl OpenFile {
         ));
         OpenFile {
             content: tokio::sync::Mutex::new(content),
-            storage: storage,
+            storage,
             change_event_sender: sender,
             _change_event_receiver: receiver,
             modified,
@@ -2405,18 +2397,15 @@ impl OpenFile {
             debug!("Writing to file sends a change event for this file.");
             let update_result = Self::update_status(
                 &self.change_event_sender,
-                &mut content_locked,
+                &content_locked,
                 &self.write_permission,
             )
             .await;
             // We want to update the status even if parts of the write failed.
             write_result?;
-            update_result
-                .map_err(|error| Error::Storage(error))
-                .map(|status| {
-                    debug!("Status after writing: {:?}", &status);
-                    ()
-                })
+            update_result.map_err(Error::Storage).map(|status| {
+                debug!("Status after writing: {:?}", &status);
+            })
         })
     }
 
@@ -2429,7 +2418,7 @@ impl OpenFile {
                 .await
                 .inspect(|bytes_read| debug!("Read {} bytes", bytes_read.len()))?;
             assert!(read_result.len() <= count);
-            return Ok(read_result);
+            Ok(read_result)
         })
     }
 
@@ -2441,7 +2430,7 @@ impl OpenFile {
             StoreChanges::SomeChanges => {
                 Self::update_status(
                     &self.change_event_sender,
-                    &mut content_locked,
+                    &content_locked,
                     &self.write_permission,
                 )
                 .await
@@ -2481,11 +2470,11 @@ impl OpenFile {
         .unwrap();
         let _update_result = Self::update_status(
             &self.change_event_sender,
-            &mut content_locked,
+            &content_locked,
             &self.write_permission,
         )
         .await
-        .map_err(|error| Error::Storage(error))?;
+        .map_err(Error::Storage)?;
         Ok(())
     }
 
@@ -2531,7 +2520,7 @@ impl TreeEditor {
                 Box::pin(async move {
                     match root.open_directory(directory_path).await {
                         Ok(directory) => directory.get_meta_data(&leaf_name).await,
-                        Err(error) => return Err(error),
+                        Err(error) => Err(error),
                     }
                 })
             }
@@ -2619,7 +2608,7 @@ impl TreeEditor {
                                 )
                                 .await
                         }
-                        Err(error) => return Err(error),
+                        Err(error) => Err(error),
                     }
                 })
             }
@@ -2699,9 +2688,9 @@ impl TreeEditor {
                 (self.root.open_directory(directory_path), leaf_name)
             }
         };
-        return Box::pin(async move {
+        Box::pin(async move {
             let directory = opening_directory.0.await?;
             directory.remove(&opening_directory.1).await
-        });
+        })
     }
 }

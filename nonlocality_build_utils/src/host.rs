@@ -13,7 +13,7 @@ pub fn detect_host_operating_system() -> HostOperatingSystem {
 
 pub fn add_executable_ending(host: &HostOperatingSystem, base_name: &str) -> String {
     match host {
-        HostOperatingSystem::WindowsAmd64 => format!("{}.exe", base_name),
+        HostOperatingSystem::WindowsAmd64 => format!("{base_name}.exe"),
         HostOperatingSystem::LinuxAmd64 => base_name.to_string(),
     }
 }

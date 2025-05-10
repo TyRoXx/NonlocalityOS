@@ -62,7 +62,7 @@ async fn test_podman() {
             futures_util::TryStreamExt::try_collect::<Vec<_>>(futures_util::StreamExt::map(
                 podman.images().pull(
                     &podman_api::opts::PullOpts::builder()
-                        .reference(format!("docker.io/library/{}", docker_image_name_bla))
+                        .reference(format!("docker.io/library/{docker_image_name_bla}",))
                         .build(),
                 ),
                 |report| {

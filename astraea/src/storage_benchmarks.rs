@@ -69,7 +69,7 @@ fn sqlite_in_memory_store_tree_newly(
         SQLiteStorage::create_schema(&connection).unwrap();
         let storage = SQLiteStorage::from(connection).unwrap();
         for stored_tree in &stored_trees {
-            let reference = runtime.block_on(storage.store_tree(&stored_tree)).unwrap();
+            let reference = runtime.block_on(storage.store_tree(stored_tree)).unwrap();
             assert_eq!(stored_tree.digest(), &reference);
         }
         storage
@@ -133,7 +133,7 @@ fn sqlite_in_memory_load_and_hash_tree(b: &mut Bencher, tree_count_in_database: 
     let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
     runtime.block_on(generate_random_trees(tree_count_in_database, &storage));
     assert_eq!(
-        Ok(tree_count_in_database as u64),
+        Ok(tree_count_in_database),
         runtime.block_on(storage.approximate_tree_count())
     );
     let stored_tree = HashedTree::from(Arc::new(Tree::new(

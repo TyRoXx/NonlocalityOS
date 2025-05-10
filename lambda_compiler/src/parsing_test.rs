@@ -18,7 +18,6 @@ fn parse_wellformed_expression(source: &str) -> ast::Expression {
 fn test_wellformed_parsing(source: &str, expected: ast::Expression) {
     let output = parse_wellformed_expression(source);
     assert_eq!(expected, output);
-    assert_eq!(expected.to_string(), output.to_string());
 }
 
 #[test_log::test]

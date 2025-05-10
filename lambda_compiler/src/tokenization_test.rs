@@ -5,7 +5,7 @@ use crate::{
 
 fn test_tokenize_default_syntax(source: &str, expected_tokens: &[Token]) {
     let tokenized = tokenize_default_syntax(source);
-    assert_eq!(&expected_tokens[..], &tokenized[..]);
+    assert_eq!(expected_tokens, &tokenized[..]);
 }
 
 #[test_log::test]
@@ -145,9 +145,9 @@ fn test_tokenize_default_syntax_assign_ambiguity_2() {
 #[test_log::test]
 fn test_tokenize_default_syntax_identifier() {
     test_tokenize_default_syntax(
-        "test",
+        "testabcxyz",
         &[Token {
-            content: TokenContent::Identifier("test".to_string()),
+            content: TokenContent::Identifier("testabcxyz".to_string()),
             location: SourceLocation { line: 0, column: 0 },
         }],
     );
@@ -232,7 +232,7 @@ fn test_tokenize_default_syntax_fat_arrow() {
 
 fn wellformed_quotes(string_content: &str) {
     test_tokenize_default_syntax(
-        &format!("\"{}\"", string_content),
+        &format!("\"{string_content}\""),
         &[Token {
             content: TokenContent::Quotes(string_content.to_string()),
             location: SourceLocation { line: 0, column: 0 },

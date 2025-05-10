@@ -10,7 +10,7 @@ pub struct FileNameContent(String);
 pub enum FileNameError {
     /// empty file names make no sense
     Empty,
-    ///
+    /// overly long files names are not supported
     TooLong,
     /// NULL byte (Linux)
     Null,
@@ -30,7 +30,7 @@ pub enum FileNameError {
 
 impl std::fmt::Display for FileNameError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -45,7 +45,7 @@ impl FileNameContent {
         if content.is_empty() {
             return Err(FileNameError::Empty);
         }
-        if content.as_bytes().len() > FileNameContent::MAX_LENGTH_IN_BYTES {
+        if content.len() > FileNameContent::MAX_LENGTH_IN_BYTES {
             return Err(FileNameError::TooLong);
         }
         for character in content.bytes() {
@@ -91,9 +91,9 @@ impl TryFrom<&str> for FileName {
     }
 }
 
-impl Into<String> for FileName {
-    fn into(self) -> String {
-        self.content.0
+impl From<FileName> for String {
+    fn from(val: FileName) -> Self {
+        val.content.0
     }
 }
 

@@ -32,7 +32,7 @@ pub fn pop_next_non_whitespace_token<'t>(
         tokens.next();
     }
 
-    return token;
+    token
 }
 
 pub fn peek_next_non_whitespace_token<'t>(
@@ -151,7 +151,7 @@ fn parse_tree_construction(
         if skip_right_bracket(tokens) {
             break;
         }
-        if elements.len() > 0 {
+        if !elements.is_empty() {
             expect_comma(tokens);
         }
         if skip_right_bracket(tokens) {
@@ -160,7 +160,7 @@ fn parse_tree_construction(
         let element = parse_expression(tokens, local_namespace)?;
         elements.push(element);
     }
-    return Ok(ast::Expression::ConstructTree(elements));
+    Ok(ast::Expression::ConstructTree(elements))
 }
 
 fn parse_expression_start<'t>(
@@ -180,11 +180,9 @@ fn parse_expression_start<'t>(
                 "Expected expression, found right parenthesis.".to_string(),
             )),
             TokenContent::LeftBracket => parse_tree_construction(tokens, local_namespace),
-            TokenContent::RightBracket => {
-                return Err(ParserError::new(
-                    "Expected expression, found right bracket.".to_string(),
-                ))
-            }
+            TokenContent::RightBracket => Err(ParserError::new(
+                "Expected expression, found right bracket.".to_string(),
+            )),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(content) => Ok(ast::Expression::StringLiteral(content.clone())),
             TokenContent::FatArrow => todo!(),
@@ -259,7 +257,7 @@ fn parse_lambda<'t>(
     expect_fat_arrow(tokens);
     let body = parse_expression(tokens, local_namespace)?;
     Ok(ast::Expression::Lambda {
-        parameter_names: parameter_names,
+        parameter_names,
         body: Box::new(body),
     })
 }
@@ -273,8 +271,8 @@ pub struct ParserOutput {
 impl ParserOutput {
     pub fn new(entry_point: Option<ast::Expression>, errors: Vec<CompilerError>) -> ParserOutput {
         ParserOutput {
-            entry_point: entry_point,
-            errors: errors,
+            entry_point,
+            errors,
         }
     }
 }

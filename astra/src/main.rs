@@ -41,7 +41,7 @@ async fn run_cargo_build(
         }
         BuildTarget::RaspberryPi64 => {
             run_cargo_build_for_raspberry_pi(
-                &working_directory,
+                working_directory,
                 binary,
                 &pi.compiler_installation,
                 &pi.host,
@@ -70,7 +70,7 @@ async fn build_host_binary(
     progress: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> std::io::Result<()> {
     let host_operating_system = detect_host_operating_system();
-    let raspberry_pi = install_tools(&repository, host_operating_system, progress)
+    let raspberry_pi = install_tools(repository, host_operating_system, progress)
         .await
         .expect("Could not install tools for Raspberry Pi");
     let executable = run_cargo_build(
@@ -122,16 +122,16 @@ async fn install(
         // TODO: put something in the database
         let _storage = SQLiteStorage::from(connection1).unwrap();
     }
-    let build = make_build_host_binary_function(&repository);
+    let build = make_build_host_binary_function(repository);
     deploy(
         &database_path,
         build,
         NONLOCALITY_HOST_BINARY_NAME,
         INITIAL_DATABASE_FILE_NAME,
-        &ssh_endpoint,
-        &ssh_user,
-        &ssh_password,
-        &progress_reporter,
+        ssh_endpoint,
+        ssh_user,
+        ssh_password,
+        progress_reporter,
     )
     .await
 }
@@ -143,7 +143,7 @@ async fn uninstall(
     ssh_password: &str,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> std::io::Result<()> {
-    let build = make_build_host_binary_function(&repository);
+    let build = make_build_host_binary_function(repository);
     nonlocality_build_utils::install::uninstall(
         build,
         NONLOCALITY_HOST_BINARY_NAME,

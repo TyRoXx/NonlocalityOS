@@ -65,7 +65,7 @@ async fn test_dav_access() {
         }
     };
 
-    let server_url = format!("http://{}", actual_address);
+    let server_url = format!("http://{actual_address}");
     let run_client = async {
         let client = ClientBuilder::new()
             .set_host(server_url)
@@ -107,7 +107,7 @@ async fn test_dav_access() {
     };
     tokio::select! {
         result = serve() => {
-            panic!("Server isn't expected to exit: {:?}", result);
+            panic!("Server isn't expected to exit: {result:?}");
         }
         _ = run_client => {
         }

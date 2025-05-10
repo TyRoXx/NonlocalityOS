@@ -231,13 +231,9 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                     let maybe_data =
                         read_from_all_buffers(&mut buffers, read_position, TREE_BLOB_MAX_LENGTH)
                             .await;
-                    match maybe_data {
-                        Some(data) => {
-                            let write_position =
-                                *to_block_index as u64 * TREE_BLOB_MAX_LENGTH as u64;
-                            write_to_all_buffers(&mut buffers, write_position, &data).await;
-                        }
-                        None => {}
+                    if let Some(data) = maybe_data {
+                        let write_position = *to_block_index as u64 * TREE_BLOB_MAX_LENGTH as u64;
+                        write_to_all_buffers(&mut buffers, write_position, &data).await;
                     }
                 }
                 FileOperation::SaveToStorage => {

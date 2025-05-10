@@ -385,7 +385,7 @@ fn test_or_second() {
 
 #[cfg(test)]
 fn expect_single_byte_output(parser: &Parser, input: &str, expected_output: u8) {
-    let result = parse(&parser, &mut Slice::new(input));
+    let result = parse(parser, &mut Slice::new(input));
     match result {
         ParseResult::Success {
             output,

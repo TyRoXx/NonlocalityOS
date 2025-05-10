@@ -95,9 +95,7 @@ async fn test_compile_quotes() {
         Arc::new(DeepExpression(Expression::make_apply(
             print.clone(),
             Arc::new(DeepExpression(Expression::make_literal(
-                HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
-                    .digest()
-                    .clone(),
+                *HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap())).digest(),
             ))),
         ))),
     ));
@@ -139,9 +137,7 @@ async fn test_compile_tree_construction_1_child() {
         unused_name,
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![
             Arc::new(DeepExpression(Expression::make_literal(
-                HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
-                    .digest()
-                    .clone(),
+                *HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap())).digest(),
             ))),
         ]))),
     ));
@@ -164,14 +160,10 @@ async fn test_compile_tree_construction_2_children() {
         unused_name,
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![
             Arc::new(DeepExpression(Expression::make_literal(
-                HashedTree::from(Arc::new(Tree::from_string("Hello, ").unwrap()))
-                    .digest()
-                    .clone(),
+                *HashedTree::from(Arc::new(Tree::from_string("Hello, ").unwrap())).digest(),
             ))),
             Arc::new(DeepExpression(Expression::make_literal(
-                HashedTree::from(Arc::new(Tree::from_string("world!").unwrap()))
-                    .digest()
-                    .clone(),
+                *HashedTree::from(Arc::new(Tree::from_string("world!").unwrap())).digest(),
             ))),
         ]))),
     ));
@@ -195,9 +187,8 @@ async fn test_compile_tree_construction_nested() {
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![
             Arc::new(DeepExpression(Expression::make_construct_tree(vec![
                 Arc::new(DeepExpression(Expression::make_literal(
-                    HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
-                        .digest()
-                        .clone(),
+                    *HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
+                        .digest(),
                 ))),
             ]))),
         ]))),

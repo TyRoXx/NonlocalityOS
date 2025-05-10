@@ -34,10 +34,7 @@ pub struct Token {
 
 impl Token {
     pub fn new(content: TokenContent, location: SourceLocation) -> Self {
-        Self {
-            content: content,
-            location,
-        }
+        Self { content, location }
     }
 }
 
@@ -111,10 +108,10 @@ fn tokenize(source: &str, syntax: &hippeus_parser_generator::Parser) -> Vec<Toke
                         match chunk {
                             Some(blob) => match &mut postcard_length_prefix_mode {
                                 Some(buffer) => {
-                                    buffer.extend_from_slice(&blob);
+                                    buffer.extend_from_slice(blob);
                                 }
                                 None => {
-                                    object_buffer.extend_from_slice(&blob);
+                                    object_buffer.extend_from_slice(blob);
                                 }
                             },
                             None => match &mut postcard_length_prefix_mode {
@@ -228,8 +225,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                         hippeus_parser_generator::Parser::IsAnyOf {
                             input: FIRST_INPUT,
                             result: IS_ANY_OF_RESULT,
-                            candidates: (b'a'..b'z').map(|c|
-                                hippeus_parser_generator::RegisterValue::Byte( c)).collect(),
+                            candidates: (b'a'..=b'z').map(hippeus_parser_generator::RegisterValue::Byte).collect(),
                         },
                         hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
@@ -263,8 +259,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                                 hippeus_parser_generator::Parser::IsAnyOf {
                                                     input: SUBSEQUENT_INPUT,
                                                     result: LOOP_CONDITION,
-                                                    candidates: (b'a'..b'z').map(|c|
-                                                        hippeus_parser_generator::RegisterValue::Byte(c)).collect(),
+                                                    candidates: (b'a'..=b'z').map(hippeus_parser_generator::RegisterValue::Byte).collect(),
                                                 },
                                                 hippeus_parser_generator::Parser::IfElse(
                                                     LOOP_CONDITION,

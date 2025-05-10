@@ -25,7 +25,7 @@ pub async fn install_raspberry_pi_cpp_compiler(
         HostOperatingSystem::WindowsAmd64 => ("gcc-arm-10.3-2021.07-mingw-w64-i686-aarch64-none-linux-gnu", "https://developer.arm.com/-/media/Files/downloads/gnu-a/10.3-2021.07/binrel/gcc-arm-10.3-2021.07-mingw-w64-i686-aarch64-none-linux-gnu.tar.xz?rev=06b6c36e428c48fda4b6d907f17308be^&hash=B36CC5C9544DCFCB2DB06FB46C8B8262"),
         HostOperatingSystem::LinuxAmd64 => ("gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu", "https://developer.arm.com/-/media/Files/downloads/gnu-a/10.3-2021.07/binrel/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu.tar.xz?rev=1cb9c51b94f54940bdcccd791451cec3&hash=B380A59EA3DC5FDC0448CA6472BF6B512706F8EC"),
     };
-    let archive_file_name = format!("{}.tar.xz", compiler_name);
+    let archive_file_name = format!("{compiler_name}.tar.xz");
     let unpacked_directory = tools_directory.join("raspberry_pi_compiler");
     match downloads::install_from_downloaded_archive(
         download_url,
@@ -86,8 +86,8 @@ pub async fn run_cargo_build_for_raspberry_pi(
         .to_str()
         .expect("Tried to convert path to string");
     let environment_variables = HashMap::from([
-        (format!("CC_{}", target_name), compiler_str.to_string()),
-        (format!("AR_{}", target_name), ar_str.to_string()),
+        (format!("CC_{target_name}"), compiler_str.to_string()),
+        (format!("AR_{target_name}"), ar_str.to_string()),
         ("LD_LIBRARY_PATH".to_string(), library_path_str.to_string()),
     ]);
     let binary_path = working_directory
@@ -107,7 +107,7 @@ pub async fn run_cargo_build_for_raspberry_pi(
             "--target",
             target_name,
             "--config",
-            &format!("target.{}.linker='{}'", target_name, compiler_str),
+            &format!("target.{target_name}.linker='{compiler_str}'"),
             "--release",
             "--bin",
             binary,
@@ -119,13 +119,13 @@ pub async fn run_cargo_build_for_raspberry_pi(
     if confirm_regular_file(&binary_path) {
         return Ok(binary_path);
     }
-    return Err(std::io::Error::new(
+    Err(std::io::Error::new(
         std::io::ErrorKind::NotFound,
         format!(
             "Could not find compiled binary at {}",
             binary_path.display()
         ),
-    ));
+    ))
 }
 
 fn confirm_regular_file(path: &std::path::Path) -> bool {

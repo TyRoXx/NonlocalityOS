@@ -39,7 +39,7 @@ where
     fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
         match self {
             Expression::Literal(literal_value) => {
-                write!(writer, "literal({})", literal_value)
+                write!(writer, "literal({literal_value})")
             }
             Expression::Apply { callee, argument } => {
                 callee.print(writer, level)?;
@@ -54,7 +54,7 @@ where
                 parameter_name,
                 body,
             } => {
-                write!(writer, "({}) =>\n", parameter_name)?;
+                writeln!(writer, "({parameter_name}) =>")?;
                 let indented = level + 1;
                 for _ in 0..(indented * 2) {
                     write!(writer, " ")?;
@@ -177,7 +177,7 @@ pub type ShallowExpression = Expression<BlobDigest, BlobDigest>;
 
 impl PrintExpression for BlobDigest {
     fn print(&self, writer: &mut dyn std::fmt::Write, _level: usize) -> std::fmt::Result {
-        write!(writer, "{}", self)
+        write!(writer, "{self}")
     }
 }
 
@@ -185,7 +185,7 @@ pub type ReferenceExpression = Expression<ReferenceIndex, ReferenceIndex>;
 
 impl PrintExpression for ReferenceIndex {
     fn print(&self, writer: &mut dyn std::fmt::Write, _level: usize) -> std::fmt::Result {
-        write!(writer, "{}", self)
+        write!(writer, "{self}")
     }
 }
 
@@ -234,11 +234,11 @@ pub async fn deserialize_shallow(tree: &Tree) -> Result<ShallowExpression, ()> {
     reference_expression
         .map_child_expressions(
             &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<BlobDigest, ()>>>> {
-                let child = tree.references()[child.0 as usize].clone();
+                let child = tree.references()[child.0 as usize];
                 Box::pin(async move { Ok(child) })
             },
             &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<BlobDigest, ()>>>> {
-                let child = tree.references()[child.0 as usize].clone();
+                let child = tree.references()[child.0 as usize];
                 Box::pin(async move { Ok(child) })
             },
         )
@@ -250,17 +250,17 @@ pub async fn deserialize_recursively(
     load_tree: &(dyn LoadTree + Sync),
 ) -> Result<DeepExpression, ()> {
     let root_loaded = load_tree.load_tree(root).await.unwrap(/*TODO*/).hash().unwrap(/*TODO*/);
-    let shallow = deserialize_shallow(&root_loaded.tree()).await?;
+    let shallow = deserialize_shallow(root_loaded.tree()).await?;
     let deep = shallow
         .map_child_expressions(
             &|child: &BlobDigest| -> Pin<Box<dyn Future<Output = Result<Arc<DeepExpression>, ()>>>> {
-                let child = child.clone();
+                let child = *child;
                 Box::pin(async move { deserialize_recursively(&child, load_tree)
                     .await
-                    .map(|success| Arc::new(success)) })
+                    .map(Arc::new) })
             },
             &|child: &BlobDigest| -> Pin<Box<dyn Future<Output = Result<BlobDigest, ()>>>> {
-                let child = child.clone();
+                let child = *child;
                 Box::pin(async move { Ok(child) })
             },
         )
@@ -302,7 +302,7 @@ pub async fn serialize_recursively(
         },&|child: &BlobDigest| -> Pin<
         Box<dyn Future<Output = Result<BlobDigest, StoreError>>>,
         > {
-            let child = child.clone();
+            let child = *child;
             Box::pin(async move {
                 Ok(child)
             })
@@ -355,7 +355,7 @@ impl Closure {
         for (name, reference) in self.captured_variables.iter() {
             let index = ReferenceIndex(references.len() as u64);
             captured_variables.insert(name.clone(), index);
-            references.push(reference.clone());
+            references.push(*reference);
         }
         let closure_blob = ClosureBlob::new(self.parameter_name.clone(), captured_variables);
         let closure_blob_bytes = postcard::to_allocvec(&closure_blob).unwrap(/*TODO*/);
@@ -373,10 +373,10 @@ impl Closure {
     ) -> Result<Closure, TreeDeserializationError> {
         let loaded_root = match load_tree.load_tree(root).await {
             Some(success) => success,
-            None => return Err(TreeDeserializationError::BlobUnavailable(root.clone())),
+            None => return Err(TreeDeserializationError::BlobUnavailable(*root)),
         };
         let root_tree = loaded_root.hash().unwrap(/*TODO*/).tree().clone();
-        let closure_blob: ClosureBlob = match postcard::from_bytes(&root_tree.blob().as_slice()) {
+        let closure_blob: ClosureBlob = match postcard::from_bytes(root_tree.blob().as_slice()) {
             Ok(success) => success,
             Err(error) => return Err(TreeDeserializationError::Postcard(error)),
         };
@@ -385,7 +385,7 @@ impl Closure {
         let mut captured_variables = BTreeMap::new();
         for (name, index) in closure_blob.captured_variables {
             let reference = &root_tree.references()[index.0 as usize];
-            captured_variables.insert(name, reference.clone());
+            captured_variables.insert(name, *reference);
         }
         Ok(Closure::new(
             closure_blob.parameter_name,
@@ -406,22 +406,22 @@ async fn call_method(
 ) -> std::result::Result<BlobDigest, StoreError> {
     let read_variable_in_body: Arc<ReadVariable> = Arc::new({
         let parameter_name = parameter_name.clone();
-        let argument = argument.clone();
+        let argument = *argument;
         let captured_variables = captured_variables.clone();
         let read_variable = read_variable.clone();
         move |name: &Name| -> Pin<Box<dyn core::future::Future<Output = BlobDigest> + Send>> {
             if name == &parameter_name {
-                let argument = argument.clone();
+                let argument = argument;
                 Box::pin(core::future::ready(argument))
             } else if let Some(found) = captured_variables.get(name) {
-                Box::pin(core::future::ready(found.clone()))
+                Box::pin(core::future::ready(*found))
             } else {
                 read_variable(name)
             }
         }
     });
     Box::pin(evaluate(
-        &body,
+        body,
         load_tree,
         store_tree,
         &read_variable_in_body,
@@ -446,7 +446,7 @@ fn find_captured_names(expression: &DeepExpression) -> BTreeSet<Name> {
             body,
         } => {
             let mut result = find_captured_names(body);
-            result.remove(&parameter_name);
+            result.remove(parameter_name);
             result
         }
         Expression::ConstructTree(arguments) => {
@@ -509,11 +509,11 @@ pub async fn evaluate(
     read_variable: &Arc<ReadVariable>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     match &expression.0 {
-        Expression::Literal(literal_value) => Ok(literal_value.clone()),
+        Expression::Literal(literal_value) => Ok(*literal_value),
         Expression::Apply { callee, argument } => {
             evaluate_apply(callee, argument, load_tree, store_tree, read_variable).await
         }
-        Expression::ReadVariable(name) => Ok(read_variable(&name).await),
+        Expression::ReadVariable(name) => Ok(read_variable(name).await),
         Expression::Lambda {
             parameter_name,
             body,
@@ -535,9 +535,8 @@ pub async fn evaluate(
                 evaluated_arguments.push(evaluated_argument);
             }
             Ok(
-                HashedTree::from(Arc::new(Tree::new(TreeBlob::empty(), evaluated_arguments)))
-                    .digest()
-                    .clone(),
+                *HashedTree::from(Arc::new(Tree::new(TreeBlob::empty(), evaluated_arguments)))
+                    .digest(),
             )
         }
     }

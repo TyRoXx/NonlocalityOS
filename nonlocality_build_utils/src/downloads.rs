@@ -52,7 +52,7 @@ fn unpack(
     );
     let temp_unpack_destination_directory = Path::new(&temp_unpack_destination_directory_string);
 
-    if let Ok(_) = std::fs::metadata(temp_unpack_destination_directory) {
+    if std::fs::metadata(temp_unpack_destination_directory).is_ok() {
         info!(
             "Deleting {} from a previous run.",
             &temp_unpack_destination_directory.display()

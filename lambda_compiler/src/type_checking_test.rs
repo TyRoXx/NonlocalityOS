@@ -20,22 +20,22 @@ const TEST_GENERATED_NAME_NAMESPACE: NamespaceId = NamespaceId([
 #[test_log::test]
 fn test_combine_parameter_names() {
     assert_eq!(
-        Name::new(TEST_GENERATED_NAME_NAMESPACE.clone(), "".to_string()),
+        Name::new(TEST_GENERATED_NAME_NAMESPACE, "".to_string()),
         combine_parameter_names(&[], &TEST_GENERATED_NAME_NAMESPACE)
     );
     assert_eq!(
-        Name::new(TEST_GENERATED_NAME_NAMESPACE.clone(), "a".to_string()),
+        Name::new(TEST_GENERATED_NAME_NAMESPACE, "a".to_string()),
         combine_parameter_names(
-            &[Name::new(TEST_SOURCE_NAMESPACE.clone(), "a".to_string())],
+            &[Name::new(TEST_SOURCE_NAMESPACE, "a".to_string())],
             &TEST_GENERATED_NAME_NAMESPACE
         )
     );
     assert_eq!(
-        Name::new(TEST_GENERATED_NAME_NAMESPACE.clone(), "a_b".to_string()),
+        Name::new(TEST_GENERATED_NAME_NAMESPACE, "a_b".to_string()),
         combine_parameter_names(
             &[
-                Name::new(TEST_SOURCE_NAMESPACE.clone(), "a".to_string()),
-                Name::new(TEST_SOURCE_NAMESPACE.clone(), "b".to_string())
+                Name::new(TEST_SOURCE_NAMESPACE, "a".to_string()),
+                Name::new(TEST_SOURCE_NAMESPACE, "b".to_string())
             ],
             &TEST_GENERATED_NAME_NAMESPACE
         )

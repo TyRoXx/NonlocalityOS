@@ -6,9 +6,12 @@ use std::{future::Future, net::SocketAddr, pin::Pin};
 use tokio::net::TcpListener;
 use tracing::info;
 
+type UnitFuture<'t> = Pin<Box<dyn Future<Output = ()> + 't>>;
+type ChangeFilesFunction<'t> = Box<dyn FnOnce(Client) -> UnitFuture<'t>>;
+
 async fn run_dav_server_instance<'t>(
     database_file_name: &std::path::Path,
-    change_files: Option<Box<dyn FnOnce(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>>>,
+    change_files: Option<ChangeFilesFunction<'t>>,
     is_saving_expected: bool,
     verify_changes: &impl Fn(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>,
     modified_default: std::time::SystemTime,
@@ -17,10 +20,10 @@ async fn run_dav_server_instance<'t>(
     let address = SocketAddr::from(([127, 0, 0, 1], 0));
     let listener = TcpListener::bind(address).await.unwrap();
     let actual_address = listener.local_addr().unwrap();
-    let server_url = format!("http://{}", actual_address);
+    let server_url = format!("http://{actual_address}");
     let (mut save_status_receiver, server, root_directory) = run_dav_server(
         listener,
-        &database_file_name,
+        database_file_name,
         modified_default,
         clock,
         // don't waste time with the tests (more than 0 seconds to avoid wasting too many CPU cycles)
@@ -100,7 +103,7 @@ async fn run_dav_server_instance<'t>(
     };
     tokio::select! {
         result = server => {
-            panic!("Server isn't expected to exit: {:?}", result);
+            panic!("Server isn't expected to exit: {result:?}");
         }
         _ = testing => {
         }
@@ -108,8 +111,8 @@ async fn run_dav_server_instance<'t>(
 }
 
 async fn test_fresh_dav_server<'t>(
-    change_files: Option<Box<dyn FnOnce(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>>>,
-    verify_changes: &impl Fn(Client) -> Pin<Box<dyn Future<Output = ()> + 't>>,
+    change_files: Option<ChangeFilesFunction<'t>>,
+    verify_changes: &impl Fn(Client) -> UnitFuture<'t>,
 ) {
     let clock = || {
         std::time::SystemTime::UNIX_EPOCH
@@ -154,12 +157,11 @@ async fn list_directory(client: &Client, directory: &str) -> Vec<ListEntity> {
 }
 
 fn create_client(server_url: String) -> Client {
-    let client = ClientBuilder::new()
+    ClientBuilder::new()
         .set_host(server_url)
         .set_auth(Auth::Basic("username".to_owned(), "password".to_owned()))
         .build()
-        .unwrap();
-    client
+        .unwrap()
 }
 
 fn expect_directory(entity: &ListEntity, name: &str) {
@@ -170,7 +172,7 @@ fn expect_directory(entity: &ListEntity, name: &str) {
             assert_eq!(None, folder.quota_used_bytes);
             assert_eq!(None, folder.quota_available_bytes);
             //TODO: check tag value
-            assert_eq!(true, folder.tag.is_some());
+            assert!(folder.tag.is_some());
             //TODO: check last modified
         }
     }
@@ -199,10 +201,10 @@ async fn expect_file(
             );
             assert_eq!(content_type, file.content_type, "File type does not match");
             //TODO: check tag value
-            assert_eq!(true, file.tag.is_some(), "File has no tags");
+            assert!(file.tag.is_some(), "File has no tags");
             //TODO: check last modified
 
-            let response = client.get(&name).await.unwrap();
+            let response = client.get(name).await.unwrap();
             let response_content = response.bytes().await.unwrap().to_vec();
             assert_eq!(*content, response_content, "File content is wrong");
         }
@@ -229,7 +231,7 @@ async fn test_file_not_found() {
                         reqwest_dav::DecodeError::StatusMismatched(_) => panic!(),
                         reqwest_dav::DecodeError::Server(server_error) =>
                             assert_eq!("ServerError { response_code: 404, exception: \"server exception and parse error\", message: \"\" }",
-                                format!("{:?}", server_error)),
+                                format!("{server_error:?}")),
                     },
                 };
             }
@@ -258,7 +260,7 @@ async fn test_create_file(content: Vec<u8>) {
             expect_file(
                 &client,
                 &listed[1],
-                &format!("/{}", file_name),
+                &format!("/{file_name}"),
                 &content_cloned,
                 "text/plain",
             )
@@ -329,7 +331,7 @@ async fn test_create_file_truncate() {
             expect_file(
                 &client,
                 &listed[1],
-                &format!("/{}", file_name),
+                &format!("/{file_name}"),
                 short_content.as_bytes(),
                 "text/plain",
             )
@@ -344,7 +346,7 @@ async fn test_create_directory() {
     let dir_name = "Dir4";
     let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
-            client.mkcol(&dir_name).await.unwrap();
+            client.mkcol(dir_name).await.unwrap();
         })
     };
     let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -353,12 +355,12 @@ async fn test_create_directory() {
                 let listed = list_directory(&client, "/").await;
                 assert_eq!(2, listed.len());
                 expect_directory(&listed[0], "/");
-                expect_directory(&listed[1], &format!("/{}/", dir_name));
+                expect_directory(&listed[1], &format!("/{dir_name}/"));
             }
             {
-                let listed = list_directory(&client, &format!("/{}/", dir_name)).await;
+                let listed = list_directory(&client, &format!("/{dir_name}/")).await;
                 assert_eq!(1, listed.len());
-                expect_directory(&listed[0], &format!("/{}/", dir_name));
+                expect_directory(&listed[0], &format!("/{dir_name}/"));
             }
         })
     };
@@ -836,13 +838,13 @@ async fn test_copy_file_to_itself() {
                                 panic!("XML decoding error")
                             }
                             reqwest_dav::DecodeError::FieldNotSupported(field_error) => {
-                                panic!("{:?}", field_error)
+                                panic!("{field_error:?}")
                             }
                             reqwest_dav::DecodeError::FieldNotFound(field_error) => {
-                                panic!("{:?}", field_error)
+                                panic!("{field_error:?}")
                             }
                             reqwest_dav::DecodeError::StatusMismatched(status_mismatched_error) => {
-                                panic!("{:?}", status_mismatched_error)
+                                panic!("{status_mismatched_error:?}")
                             }
                             reqwest_dav::DecodeError::Server(_server_error) => {}
                         };
@@ -889,7 +891,7 @@ async fn test_copy_non_existing_file() {
                         panic!("The request failed decoding")
                     }
                     reqwest_dav::Error::Decode(_decode_error) => {
-                        print!("{:?}", _decode_error)
+                        print!("{_decode_error:?}")
                     }
                     reqwest_dav::Error::MissingAuthContext => {
                         panic!("The request failed decoding")

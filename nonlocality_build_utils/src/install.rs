@@ -17,7 +17,7 @@ fn format_bytes(size: u64) -> String {
     );
     let unit = units[scale];
     let scaled_size = size as f64 / SIZE_OF_BYTE.powf(scale as f64);
-    return format!("{:.1} {}", scaled_size, unit);
+    format!("{scaled_size:.1} {unit}")
 }
 
 #[cfg(test)]
@@ -54,7 +54,7 @@ fn upload_file(
     let before_upload = Instant::now();
     let mut file_uploader = sftp
         .open_mode(
-            &to_std_path(to),
+            to_std_path(to),
             OpenFlags::WRITE | OpenFlags::TRUNCATE,
             mode,
             ssh2::OpenType::File,
@@ -75,7 +75,7 @@ fn upload_file(
     );
 
     let mut channel = session.channel_session().unwrap();
-    channel.exec(&format!("file {}", to)).unwrap();
+    channel.exec(&format!("file {to}")).unwrap();
     let mut standard_output = String::new();
     std::io::Read::read_to_string(&mut channel, &mut standard_output)
         .expect("Tried to read standard output");
@@ -146,15 +146,14 @@ fn detect_remote_build_target(session: &ssh2::Session) -> std::io::Result<BuildT
         "armv7l" => {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!(
-                    "32-bit ARM systems such as the Raspberry Pi 2 are currently not supported"
-                ),
+                "32-bit ARM systems such as the Raspberry Pi 2 are currently not supported"
+                    .to_string(),
             ))
         }
         _ => {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("Unknown architecture: {}", trimmed),
+                format!("Unknown architecture: {trimmed}"),
             ))
         }
     };
@@ -202,16 +201,16 @@ async fn deploy_host_binary(
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> std::io::Result<DeploymentSession> {
     info!("Connecting to {}", &ssh_endpoint);
-    let tcp = std::net::TcpStream::connect(&ssh_endpoint).unwrap();
+    let tcp = std::net::TcpStream::connect(ssh_endpoint).unwrap();
     let mut session = ssh2::Session::new().unwrap();
     session.set_tcp_stream(tcp);
     match session.handshake() {
         Ok(_) => {}
-        Err(error) => progress_reporter.log(&format!("Could not SSH handshake: {}", error)),
+        Err(error) => progress_reporter.log(&format!("Could not SSH handshake: {error}")),
     }
 
     info!("Authenticating as {} using password", &ssh_user);
-    session.userauth_password(&ssh_user, &ssh_password).unwrap();
+    session.userauth_password(ssh_user, ssh_password).unwrap();
     assert!(session.authenticated());
     info!("Authenticated as {}", &ssh_user);
 
@@ -225,7 +224,7 @@ async fn deploy_host_binary(
     if !home_found.is_dir() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Expected a directory at remote location {}", home),
+            format!("Expected a directory at remote location {home}"),
         ));
     }
 
@@ -235,10 +234,8 @@ async fn deploy_host_binary(
             if exists.is_dir() {
                 info!("Our directory appears to exist.");
             } else {
-                let message = format!(
-                    "Our directory {} exists, but is not a directory",
-                    nonlocality_dir
-                );
+                let message =
+                    format!("Our directory {nonlocality_dir} exists, but is not a directory");
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     message,
@@ -257,7 +254,7 @@ async fn deploy_host_binary(
     let host_binary = temporary_directory.path().join(host_binary_name);
     build_host_binary(&host_binary, &remote_build_target, progress_reporter).await?;
 
-    let remote_host_binary_next = nonlocality_dir.join(format!("{}.next", host_binary_name));
+    let remote_host_binary_next = nonlocality_dir.join(format!("{host_binary_name}.next"));
     upload_file(
         &session,
         &sftp,
@@ -287,6 +284,7 @@ async fn deploy_host_binary(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn deploy(
     initial_database: &std::path::Path,
     build_host_binary: Box<BuildHostBinary>,

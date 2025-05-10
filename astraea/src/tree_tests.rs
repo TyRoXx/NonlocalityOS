@@ -12,7 +12,7 @@ fn blob_digest_parse_hex_string() {
     assert_eq!(None, BlobDigest::parse_hex_string(""));
     let too_short = correct_input.split_at(correct_input.len() - 1).0;
     assert_eq!(None, BlobDigest::parse_hex_string(too_short));
-    let too_long = format!("{}0", correct_input);
+    let too_long = format!("{correct_input}0");
     assert_eq!(None, BlobDigest::parse_hex_string(&too_long));
     assert_eq!(
         Some(BlobDigest::new(&[
@@ -28,13 +28,13 @@ fn blob_digest_parse_hex_string() {
 #[test_log::test]
 fn test_display_reference_index() {
     let index = ReferenceIndex(123);
-    assert_eq!(format!("{}", index), "123");
+    assert_eq!(format!("{index}"), "123");
 }
 
 #[test_log::test]
 fn test_debug_tree_blob() {
     let blob = TreeBlob::empty();
-    assert_eq!(format!("{:?}", blob), "TreeBlob { content.len(): 0 }");
+    assert_eq!(format!("{blob:?}"), "TreeBlob { content.len(): 0 }");
 }
 
 proptest! {
@@ -56,7 +56,7 @@ proptest! {
 #[test_log::test]
 fn test_display_tree_serialization_error() {
     let error = TreeSerializationError::BlobTooLong;
-    assert_eq!(format!("{}", error), "BlobTooLong");
+    assert_eq!(format!("{error}"), "BlobTooLong");
 }
 
 #[test_log::test]
@@ -86,7 +86,7 @@ fn test_display_hashed_tree() {
     let tree = Arc::new(Tree::empty());
     let hashed_tree = HashedTree::from(tree.clone());
     assert_eq!(
-        format!("{}", hashed_tree),
+        format!("{hashed_tree}"),
         format!("{}", hashed_tree.digest())
     );
 }

@@ -32,9 +32,7 @@ async fn test_hello_world() {
         parameter_name,
         Arc::new(DeepExpression(Expression::make_construct_tree(vec![
             Arc::new(DeepExpression(Expression::make_literal(
-                HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
-                    .digest()
-                    .clone(),
+                *HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap())).digest(),
             ))),
         ]))),
     ));

@@ -14,7 +14,7 @@ pub fn combine_parameter_names(parameter_names: &[Name], namespace_id: &Namespac
         }
         combined.push_str(&name.key);
     }
-    Name::new(namespace_id.clone(), combined)
+    Name::new(*namespace_id, combined)
 }
 
 pub async fn check_types(
@@ -59,9 +59,9 @@ pub async fn check_types(
                             argument: Arc::new(argument_checked),
                         },
                     )),
-                    errors: errors,
+                    errors,
                 }),
-                (None, _) | (_, None) => return Ok(CompilerOutput::new(None, errors)),
+                (None, _) | (_, None) => Ok(CompilerOutput::new(None, errors)),
             }
         }
         ast::Expression::Lambda {
@@ -83,7 +83,7 @@ pub async fn check_types(
                     )),
                     errors: body_output.errors,
                 }),
-                None => return Ok(CompilerOutput::new(None, body_output.errors)),
+                None => Ok(CompilerOutput::new(None, body_output.errors)),
             }
         }
         ast::Expression::ConstructTree(expressions) => {
@@ -103,7 +103,7 @@ pub async fn check_types(
                 entry_point: Some(lambda::expressions::DeepExpression(
                     lambda::expressions::Expression::ConstructTree(children),
                 )),
-                errors: errors,
+                errors,
             })
         }
     }
