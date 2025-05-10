@@ -1,10 +1,10 @@
 use crate::compilation::{compile, CompilerOutput};
 use astraea::{
-    storage::InMemoryTreeStorage,
-    tree::{HashedTree, Tree},
+    storage::{InMemoryTreeStorage, StoreTree},
+    tree::{HashedTree, Tree, TreeBlob},
 };
 use lambda::{
-    expressions::{DeepExpression, Expression},
+    expressions::{evaluate, DeepExpression, Expression, ReadVariable},
     name::{Name, NamespaceId},
 };
 use std::sync::Arc;
@@ -40,4 +40,29 @@ async fn test_hello_world() {
     ));
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
+
+    let call_entry_point = DeepExpression(Expression::make_apply(
+        Arc::new(output.unwrap().entry_point.unwrap()),
+        Arc::new(DeepExpression(Expression::make_literal(
+            storage
+                .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+                .await
+                .unwrap(),
+        ))),
+    ));
+    let read_variable: Arc<ReadVariable> = Arc::new(|_name| todo!());
+    let evaluated = evaluate(&call_entry_point, &*storage, &*storage, &read_variable).await;
+    let expected_result = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            vec![storage
+                .store_tree(&HashedTree::from(Arc::new(
+                    Tree::from_string("Hello, world!").unwrap(),
+                )))
+                .await
+                .unwrap()],
+        ))))
+        .await
+        .unwrap();
+    assert_eq!(Ok(expected_result), evaluated);
 }
