@@ -225,12 +225,10 @@ pub fn parse_expression<'t>(
     }
 }
 
-fn parse_lambda<'t>(
-    tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
-    local_namespace: &NamespaceId,
-) -> ParserResult<ast::Expression> {
-    let mut parameter_names = Vec::new();
-    while let Some(name) = match peek_next_non_whitespace_token(tokens) {
+fn try_pop_identifier(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+) -> Option<String> {
+    match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
             TokenContent::Identifier(identifier) => {
@@ -248,7 +246,15 @@ fn parse_lambda<'t>(
             TokenContent::Comma => todo!(),
         },
         None => None,
-    } {
+    }
+}
+
+fn parse_lambda<'t>(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
+    local_namespace: &NamespaceId,
+) -> ParserResult<ast::Expression> {
+    let mut parameter_names = Vec::new();
+    while let Some(name) = try_pop_identifier(tokens) {
         let parameter_name: Name = Name::new(*local_namespace, name);
         parameter_names.push(parameter_name);
         // TODO: skip commas
