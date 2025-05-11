@@ -1,11 +1,11 @@
-use crate::compilation::{compile, CompilerOutput};
+use crate::compilation::{compile, CompilerError};
 use astraea::{
     storage::{InMemoryTreeStorage, StoreTree},
-    tree::{HashedTree, Tree, TreeBlob},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob},
 };
 use lambda::{
-    expressions::{apply_evaluated_argument, DeepExpression, Expression, ReadVariable},
-    name::{Name, NamespaceId},
+    expressions::{apply_evaluated_argument, ReadVariable},
+    name::NamespaceId,
 };
 use std::sync::Arc;
 
@@ -16,42 +16,36 @@ const TEST_GENERATED_NAME_NAMESPACE: NamespaceId = NamespaceId([
     17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
 ]);
 
-#[test_log::test(tokio::test)]
-async fn test_hello_world() {
-    let source = include_str!("../examples/hello_world.tl");
-    let storage = Arc::new(InMemoryTreeStorage::empty());
+async fn test_example(source: &str, storage: &InMemoryTreeStorage, expected_result: &BlobDigest) {
     let output = compile(
         source,
         &TEST_SOURCE_NAMESPACE,
         &TEST_GENERATED_NAME_NAMESPACE,
         &*storage,
     )
-    .await;
-    let parameter_name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "".to_string());
-    let entry_point = DeepExpression(Expression::make_lambda(
-        parameter_name,
-        Arc::new(DeepExpression(Expression::make_construct_tree(vec![
-            Arc::new(DeepExpression(Expression::make_literal(
-                *HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap())).digest(),
-            ))),
-        ]))),
-    ));
-    let expected = CompilerOutput::new(Some(entry_point), Vec::new());
-    assert_eq!(Ok(expected), output);
-
+    .await
+    .unwrap();
+    assert_eq!(Vec::<CompilerError>::new(), output.errors);
     let read_variable: Arc<ReadVariable> = Arc::new(|_name| todo!());
     let argument = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
     let evaluated = apply_evaluated_argument(
-        &output.unwrap().entry_point.unwrap(),
+        &output.entry_point.unwrap(),
         &argument,
         &*storage,
         &*storage,
         &read_variable,
     )
     .await;
+    assert_eq!(Ok(*expected_result), evaluated);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_hello_world() {
+    let source = include_str!("../examples/hello_world.tl");
+    let storage = InMemoryTreeStorage::empty();
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
@@ -64,5 +58,24 @@ async fn test_hello_world() {
         ))))
         .await
         .unwrap();
-    assert_eq!(Ok(expected_result), evaluated);
+    test_example(source, &storage, &expected_result).await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_lambda_parameters() {
+    let source = include_str!("../examples/lambda_parameters.tl");
+    let storage = InMemoryTreeStorage::empty();
+    let expected_result = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            vec![storage
+                .store_tree(&HashedTree::from(Arc::new(
+                    Tree::from_string("Hello, world!").unwrap(),
+                )))
+                .await
+                .unwrap()],
+        ))))
+        .await
+        .unwrap();
+    test_example(source, &storage, &expected_result).await;
 }
