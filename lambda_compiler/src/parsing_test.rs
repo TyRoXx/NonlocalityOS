@@ -1,6 +1,7 @@
 use crate::ast;
 use crate::compilation::{CompilerError, SourceLocation};
 use crate::parsing::{parse_expression_tolerantly, ParserOutput};
+use crate::tokenization::Token;
 use crate::{parsing::parse_expression, tokenization::tokenize_default_syntax};
 use lambda::name::{Name, NamespaceId};
 
@@ -42,13 +43,24 @@ fn test_parse_lambda_1_parameter() {
 
 #[test_log::test]
 fn test_parse_lambda_2_parameters() {
-    let f = Name::new(TEST_NAMESPACE, "f".to_string());
-    let g = Name::new(TEST_NAMESPACE, "g".to_string());
-    let expected = ast::Expression::Lambda {
-        parameter_names: vec![f.clone(), g],
-        body: Box::new(ast::Expression::Identifier(f)),
-    };
-    test_wellformed_parsing(r#"(f g) => f"#, expected);
+    for source in &[
+        "(f, g) => f",
+        "(f,g) => f",
+        "(f, g,) => f",
+        "(f, g, ) => f",
+        "( f , g ) => f",
+        "( f , g , ) => f",
+    ] {
+        let f = ast::Expression::Identifier(Name::new(TEST_NAMESPACE, "f".to_string()));
+        let expected = ast::Expression::Lambda {
+            parameter_names: vec![
+                Name::new(TEST_NAMESPACE, "f".to_string()),
+                Name::new(TEST_NAMESPACE, "g".to_string()),
+            ],
+            body: Box::new(f),
+        };
+        test_wellformed_parsing(source, expected);
+    }
 }
 
 #[test_log::test]
@@ -133,4 +145,27 @@ fn test_parse_tree_construction_2_children() {
         let expected = ast::Expression::ConstructTree(vec![a, b]);
         test_wellformed_parsing(source, expected);
     }
+}
+
+#[test_log::test]
+fn test_parse_missing_comma_between_parameters() {
+    let tokens = tokenize_default_syntax(r#"(f g) => f()"#);
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            crate::tokenization::TokenContent::Identifier("g".to_string()),
+            SourceLocation { line: 0, column: 3 }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected comma or right parenthesis in lambda parameter list."
+                .to_string(),
+            SourceLocation::new(0, 0),
+        )],
+    );
+    assert_eq!(expected, output);
 }

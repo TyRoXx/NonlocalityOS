@@ -81,11 +81,35 @@ fn expect_right_parenthesis(tokens: &mut std::iter::Peekable<std::slice::Iter<'_
     }
 }
 
+fn try_skip_right_parenthesis(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+) -> bool {
+    match peek_next_non_whitespace_token(tokens) {
+        Some(non_whitespace) => match &non_whitespace.content {
+            TokenContent::Whitespace => todo!(),
+            TokenContent::Identifier(_) => false,
+            TokenContent::Assign => todo!(),
+            TokenContent::LeftParenthesis => todo!(),
+            TokenContent::RightParenthesis => {
+                pop_next_non_whitespace_token(tokens);
+                true
+            }
+            TokenContent::LeftBracket => todo!(),
+            TokenContent::RightBracket => todo!(),
+            TokenContent::Dot => todo!(),
+            TokenContent::Quotes(_) => todo!(),
+            TokenContent::FatArrow => todo!(),
+            TokenContent::Comma => todo!(),
+        },
+        None => todo!(),
+    }
+}
+
 fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
-            TokenContent::Identifier(_) => todo!(),
+            TokenContent::Identifier(_identifier) => todo!(),
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => todo!(),
             TokenContent::RightParenthesis => todo!(),
@@ -243,9 +267,31 @@ fn try_pop_identifier(
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => todo!(),
-            TokenContent::Comma => todo!(),
+            TokenContent::Comma => None,
         },
         None => None,
+    }
+}
+
+fn try_skip_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
+    match peek_next_non_whitespace_token(tokens) {
+        Some(non_whitespace) => match &non_whitespace.content {
+            TokenContent::Whitespace => todo!(),
+            TokenContent::Identifier(_identifier) => false,
+            TokenContent::Assign => todo!(),
+            TokenContent::LeftParenthesis => todo!(),
+            TokenContent::RightParenthesis => false,
+            TokenContent::LeftBracket => todo!(),
+            TokenContent::RightBracket => todo!(),
+            TokenContent::Dot => todo!(),
+            TokenContent::Quotes(_) => todo!(),
+            TokenContent::FatArrow => todo!(),
+            TokenContent::Comma => {
+                pop_next_non_whitespace_token(tokens);
+                true
+            }
+        },
+        None => false,
     }
 }
 
@@ -257,9 +303,15 @@ fn parse_lambda<'t>(
     while let Some(name) = try_pop_identifier(tokens) {
         let parameter_name: Name = Name::new(*local_namespace, name);
         parameter_names.push(parameter_name);
-        // TODO: skip commas
+        if !try_skip_comma(tokens) {
+            break;
+        }
     }
-    expect_right_parenthesis(tokens);
+    if !try_skip_right_parenthesis(tokens) {
+        return Err(ParserError::new(
+            "Expected comma or right parenthesis in lambda parameter list.".to_string(),
+        ));
+    }
     expect_fat_arrow(tokens);
     let body = parse_expression(tokens, local_namespace)?;
     Ok(ast::Expression::Lambda {
