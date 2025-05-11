@@ -13,3 +13,6 @@ mod hello_world_tests;
 
 #[cfg(test)]
 mod effect_tests;
+
+#[cfg(test)]
+mod evaluation_tests;

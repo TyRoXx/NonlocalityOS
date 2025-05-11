@@ -1,21 +1,17 @@
-use crate::{
-    expressions::{
-        deserialize_recursively, evaluate, serialize_recursively, DeepExpression, Expression,
-        PrintExpression, ReadVariable,
-    },
-    name::{Name, NamespaceId},
+use crate::expressions::{
+    deserialize_recursively, evaluate, serialize_recursively, DeepExpression, Expression,
+    PrintExpression,
 };
 use astraea::{
     storage::{InMemoryTreeStorage, StoreTree},
-    tree::{BlobDigest, HashedTree, Tree},
+    tree::{HashedTree, Tree},
 };
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 #[test_log::test(tokio::test)]
 async fn effect() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let namespace = NamespaceId([42; 16]);
-
+    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(Tree::empty())));
     let first_string = Arc::new(Tree::from_string("Hello, ").unwrap());
     let first_string_ref = storage
         .store_tree(&HashedTree::from(first_string))
@@ -24,28 +20,18 @@ async fn effect() {
     let first_console_output = crate::standard_library::ConsoleOutput {
         message: first_string_ref,
     };
-    let first_console_output_tree = Arc::new(first_console_output.to_tree());
-    let first_console_output_expression = DeepExpression(Expression::make_literal(
-        storage
-            .store_tree(&HashedTree::from(first_console_output_tree.clone()))
-            .await
-            .unwrap(),
-    ));
+    let first_console_output_tree = first_console_output.to_tree();
+    let first_console_output_expression =
+        DeepExpression(Expression::make_literal(first_console_output_tree.clone()));
 
-    let second_string = Arc::new(Tree::from_string(" world!\n").unwrap());
-    let second_string_ref = storage
-        .store_tree(&HashedTree::from(second_string))
-        .await
-        .unwrap();
-    let main_lambda_parameter_name = Name::new(namespace, "main_arg".to_string());
+    let second_string = Tree::from_string(" world!\n").unwrap();
     let second_console_output_expression =
         DeepExpression(Expression::ConstructTree(vec![Arc::new(DeepExpression(
-            Expression::make_read_variable(main_lambda_parameter_name.clone()),
+            Expression::make_environment(),
         ))]));
 
-    let and_then_lambda_parameter_name = Name::new(namespace, "previous_result".to_string());
     let and_then_lambda_expression = DeepExpression(Expression::make_lambda(
-        and_then_lambda_parameter_name.clone(),
+        empty_tree.clone(),
         Arc::new(second_console_output_expression),
     ));
 
@@ -55,7 +41,7 @@ async fn effect() {
     ]));
 
     let main_lambda_expression = DeepExpression(Expression::make_lambda(
-        main_lambda_parameter_name.clone(),
+        empty_tree.clone(),
         Arc::new(construct_and_then_expression),
     ));
     {
@@ -65,28 +51,14 @@ async fn effect() {
             .print(&mut program_as_string, 0)
             .unwrap();
         assert_eq!(concat!(
-            "(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.main_arg) =>\n",
-            "  [literal(3d68922f2a62988e48e9734f5107de0aef4f1d088bb67bfada36bcd8d9288a750d6217bd9a88f498c78b76040ef29bbb136bfaea876601d02405546160b2fd9d), (2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.previous_result) =>\n",
-            "    [main_arg, ], ]"),
+            "$env={literal(Tree { blob: TreeBlob { content.len(): 0 }, references: [] })}($arg) =>\n",
+            "  [literal(Tree { blob: TreeBlob { content.len(): 0 }, references: [BlobDigest(\"d20df37085b023c2b7b8246d8abbbe1185e740129bfd3cb0c5758bfc0d8e51e3013abcde3e5eb92e90c3caeb8856d111db625e8b0c7bdb0274c9dfb1bb43ff7f\")] }), $env={literal(Tree { blob: TreeBlob { content.len(): 0 }, references: [] })}($arg) =>\n",
+            "    [$env, ], ]"),
             program_as_string.as_str());
     }
-    let read_variable: Arc<ReadVariable> = Arc::new(
-        move |name: &Name| -> Pin<Box<dyn core::future::Future<Output = BlobDigest> + Send>> {
-            assert_eq!(name, &main_lambda_parameter_name);
-            Box::pin(async move { second_string_ref })
-        },
-    );
-    let main_function = evaluate(
-        &main_lambda_expression,
-        &*storage,
-        &*storage,
-        &read_variable,
-    )
-    .await
-    .unwrap();
     let call_main = DeepExpression(Expression::make_apply(
-        Arc::new(DeepExpression(Expression::make_literal(main_function))),
-        Arc::new(DeepExpression(Expression::make_literal(second_string_ref))),
+        Arc::new(main_lambda_expression),
+        Arc::new(DeepExpression(Expression::make_literal(second_string))),
     ));
 
     // verify that this complex expression roundtrips through serialization and deserialization correctly
@@ -97,19 +69,19 @@ async fn effect() {
     assert_eq!(call_main, deserialized_call_main);
     assert_eq!(
         concat!(
-            "e43bae530b6c212df1e2fc3284723a87f3f1449a76f6a0ee45b048391ffe182a",
-            "ed2f88975a478a7db6001879ac12d4d837b988401b1be1cb4e14789600f134a9"
+            "cfc5e5a5af2a776b7e68af66ee9fcaf1a6d60a8a6c7c83662559721486640e7c",
+            "42ff89a67c184be5c7aac78ac674f778b8e620b29ac2dc9775ad6e162ea212ab"
         ),
         format!("{}", &call_main_digest)
     );
 
-    let main_result = evaluate(&call_main, &*storage, &*storage, &read_variable)
+    let main_result = evaluate(&call_main, &*storage, &*storage, &None)
         .await
         .unwrap();
     assert_eq!(
         concat!(
-            "37efb7833e4c3b04558ab90bfb56209ea92657f4791332d97e40556b57be4554",
-            "04a5a202d58718994be05dbeece093c57a2a708bfaee625db1a3136bb591b457"
+            "4bcb4ead6334a387f95af13a11a6f33497ddead7689574c07072c11433313324",
+            "c22ab666038872a20f139846489494249545d0aed3b2d8042071e5aeacc45dd2"
         ),
         format!("{}", &main_result)
     );

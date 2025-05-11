@@ -1,8 +1,9 @@
+use crate::compilation::SourceLocation;
 use lambda::name::Name;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub enum Expression {
-    Identifier(Name),
+    Identifier(Name, SourceLocation),
     StringLiteral(String),
     Apply {
         callee: Box<Expression>,

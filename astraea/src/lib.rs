@@ -8,15 +8,20 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 pub mod storage;
 
 #[cfg(test)]
-mod storage_benchmarks;
+pub mod storage_test;
 
 #[cfg(test)]
-pub mod storage_test;
+mod storage_benchmarks;
+
+pub mod deep_tree;
+
+#[cfg(test)]
+pub mod deep_tree_tests;
 
 pub mod tree;
 
 #[cfg(test)]
-mod tree_benchmarks;
+mod tree_tests;
 
 #[cfg(test)]
-mod tree_tests;
+mod tree_benchmarks;

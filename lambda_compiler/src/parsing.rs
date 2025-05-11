@@ -106,9 +106,9 @@ fn try_skip_right_parenthesis(
                 pop_next_non_whitespace_token(tokens);
                 true
             }
-            TokenContent::LeftBracket => todo!(),
+            TokenContent::LeftBracket => false,
             TokenContent::RightBracket => todo!(),
-            TokenContent::LeftBrace => todo!(),
+            TokenContent::LeftBrace => false,
             TokenContent::RightBrace => todo!(),
             TokenContent::Dot => todo!(),
             TokenContent::Quotes(_) => false,
@@ -229,10 +229,10 @@ fn parse_expression_start<'t>(
             TokenContent::Whitespace => todo!(),
             TokenContent::Identifier(identifier) => {
                 pop_next_non_whitespace_token(tokens);
-                Ok(ast::Expression::Identifier(Name::new(
-                    *local_namespace,
-                    identifier.clone(),
-                )))
+                Ok(ast::Expression::Identifier(
+                    Name::new(*local_namespace, identifier.clone()),
+                    non_whitespace.location,
+                ))
             }
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => {

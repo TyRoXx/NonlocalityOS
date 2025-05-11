@@ -1,17 +1,14 @@
-use crate::{
-    expressions::{evaluate, DeepExpression, Expression, PrintExpression, ReadVariable},
-    name::{Name, NamespaceId},
-};
+use crate::expressions::{evaluate, DeepExpression, Expression, PrintExpression};
 use astraea::{
     storage::{InMemoryTreeStorage, LoadTree, StoreTree},
-    tree::{BlobDigest, HashedTree, Tree},
+    tree::{HashedTree, Tree},
 };
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 #[test_log::test(tokio::test)]
 async fn hello_world() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let namespace = NamespaceId([42; 16]);
+    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(Tree::empty())));
     let hello_world_string = Arc::new(Tree::from_string("Hello, world!\n").unwrap());
     let hello_world_string_ref = storage
         .store_tree(&HashedTree::from(hello_world_string))
@@ -20,16 +17,11 @@ async fn hello_world() {
     let console_output = crate::standard_library::ConsoleOutput {
         message: hello_world_string_ref,
     };
-    let console_output_tree = Arc::new(console_output.to_tree());
-    let console_output_expression = DeepExpression(Expression::make_literal(
-        storage
-            .store_tree(&HashedTree::from(console_output_tree.clone()))
-            .await
-            .unwrap(),
-    ));
-    let lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
+    let console_output_tree = console_output.to_tree();
+    let console_output_expression =
+        DeepExpression(Expression::make_literal(console_output_tree.clone()));
     let lambda_expression = DeepExpression(Expression::make_lambda(
-        lambda_parameter_name.clone(),
+        empty_tree,
         Arc::new(console_output_expression),
     ));
     {
@@ -40,29 +32,16 @@ async fn hello_world() {
             .unwrap();
         assert_eq!(
             concat!(
-            "(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.unused_arg) =>\n",
-            "  literal(9e86496e4fc3adcfd51c8c6682e52126e7aef897832893ceeeb0fae69a44705132bb8b008efcaa4e00ac1459bfefd01e80f098c5e6dd08aec60175d0d334d5a4)"),
+            "$env={literal(Tree { blob: TreeBlob { content.len(): 0 }, references: [] })}($arg) =>\n",
+            "  literal(Tree { blob: TreeBlob { content.len(): 0 }, references: [BlobDigest(\"d15b55538dda31e32a571857fe83d5cbb6a2e06bdc5b65ac88fed7827df359be7cefeef68b0a52023695d9f62eab69ea72b74fb7f89fd6974130454164333290\")] })"),
             program_as_string.as_str()
         );
     }
-    let read_variable: Arc<ReadVariable> = Arc::new(
-        move |_name: &Name| -> Pin<Box<dyn core::future::Future<Output = BlobDigest> + Send>> {
-            todo!()
-        },
-    );
-    let main_function = evaluate(&lambda_expression, &*storage, &*storage, &read_variable)
-        .await
-        .unwrap();
     let call_main = DeepExpression(Expression::make_apply(
-        Arc::new(DeepExpression(Expression::make_literal(main_function))),
-        Arc::new(DeepExpression(Expression::make_literal(
-            storage
-                .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
-                .await
-                .unwrap(),
-        ))),
+        Arc::new(lambda_expression),
+        Arc::new(DeepExpression(Expression::make_literal(Tree::empty()))),
     ));
-    let main_result = evaluate(&call_main, &*storage, &*storage, &read_variable)
+    let main_result = evaluate(&call_main, &*storage, &*storage, &None)
         .await
         .unwrap();
     let serialized_result = storage

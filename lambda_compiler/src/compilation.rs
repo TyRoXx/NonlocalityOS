@@ -3,7 +3,7 @@ use crate::{
     tokenization::tokenize_default_syntax,
     type_checking::check_types,
 };
-use astraea::storage::{StoreError, StoreTree};
+use astraea::storage::StoreError;
 use lambda::{expressions::DeepExpression, name::NamespaceId};
 use serde::{Deserialize, Serialize};
 
@@ -31,7 +31,7 @@ impl CompilerError {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct CompilerOutput {
     pub entry_point: Option<DeepExpression>,
     pub errors: Vec<CompilerError>,
@@ -46,12 +46,7 @@ impl CompilerOutput {
     }
 }
 
-pub async fn compile(
-    source: &str,
-    source_namespace: &NamespaceId,
-    generated_name_namespace: &NamespaceId,
-    storage: &dyn StoreTree,
-) -> Result<CompilerOutput, StoreError> {
+pub fn compile(source: &str, source_namespace: &NamespaceId) -> Result<CompilerOutput, StoreError> {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter().peekable();
     let mut result = parse_expression_tolerantly(&mut token_iterator, source_namespace);
@@ -66,10 +61,10 @@ pub async fn compile(
             ));
         }
     }
+    let mut environment_builder = crate::type_checking::EnvironmentBuilder::new();
     match &result.entry_point {
         Some(entry_point) => {
-            let type_check_result =
-                check_types(entry_point, generated_name_namespace, storage).await?;
+            let type_check_result = check_types(entry_point, &mut environment_builder)?;
             result.errors.extend(type_check_result.errors);
             Ok(CompilerOutput::new(
                 type_check_result.entry_point,

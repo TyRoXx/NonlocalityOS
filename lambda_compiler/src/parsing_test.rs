@@ -35,7 +35,10 @@ fn test_parse_lambda_0_parameters() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let expected = ast::Expression::Lambda {
         parameter_names: vec![],
-        body: Box::new(ast::Expression::Identifier(name)),
+        body: Box::new(ast::Expression::Identifier(
+            name,
+            SourceLocation { line: 0, column: 6 },
+        )),
     };
     test_wellformed_parsing(r#"() => f"#, expected);
 }
@@ -45,7 +48,10 @@ fn test_parse_lambda_1_parameter() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let expected = ast::Expression::Lambda {
         parameter_names: vec![name.clone()],
-        body: Box::new(ast::Expression::Identifier(name)),
+        body: Box::new(ast::Expression::Identifier(
+            name,
+            SourceLocation { line: 0, column: 7 },
+        )),
     };
     test_wellformed_parsing(r#"(f) => f"#, expected);
 }
@@ -60,7 +66,13 @@ fn test_parse_lambda_2_parameters() {
         "( f , g ) => f",
         "( f , g , ) => f",
     ] {
-        let f = ast::Expression::Identifier(Name::new(TEST_NAMESPACE, "f".to_string()));
+        let f = ast::Expression::Identifier(
+            Name::new(TEST_NAMESPACE, "f".to_string()),
+            SourceLocation {
+                line: 0,
+                column: (source.len() - 1) as u64,
+            },
+        );
         let expected = ast::Expression::Lambda {
             parameter_names: vec![
                 Name::new(TEST_NAMESPACE, "f".to_string()),
@@ -80,7 +92,13 @@ fn test_parse_nested_lambda() {
         parameter_names: vec![f.clone()],
         body: Box::new(ast::Expression::Lambda {
             parameter_names: vec![g],
-            body: Box::new(ast::Expression::Identifier(f)),
+            body: Box::new(ast::Expression::Identifier(
+                f,
+                SourceLocation {
+                    line: 0,
+                    column: 14,
+                },
+            )),
         }),
     };
     test_wellformed_parsing(r#"(f) => (g) => f"#, expected);
@@ -89,12 +107,17 @@ fn test_parse_nested_lambda() {
 #[test_log::test]
 fn test_parse_function_call_1_argument() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
-    let f = ast::Expression::Identifier(name.clone());
     let expected = ast::Expression::Lambda {
-        parameter_names: vec![name],
+        parameter_names: vec![name.clone()],
         body: Box::new(ast::Expression::Apply {
-            callee: Box::new(f.clone()),
-            arguments: vec![f],
+            callee: Box::new(ast::Expression::Identifier(
+                name.clone(),
+                SourceLocation { line: 0, column: 7 },
+            )),
+            arguments: vec![ast::Expression::Identifier(
+                name,
+                SourceLocation { line: 0, column: 9 },
+            )],
         }),
     };
     test_wellformed_parsing(r#"(f) => f(f)"#, expected);
@@ -136,7 +159,13 @@ fn test_parse_tree_construction_1_child() {
         "[a]", "[ a ]", "[ a, ]", "[a,]", "[a, ]", "[ a,]", "[ a ,]", " [ a ,] ",
     ] {
         let name = Name::new(TEST_NAMESPACE, "a".to_string());
-        let a = ast::Expression::Identifier(name.clone());
+        let a = ast::Expression::Identifier(
+            name.clone(),
+            SourceLocation {
+                line: 0,
+                column: source.find("a").unwrap() as u64,
+            },
+        );
         let expected = ast::Expression::ConstructTree(vec![a]);
         test_wellformed_parsing(source, expected);
     }
@@ -155,8 +184,20 @@ fn test_parse_tree_construction_2_children() {
         "[ a , b, ]",
         " [ a , b , ] ",
     ] {
-        let a = ast::Expression::Identifier(Name::new(TEST_NAMESPACE, "a".to_string()));
-        let b = ast::Expression::Identifier(Name::new(TEST_NAMESPACE, "b".to_string()));
+        let a = ast::Expression::Identifier(
+            Name::new(TEST_NAMESPACE, "a".to_string()),
+            SourceLocation {
+                line: 0,
+                column: source.find("a").unwrap() as u64,
+            },
+        );
+        let b = ast::Expression::Identifier(
+            Name::new(TEST_NAMESPACE, "b".to_string()),
+            SourceLocation {
+                line: 0,
+                column: source.find("b").unwrap() as u64,
+            },
+        );
         let expected = ast::Expression::ConstructTree(vec![a, b]);
         test_wellformed_parsing(source, expected);
     }
@@ -188,10 +229,13 @@ fn test_parse_missing_comma_between_parameters() {
 #[test_log::test]
 fn test_parse_braces() {
     for source in &["{a}", "{ a}", "{ a }", "{a }", " {a}"] {
-        let expected = ast::Expression::Braces(Box::new(ast::Expression::Identifier(Name::new(
-            TEST_NAMESPACE,
-            "a".to_string(),
-        ))));
+        let expected = ast::Expression::Braces(Box::new(ast::Expression::Identifier(
+            Name::new(TEST_NAMESPACE, "a".to_string()),
+            SourceLocation {
+                line: 0,
+                column: source.find("a").unwrap() as u64,
+            },
+        )));
         test_wellformed_parsing(source, expected);
     }
 }
