@@ -87,14 +87,14 @@ fn test_parse_nested_lambda() {
 }
 
 #[test_log::test]
-fn test_parse_function_call() {
+fn test_parse_function_call_1_argument() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
-    let f = Box::new(ast::Expression::Identifier(name.clone()));
+    let f = ast::Expression::Identifier(name.clone());
     let expected = ast::Expression::Lambda {
         parameter_names: vec![name],
         body: Box::new(ast::Expression::Apply {
-            callee: f.clone(),
-            argument: f,
+            callee: Box::new(f.clone()),
+            arguments: vec![f],
         }),
     };
     test_wellformed_parsing(r#"(f) => f(f)"#, expected);
@@ -102,12 +102,12 @@ fn test_parse_function_call() {
 
 #[test_log::test]
 fn test_parse_missing_argument() {
-    let tokens = tokenize_default_syntax(r#"(f) => f()"#);
+    let tokens = tokenize_default_syntax(r#"(f) => f(,)"#);
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
         Some(&Token::new(
-            TokenContent::RightParenthesis,
+            TokenContent::Comma,
             SourceLocation { line: 0, column: 9 }
         )),
         token_iterator.next()
@@ -115,7 +115,7 @@ fn test_parse_missing_argument() {
     let expected = ParserOutput::new(
         None,
         vec![CompilerError::new(
-            "Parser error: Expected expression, found right parenthesis.".to_string(),
+            "Parser error: Expected expression, found comma.".to_string(),
             SourceLocation::new(0, 9),
         )],
     );
@@ -183,4 +183,15 @@ fn test_parse_missing_comma_between_parameters() {
         )],
     );
     assert_eq!(expected, output);
+}
+
+#[test_log::test]
+fn test_parse_braces() {
+    for source in &["{a}", "{ a}", "{ a }", "{a }", " {a}"] {
+        let expected = ast::Expression::Braces(Box::new(ast::Expression::Identifier(Name::new(
+            TEST_NAMESPACE,
+            "a".to_string(),
+        ))));
+        test_wellformed_parsing(source, expected);
+    }
 }

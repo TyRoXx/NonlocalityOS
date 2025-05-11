@@ -69,7 +69,10 @@ async fn test_compile_function_call() {
     )));
     let entry_point = DeepExpression(Expression::make_lambda(
         name_in_output,
-        Arc::new(DeepExpression(Expression::make_apply(f.clone(), f))),
+        Arc::new(DeepExpression(Expression::make_apply(
+            f.clone(),
+            Arc::new(DeepExpression(Expression::ConstructTree(vec![f]))),
+        ))),
     ));
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -94,9 +97,12 @@ async fn test_compile_quotes() {
         print_generated_name,
         Arc::new(DeepExpression(Expression::make_apply(
             print.clone(),
-            Arc::new(DeepExpression(Expression::make_literal(
-                *HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap())).digest(),
-            ))),
+            Arc::new(DeepExpression(Expression::ConstructTree(vec![Arc::new(
+                DeepExpression(Expression::make_literal(
+                    *HashedTree::from(Arc::new(Tree::from_string("Hello, world!").unwrap()))
+                        .digest(),
+                )),
+            )]))),
         ))),
     ));
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
@@ -220,5 +226,24 @@ async fn test_compile_extra_token() {
             SourceLocation::new(0, 8),
         )],
     );
+    assert_eq!(Ok(expected), output);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_compile_braces() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let output = compile(
+        r#"() => {[]}"#,
+        &TEST_SOURCE_NAMESPACE,
+        &TEST_GENERATED_NAME_NAMESPACE,
+        &*storage,
+    )
+    .await;
+    let unused_name = Name::new(TEST_GENERATED_NAME_NAMESPACE, "".to_string());
+    let entry_point = DeepExpression(Expression::make_lambda(
+        unused_name,
+        Arc::new(DeepExpression(Expression::make_construct_tree(vec![]))),
+    ));
+    let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
 }

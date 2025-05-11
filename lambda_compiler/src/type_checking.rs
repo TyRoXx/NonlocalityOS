@@ -17,6 +17,30 @@ pub fn combine_parameter_names(parameter_names: &[Name], namespace_id: &Namespac
     Name::new(*namespace_id, combined)
 }
 
+async fn check_tree_construction_or_argument_list(
+    arguments: &[ast::Expression],
+    generated_name_namespace: &NamespaceId,
+    storage: &dyn StoreTree,
+) -> Result<CompilerOutput, StoreError> {
+    let mut errors = Vec::new();
+    let mut checked_arguments = Vec::new();
+    for argument in arguments {
+        let output = Box::pin(check_types(argument, generated_name_namespace, storage)).await?;
+        errors.extend(output.errors);
+        if let Some(checked) = output.entry_point {
+            checked_arguments.push(Arc::new(checked));
+        } else {
+            return Ok(CompilerOutput::new(None, errors));
+        }
+    }
+    Ok(CompilerOutput {
+        entry_point: Some(lambda::expressions::DeepExpression(
+            lambda::expressions::Expression::ConstructTree(checked_arguments),
+        )),
+        errors,
+    })
+}
+
 pub async fn check_types(
     syntax_tree: &ast::Expression,
     generated_name_namespace: &NamespaceId,
@@ -41,11 +65,16 @@ pub async fn check_types(
             )),
             Vec::new(),
         )),
-        ast::Expression::Apply { callee, argument } => {
+        ast::Expression::Apply { callee, arguments } => {
             let callee_output =
                 Box::pin(check_types(callee, generated_name_namespace, storage)).await?;
-            let argument_output =
-                Box::pin(check_types(argument, generated_name_namespace, storage)).await?;
+            // TODO: optimize by special casing N=1 to avoid indirection
+            let argument_output = Box::pin(check_tree_construction_or_argument_list(
+                &arguments[..],
+                generated_name_namespace,
+                storage,
+            ))
+            .await?;
             let errors = callee_output
                 .errors
                 .into_iter()
@@ -86,25 +115,18 @@ pub async fn check_types(
                 None => Ok(CompilerOutput::new(None, body_output.errors)),
             }
         }
-        ast::Expression::ConstructTree(expressions) => {
-            let mut errors = Vec::new();
-            let mut children = Vec::new();
-            for expression in expressions {
-                let output =
-                    Box::pin(check_types(expression, generated_name_namespace, storage)).await?;
-                errors.extend(output.errors);
-                if let Some(checked) = output.entry_point {
-                    children.push(Arc::new(checked));
-                } else {
-                    return Ok(CompilerOutput::new(None, errors));
-                }
-            }
-            Ok(CompilerOutput {
-                entry_point: Some(lambda::expressions::DeepExpression(
-                    lambda::expressions::Expression::ConstructTree(children),
-                )),
-                errors,
-            })
+        ast::Expression::ConstructTree(arguments) => {
+            check_tree_construction_or_argument_list(
+                &arguments[..],
+                generated_name_namespace,
+                storage,
+            )
+            .await
+        }
+        ast::Expression::Braces(expression) => {
+            let output =
+                Box::pin(check_types(expression, generated_name_namespace, storage)).await?;
+            Ok(output)
         }
     }
 }

@@ -6,11 +6,12 @@ pub enum Expression {
     StringLiteral(String),
     Apply {
         callee: Box<Expression>,
-        argument: Box<Expression>,
+        arguments: Vec<Expression>,
     },
     Lambda {
         parameter_names: Vec<Name>,
         body: Box<Expression>,
     },
     ConstructTree(Vec<Expression>),
+    Braces(Box<Expression>),
 }
