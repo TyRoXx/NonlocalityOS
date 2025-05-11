@@ -10,17 +10,29 @@ fn test_tokenize_default_syntax(source: &str, expected_tokens: &[Token]) {
 
 #[test_log::test]
 fn test_tokenize_default_syntax_empty_source() {
-    test_tokenize_default_syntax("", &[]);
+    test_tokenize_default_syntax(
+        "",
+        &[Token {
+            content: TokenContent::EndOfFile,
+            location: SourceLocation { line: 0, column: 0 },
+        }],
+    );
 }
 
 #[test_log::test]
 fn test_tokenize_default_syntax_space() {
     test_tokenize_default_syntax(
         " ",
-        &[Token {
-            content: TokenContent::Whitespace,
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::Whitespace,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 1 },
+            },
+        ],
     );
 }
 
@@ -28,10 +40,16 @@ fn test_tokenize_default_syntax_space() {
 fn test_tokenize_default_syntax_newline() {
     test_tokenize_default_syntax(
         "\n",
-        &[Token {
-            content: TokenContent::Whitespace,
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::Whitespace,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 1, column: 0 },
+            },
+        ],
     );
 }
 
@@ -96,6 +114,10 @@ fn test_tokenize_default_syntax_source_locations() {
                 content: TokenContent::RightBracket,
                 location: SourceLocation { line: 2, column: 8 },
             },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 2, column: 9 },
+            },
         ],
     );
 }
@@ -121,6 +143,10 @@ fn test_tokenize_default_syntax_assign_ambiguity_1() {
                 content: TokenContent::Assign,
                 location: SourceLocation { line: 0, column: 4 },
             },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 5 },
+            },
         ],
     );
 }
@@ -138,6 +164,10 @@ fn test_tokenize_default_syntax_assign_ambiguity_2() {
                 content: TokenContent::FatArrow,
                 location: SourceLocation { line: 0, column: 1 },
             },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 3 },
+            },
         ],
     );
 }
@@ -146,10 +176,19 @@ fn test_tokenize_default_syntax_assign_ambiguity_2() {
 fn test_tokenize_default_syntax_identifier() {
     test_tokenize_default_syntax(
         "testabcxyz",
-        &[Token {
-            content: TokenContent::Identifier("testabcxyz".to_string()),
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::Identifier("testabcxyz".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation {
+                    line: 0,
+                    column: 10,
+                },
+            },
+        ],
     );
 }
 
@@ -157,10 +196,16 @@ fn test_tokenize_default_syntax_identifier() {
 fn test_tokenize_default_syntax_assign() {
     test_tokenize_default_syntax(
         "=",
-        &[Token {
-            content: TokenContent::Assign,
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::Assign,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 1 },
+            },
+        ],
     );
 }
 
@@ -168,10 +213,16 @@ fn test_tokenize_default_syntax_assign() {
 fn test_tokenize_default_syntax_left_parenthesis() {
     test_tokenize_default_syntax(
         "(",
-        &[Token {
-            content: TokenContent::LeftParenthesis,
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::LeftParenthesis,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 1 },
+            },
+        ],
     );
 }
 
@@ -179,10 +230,16 @@ fn test_tokenize_default_syntax_left_parenthesis() {
 fn test_tokenize_default_syntax_right_parenthesis() {
     test_tokenize_default_syntax(
         ")",
-        &[Token {
-            content: TokenContent::RightParenthesis,
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::RightParenthesis,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 1 },
+            },
+        ],
     );
 }
 
@@ -190,10 +247,16 @@ fn test_tokenize_default_syntax_right_parenthesis() {
 fn test_tokenize_default_syntax_left_bracket() {
     test_tokenize_default_syntax(
         "[",
-        &[Token {
-            content: TokenContent::LeftBracket,
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::LeftBracket,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 1 },
+            },
+        ],
     );
 }
 
@@ -201,10 +264,16 @@ fn test_tokenize_default_syntax_left_bracket() {
 fn test_tokenize_default_syntax_right_bracket() {
     test_tokenize_default_syntax(
         "]",
-        &[Token {
-            content: TokenContent::RightBracket,
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::RightBracket,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 1 },
+            },
+        ],
     );
 }
 
@@ -212,10 +281,16 @@ fn test_tokenize_default_syntax_right_bracket() {
 fn test_tokenize_default_syntax_dot() {
     test_tokenize_default_syntax(
         ".",
-        &[Token {
-            content: TokenContent::Dot,
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::Dot,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 1 },
+            },
+        ],
     );
 }
 
@@ -223,20 +298,35 @@ fn test_tokenize_default_syntax_dot() {
 fn test_tokenize_default_syntax_fat_arrow() {
     test_tokenize_default_syntax(
         "=>",
-        &[Token {
-            content: TokenContent::FatArrow,
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::FatArrow,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 2 },
+            },
+        ],
     );
 }
 
 fn wellformed_quotes(string_content: &str) {
     test_tokenize_default_syntax(
         &format!("\"{string_content}\""),
-        &[Token {
-            content: TokenContent::Quotes(string_content.to_string()),
-            location: SourceLocation { line: 0, column: 0 },
-        }],
+        &[
+            Token {
+                content: TokenContent::Quotes(string_content.to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation {
+                    line: 0,
+                    column: 2 + string_content.len() as u64,
+                },
+            },
+        ],
     );
 }
 

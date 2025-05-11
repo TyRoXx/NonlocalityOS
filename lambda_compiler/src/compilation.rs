@@ -55,11 +55,16 @@ pub async fn compile(
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter().peekable();
     let mut result = parse_expression_tolerantly(&mut token_iterator, source_namespace);
-    if let Some(extra_token) = pop_next_non_whitespace_token(&mut token_iterator) {
-        result.errors.push(CompilerError::new(
-            "Unexpected token after the entry point lambda".to_string(),
-            extra_token.location,
-        ));
+    let final_token = pop_next_non_whitespace_token(&mut token_iterator)
+        .expect("Expected an end of file token after the entry point lambda");
+    match &final_token.content {
+        crate::tokenization::TokenContent::EndOfFile => {}
+        _ => {
+            result.errors.push(CompilerError::new(
+                "Unexpected token after the entry point lambda".to_string(),
+                final_token.location,
+            ));
+        }
     }
     match &result.entry_point {
         Some(entry_point) => {

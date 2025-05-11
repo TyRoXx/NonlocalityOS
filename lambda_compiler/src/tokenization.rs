@@ -24,6 +24,7 @@ pub enum TokenContent {
     FatArrow,
     // ,
     Comma,
+    EndOfFile,
 }
 
 #[derive(PartialEq, Debug)]
@@ -132,6 +133,10 @@ fn tokenize(source: &str, syntax: &hippeus_parser_generator::Parser) -> Vec<Toke
                     tokens.push(Token::new(token_content, previous_source_location));
                 }
                 if !has_extraneous_input {
+                    tokens.push(Token::new(
+                        TokenContent::EndOfFile,
+                        input.current_location(),
+                    ));
                     return tokens;
                 }
                 let new_source_location = input.current_location();

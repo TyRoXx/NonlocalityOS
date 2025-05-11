@@ -1,7 +1,7 @@
 use crate::ast;
 use crate::compilation::{CompilerError, SourceLocation};
 use crate::parsing::{parse_expression_tolerantly, ParserOutput};
-use crate::tokenization::Token;
+use crate::tokenization::{Token, TokenContent};
 use crate::{parsing::parse_expression, tokenization::tokenize_default_syntax};
 use lambda::name::{Name, NamespaceId};
 
@@ -12,7 +12,16 @@ fn parse_wellformed_expression(source: &str) -> ast::Expression {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression(&mut token_iterator, &TEST_NAMESPACE).unwrap();
-    assert_eq!(None, token_iterator.next());
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::EndOfFile,
+            SourceLocation {
+                line: 0,
+                column: source.len() as u64
+            }
+        )),
+        token_iterator.next()
+    );
     output
 }
 
@@ -96,12 +105,18 @@ fn test_parse_missing_argument() {
     let tokens = tokenize_default_syntax(r#"(f) => f()"#);
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
-    assert_eq!(None, token_iterator.next());
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::RightParenthesis,
+            SourceLocation { line: 0, column: 9 }
+        )),
+        token_iterator.next()
+    );
     let expected = ParserOutput::new(
         None,
         vec![CompilerError::new(
             "Parser error: Expected expression, found right parenthesis.".to_string(),
-            SourceLocation::new(0, 0),
+            SourceLocation::new(0, 9),
         )],
     );
     assert_eq!(expected, output);
@@ -164,7 +179,7 @@ fn test_parse_missing_comma_between_parameters() {
         vec![CompilerError::new(
             "Parser error: Expected comma or right parenthesis in lambda parameter list."
                 .to_string(),
-            SourceLocation::new(0, 0),
+            SourceLocation::new(0, 3),
         )],
     );
     assert_eq!(expected, output);

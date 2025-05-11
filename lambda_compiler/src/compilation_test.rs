@@ -25,7 +25,7 @@ async fn test_compile_empty_source() {
     let expected = CompilerOutput::new(
         None,
         vec![CompilerError::new(
-            "Parser error: Expected expression, got EOF.".to_string(),
+            "Parser error: Expected expression, got end of file.".to_string(),
             SourceLocation::new(0, 0),
         )],
     );
