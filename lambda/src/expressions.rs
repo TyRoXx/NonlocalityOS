@@ -26,7 +26,9 @@ where
 {
     Literal(TreeLike),
     Apply { callee: E, argument: E },
+    // deprecated
     ReadVariable(Name),
+    Argument,
     Lambda { parameter_name: Name, body: E },
     ConstructTree(Vec<E>),
 }
@@ -49,6 +51,9 @@ where
             }
             Expression::ReadVariable(name) => {
                 write!(writer, "{}", &name.key)
+            }
+            Expression::Argument => {
+                write!(writer, "$argument")
             }
             Expression::Lambda {
                 parameter_name,
@@ -124,6 +129,7 @@ where
                 argument: transform_expression(argument).await?,
             }),
             Expression::ReadVariable(name) => Ok(Expression::ReadVariable(name.clone())),
+            Expression::Argument => Ok(Expression::Argument),
             Expression::Lambda {
                 parameter_name,
                 body,
@@ -206,6 +212,7 @@ pub fn to_reference_expression(
             vec![*callee, *argument],
         ),
         Expression::ReadVariable(name) => (ReferenceExpression::ReadVariable(name.clone()), vec![]),
+        Expression::Argument => (ReferenceExpression::Argument, vec![]),
         Expression::Lambda {
             parameter_name,
             body,
@@ -425,6 +432,7 @@ async fn call_method(
         load_tree,
         store_tree,
         &read_variable_in_body,
+        &Some(*argument),
     ))
     .await
 }
@@ -441,6 +449,7 @@ fn find_captured_names(expression: &DeepExpression) -> BTreeSet<Name> {
             result
         }
         Expression::ReadVariable(name) => BTreeSet::from([name.clone()]),
+        Expression::Argument => BTreeSet::new(),
         Expression::Lambda {
             parameter_name,
             body,
@@ -465,8 +474,16 @@ pub async fn apply_evaluated_argument(
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
+    current_lambda_argument: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
-    let evaluated_callee = Box::pin(evaluate(callee, load_tree, store_tree, read_variable)).await?;
+    let evaluated_callee = Box::pin(evaluate(
+        callee,
+        load_tree,
+        store_tree,
+        read_variable,
+        current_lambda_argument,
+    ))
+    .await?;
     let closure = match Closure::deserialize(&evaluated_callee, load_tree).await {
         Ok(success) => success,
         Err(_) => todo!(),
@@ -489,15 +506,23 @@ pub async fn evaluate_apply(
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
+    current_lambda_argument: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
-    let evaluated_argument =
-        Box::pin(evaluate(argument, load_tree, store_tree, read_variable)).await?;
+    let evaluated_argument = Box::pin(evaluate(
+        argument,
+        load_tree,
+        store_tree,
+        read_variable,
+        current_lambda_argument,
+    ))
+    .await?;
     apply_evaluated_argument(
         callee,
         &evaluated_argument,
         load_tree,
         store_tree,
         read_variable,
+        current_lambda_argument,
     )
     .await
 }
@@ -507,13 +532,29 @@ pub async fn evaluate(
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
+    current_lambda_argument: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     match &expression.0 {
         Expression::Literal(literal_value) => Ok(*literal_value),
         Expression::Apply { callee, argument } => {
-            evaluate_apply(callee, argument, load_tree, store_tree, read_variable).await
+            evaluate_apply(
+                callee,
+                argument,
+                load_tree,
+                store_tree,
+                read_variable,
+                current_lambda_argument,
+            )
+            .await
         }
         Expression::ReadVariable(name) => Ok(read_variable(name).await),
+        Expression::Argument => {
+            if let Some(argument) = current_lambda_argument {
+                Ok(*argument)
+            } else {
+                todo!("We are not in a lambda context; argument is not available")
+            }
+        }
         Expression::Lambda {
             parameter_name,
             body,
@@ -530,8 +571,14 @@ pub async fn evaluate(
         Expression::ConstructTree(arguments) => {
             let mut evaluated_arguments = Vec::new();
             for argument in arguments {
-                let evaluated_argument =
-                    Box::pin(evaluate(argument, load_tree, store_tree, read_variable)).await?;
+                let evaluated_argument = Box::pin(evaluate(
+                    argument,
+                    load_tree,
+                    store_tree,
+                    read_variable,
+                    current_lambda_argument,
+                ))
+                .await?;
                 evaluated_arguments.push(evaluated_argument);
             }
             Ok(

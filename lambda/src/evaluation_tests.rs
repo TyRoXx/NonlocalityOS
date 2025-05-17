@@ -18,7 +18,7 @@ async fn expect_evaluate_result(
     expected_result: &BlobDigest,
 ) {
     let read_variable: Arc<ReadVariable> = Arc::new(|_name| todo!());
-    let evaluated = evaluate(expression, &*storage, &*storage, &read_variable).await;
+    let evaluated = evaluate(expression, &*storage, &*storage, &read_variable, &None).await;
     assert_eq!(Ok(*expected_result), evaluated);
 }
 
@@ -33,10 +33,7 @@ async fn test_lambda_parameter() {
         .unwrap();
     let lambda = DeepExpression(Expression::make_lambda(
         Name::new(TEST_NAMESPACE, "x".to_string()),
-        Arc::new(DeepExpression(Expression::ReadVariable(Name::new(
-            TEST_NAMESPACE,
-            "x".to_string(),
-        )))),
+        Arc::new(DeepExpression(Expression::Argument)),
     ));
     let apply = DeepExpression(Expression::make_apply(
         Arc::new(lambda),

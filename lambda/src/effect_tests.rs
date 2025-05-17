@@ -81,6 +81,7 @@ async fn effect() {
         &*storage,
         &*storage,
         &read_variable,
+        &None,
     )
     .await
     .unwrap();
@@ -103,7 +104,7 @@ async fn effect() {
         format!("{}", &call_main_digest)
     );
 
-    let main_result = evaluate(&call_main, &*storage, &*storage, &read_variable)
+    let main_result = evaluate(&call_main, &*storage, &*storage, &read_variable, &None)
         .await
         .unwrap();
     assert_eq!(
