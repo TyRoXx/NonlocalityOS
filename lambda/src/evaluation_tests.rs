@@ -25,6 +25,12 @@ async fn expect_evaluate_result(
 #[test_log::test(tokio::test)]
 async fn test_lambda_parameter() {
     let storage = InMemoryTreeStorage::empty();
+    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(
+        storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+            .await
+            .unwrap(),
+    )));
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(
             Tree::from_string("Hello, world!").unwrap(),
@@ -32,6 +38,7 @@ async fn test_lambda_parameter() {
         .await
         .unwrap();
     let lambda = DeepExpression(Expression::make_lambda(
+        empty_tree,
         Name::new(TEST_NAMESPACE, "x".to_string()),
         Arc::new(DeepExpression(Expression::Argument)),
     ));

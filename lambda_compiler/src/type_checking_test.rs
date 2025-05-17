@@ -3,9 +3,12 @@ use crate::{
     compilation::CompilerOutput,
     type_checking::{check_types, combine_parameter_names},
 };
-use astraea::storage::InMemoryTreeStorage;
+use astraea::{
+    storage::{InMemoryTreeStorage, StoreTree},
+    tree::{HashedTree, Tree},
+};
 use lambda::{
-    expressions::DeepExpression,
+    expressions::{DeepExpression, Expression},
     name::{Name, NamespaceId},
 };
 use std::sync::Arc;
@@ -50,10 +53,17 @@ async fn test_check_types_lambda_0_parameters() {
         body: Box::new(ast::Expression::Identifier(x_in_source.clone())),
     };
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(
+        storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+            .await
+            .unwrap(),
+    )));
     let output = check_types(&input, &TEST_GENERATED_NAME_NAMESPACE, &*storage).await;
     let parameter_name_in_output = Name::new(TEST_GENERATED_NAME_NAMESPACE, "".to_string());
     let expected = CompilerOutput::new(
         Some(DeepExpression(lambda::expressions::Expression::Lambda {
+            environment: empty_tree,
             parameter_name: parameter_name_in_output,
             body: Arc::new(DeepExpression(
                 lambda::expressions::Expression::ReadVariable(x_in_source),
@@ -72,10 +82,17 @@ async fn test_check_types_lambda_1_parameter() {
         body: Box::new(ast::Expression::Identifier(x_in_source.clone())),
     };
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(
+        storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+            .await
+            .unwrap(),
+    )));
     let output = check_types(&input, &TEST_GENERATED_NAME_NAMESPACE, &*storage).await;
     let parameter_name_in_output = Name::new(TEST_GENERATED_NAME_NAMESPACE, "x".to_string());
     let expected = CompilerOutput::new(
         Some(DeepExpression(lambda::expressions::Expression::Lambda {
+            environment: empty_tree,
             parameter_name: parameter_name_in_output,
             body: Arc::new(DeepExpression(
                 lambda::expressions::Expression::ReadVariable(x_in_source),
@@ -95,10 +112,17 @@ async fn test_check_types_lambda_2_parameters() {
         body: Box::new(ast::Expression::Identifier(x_in_source.clone())),
     };
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(
+        storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+            .await
+            .unwrap(),
+    )));
     let output = check_types(&input, &TEST_GENERATED_NAME_NAMESPACE, &*storage).await;
     let parameter_name_in_output = Name::new(TEST_GENERATED_NAME_NAMESPACE, "x_y".to_string());
     let expected = CompilerOutput::new(
         Some(DeepExpression(lambda::expressions::Expression::Lambda {
+            environment: empty_tree,
             parameter_name: parameter_name_in_output,
             body: Arc::new(DeepExpression(
                 lambda::expressions::Expression::ReadVariable(x_in_source),

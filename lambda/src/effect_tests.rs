@@ -14,6 +14,12 @@ use std::{pin::Pin, sync::Arc};
 #[test_log::test(tokio::test)]
 async fn effect() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(
+        storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+            .await
+            .unwrap(),
+    )));
     let namespace = NamespaceId([42; 16]);
 
     let first_string = Arc::new(Tree::from_string("Hello, ").unwrap());
@@ -45,6 +51,7 @@ async fn effect() {
 
     let and_then_lambda_parameter_name = Name::new(namespace, "previous_result".to_string());
     let and_then_lambda_expression = DeepExpression(Expression::make_lambda(
+        empty_tree.clone(),
         and_then_lambda_parameter_name.clone(),
         Arc::new(second_console_output_expression),
     ));
@@ -55,6 +62,7 @@ async fn effect() {
     ]));
 
     let main_lambda_expression = DeepExpression(Expression::make_lambda(
+        empty_tree.clone(),
         main_lambda_parameter_name.clone(),
         Arc::new(construct_and_then_expression),
     ));
@@ -65,8 +73,8 @@ async fn effect() {
             .print(&mut program_as_string, 0)
             .unwrap();
         assert_eq!(concat!(
-            "(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.main_arg) =>\n",
-            "  [literal(3d68922f2a62988e48e9734f5107de0aef4f1d088bb67bfada36bcd8d9288a750d6217bd9a88f498c78b76040ef29bbb136bfaea876601d02405546160b2fd9d), (2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.previous_result) =>\n",
+            "$env={literal(f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909)}(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.main_arg) =>\n",
+            "  [literal(3d68922f2a62988e48e9734f5107de0aef4f1d088bb67bfada36bcd8d9288a750d6217bd9a88f498c78b76040ef29bbb136bfaea876601d02405546160b2fd9d), $env={literal(f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909)}(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.previous_result) =>\n",
             "    [main_arg, ], ]"),
             program_as_string.as_str());
     }
@@ -98,8 +106,8 @@ async fn effect() {
     assert_eq!(call_main, deserialized_call_main);
     assert_eq!(
         concat!(
-            "e43bae530b6c212df1e2fc3284723a87f3f1449a76f6a0ee45b048391ffe182a",
-            "ed2f88975a478a7db6001879ac12d4d837b988401b1be1cb4e14789600f134a9"
+            "b824126569e1e7d12491ba15ceaad5251532f137fe767bfc43c77232883fee8c",
+            "6af20b981f855fdb159210deca6f2095ef9997f7c94a45ec90b5826b61e5cd1c"
         ),
         format!("{}", &call_main_digest)
     );
@@ -109,8 +117,8 @@ async fn effect() {
         .unwrap();
     assert_eq!(
         concat!(
-            "37efb7833e4c3b04558ab90bfb56209ea92657f4791332d97e40556b57be4554",
-            "04a5a202d58718994be05dbeece093c57a2a708bfaee625db1a3136bb591b457"
+            "07303dad8ad5bf347e9234a938b0d2c7fefcd6e8e505aa48ada0fbcaa7e509ca",
+            "810edee144769422aa1d29b8906a393d7f11735444f573037b349a6cac9a96e3"
         ),
         format!("{}", &main_result)
     );

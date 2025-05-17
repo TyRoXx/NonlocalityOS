@@ -11,6 +11,12 @@ use std::{pin::Pin, sync::Arc};
 #[test_log::test(tokio::test)]
 async fn hello_world() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(
+        storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+            .await
+            .unwrap(),
+    )));
     let namespace = NamespaceId([42; 16]);
     let hello_world_string = Arc::new(Tree::from_string("Hello, world!\n").unwrap());
     let hello_world_string_ref = storage
@@ -29,6 +35,7 @@ async fn hello_world() {
     ));
     let lambda_parameter_name = Name::new(namespace, "unused_arg".to_string());
     let lambda_expression = DeepExpression(Expression::make_lambda(
+        empty_tree,
         lambda_parameter_name.clone(),
         Arc::new(console_output_expression),
     ));
@@ -40,7 +47,7 @@ async fn hello_world() {
             .unwrap();
         assert_eq!(
             concat!(
-            "(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.unused_arg) =>\n",
+            "$env={literal(f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909)}(2a2a2a2a-2a2a-2a2a-2a2a-2a2a2a2a2a2a.unused_arg) =>\n",
             "  literal(9e86496e4fc3adcfd51c8c6682e52126e7aef897832893ceeeb0fae69a44705132bb8b008efcaa4e00ac1459bfefd01e80f098c5e6dd08aec60175d0d334d5a4)"),
             program_as_string.as_str()
         );

@@ -3,7 +3,10 @@ use astraea::{
     storage::{StoreError, StoreTree},
     tree::{HashedTree, Tree},
 };
-use lambda::name::{Name, NamespaceId};
+use lambda::{
+    expressions::{DeepExpression, Expression},
+    name::{Name, NamespaceId},
+};
 use std::sync::Arc;
 
 pub fn combine_parameter_names(parameter_names: &[Name], namespace_id: &NamespaceId) -> Name {
@@ -103,6 +106,12 @@ pub async fn check_types(
                 Some(body_checked) => Ok(CompilerOutput {
                     entry_point: Some(lambda::expressions::DeepExpression(
                         lambda::expressions::Expression::Lambda {
+                            // TODO: capture variables
+                            environment: Arc::new(DeepExpression(Expression::make_literal(
+                                storage
+                                    .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+                                    .await?,
+                            ))),
                             parameter_name: combine_parameter_names(
                                 &parameter_names[..],
                                 generated_name_namespace,
