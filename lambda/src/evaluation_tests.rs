@@ -1,10 +1,10 @@
+use crate::{
+    expressions::{evaluate, DeepExpression, Expression, ReadVariable},
+    name::{Name, NamespaceId},
+};
 use astraea::{
     storage::{InMemoryTreeStorage, StoreTree},
     tree::{BlobDigest, HashedTree, Tree},
-};
-use lambda::{
-    expressions::{evaluate, DeepExpression, Expression, ReadVariable},
-    name::{Name, NamespaceId},
 };
 use std::sync::Arc;
 

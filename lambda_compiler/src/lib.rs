@@ -23,6 +23,3 @@ mod tokenization_test;
 
 #[cfg(test)]
 mod examples_test;
-
-#[cfg(test)]
-mod evaluation_tests;
