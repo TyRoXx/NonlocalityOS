@@ -16,7 +16,7 @@ async-stream = "0"
 bytes = "1"
 tracing = "0"
 tracing-subscriber = "0"
-relative-path = "1"
+relative-path = "2"
 futures = "0"
 chrono = "0"
 rusqlite = {version = "0", features = ["bundled"]}
