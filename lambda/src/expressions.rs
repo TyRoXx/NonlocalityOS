@@ -25,9 +25,19 @@ where
     TreeLike: Clone + Display,
 {
     Literal(TreeLike),
-    Apply { callee: E, argument: E },
+    Apply {
+        callee: E,
+        argument: E,
+    },
+    // deprecated
     ReadVariable(Name),
-    Lambda { parameter_name: Name, body: E },
+    Argument,
+    Environment,
+    Lambda {
+        environment: E,
+        parameter_name: Name,
+        body: E,
+    },
     ConstructTree(Vec<E>),
 }
 
@@ -50,12 +60,21 @@ where
             Expression::ReadVariable(name) => {
                 write!(writer, "{}", &name.key)
             }
+            Expression::Argument => {
+                write!(writer, "$arg")
+            }
+            Expression::Environment => {
+                write!(writer, "$env")
+            }
             Expression::Lambda {
+                environment,
                 parameter_name,
                 body,
             } => {
-                writeln!(writer, "({parameter_name}) =>")?;
+                write!(writer, "$env={{")?;
                 let indented = level + 1;
+                environment.print(writer, indented)?;
+                writeln!(writer, "}}({parameter_name}) =>")?;
                 for _ in 0..(indented * 2) {
                     write!(writer, " ")?;
                 }
@@ -86,8 +105,9 @@ where
         Expression::Apply { callee, argument }
     }
 
-    pub fn make_lambda(parameter_name: Name, body: E) -> Self {
+    pub fn make_lambda(environment: E, parameter_name: Name, body: E) -> Self {
         Expression::Lambda {
+            environment,
             parameter_name,
             body,
         }
@@ -124,10 +144,14 @@ where
                 argument: transform_expression(argument).await?,
             }),
             Expression::ReadVariable(name) => Ok(Expression::ReadVariable(name.clone())),
+            Expression::Argument => Ok(Expression::Argument),
+            Expression::Environment => Ok(Expression::Environment),
             Expression::Lambda {
+                environment,
                 parameter_name,
                 body,
             } => Ok(Expression::Lambda {
+                environment: transform_expression(environment).await?,
                 parameter_name: parameter_name.clone(),
                 body: transform_expression(body).await?,
             }),
@@ -206,15 +230,19 @@ pub fn to_reference_expression(
             vec![*callee, *argument],
         ),
         Expression::ReadVariable(name) => (ReferenceExpression::ReadVariable(name.clone()), vec![]),
+        Expression::Argument => (ReferenceExpression::Argument, vec![]),
+        Expression::Environment => (ReferenceExpression::Environment, vec![]),
         Expression::Lambda {
+            environment,
             parameter_name,
             body,
         } => (
             ReferenceExpression::Lambda {
+                environment: ReferenceIndex(0),
                 parameter_name: parameter_name.clone(),
-                body: ReferenceIndex(0),
+                body: ReferenceIndex(1),
             },
-            vec![*body],
+            vec![*environment, *body],
         ),
         Expression::ConstructTree(items) => (
             ReferenceExpression::ConstructTree(
@@ -313,6 +341,7 @@ pub async fn serialize_recursively(
 
 #[derive(Debug)]
 pub struct Closure {
+    environment: BlobDigest,
     parameter_name: Name,
     body: Arc<DeepExpression>,
     captured_variables: BTreeMap<Name, BlobDigest>,
@@ -335,11 +364,13 @@ impl ClosureBlob {
 
 impl Closure {
     pub fn new(
+        environment: BlobDigest,
         parameter_name: Name,
         body: Arc<DeepExpression>,
         captured_variables: BTreeMap<Name, BlobDigest>,
     ) -> Self {
         Self {
+            environment,
             parameter_name,
             body,
             captured_variables,
@@ -350,7 +381,10 @@ impl Closure {
         &self,
         store_tree: &(dyn StoreTree + Sync),
     ) -> Result<BlobDigest, StoreError> {
-        let mut references = vec![serialize_recursively(&self.body, store_tree).await?];
+        let mut references = vec![
+            self.environment,
+            serialize_recursively(&self.body, store_tree).await?,
+        ];
         let mut captured_variables = BTreeMap::new();
         for (name, reference) in self.captured_variables.iter() {
             let index = ReferenceIndex(references.len() as u64);
@@ -380,7 +414,8 @@ impl Closure {
             Ok(success) => success,
             Err(error) => return Err(TreeDeserializationError::Postcard(error)),
         };
-        let body_reference = &root_tree.references()[0];
+        let environment_reference = &root_tree.references()[0];
+        let body_reference = &root_tree.references()[1];
         let body = deserialize_recursively(body_reference, load_tree).await.unwrap(/*TODO*/);
         let mut captured_variables = BTreeMap::new();
         for (name, index) in closure_blob.captured_variables {
@@ -388,6 +423,7 @@ impl Closure {
             captured_variables.insert(name, *reference);
         }
         Ok(Closure::new(
+            *environment_reference,
             closure_blob.parameter_name,
             Arc::new(body),
             captured_variables,
@@ -425,6 +461,7 @@ async fn call_method(
         load_tree,
         store_tree,
         &read_variable_in_body,
+        &Some(*argument),
     ))
     .await
 }
@@ -441,7 +478,10 @@ fn find_captured_names(expression: &DeepExpression) -> BTreeSet<Name> {
             result
         }
         Expression::ReadVariable(name) => BTreeSet::from([name.clone()]),
+        Expression::Argument => BTreeSet::new(),
+        Expression::Environment => BTreeSet::new(),
         Expression::Lambda {
+            environment: _,
             parameter_name,
             body,
         } => {
@@ -465,8 +505,16 @@ pub async fn apply_evaluated_argument(
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
+    current_lambda_argument: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
-    let evaluated_callee = Box::pin(evaluate(callee, load_tree, store_tree, read_variable)).await?;
+    let evaluated_callee = Box::pin(evaluate(
+        callee,
+        load_tree,
+        store_tree,
+        read_variable,
+        current_lambda_argument,
+    ))
+    .await?;
     let closure = match Closure::deserialize(&evaluated_callee, load_tree).await {
         Ok(success) => success,
         Err(_) => todo!(),
@@ -489,15 +537,23 @@ pub async fn evaluate_apply(
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
+    current_lambda_argument: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
-    let evaluated_argument =
-        Box::pin(evaluate(argument, load_tree, store_tree, read_variable)).await?;
+    let evaluated_argument = Box::pin(evaluate(
+        argument,
+        load_tree,
+        store_tree,
+        read_variable,
+        current_lambda_argument,
+    ))
+    .await?;
     apply_evaluated_argument(
         callee,
         &evaluated_argument,
         load_tree,
         store_tree,
         read_variable,
+        current_lambda_argument,
     )
     .await
 }
@@ -507,31 +563,70 @@ pub async fn evaluate(
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
     read_variable: &Arc<ReadVariable>,
+    current_lambda_argument: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     match &expression.0 {
         Expression::Literal(literal_value) => Ok(*literal_value),
         Expression::Apply { callee, argument } => {
-            evaluate_apply(callee, argument, load_tree, store_tree, read_variable).await
+            evaluate_apply(
+                callee,
+                argument,
+                load_tree,
+                store_tree,
+                read_variable,
+                current_lambda_argument,
+            )
+            .await
         }
         Expression::ReadVariable(name) => Ok(read_variable(name).await),
+        Expression::Argument => {
+            if let Some(argument) = current_lambda_argument {
+                Ok(*argument)
+            } else {
+                todo!("We are not in a lambda context; argument is not available")
+            }
+        }
+        Expression::Environment => {
+            todo!()
+        }
         Expression::Lambda {
+            environment,
             parameter_name,
             body,
         } => {
+            let evaluated_environment = Box::pin(evaluate(
+                environment,
+                load_tree,
+                store_tree,
+                read_variable,
+                current_lambda_argument,
+            ))
+            .await?;
             let mut captured_variables = BTreeMap::new();
             for captured_name in find_captured_names(body).into_iter() {
                 let captured_variable_value = read_variable(&captured_name).await;
                 captured_variables.insert(captured_name, captured_variable_value);
             }
-            let closure = Closure::new(parameter_name.clone(), body.clone(), captured_variables);
+            let closure = Closure::new(
+                evaluated_environment,
+                parameter_name.clone(),
+                body.clone(),
+                captured_variables,
+            );
             let serialized = closure.serialize(store_tree).await?;
             Ok(serialized)
         }
         Expression::ConstructTree(arguments) => {
             let mut evaluated_arguments = Vec::new();
             for argument in arguments {
-                let evaluated_argument =
-                    Box::pin(evaluate(argument, load_tree, store_tree, read_variable)).await?;
+                let evaluated_argument = Box::pin(evaluate(
+                    argument,
+                    load_tree,
+                    store_tree,
+                    read_variable,
+                    current_lambda_argument,
+                ))
+                .await?;
                 evaluated_arguments.push(evaluated_argument);
             }
             Ok(

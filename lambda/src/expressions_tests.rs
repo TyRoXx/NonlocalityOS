@@ -20,21 +20,29 @@ async fn test_to_reference_expression_read_variable() {
 
 #[test_log::test(tokio::test)]
 async fn print_all_expression_types() {
-    let literal: DeepExpression =
+    let literal_1: DeepExpression =
+        DeepExpression(Expression::make_literal(BlobDigest(([1; 32], [1; 32]))));
+    let literal_2: DeepExpression =
         DeepExpression(Expression::make_literal(BlobDigest(([0; 32], [0; 32]))));
     let name = Name::new(NamespaceId([0xff; 16]), "name".to_string());
     let read_variable = DeepExpression(Expression::ReadVariable(name.clone()));
     let construct = DeepExpression(Expression::make_construct_tree(vec![Arc::new(
         read_variable,
     )]));
-    let lambda = DeepExpression(Expression::make_lambda(name, Arc::new(construct)));
-    let apply: DeepExpression =
-        DeepExpression(Expression::make_apply(Arc::new(lambda), Arc::new(literal)));
+    let lambda = DeepExpression(Expression::make_lambda(
+        Arc::new(literal_1),
+        name,
+        Arc::new(construct),
+    ));
+    let apply: DeepExpression = DeepExpression(Expression::make_apply(
+        Arc::new(lambda),
+        Arc::new(literal_2),
+    ));
     let mut writer = String::new();
     apply.print(&mut writer, 0).unwrap();
     assert_eq!(
         concat!(
-            "(ffffffff-ffff-ffff-ffff-ffffffffffff.name) =>\n",
+            "$env={literal(01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101)}(ffffffff-ffff-ffff-ffff-ffffffffffff.name) =>\n",
             "  [name, ](literal(00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000))"),
         writer.as_str());
 }
