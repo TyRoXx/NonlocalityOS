@@ -108,6 +108,10 @@ impl EnvironmentBuilder {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.lambda_layers.is_empty()
+    }
+
     pub fn enter_lambda_body(&mut self, parameter_names: &[Name]) {
         self.lambda_layers.push(LambdaScope::new(parameter_names));
     }

@@ -31,6 +31,7 @@ async fn test_check_types_lambda_0_parameters() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
+    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -61,6 +62,7 @@ async fn test_check_types_lambda_1_parameter() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
+    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -95,6 +97,7 @@ async fn test_check_types_lambda_2_parameters() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
+    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -143,6 +146,7 @@ async fn test_check_types_lambda_capture_outer_argument() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
+    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -223,6 +227,7 @@ async fn test_check_types_lambda_capture_multiple_variables() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
+    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -325,6 +330,7 @@ async fn test_check_types_lambda_capture_multiple_layers() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
+    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -350,6 +356,7 @@ async fn test_unknown_identifier() {
         )],
     );
     assert_eq!(output, Ok(expected));
+    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -385,4 +392,5 @@ async fn test_lambda_parameter_scoping() {
         )],
     );
     assert_eq!(output, Ok(expected));
+    assert!(environment_builder.is_empty());
 }

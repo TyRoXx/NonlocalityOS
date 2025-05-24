@@ -62,7 +62,7 @@ pub fn compile(source: &str, source_namespace: &NamespaceId) -> Result<CompilerO
         }
     }
     let mut environment_builder = crate::type_checking::EnvironmentBuilder::new();
-    match &result.entry_point {
+    let result = match &result.entry_point {
         Some(entry_point) => {
             let type_check_result = check_types(entry_point, &mut environment_builder)?;
             result.errors.extend(type_check_result.errors);
@@ -72,5 +72,7 @@ pub fn compile(source: &str, source_namespace: &NamespaceId) -> Result<CompilerO
             ))
         }
         None => Ok(CompilerOutput::new(None, result.errors)),
-    }
+    };
+    assert!(environment_builder.is_empty());
+    result
 }
