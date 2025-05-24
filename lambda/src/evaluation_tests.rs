@@ -10,7 +10,9 @@ async fn expect_evaluate_result(
     storage: &InMemoryTreeStorage,
     expected_result: &Tree,
 ) {
-    let evaluated_digest = evaluate(expression, storage, storage, &None).await.unwrap();
+    let evaluated_digest = evaluate(expression, storage, storage, &None, &None)
+        .await
+        .unwrap();
     let evaluated = storage
         .load_tree(&evaluated_digest)
         .await

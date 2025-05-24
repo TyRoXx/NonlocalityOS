@@ -67,11 +67,20 @@ impl LambdaScope {
     }
 
     pub fn capture(&mut self, expression: Arc<DeepExpression>) -> CompilerOutput {
+        let index = self
+            .captures
+            .len()
+            .try_into()
+            .expect("TODO handle too many captures");
         self.captures.push(expression);
         CompilerOutput::new(
             Some(lambda::expressions::DeepExpression(
-                lambda::expressions::Expression::make_environment(),
-                /*TODO: get nth element*/
+                lambda::expressions::Expression::make_get_child(
+                    Arc::new(DeepExpression(
+                        lambda::expressions::Expression::make_environment(),
+                    )),
+                    index,
+                ),
             )),
             Vec::new(),
         )

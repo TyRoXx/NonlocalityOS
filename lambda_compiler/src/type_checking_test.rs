@@ -131,8 +131,195 @@ async fn test_check_types_lambda_capture_outer_argument() {
                     )]),
                 )),
                 body: Arc::new(DeepExpression(
-                    lambda::expressions::Expression::make_environment(),
+                    lambda::expressions::Expression::make_get_child(
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_environment(),
+                        )),
+                        0,
+                    ),
                 )),
+            })),
+        })),
+        Vec::new(),
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_check_types_lambda_capture_multiple_variables() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
+    let input = ast::Expression::Lambda {
+        parameter_names: vec![x_in_source.clone(), y_in_source.clone()],
+        body: Box::new(ast::Expression::Lambda {
+            parameter_names: vec![],
+            body: Box::new(ast::Expression::ConstructTree(vec![
+                ast::Expression::Identifier(
+                    x_in_source.clone(),
+                    SourceLocation {
+                        line: 0,
+                        column: 10,
+                    },
+                ),
+                ast::Expression::Identifier(
+                    y_in_source.clone(),
+                    SourceLocation {
+                        line: 0,
+                        column: 13,
+                    },
+                ),
+            ])),
+        }),
+    };
+    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+    let mut environment_builder = EnvironmentBuilder::new();
+    let output = check_types(&input, &mut environment_builder);
+    let expected = CompilerOutput::new(
+        Some(DeepExpression(lambda::expressions::Expression::Lambda {
+            environment: empty_tree,
+            body: Arc::new(DeepExpression(lambda::expressions::Expression::Lambda {
+                environment: Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_construct_tree(vec![
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_get_child(
+                                Arc::new(DeepExpression(
+                                    lambda::expressions::Expression::make_argument(),
+                                )),
+                                0,
+                            ),
+                        )),
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_get_child(
+                                Arc::new(DeepExpression(
+                                    lambda::expressions::Expression::make_argument(),
+                                )),
+                                1,
+                            ),
+                        )),
+                    ]),
+                )),
+                body: Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_construct_tree(vec![
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_get_child(
+                                Arc::new(DeepExpression(
+                                    lambda::expressions::Expression::make_environment(),
+                                )),
+                                0,
+                            ),
+                        )),
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_get_child(
+                                Arc::new(DeepExpression(
+                                    lambda::expressions::Expression::make_environment(),
+                                )),
+                                1,
+                            ),
+                        )),
+                    ]),
+                )),
+            })),
+        })),
+        Vec::new(),
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_check_types_lambda_capture_multiple_layers() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
+    let input = ast::Expression::Lambda {
+        parameter_names: vec![x_in_source.clone()],
+        body: Box::new(ast::Expression::Lambda {
+            parameter_names: vec![y_in_source.clone()],
+            body: Box::new(ast::Expression::Lambda {
+                parameter_names: vec![],
+                body: Box::new(ast::Expression::ConstructTree(vec![
+                    ast::Expression::Identifier(
+                        x_in_source.clone(),
+                        SourceLocation {
+                            line: 0,
+                            column: 10,
+                        },
+                    ),
+                    ast::Expression::Identifier(
+                        y_in_source.clone(),
+                        SourceLocation {
+                            line: 0,
+                            column: 13,
+                        },
+                    ),
+                ])),
+            }),
+        }),
+    };
+    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+    let mut environment_builder = EnvironmentBuilder::new();
+    let output = check_types(&input, &mut environment_builder);
+    let expected = CompilerOutput::new(
+        Some(DeepExpression(lambda::expressions::Expression::Lambda {
+            environment: empty_tree,
+            body: Arc::new(DeepExpression(lambda::expressions::Expression::Lambda {
+                environment: Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_construct_tree(vec![
+                        // x
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_get_child(
+                                Arc::new(DeepExpression(
+                                    lambda::expressions::Expression::make_argument(),
+                                )),
+                                0,
+                            ),
+                        )),
+                    ]),
+                )),
+                body: Arc::new(DeepExpression(lambda::expressions::Expression::Lambda {
+                    environment: Arc::new(DeepExpression(
+                        lambda::expressions::Expression::make_construct_tree(vec![
+                            // x
+                            Arc::new(DeepExpression(
+                                lambda::expressions::Expression::make_get_child(
+                                    Arc::new(DeepExpression(
+                                        lambda::expressions::Expression::make_environment(),
+                                    )),
+                                    0,
+                                ),
+                            )),
+                            // y
+                            Arc::new(DeepExpression(
+                                lambda::expressions::Expression::make_get_child(
+                                    Arc::new(DeepExpression(
+                                        lambda::expressions::Expression::make_argument(),
+                                    )),
+                                    0,
+                                ),
+                            )),
+                        ]),
+                    )),
+                    body: Arc::new(DeepExpression(
+                        lambda::expressions::Expression::make_construct_tree(vec![
+                            // x
+                            Arc::new(DeepExpression(
+                                lambda::expressions::Expression::make_get_child(
+                                    Arc::new(DeepExpression(
+                                        lambda::expressions::Expression::make_environment(),
+                                    )),
+                                    0,
+                                ),
+                            )),
+                            // y
+                            Arc::new(DeepExpression(
+                                lambda::expressions::Expression::make_get_child(
+                                    Arc::new(DeepExpression(
+                                        lambda::expressions::Expression::make_environment(),
+                                    )),
+                                    1,
+                                ),
+                            )),
+                        ]),
+                    )),
+                })),
             })),
         })),
         Vec::new(),

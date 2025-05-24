@@ -41,7 +41,7 @@ async fn hello_world() {
         Arc::new(lambda_expression),
         Arc::new(DeepExpression(Expression::make_literal(Tree::empty()))),
     ));
-    let main_result = evaluate(&call_main, &*storage, &*storage, &None)
+    let main_result = evaluate(&call_main, &*storage, &*storage, &None, &None)
         .await
         .unwrap();
     let serialized_result = storage

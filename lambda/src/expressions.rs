@@ -395,10 +395,18 @@ impl Closure {
 async fn call_method(
     body: &DeepExpression,
     argument: &BlobDigest,
+    environment: &BlobDigest,
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
 ) -> std::result::Result<BlobDigest, StoreError> {
-    Box::pin(evaluate(body, load_tree, store_tree, &Some(*argument))).await
+    Box::pin(evaluate(
+        body,
+        load_tree,
+        store_tree,
+        &Some(*argument),
+        &Some(*environment),
+    ))
+    .await
 }
 
 pub type ReadVariable =
@@ -410,19 +418,28 @@ pub async fn apply_evaluated_argument(
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
     current_lambda_argument: &Option<BlobDigest>,
+    current_lambda_environment: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     let evaluated_callee = Box::pin(evaluate(
         callee,
         load_tree,
         store_tree,
         current_lambda_argument,
+        current_lambda_environment,
     ))
     .await?;
     let closure = match Closure::deserialize(&evaluated_callee, load_tree).await {
         Ok(success) => success,
         Err(_) => todo!(),
     };
-    call_method(&closure.body, evaluated_argument, load_tree, store_tree).await
+    call_method(
+        &closure.body,
+        evaluated_argument,
+        &closure.environment,
+        load_tree,
+        store_tree,
+    )
+    .await
 }
 
 pub async fn evaluate_apply(
@@ -431,12 +448,14 @@ pub async fn evaluate_apply(
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
     current_lambda_argument: &Option<BlobDigest>,
+    current_lambda_environment: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     let evaluated_argument = Box::pin(evaluate(
         argument,
         load_tree,
         store_tree,
         current_lambda_argument,
+        current_lambda_environment,
     ))
     .await?;
     apply_evaluated_argument(
@@ -445,6 +464,7 @@ pub async fn evaluate_apply(
         load_tree,
         store_tree,
         current_lambda_argument,
+        current_lambda_environment,
     )
     .await
 }
@@ -454,6 +474,7 @@ pub async fn evaluate(
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
     current_lambda_argument: &Option<BlobDigest>,
+    current_lambda_environment: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     match &expression.0 {
         Expression::Literal(literal_value) => {
@@ -468,6 +489,7 @@ pub async fn evaluate(
                 load_tree,
                 store_tree,
                 current_lambda_argument,
+                current_lambda_environment,
             )
             .await
         }
@@ -479,7 +501,11 @@ pub async fn evaluate(
             }
         }
         Expression::Environment => {
-            todo!()
+            if let Some(environment) = current_lambda_environment {
+                Ok(*environment)
+            } else {
+                todo!("We are not in a lambda context; environment is not available")
+            }
         }
         Expression::Lambda { environment, body } => {
             let evaluated_environment = Box::pin(evaluate(
@@ -487,6 +513,7 @@ pub async fn evaluate(
                 load_tree,
                 store_tree,
                 current_lambda_argument,
+                current_lambda_environment,
             ))
             .await?;
             let closure = Closure::new(evaluated_environment, body.clone());
@@ -501,6 +528,7 @@ pub async fn evaluate(
                     load_tree,
                     store_tree,
                     current_lambda_argument,
+                    current_lambda_environment,
                 ))
                 .await?;
                 evaluated_arguments.push(evaluated_argument);
@@ -518,6 +546,7 @@ pub async fn evaluate(
                 load_tree,
                 store_tree,
                 current_lambda_argument,
+                current_lambda_environment,
             ))
             .await?;
             let loaded_parent = load_tree.load_tree(&evaluated_parent).await.unwrap(/*TODO*/);
