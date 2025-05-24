@@ -26,6 +26,7 @@ where
     Environment,
     Lambda { environment: E, body: E },
     ConstructTree(Vec<E>),
+    GetChild { parent: E, index: u16 },
 }
 
 impl<E, V> PrintExpression for Expression<E, V>
@@ -68,6 +69,10 @@ where
                 }
                 write!(writer, "]")
             }
+            Expression::GetChild { parent, index } => {
+                parent.print(writer, level)?;
+                write!(writer, ".{index}")
+            }
         }
     }
 }
@@ -99,6 +104,10 @@ where
 
     pub fn make_construct_tree(arguments: Vec<E>) -> Self {
         Expression::ConstructTree(arguments)
+    }
+
+    pub fn make_get_child(parent: E, index: u16) -> Self {
+        Expression::GetChild { parent, index }
     }
 
     pub async fn map_child_expressions<
@@ -136,6 +145,10 @@ where
                 }
                 Ok(Expression::ConstructTree(transformed_items))
             }
+            Expression::GetChild { parent, index } => Ok(Expression::GetChild {
+                parent: transform_expression(parent).await?,
+                index: *index,
+            }),
         }
     }
 }
@@ -220,6 +233,13 @@ pub fn to_reference_expression(
             ),
             // TODO: deduplicate?
             items.clone(),
+        ),
+        Expression::GetChild { parent, index } => (
+            ReferenceExpression::GetChild {
+                parent: ReferenceIndex(0),
+                index: *index,
+            },
+            vec![*parent],
         ),
     }
 }
@@ -491,6 +511,25 @@ pub async fn evaluate(
                     evaluated_arguments,
                 ))))
                 .await
+        }
+        Expression::GetChild { parent, index } => {
+            let evaluated_parent = Box::pin(evaluate(
+                parent,
+                load_tree,
+                store_tree,
+                current_lambda_argument,
+            ))
+            .await?;
+            let loaded_parent = load_tree.load_tree(&evaluated_parent).await.unwrap(/*TODO*/);
+            let hashed_tree = loaded_parent
+                .hash()
+                .unwrap(/*TODO*/);
+            let child = hashed_tree
+                .tree()
+                .references()
+                .get(*index as usize)
+                .expect("TODO handle out of range error");
+            Ok(*child)
         }
     }
 }

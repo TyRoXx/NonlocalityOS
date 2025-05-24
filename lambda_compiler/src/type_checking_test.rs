@@ -50,7 +50,12 @@ async fn test_check_types_lambda_1_parameter() {
         Some(DeepExpression(lambda::expressions::Expression::Lambda {
             environment: empty_tree,
             body: Arc::new(DeepExpression(
-                lambda::expressions::Expression::make_argument(),
+                lambda::expressions::Expression::make_get_child(
+                    Arc::new(DeepExpression(
+                        lambda::expressions::Expression::make_argument(),
+                    )),
+                    0,
+                ),
             )),
         })),
         Vec::new(),
@@ -79,7 +84,12 @@ async fn test_check_types_lambda_2_parameters() {
         Some(DeepExpression(lambda::expressions::Expression::Lambda {
             environment: empty_tree,
             body: Arc::new(DeepExpression(
-                lambda::expressions::Expression::make_argument(), /*TODO: access first child*/
+                lambda::expressions::Expression::make_get_child(
+                    Arc::new(DeepExpression(
+                        lambda::expressions::Expression::make_argument(),
+                    )),
+                    0,
+                ),
             )),
         })),
         Vec::new(),
@@ -112,7 +122,12 @@ async fn test_check_types_lambda_capture_outer_argument() {
             body: Arc::new(DeepExpression(lambda::expressions::Expression::Lambda {
                 environment: Arc::new(DeepExpression(
                     lambda::expressions::Expression::make_construct_tree(vec![Arc::new(
-                        DeepExpression(lambda::expressions::Expression::make_argument()),
+                        DeepExpression(lambda::expressions::Expression::make_get_child(
+                            Arc::new(DeepExpression(
+                                lambda::expressions::Expression::make_argument(),
+                            )),
+                            0,
+                        )),
                     )]),
                 )),
                 body: Arc::new(DeepExpression(

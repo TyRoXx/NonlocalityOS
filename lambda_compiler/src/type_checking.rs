@@ -33,11 +33,11 @@ fn check_tree_construction_or_argument_list(
 }
 
 pub struct LocalVariable {
-    parameter_index: usize,
+    parameter_index: u16,
 }
 
 impl LocalVariable {
-    pub fn new(parameter_index: usize) -> Self {
+    pub fn new(parameter_index: u16) -> Self {
         Self { parameter_index }
     }
 }
@@ -51,7 +51,8 @@ impl LambdaScope {
     pub fn new(parameter_names: &[Name]) -> Self {
         let mut names = BTreeMap::new();
         for (index, name) in parameter_names.iter().enumerate() {
-            names.insert(name.clone(), LocalVariable::new(index));
+            let checked_index: u16 = index.try_into().expect("TODO handle too many parameters");
+            names.insert(name.clone(), LocalVariable::new(checked_index));
         }
         Self {
             names,
@@ -59,7 +60,7 @@ impl LambdaScope {
         }
     }
 
-    pub fn find_parameter_index(&self, parameter_name: &Name) -> Option<usize> {
+    pub fn find_parameter_index(&self, parameter_name: &Name) -> Option<u16> {
         self.names
             .get(parameter_name)
             .map(|variable| variable.parameter_index)
@@ -119,10 +120,15 @@ impl EnvironmentBuilder {
     ) -> CompilerOutput {
         let layer_count = layers.len();
         if let Some(last) = layers.last_mut() {
-            if let Some(_parameter_index) = last.find_parameter_index(identifier) {
+            if let Some(parameter_index) = last.find_parameter_index(identifier) {
                 return CompilerOutput::new(
                     Some(lambda::expressions::DeepExpression(
-                        lambda::expressions::Expression::make_argument(), /*TODO _parameter_index*/
+                        lambda::expressions::Expression::make_get_child(
+                            Arc::new(lambda::expressions::DeepExpression(
+                                lambda::expressions::Expression::make_argument(),
+                            )),
+                            parameter_index,
+                        ),
                     )),
                     Vec::new(),
                 );

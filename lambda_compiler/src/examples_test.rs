@@ -55,8 +55,8 @@ async fn test_hello_world() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_lambda_parameter() {
-    let source = include_str!("../examples/lambda_parameter.tl");
+async fn test_lambda_parameters() {
+    let source = include_str!("../examples/lambda_parameters.tl");
     let storage = InMemoryTreeStorage::empty();
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(

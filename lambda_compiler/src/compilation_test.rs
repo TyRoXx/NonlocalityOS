@@ -26,7 +26,25 @@ async fn test_compile_lambda() {
     let output = compile(r#"(x) => x"#, &TEST_SOURCE_NAMESPACE);
     let entry_point = DeepExpression(Expression::make_lambda(
         empty_tree,
-        Arc::new(DeepExpression(Expression::make_argument())),
+        Arc::new(DeepExpression(Expression::make_get_child(
+            Arc::new(DeepExpression(Expression::make_argument())),
+            0,
+        ))),
+    ));
+    let expected = CompilerOutput::new(Some(entry_point), Vec::new());
+    assert_eq!(Ok(expected), output);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_compile_multiple_parameters() {
+    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+    let output = compile(r#"(x, y) => y"#, &TEST_SOURCE_NAMESPACE);
+    let entry_point = DeepExpression(Expression::make_lambda(
+        empty_tree,
+        Arc::new(DeepExpression(Expression::make_get_child(
+            Arc::new(DeepExpression(Expression::make_argument())),
+            1,
+        ))),
     ));
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -36,7 +54,10 @@ async fn test_compile_lambda() {
 async fn test_compile_function_call() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let output = compile(r#"(f) => f(f)"#, &TEST_SOURCE_NAMESPACE);
-    let f = Arc::new(DeepExpression(Expression::make_argument()));
+    let f = Arc::new(DeepExpression(Expression::make_get_child(
+        Arc::new(DeepExpression(Expression::make_argument())),
+        0,
+    )));
     let entry_point = DeepExpression(Expression::make_lambda(
         empty_tree,
         Arc::new(DeepExpression(Expression::make_apply(f.clone(), f))),
@@ -52,7 +73,10 @@ async fn test_compile_quotes() {
         r#"(print) => print("Hello, world!")"#,
         &TEST_SOURCE_NAMESPACE,
     );
-    let print = Arc::new(DeepExpression(Expression::make_argument()));
+    let print = Arc::new(DeepExpression(Expression::make_get_child(
+        Arc::new(DeepExpression(Expression::make_argument())),
+        0,
+    )));
     let entry_point = DeepExpression(Expression::make_lambda(
         empty_tree,
         Arc::new(DeepExpression(Expression::make_apply(
@@ -137,7 +161,10 @@ async fn test_compile_extra_token() {
     let output = compile(r#"(x) => x)"#, &TEST_SOURCE_NAMESPACE);
     let entry_point = DeepExpression(Expression::make_lambda(
         empty_tree,
-        Arc::new(DeepExpression(Expression::make_argument())),
+        Arc::new(DeepExpression(Expression::make_get_child(
+            Arc::new(DeepExpression(Expression::make_argument())),
+            0,
+        ))),
     ));
     let expected = CompilerOutput::new(
         Some(entry_point),
