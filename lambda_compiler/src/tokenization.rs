@@ -1,4 +1,5 @@
 use crate::compilation::SourceLocation;
+use hippeus_parser_generator::RegisterValue;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
@@ -206,6 +207,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
     const TOKEN_TAG_COLON: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(21);
     lazy_static! {
+        static ref IDENTIFIER_CHARACTERS: Vec<RegisterValue> = (b'a'..=b'z').chain(b'A'..=b'Z').map(hippeus_parser_generator::RegisterValue::Byte).collect();
         static ref TOKEN_PARSER: hippeus_parser_generator::Parser =
             hippeus_parser_generator::Parser::Sequence(vec![
                 hippeus_parser_generator::Parser::IsEndOfInput(IS_END_OF_INPUT),
@@ -242,7 +244,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                         hippeus_parser_generator::Parser::IsAnyOf {
                             input: FIRST_INPUT,
                             result: IS_ANY_OF_RESULT,
-                            candidates: (b'a'..=b'z').chain(b'A'..=b'Z').map(hippeus_parser_generator::RegisterValue::Byte).collect(),
+                            candidates: IDENTIFIER_CHARACTERS.clone(),
                         },
                         hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
@@ -276,7 +278,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                                 hippeus_parser_generator::Parser::IsAnyOf {
                                                     input: SUBSEQUENT_INPUT,
                                                     result: LOOP_CONDITION,
-                                                    candidates: (b'a'..=b'z').chain(b'A'..=b'Z').map(hippeus_parser_generator::RegisterValue::Byte).collect(),
+                                                    candidates: IDENTIFIER_CHARACTERS.clone(),
                                                 },
                                                 hippeus_parser_generator::Parser::IfElse(
                                                     LOOP_CONDITION,
