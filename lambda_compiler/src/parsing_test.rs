@@ -1,4 +1,4 @@
-use crate::ast;
+use crate::ast::{self, LambdaParameter};
 use crate::compilation::{CompilerError, SourceLocation};
 use crate::parsing::{parse_expression_tolerantly, ParserOutput};
 use crate::tokenization::{Token, TokenContent};
@@ -34,7 +34,7 @@ fn test_wellformed_parsing(source: &str, expected: ast::Expression) {
 fn test_parse_lambda_0_parameters() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let expected = ast::Expression::Lambda {
-        parameter_names: vec![],
+        parameters: vec![],
         body: Box::new(ast::Expression::Identifier(
             name,
             SourceLocation { line: 0, column: 6 },
@@ -47,7 +47,11 @@ fn test_parse_lambda_0_parameters() {
 fn test_parse_lambda_1_parameter() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let expected = ast::Expression::Lambda {
-        parameter_names: vec![name.clone()],
+        parameters: vec![LambdaParameter::new(
+            name.clone(),
+            SourceLocation { line: 0, column: 1 },
+            None,
+        )],
         body: Box::new(ast::Expression::Identifier(
             name,
             SourceLocation { line: 0, column: 7 },
@@ -58,13 +62,12 @@ fn test_parse_lambda_1_parameter() {
 
 #[test_log::test]
 fn test_parse_lambda_2_parameters() {
-    for source in &[
-        "(f, g) => f",
-        "(f,g) => f",
-        "(f, g,) => f",
-        "(f, g, ) => f",
-        "( f , g ) => f",
-        "( f , g , ) => f",
+    for (source, column_f, column_g) in &[
+        ("(f, g) => f", 1, 4),
+        ("(f, g,) => f", 1, 4),
+        ("(f, g, ) => f", 1, 4),
+        ("( f , g ) => f", 2, 6),
+        ("( f , g , ) => f", 2, 6),
     ] {
         let f = ast::Expression::Identifier(
             Name::new(TEST_NAMESPACE, "f".to_string()),
@@ -74,9 +77,23 @@ fn test_parse_lambda_2_parameters() {
             },
         );
         let expected = ast::Expression::Lambda {
-            parameter_names: vec![
-                Name::new(TEST_NAMESPACE, "f".to_string()),
-                Name::new(TEST_NAMESPACE, "g".to_string()),
+            parameters: vec![
+                LambdaParameter::new(
+                    Name::new(TEST_NAMESPACE, "f".to_string()),
+                    SourceLocation {
+                        line: 0,
+                        column: *column_f,
+                    },
+                    None,
+                ),
+                LambdaParameter::new(
+                    Name::new(TEST_NAMESPACE, "g".to_string()),
+                    SourceLocation {
+                        line: 0,
+                        column: *column_g,
+                    },
+                    None,
+                ),
             ],
             body: Box::new(f),
         };
@@ -89,9 +106,17 @@ fn test_parse_nested_lambda() {
     let f = Name::new(TEST_NAMESPACE, "f".to_string());
     let g = Name::new(TEST_NAMESPACE, "g".to_string());
     let expected = ast::Expression::Lambda {
-        parameter_names: vec![f.clone()],
+        parameters: vec![LambdaParameter::new(
+            f.clone(),
+            SourceLocation { line: 0, column: 1 },
+            None,
+        )],
         body: Box::new(ast::Expression::Lambda {
-            parameter_names: vec![g],
+            parameters: vec![LambdaParameter::new(
+                g,
+                SourceLocation { line: 0, column: 8 },
+                None,
+            )],
             body: Box::new(ast::Expression::Identifier(
                 f,
                 SourceLocation {
@@ -108,7 +133,11 @@ fn test_parse_nested_lambda() {
 fn test_parse_function_call_1_argument() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let expected = ast::Expression::Lambda {
-        parameter_names: vec![name.clone()],
+        parameters: vec![LambdaParameter::new(
+            name.clone(),
+            SourceLocation { line: 0, column: 1 },
+            None,
+        )],
         body: Box::new(ast::Expression::Apply {
             callee: Box::new(ast::Expression::Identifier(
                 name.clone(),

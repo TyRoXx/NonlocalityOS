@@ -1,5 +1,5 @@
 use crate::{
-    ast,
+    ast::{self, LambdaParameter},
     compilation::{CompilerError, SourceLocation},
     tokenization::{Token, TokenContent},
 };
@@ -56,6 +56,7 @@ pub fn peek_next_non_whitespace_token<'t>(
                 | TokenContent::LeftBrace
                 | TokenContent::RightBrace
                 | TokenContent::Dot
+                | TokenContent::Colon
                 | TokenContent::Quotes(_)
                 | TokenContent::FatArrow
                 | TokenContent::Comma
@@ -84,6 +85,7 @@ fn expect_right_brace(
                 Ok(())
             }
             TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => todo!(),
             TokenContent::Comma => todo!(),
@@ -111,6 +113,7 @@ fn try_skip_right_parenthesis(
             TokenContent::LeftBrace => false,
             TokenContent::RightBrace => todo!(),
             TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
             TokenContent::Quotes(_) => false,
             TokenContent::FatArrow => todo!(),
             TokenContent::Comma => false,
@@ -133,6 +136,7 @@ fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>
             TokenContent::LeftBrace => todo!(),
             TokenContent::RightBrace => todo!(),
             TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => {}
             TokenContent::Comma => todo!(),
@@ -155,6 +159,7 @@ fn expect_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
             TokenContent::LeftBrace => todo!(),
             TokenContent::RightBrace => todo!(),
             TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => todo!(),
             TokenContent::Comma => {}
@@ -181,6 +186,7 @@ fn skip_right_bracket(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Toke
             TokenContent::LeftBrace => todo!(),
             TokenContent::RightBrace => todo!(),
             TokenContent::Dot => false,
+            TokenContent::Colon => todo!(),
             TokenContent::Quotes(_) => false,
             TokenContent::FatArrow => false,
             TokenContent::Comma => false,
@@ -257,6 +263,7 @@ fn parse_expression_start<'t>(
             }
             TokenContent::RightBrace => todo!(),
             TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
             TokenContent::Quotes(content) => {
                 pop_next_non_whitespace_token(tokens);
                 Ok(ast::Expression::StringLiteral(content.clone()))
@@ -320,6 +327,7 @@ pub fn parse_expression<'t>(
             TokenContent::LeftBrace => todo!(),
             TokenContent::RightBrace => Ok(start),
             TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => todo!(),
             TokenContent::Comma => Ok(start),
@@ -331,13 +339,13 @@ pub fn parse_expression<'t>(
 
 fn try_pop_identifier(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
-) -> Option<String> {
+) -> Option<(String, SourceLocation)> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
             TokenContent::Whitespace => todo!(),
             TokenContent::Identifier(identifier) => {
                 pop_next_non_whitespace_token(tokens);
-                Some(identifier.clone())
+                Some((identifier.clone(), non_whitespace.location))
             }
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => todo!(),
@@ -347,6 +355,7 @@ fn try_pop_identifier(
             TokenContent::LeftBrace => todo!(),
             TokenContent::RightBrace => todo!(),
             TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => todo!(),
             TokenContent::Comma => None,
@@ -369,6 +378,7 @@ fn try_skip_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>)
             TokenContent::LeftBrace => todo!(),
             TokenContent::RightBrace => todo!(),
             TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
             TokenContent::Quotes(_) => todo!(),
             TokenContent::FatArrow => todo!(),
             TokenContent::Comma => {
@@ -385,10 +395,14 @@ fn parse_lambda<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
 ) -> ParserResult<ast::Expression> {
-    let mut parameter_names = Vec::new();
-    while let Some(name) = try_pop_identifier(tokens) {
-        let parameter_name: Name = Name::new(*local_namespace, name);
-        parameter_names.push(parameter_name);
+    let mut parameters = Vec::new();
+    while let Some((parameter_name, parameter_location)) = try_pop_identifier(tokens) {
+        let namespaced_name = Name::new(*local_namespace, parameter_name);
+        parameters.push(LambdaParameter::new(
+            namespaced_name,
+            parameter_location,
+            None, //TODO: Handle type annotations
+        ));
         if !try_skip_comma(tokens) {
             break;
         }
@@ -403,7 +417,7 @@ fn parse_lambda<'t>(
     expect_fat_arrow(tokens);
     let body = parse_expression(tokens, local_namespace)?;
     Ok(ast::Expression::Lambda {
-        parameter_names,
+        parameters,
         body: Box::new(body),
     })
 }

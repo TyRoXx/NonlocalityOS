@@ -29,6 +29,8 @@ pub enum TokenContent {
     LeftBrace,
     // }
     RightBrace,
+    // :
+    Colon,
 }
 
 #[derive(PartialEq, Debug)]
@@ -201,6 +203,8 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(19);
     const TOKEN_TAG_RIGHT_BRACE: hippeus_parser_generator::RegisterId =
         hippeus_parser_generator::RegisterId(20);
+    const TOKEN_TAG_COLON: hippeus_parser_generator::RegisterId =
+        hippeus_parser_generator::RegisterId(21);
     lazy_static! {
         static ref TOKEN_PARSER: hippeus_parser_generator::Parser =
             hippeus_parser_generator::Parser::Sequence(vec![
@@ -502,6 +506,28 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                 ),
                                 hippeus_parser_generator::Parser::WriteOutputByte(
                                     TOKEN_TAG_DOT
+                                )
+                            ])),
+                            Box::new(hippeus_parser_generator::Parser::no_op())
+                        ),
+
+                        // colon
+                        hippeus_parser_generator::Parser::IsAnyOf {
+                            input: FIRST_INPUT,
+                            result: IS_ANY_OF_RESULT,
+                            candidates: vec![
+                                hippeus_parser_generator::RegisterValue::Byte(b':')
+                            ]
+                        },
+                        hippeus_parser_generator::Parser::IfElse(
+                            IS_ANY_OF_RESULT,
+                            Box::new(hippeus_parser_generator::Parser::Sequence(vec![
+                                hippeus_parser_generator::Parser::Constant(
+                                    TOKEN_TAG_COLON,
+                                    hippeus_parser_generator::RegisterValue::Byte(14)
+                                ),
+                                hippeus_parser_generator::Parser::WriteOutputByte(
+                                    TOKEN_TAG_COLON
                                 )
                             ])),
                             Box::new(hippeus_parser_generator::Parser::no_op())

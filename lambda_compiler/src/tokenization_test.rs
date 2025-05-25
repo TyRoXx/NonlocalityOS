@@ -56,7 +56,7 @@ fn test_tokenize_default_syntax_newline() {
 #[test_log::test]
 fn test_tokenize_default_syntax_source_locations() {
     test_tokenize_default_syntax(
-        " \n  test=\n().\"\"=>[]{}",
+        " \n  test=\n().\"\"=>[]{}:",
         &[
             Token {
                 content: TokenContent::Whitespace,
@@ -126,10 +126,17 @@ fn test_tokenize_default_syntax_source_locations() {
                 },
             },
             Token {
-                content: TokenContent::EndOfFile,
+                content: TokenContent::Colon,
                 location: SourceLocation {
                     line: 2,
                     column: 11,
+                },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation {
+                    line: 2,
+                    column: 12,
                 },
             },
         ],
@@ -298,6 +305,23 @@ fn test_tokenize_default_syntax_dot() {
         &[
             Token {
                 content: TokenContent::Dot,
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 1 },
+            },
+        ],
+    );
+}
+
+#[test_log::test]
+fn test_tokenize_default_syntax_colon() {
+    test_tokenize_default_syntax(
+        ":",
+        &[
+            Token {
+                content: TokenContent::Colon,
                 location: SourceLocation { line: 0, column: 0 },
             },
             Token {

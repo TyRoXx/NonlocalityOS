@@ -1,5 +1,5 @@
 use crate::{
-    ast,
+    ast::{self, LambdaParameter},
     compilation::{CompilerOutput, SourceLocation},
     type_checking::{check_types, EnvironmentBuilder},
 };
@@ -15,7 +15,7 @@ const TEST_SOURCE_NAMESPACE: NamespaceId =
 #[test_log::test(tokio::test)]
 async fn test_check_types_lambda_0_parameters() {
     let input = ast::Expression::Lambda {
-        parameter_names: vec![],
+        parameters: vec![],
         body: Box::new(ast::Expression::ConstructTree(vec![])),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
@@ -38,10 +38,17 @@ async fn test_check_types_lambda_0_parameters() {
 async fn test_check_types_lambda_1_parameter() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let input = ast::Expression::Lambda {
-        parameter_names: vec![x_in_source.clone()],
-        body: Box::new(ast::Expression::Identifier(
+        parameters: vec![LambdaParameter::new(
             x_in_source.clone(),
             SourceLocation { line: 0, column: 1 },
+            None,
+        )],
+        body: Box::new(ast::Expression::Identifier(
+            x_in_source.clone(),
+            SourceLocation {
+                line: 0,
+                column: 10,
+            },
         )),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
@@ -70,7 +77,18 @@ async fn test_check_types_lambda_2_parameters() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
     let input = ast::Expression::Lambda {
-        parameter_names: vec![x_in_source.clone(), y_in_source.clone()],
+        parameters: vec![
+            LambdaParameter::new(
+                x_in_source.clone(),
+                SourceLocation { line: 0, column: 1 },
+                None,
+            ),
+            LambdaParameter::new(
+                y_in_source.clone(),
+                SourceLocation { line: 0, column: 5 },
+                None,
+            ),
+        ],
         body: Box::new(ast::Expression::Identifier(
             x_in_source.clone(),
             SourceLocation {
@@ -104,9 +122,13 @@ async fn test_check_types_lambda_2_parameters() {
 async fn test_check_types_lambda_capture_outer_argument() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let input = ast::Expression::Lambda {
-        parameter_names: vec![x_in_source.clone()],
+        parameters: vec![LambdaParameter::new(
+            x_in_source.clone(),
+            SourceLocation { line: 0, column: 1 },
+            None,
+        )],
         body: Box::new(ast::Expression::Lambda {
-            parameter_names: vec![],
+            parameters: vec![],
             body: Box::new(ast::Expression::Identifier(
                 x_in_source.clone(),
                 SourceLocation {
@@ -154,9 +176,20 @@ async fn test_check_types_lambda_capture_multiple_variables() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
     let input = ast::Expression::Lambda {
-        parameter_names: vec![x_in_source.clone(), y_in_source.clone()],
+        parameters: vec![
+            LambdaParameter::new(
+                x_in_source.clone(),
+                SourceLocation { line: 0, column: 1 },
+                None,
+            ),
+            LambdaParameter::new(
+                y_in_source.clone(),
+                SourceLocation { line: 0, column: 5 },
+                None,
+            ),
+        ],
         body: Box::new(ast::Expression::Lambda {
-            parameter_names: vec![],
+            parameters: vec![],
             body: Box::new(ast::Expression::ConstructTree(vec![
                 ast::Expression::Identifier(
                     x_in_source.clone(),
@@ -235,11 +268,19 @@ async fn test_check_types_lambda_capture_multiple_layers() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
     let input = ast::Expression::Lambda {
-        parameter_names: vec![x_in_source.clone()],
+        parameters: vec![LambdaParameter::new(
+            x_in_source.clone(),
+            SourceLocation { line: 0, column: 1 },
+            None,
+        )],
         body: Box::new(ast::Expression::Lambda {
-            parameter_names: vec![y_in_source.clone()],
+            parameters: vec![LambdaParameter::new(
+                y_in_source.clone(),
+                SourceLocation { line: 0, column: 5 },
+                None,
+            )],
             body: Box::new(ast::Expression::Lambda {
-                parameter_names: vec![],
+                parameters: vec![],
                 body: Box::new(ast::Expression::ConstructTree(vec![
                     ast::Expression::Identifier(
                         x_in_source.clone(),
@@ -364,10 +405,14 @@ async fn test_lambda_parameter_scoping() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let input = ast::Expression::Apply {
         callee: Box::new(ast::Expression::Lambda {
-            parameter_names: vec![x_in_source.clone()],
-            body: Box::new(ast::Expression::Identifier(
+            parameters: vec![LambdaParameter::new(
                 x_in_source.clone(),
                 SourceLocation { line: 0, column: 1 },
+                None,
+            )],
+            body: Box::new(ast::Expression::Identifier(
+                x_in_source.clone(),
+                SourceLocation { line: 0, column: 8 },
             )),
         }),
         arguments: vec![ast::Expression::Identifier(

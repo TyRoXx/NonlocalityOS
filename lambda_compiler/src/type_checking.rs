@@ -1,5 +1,5 @@
 use crate::{
-    ast,
+    ast::{self, LambdaParameter},
     compilation::{CompilerOutput, SourceLocation},
 };
 use astraea::{storage::StoreError, tree::Tree};
@@ -48,11 +48,11 @@ pub struct LambdaScope {
 }
 
 impl LambdaScope {
-    pub fn new(parameter_names: &[Name]) -> Self {
+    pub fn new(parameters: &[LambdaParameter]) -> Self {
         let mut names = BTreeMap::new();
-        for (index, name) in parameter_names.iter().enumerate() {
+        for (index, parameter) in parameters.iter().enumerate() {
             let checked_index: u16 = index.try_into().expect("TODO handle too many parameters");
-            names.insert(name.clone(), LocalVariable::new(checked_index));
+            names.insert(parameter.name.clone(), LocalVariable::new(checked_index));
         }
         Self {
             names,
@@ -112,8 +112,9 @@ impl EnvironmentBuilder {
         self.lambda_layers.is_empty()
     }
 
-    pub fn enter_lambda_body(&mut self, parameter_names: &[Name]) {
-        self.lambda_layers.push(LambdaScope::new(parameter_names));
+    // TODO: only take the parameter names?
+    pub fn enter_lambda_body(&mut self, parameters: &[LambdaParameter]) {
+        self.lambda_layers.push(LambdaScope::new(parameters));
     }
 
     pub fn leave_lambda_body(&mut self) -> Vec<Arc<DeepExpression>> {
@@ -167,11 +168,11 @@ impl EnvironmentBuilder {
 }
 
 pub fn check_lambda(
-    parameter_names: &[Name],
+    parameters: &[LambdaParameter],
     body: &ast::Expression,
     environment_builder: &mut EnvironmentBuilder,
 ) -> Result<CompilerOutput, StoreError> {
-    environment_builder.enter_lambda_body(parameter_names);
+    environment_builder.enter_lambda_body(parameters);
     let body_result = check_types(body, environment_builder);
     // TODO: use RAII or something?
     let environment = environment_builder.leave_lambda_body();
@@ -230,10 +231,9 @@ pub fn check_types(
                 (None, _) | (_, None) => Ok(CompilerOutput::new(None, errors)),
             }
         }
-        ast::Expression::Lambda {
-            parameter_names,
-            body,
-        } => check_lambda(&parameter_names[..], body, environment_builder),
+        ast::Expression::Lambda { parameters, body } => {
+            check_lambda(&parameters[..], body, environment_builder)
+        }
         ast::Expression::ConstructTree(arguments) => {
             check_tree_construction_or_argument_list(&arguments[..], environment_builder)
         }
