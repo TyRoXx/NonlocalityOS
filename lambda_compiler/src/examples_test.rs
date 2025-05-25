@@ -18,7 +18,7 @@ async fn test_example(source: &str, storage: &InMemoryTreeStorage, expected_resu
         .await
         .unwrap();
     let evaluated = apply_evaluated_argument(
-        &output.entry_point.unwrap(),
+        &output.entry_point.unwrap().expression,
         &argument,
         storage,
         storage,

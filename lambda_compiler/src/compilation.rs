@@ -1,10 +1,10 @@
 use crate::{
     parsing::{parse_expression_tolerantly, pop_next_non_whitespace_token},
     tokenization::tokenize_default_syntax,
-    type_checking::check_types,
+    type_checking::{check_types, TypedExpression},
 };
 use astraea::storage::StoreError;
-use lambda::{expressions::DeepExpression, name::NamespaceId};
+use lambda::name::NamespaceId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -33,12 +33,12 @@ impl CompilerError {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct CompilerOutput {
-    pub entry_point: Option<DeepExpression>,
+    pub entry_point: Option<TypedExpression>,
     pub errors: Vec<CompilerError>,
 }
 
 impl CompilerOutput {
-    pub fn new(entry_point: Option<DeepExpression>, errors: Vec<CompilerError>) -> CompilerOutput {
+    pub fn new(entry_point: Option<TypedExpression>, errors: Vec<CompilerError>) -> CompilerOutput {
         CompilerOutput {
             entry_point,
             errors,

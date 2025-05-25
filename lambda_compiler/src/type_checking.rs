@@ -9,24 +9,52 @@ use lambda::{
 };
 use std::{collections::BTreeMap, sync::Arc};
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub enum Type {
+    Any,
+    String,
+    TreeWithKnownChildTypes(Vec<Type>),
+    Function {
+        parameters: Vec<Type>,
+        return_type: Box<Type>,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct TypedExpression {
+    pub expression: DeepExpression,
+    pub type_: Type,
+}
+
+impl TypedExpression {
+    pub fn new(expression: DeepExpression, type_: Type) -> Self {
+        Self { expression, type_ }
+    }
+}
+
 fn check_tree_construction_or_argument_list(
     arguments: &[ast::Expression],
     environment_builder: &mut EnvironmentBuilder,
 ) -> Result<CompilerOutput, StoreError> {
     let mut errors = Vec::new();
     let mut checked_arguments = Vec::new();
+    let mut argument_types = Vec::new();
     for argument in arguments {
         let output = check_types(argument, environment_builder)?;
         errors.extend(output.errors);
         if let Some(checked) = output.entry_point {
-            checked_arguments.push(Arc::new(checked));
+            checked_arguments.push(Arc::new(checked.expression));
+            argument_types.push(checked.type_);
         } else {
             return Ok(CompilerOutput::new(None, errors));
         }
     }
     Ok(CompilerOutput {
-        entry_point: Some(lambda::expressions::DeepExpression(
-            lambda::expressions::Expression::ConstructTree(checked_arguments),
+        entry_point: Some(TypedExpression::new(
+            lambda::expressions::DeepExpression(lambda::expressions::Expression::ConstructTree(
+                checked_arguments,
+            )),
+            Type::TreeWithKnownChildTypes(argument_types),
         )),
         errors,
     })
@@ -34,25 +62,32 @@ fn check_tree_construction_or_argument_list(
 
 pub struct LocalVariable {
     parameter_index: u16,
+    type_: Type,
 }
 
 impl LocalVariable {
-    pub fn new(parameter_index: u16) -> Self {
-        Self { parameter_index }
+    pub fn new(parameter_index: u16, type_: Type) -> Self {
+        Self {
+            parameter_index,
+            type_,
+        }
     }
 }
 
 pub struct LambdaScope {
     names: BTreeMap<Name, LocalVariable>,
-    captures: Vec<Arc<DeepExpression>>,
+    captures: Vec<TypedExpression>,
 }
 
 impl LambdaScope {
-    pub fn new(parameters: &[LambdaParameter]) -> Self {
+    pub fn new(parameters: &[TypeCheckedLambdaParameter]) -> Self {
         let mut names = BTreeMap::new();
         for (index, parameter) in parameters.iter().enumerate() {
             let checked_index: u16 = index.try_into().expect("TODO handle too many parameters");
-            names.insert(parameter.name.clone(), LocalVariable::new(checked_index));
+            names.insert(
+                parameter.name.clone(),
+                LocalVariable::new(checked_index, parameter.type_.clone()),
+            );
         }
         Self {
             names,
@@ -60,13 +95,13 @@ impl LambdaScope {
         }
     }
 
-    pub fn find_parameter_index(&self, parameter_name: &Name) -> Option<u16> {
+    pub fn find_parameter_index(&self, parameter_name: &Name) -> Option<(u16, Type)> {
         self.names
             .get(parameter_name)
-            .map(|variable| variable.parameter_index)
+            .map(|variable| (variable.parameter_index, variable.type_.clone()))
     }
 
-    pub fn capture(&mut self, expression: Arc<DeepExpression>) -> CompilerOutput {
+    pub fn capture(&mut self, expression: TypedExpression) -> CompilerOutput {
         let index = self
             .captures
             .len()
@@ -74,19 +109,22 @@ impl LambdaScope {
             .expect("TODO handle too many captures");
         self.captures.push(expression);
         CompilerOutput::new(
-            Some(lambda::expressions::DeepExpression(
-                lambda::expressions::Expression::make_get_child(
-                    Arc::new(DeepExpression(
-                        lambda::expressions::Expression::make_environment(),
-                    )),
-                    index,
+            Some(TypedExpression::new(
+                lambda::expressions::DeepExpression(
+                    lambda::expressions::Expression::make_get_child(
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_environment(),
+                        )),
+                        index,
+                    ),
                 ),
+                self.captures.last().unwrap().type_.clone(),
             )),
             Vec::new(),
         )
     }
 
-    pub fn leave(self) -> Vec<Arc<DeepExpression>> {
+    pub fn leave(self) -> Vec<TypedExpression> {
         self.captures
     }
 }
@@ -112,14 +150,12 @@ impl EnvironmentBuilder {
         self.lambda_layers.is_empty()
     }
 
-    // TODO: only take the parameter names?
-    pub fn enter_lambda_body(&mut self, parameters: &[LambdaParameter]) {
+    pub fn enter_lambda_body(&mut self, parameters: &[TypeCheckedLambdaParameter]) {
         self.lambda_layers.push(LambdaScope::new(parameters));
     }
 
-    pub fn leave_lambda_body(&mut self) -> Vec<Arc<DeepExpression>> {
+    pub fn leave_lambda_body(&mut self) -> Vec<TypedExpression> {
         let top_scope = self.lambda_layers.pop().unwrap();
-
         top_scope.leave()
     }
 
@@ -134,15 +170,18 @@ impl EnvironmentBuilder {
     ) -> CompilerOutput {
         let layer_count = layers.len();
         if let Some(last) = layers.last_mut() {
-            if let Some(parameter_index) = last.find_parameter_index(identifier) {
+            if let Some((parameter_index, parameter_type)) = last.find_parameter_index(identifier) {
                 return CompilerOutput::new(
-                    Some(lambda::expressions::DeepExpression(
-                        lambda::expressions::Expression::make_get_child(
-                            Arc::new(lambda::expressions::DeepExpression(
-                                lambda::expressions::Expression::make_argument(),
-                            )),
-                            parameter_index,
+                    Some(TypedExpression::new(
+                        lambda::expressions::DeepExpression(
+                            lambda::expressions::Expression::make_get_child(
+                                Arc::new(lambda::expressions::DeepExpression(
+                                    lambda::expressions::Expression::make_argument(),
+                                )),
+                                parameter_index,
+                            ),
                         ),
+                        parameter_type,
                     )),
                     Vec::new(),
                 );
@@ -152,7 +191,7 @@ impl EnvironmentBuilder {
                     return layers
                         .last_mut()
                         .unwrap()
-                        .capture(Arc::new(result.entry_point.unwrap()));
+                        .capture(result.entry_point.unwrap());
                 }
                 return result;
             }
@@ -167,24 +206,76 @@ impl EnvironmentBuilder {
     }
 }
 
+pub fn evaluate_type_at_compile_time(_expression: &DeepExpression) -> Type {
+    todo!()
+}
+
+pub struct TypeCheckedLambdaParameter {
+    pub name: Name,
+    pub source_location: SourceLocation,
+    pub type_: Type,
+}
+
+pub fn check_lambda_parameters(
+    parameters: &[LambdaParameter],
+) -> Result<Vec<TypeCheckedLambdaParameter>, StoreError> {
+    let mut checked_parameters = Vec::new();
+    for parameter in parameters {
+        let mut environment_builder = EnvironmentBuilder::new();
+        let parameter_type: Type = match &parameter.type_annotation {
+            Some(type_annotation) => {
+                let checked_type = check_types(type_annotation, &mut environment_builder)?;
+                assert!(environment_builder.is_empty());
+                if let Some(checked) = checked_type.entry_point {
+                    evaluate_type_at_compile_time(&checked.expression)
+                } else {
+                    todo!()
+                }
+            }
+            None => {
+                // If no type annotation is provided, we assume the type is `Any`.
+                Type::Any
+            }
+        };
+        checked_parameters.push(TypeCheckedLambdaParameter {
+            name: parameter.name.clone(),
+            source_location: parameter.source_location,
+            type_: parameter_type,
+        });
+    }
+    Ok(checked_parameters)
+}
+
 pub fn check_lambda(
     parameters: &[LambdaParameter],
     body: &ast::Expression,
     environment_builder: &mut EnvironmentBuilder,
 ) -> Result<CompilerOutput, StoreError> {
-    environment_builder.enter_lambda_body(parameters);
+    let checked_parameters = check_lambda_parameters(parameters)?;
+    environment_builder.enter_lambda_body(&checked_parameters[..]);
     let body_result = check_types(body, environment_builder);
     // TODO: use RAII or something?
     let environment = environment_builder.leave_lambda_body();
+    let environment_expressions = environment
+        .into_iter()
+        .map(|typed_expression| Arc::new(typed_expression.expression))
+        .collect();
     let body_output = body_result?;
     match body_output.entry_point {
         Some(body_checked) => Ok(CompilerOutput {
-            entry_point: Some(lambda::expressions::DeepExpression(
-                lambda::expressions::Expression::Lambda {
+            entry_point: Some(TypedExpression::new(
+                lambda::expressions::DeepExpression(lambda::expressions::Expression::Lambda {
                     environment: Arc::new(DeepExpression(Expression::make_construct_tree(
-                        environment,
+                        environment_expressions,
                     ))),
-                    body: Arc::new(body_checked),
+                    body: Arc::new(body_checked.expression),
+                }),
+                Type::Function {
+                    parameters: checked_parameters
+                        .into_iter()
+                        .map(|parameter| parameter.type_)
+                        .collect(),
+                    return_type: Box::new(body_checked.type_),
                 },
             )),
             errors: body_output.errors,
@@ -200,8 +291,11 @@ pub fn check_types(
     match syntax_tree {
         ast::Expression::Identifier(name, location) => Ok(environment_builder.read(name, location)),
         ast::Expression::StringLiteral(value) => Ok(CompilerOutput::new(
-            Some(lambda::expressions::DeepExpression(
-                lambda::expressions::Expression::Literal(Tree::from_string(value).unwrap(/*TODO*/)),
+            Some(TypedExpression::new(
+                lambda::expressions::DeepExpression(lambda::expressions::Expression::Literal(
+                    Tree::from_string(value).unwrap(/*TODO*/),
+                )),
+                Type::String,
             )),
             Vec::new(),
         )),
@@ -219,15 +313,33 @@ pub fn check_types(
                 .chain(argument_output.errors)
                 .collect();
             match (callee_output.entry_point, argument_output.entry_point) {
-                (Some(callee_checked), Some(argument_checked)) => Ok(CompilerOutput {
-                    entry_point: Some(lambda::expressions::DeepExpression(
-                        lambda::expressions::Expression::Apply {
-                            callee: Arc::new(callee_checked),
-                            argument: Arc::new(argument_checked),
-                        },
-                    )),
-                    errors,
-                }),
+                (Some(callee_checked), Some(argument_checked)) => {
+                    let return_type = match &callee_checked.type_ {
+                        Type::Function { return_type, .. } => return_type.as_ref().clone(),
+                        _ => {
+                            return Ok(CompilerOutput::new(
+                                None,
+                                vec![crate::compilation::CompilerError::new(
+                                    "Callee is not a function".to_string(),
+                                    callee.source_location(),
+                                )],
+                            ))
+                        }
+                    };
+                    // TODO: check argument types against callee parameter types
+                    Ok(CompilerOutput {
+                        entry_point: Some(TypedExpression::new(
+                            lambda::expressions::DeepExpression(
+                                lambda::expressions::Expression::Apply {
+                                    callee: Arc::new(callee_checked.expression),
+                                    argument: Arc::new(argument_checked.expression),
+                                },
+                            ),
+                            return_type,
+                        )),
+                        errors,
+                    })
+                }
                 (None, _) | (_, None) => Ok(CompilerOutput::new(None, errors)),
             }
         }
