@@ -80,12 +80,6 @@ jobs:
     - name: Run tests with coverage
       run: ./coverage.sh
 
-    - name: Building fuzzers
-      run: ./scripts/build_fuzz.sh
-
-    - name: sccache stats
-      run: sccache --show-adv-stats
-
     - name: Coveralls
       uses: coverallsapp/github-action@v2
       with:
@@ -99,3 +93,9 @@ jobs:
 
     - name: Check code formatting
       run: cargo fmt --all -- --check
+
+    - name: Building fuzzers
+      run: ./scripts/build_fuzz.sh
+
+    - name: sccache stats
+      run: sccache --show-adv-stats
