@@ -44,7 +44,7 @@ fn test_parse_lambda_0_parameters() {
 }
 
 #[test_log::test]
-fn test_parse_lambda_1_parameter() {
+fn test_parse_lambda_1_parameter_no_type() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let expected = ast::Expression::Lambda {
         parameters: vec![LambdaParameter::new(
@@ -58,6 +58,29 @@ fn test_parse_lambda_1_parameter() {
         )),
     };
     test_wellformed_parsing(r#"(f) => f"#, expected);
+}
+
+#[test_log::test]
+fn test_parse_lambda_1_parameter_with_type() {
+    let name = Name::new(TEST_NAMESPACE, "f".to_string());
+    let expected = ast::Expression::Lambda {
+        parameters: vec![LambdaParameter::new(
+            name.clone(),
+            SourceLocation { line: 0, column: 1 },
+            Some(ast::Expression::Identifier(
+                Name::new(TEST_NAMESPACE, "String".to_string()),
+                SourceLocation { line: 0, column: 4 },
+            )),
+        )],
+        body: Box::new(ast::Expression::Identifier(
+            name,
+            SourceLocation {
+                line: 0,
+                column: 15,
+            },
+        )),
+    };
+    test_wellformed_parsing(r#"(f: String) => f"#, expected);
 }
 
 #[test_log::test]

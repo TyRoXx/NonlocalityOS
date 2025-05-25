@@ -194,12 +194,32 @@ fn test_tokenize_default_syntax_assign_ambiguity_2() {
 }
 
 #[test_log::test]
-fn test_tokenize_default_syntax_identifier() {
+fn test_tokenize_default_syntax_identifier_lowercase() {
     test_tokenize_default_syntax(
         "testabcxyz",
         &[
             Token {
                 content: TokenContent::Identifier("testabcxyz".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation {
+                    line: 0,
+                    column: 10,
+                },
+            },
+        ],
+    );
+}
+
+#[test_log::test]
+fn test_tokenize_default_syntax_identifier_uppercase() {
+    test_tokenize_default_syntax(
+        "TestabcxyZ",
+        &[
+            Token {
+                content: TokenContent::Identifier("TestabcxyZ".to_string()),
                 location: SourceLocation { line: 0, column: 0 },
             },
             Token {

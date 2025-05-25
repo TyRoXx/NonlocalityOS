@@ -242,7 +242,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                         hippeus_parser_generator::Parser::IsAnyOf {
                             input: FIRST_INPUT,
                             result: IS_ANY_OF_RESULT,
-                            candidates: (b'a'..=b'z').map(hippeus_parser_generator::RegisterValue::Byte).collect(),
+                            candidates: (b'a'..=b'z').chain(b'A'..=b'Z').map(hippeus_parser_generator::RegisterValue::Byte).collect(),
                         },
                         hippeus_parser_generator::Parser::IfElse(
                             IS_ANY_OF_RESULT,
@@ -276,7 +276,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                                 hippeus_parser_generator::Parser::IsAnyOf {
                                                     input: SUBSEQUENT_INPUT,
                                                     result: LOOP_CONDITION,
-                                                    candidates: (b'a'..=b'z').map(hippeus_parser_generator::RegisterValue::Byte).collect(),
+                                                    candidates: (b'a'..=b'z').chain(b'A'..=b'Z').map(hippeus_parser_generator::RegisterValue::Byte).collect(),
                                                 },
                                                 hippeus_parser_generator::Parser::IfElse(
                                                     LOOP_CONDITION,

@@ -391,6 +391,32 @@ fn try_skip_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>)
     }
 }
 
+fn try_skip_colon(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
+    match peek_next_non_whitespace_token(tokens) {
+        Some(non_whitespace) => match &non_whitespace.content {
+            TokenContent::Whitespace => todo!(),
+            TokenContent::Identifier(_identifier) => false,
+            TokenContent::Assign => todo!(),
+            TokenContent::LeftParenthesis => todo!(),
+            TokenContent::RightParenthesis => false,
+            TokenContent::LeftBracket => todo!(),
+            TokenContent::RightBracket => todo!(),
+            TokenContent::LeftBrace => todo!(),
+            TokenContent::RightBrace => todo!(),
+            TokenContent::Dot => todo!(),
+            TokenContent::Colon => {
+                pop_next_non_whitespace_token(tokens);
+                true
+            }
+            TokenContent::Quotes(_) => todo!(),
+            TokenContent::FatArrow => todo!(),
+            TokenContent::Comma => false,
+            TokenContent::EndOfFile => false,
+        },
+        None => false,
+    }
+}
+
 fn parse_lambda<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
@@ -398,10 +424,14 @@ fn parse_lambda<'t>(
     let mut parameters = Vec::new();
     while let Some((parameter_name, parameter_location)) = try_pop_identifier(tokens) {
         let namespaced_name = Name::new(*local_namespace, parameter_name);
+        let mut type_annotation = None;
+        if try_skip_colon(tokens) {
+            type_annotation = Some(parse_expression(tokens, local_namespace)?);
+        }
         parameters.push(LambdaParameter::new(
             namespaced_name,
             parameter_location,
-            None, //TODO: Handle type annotations
+            type_annotation,
         ));
         if !try_skip_comma(tokens) {
             break;
