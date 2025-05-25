@@ -62,25 +62,35 @@ fn test_parse_lambda_1_parameter_no_type() {
 
 #[test_log::test]
 fn test_parse_lambda_1_parameter_with_type() {
-    let name = Name::new(TEST_NAMESPACE, "f".to_string());
-    let expected = ast::Expression::Lambda {
-        parameters: vec![LambdaParameter::new(
-            name.clone(),
-            SourceLocation { line: 0, column: 1 },
-            Some(ast::Expression::Identifier(
-                Name::new(TEST_NAMESPACE, "String".to_string()),
-                SourceLocation { line: 0, column: 4 },
+    for source in &[
+        "(f:String) => f",
+        "(f: String) => f",
+        "(f: String,) => f",
+        "(f: String, ) => f",
+    ] {
+        let name = Name::new(TEST_NAMESPACE, "f".to_string());
+        let expected = ast::Expression::Lambda {
+            parameters: vec![LambdaParameter::new(
+                name.clone(),
+                SourceLocation { line: 0, column: 1 },
+                Some(ast::Expression::Identifier(
+                    Name::new(TEST_NAMESPACE, "String".to_string()),
+                    SourceLocation {
+                        line: 0,
+                        column: source.find("String").unwrap() as u64,
+                    },
+                )),
+            )],
+            body: Box::new(ast::Expression::Identifier(
+                name,
+                SourceLocation {
+                    line: 0,
+                    column: (source.len() - 1) as u64,
+                },
             )),
-        )],
-        body: Box::new(ast::Expression::Identifier(
-            name,
-            SourceLocation {
-                line: 0,
-                column: 15,
-            },
-        )),
-    };
-    test_wellformed_parsing(r#"(f: String) => f"#, expected);
+        };
+        test_wellformed_parsing(source, expected);
+    }
 }
 
 #[test_log::test]
@@ -192,6 +202,28 @@ fn test_parse_missing_argument() {
         vec![CompilerError::new(
             "Parser error: Expected expression, found comma.".to_string(),
             SourceLocation::new(0, 9),
+        )],
+    );
+    assert_eq!(expected, output);
+}
+
+#[test_log::test]
+fn test_parse_missing_parameter_type() {
+    let tokens = tokenize_default_syntax(r#"(f:) => f"#);
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::RightParenthesis,
+            SourceLocation { line: 0, column: 3 }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected expression, found right parenthesis.".to_string(),
+            SourceLocation::new(0, 3),
         )],
     );
     assert_eq!(expected, output);
