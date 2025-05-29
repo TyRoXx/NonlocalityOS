@@ -28,10 +28,7 @@ async fn test_compile_lambda() {
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
-            Arc::new(DeepExpression(Expression::make_get_child(
-                Arc::new(DeepExpression(Expression::make_argument())),
-                0,
-            ))),
+            Arc::new(DeepExpression(Expression::make_argument())),
         )),
         Type::Function {
             parameters: vec![Type::Any],
@@ -67,14 +64,8 @@ async fn test_compile_multiple_parameters() {
 async fn test_compile_function_call() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let output = compile(r#"(f) => {(g) => g}(f)"#, &TEST_SOURCE_NAMESPACE);
-    let f = Arc::new(DeepExpression(Expression::make_get_child(
-        Arc::new(DeepExpression(Expression::make_argument())),
-        0,
-    )));
-    let g = Arc::new(DeepExpression(Expression::make_get_child(
-        Arc::new(DeepExpression(Expression::make_argument())),
-        0,
-    )));
+    let f = Arc::new(DeepExpression(Expression::make_argument()));
+    let g = Arc::new(DeepExpression(Expression::make_argument()));
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree.clone(),
@@ -229,10 +220,7 @@ async fn test_compile_extra_token() {
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
-            Arc::new(DeepExpression(Expression::make_get_child(
-                Arc::new(DeepExpression(Expression::make_argument())),
-                0,
-            ))),
+            Arc::new(DeepExpression(Expression::make_argument())),
         )),
         Type::Function {
             parameters: vec![Type::Any],

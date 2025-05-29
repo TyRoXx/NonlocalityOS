@@ -3,15 +3,28 @@ use crate::{
     compilation::{CompilerOutput, SourceLocation},
     type_checking::{check_types, EnvironmentBuilder, Type, TypedExpression},
 };
-use astraea::tree::Tree;
+use astraea::{deep_tree::DeepTree, tree::Tree};
 use lambda::{
-    expressions::{DeepExpression, Expression},
+    expressions::{evaluate, DeepExpression, Expression},
     name::{Name, NamespaceId},
 };
 use std::sync::Arc;
 
 const TEST_SOURCE_NAMESPACE: NamespaceId =
     NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+async fn expect_evaluate_result(entry_point: &DeepExpression, expected_result: &DeepTree) {
+    let storage = astraea::storage::InMemoryTreeStorage::empty();
+    let evaluate_result = DeepTree::deserialize(
+        &evaluate(entry_point, &storage, &storage, &None, &None)
+            .await
+            .unwrap(),
+        &storage,
+    )
+    .await
+    .unwrap();
+    assert_eq!(expected_result, &evaluate_result);
+}
 
 #[test_log::test(tokio::test)]
 async fn test_check_types_lambda_0_parameters() {
@@ -66,12 +79,7 @@ async fn test_check_types_lambda_1_parameter() {
             DeepExpression(lambda::expressions::Expression::Lambda {
                 environment: empty_tree,
                 body: Arc::new(DeepExpression(
-                    lambda::expressions::Expression::make_get_child(
-                        Arc::new(DeepExpression(
-                            lambda::expressions::Expression::make_argument(),
-                        )),
-                        0,
-                    ),
+                    lambda::expressions::Expression::make_argument(),
                 )),
             }),
             Type::Function {
@@ -167,12 +175,7 @@ async fn test_check_types_lambda_capture_outer_argument() {
                 body: Arc::new(DeepExpression(lambda::expressions::Expression::Lambda {
                     environment: Arc::new(DeepExpression(
                         lambda::expressions::Expression::make_construct_tree(vec![Arc::new(
-                            DeepExpression(lambda::expressions::Expression::make_get_child(
-                                Arc::new(DeepExpression(
-                                    lambda::expressions::Expression::make_argument(),
-                                )),
-                                0,
-                            )),
+                            DeepExpression(lambda::expressions::Expression::make_argument()),
                         )]),
                     )),
                     body: Arc::new(DeepExpression(
@@ -352,12 +355,7 @@ async fn test_check_types_lambda_capture_multiple_layers() {
                         lambda::expressions::Expression::make_construct_tree(vec![
                             // x
                             Arc::new(DeepExpression(
-                                lambda::expressions::Expression::make_get_child(
-                                    Arc::new(DeepExpression(
-                                        lambda::expressions::Expression::make_argument(),
-                                    )),
-                                    0,
-                                ),
+                                lambda::expressions::Expression::make_argument(),
                             )),
                         ]),
                     )),
@@ -375,12 +373,7 @@ async fn test_check_types_lambda_capture_multiple_layers() {
                                 )),
                                 // y
                                 Arc::new(DeepExpression(
-                                    lambda::expressions::Expression::make_get_child(
-                                        Arc::new(DeepExpression(
-                                            lambda::expressions::Expression::make_argument(),
-                                        )),
-                                        0,
-                                    ),
+                                    lambda::expressions::Expression::make_argument(),
                                 )),
                             ]),
                         )),
@@ -519,12 +512,7 @@ async fn test_lambda_parameter_type_to_do() {
             DeepExpression(lambda::expressions::Expression::Lambda {
                 environment: empty_tree,
                 body: Arc::new(DeepExpression(
-                    lambda::expressions::Expression::make_get_child(
-                        Arc::new(DeepExpression(
-                            lambda::expressions::Expression::make_argument(),
-                        )),
-                        0,
-                    ),
+                    lambda::expressions::Expression::make_argument(),
                 )),
             }),
             Type::Function {
@@ -564,21 +552,14 @@ async fn test_let_local_variable() {
                             lambda::expressions::Expression::make_construct_tree(vec![]),
                         )),
                         Arc::new(DeepExpression(
-                            lambda::expressions::Expression::make_get_child(
-                                Arc::new(DeepExpression(
-                                    lambda::expressions::Expression::make_argument(),
-                                )),
-                                0,
-                            ),
+                            lambda::expressions::Expression::make_argument(),
                         )),
                     ),
                 )),
                 argument: Arc::new(DeepExpression(
-                    lambda::expressions::Expression::make_construct_tree(vec![Arc::new(
-                        DeepExpression(lambda::expressions::Expression::make_literal(
-                            Tree::from_string("Hello").unwrap(),
-                        )),
-                    )]),
+                    lambda::expressions::Expression::make_literal(
+                        Tree::from_string("Hello").unwrap(),
+                    ),
                 )),
             }),
             Type::String,
@@ -587,4 +568,10 @@ async fn test_let_local_variable() {
     );
     assert_eq!(output, Ok(expected));
     assert!(environment_builder.is_empty());
+    let expected_result = DeepTree::try_from_string("Hello").unwrap();
+    expect_evaluate_result(
+        &output.unwrap().entry_point.unwrap().expression,
+        &expected_result,
+    )
+    .await;
 }

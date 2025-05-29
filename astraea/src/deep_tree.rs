@@ -14,6 +14,13 @@ impl DeepTree {
         DeepTree { blob, references }
     }
 
+    pub fn try_from_string(value: &str) -> Option<DeepTree> {
+        Some(DeepTree::new(
+            TreeBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes()))?,
+            Vec::new(),
+        ))
+    }
+
     pub fn blob(&self) -> &TreeBlob {
         &self.blob
     }

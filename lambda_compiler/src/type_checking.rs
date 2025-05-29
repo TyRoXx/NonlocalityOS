@@ -60,13 +60,37 @@ fn check_tree_construction_or_argument_list(
     })
 }
 
-pub struct LocalVariable {
-    parameter_index: u16,
+#[derive(Debug, Clone, Copy)]
+enum ParameterIndex {
+    SingleParameter,
+    GetChild(u16),
+}
+
+impl ParameterIndex {
+    pub fn create_deep_expression(&self) -> lambda::expressions::DeepExpression {
+        match self {
+            ParameterIndex::SingleParameter => {
+                lambda::expressions::DeepExpression(lambda::expressions::Expression::make_argument())
+            }
+            ParameterIndex::GetChild(index) => lambda::expressions::DeepExpression(
+                lambda::expressions::Expression::make_get_child(
+                    Arc::new(lambda::expressions::DeepExpression(
+                        lambda::expressions::Expression::make_argument(),
+                    )),
+                    *index,
+                ),
+            ),
+        }
+    }
+}
+
+struct LocalVariable {
+    parameter_index: ParameterIndex,
     type_: Type,
 }
 
 impl LocalVariable {
-    pub fn new(parameter_index: u16, type_: Type) -> Self {
+    pub fn new(parameter_index: ParameterIndex, type_: Type) -> Self {
         Self {
             parameter_index,
             type_,
@@ -74,7 +98,7 @@ impl LocalVariable {
     }
 }
 
-pub struct LambdaScope {
+struct LambdaScope {
     names: BTreeMap<Name, LocalVariable>,
     captures: Vec<TypedExpression>,
 }
@@ -82,12 +106,22 @@ pub struct LambdaScope {
 impl LambdaScope {
     pub fn new(parameters: &[TypeCheckedLambdaParameter]) -> Self {
         let mut names = BTreeMap::new();
-        for (index, parameter) in parameters.iter().enumerate() {
-            let checked_index: u16 = index.try_into().expect("TODO handle too many parameters");
+        if parameters.len() == 1 {
             names.insert(
-                parameter.name.clone(),
-                LocalVariable::new(checked_index, parameter.type_.clone()),
+                parameters[0].name.clone(),
+                LocalVariable::new(ParameterIndex::SingleParameter, parameters[0].type_.clone()),
             );
+        } else {
+            for (index, parameter) in parameters.iter().enumerate() {
+                let checked_index: u16 = index.try_into().expect("TODO handle too many parameters");
+                names.insert(
+                    parameter.name.clone(),
+                    LocalVariable::new(
+                        ParameterIndex::GetChild(checked_index),
+                        parameter.type_.clone(),
+                    ),
+                );
+            }
         }
         Self {
             names,
@@ -95,7 +129,7 @@ impl LambdaScope {
         }
     }
 
-    pub fn find_parameter_index(&self, parameter_name: &Name) -> Option<(u16, Type)> {
+    pub fn find_parameter_index(&self, parameter_name: &Name) -> Option<(ParameterIndex, Type)> {
         self.names
             .get(parameter_name)
             .map(|variable| (variable.parameter_index, variable.type_.clone()))
@@ -173,14 +207,7 @@ impl EnvironmentBuilder {
             if let Some((parameter_index, parameter_type)) = last.find_parameter_index(identifier) {
                 return CompilerOutput::new(
                     Some(TypedExpression::new(
-                        lambda::expressions::DeepExpression(
-                            lambda::expressions::Expression::make_get_child(
-                                Arc::new(lambda::expressions::DeepExpression(
-                                    lambda::expressions::Expression::make_argument(),
-                                )),
-                                parameter_index,
-                            ),
-                        ),
+                        parameter_index.create_deep_expression(),
                         parameter_type,
                     )),
                     Vec::new(),
@@ -342,11 +369,7 @@ pub fn check_let(
                             body: Arc::new(body_checked.expression),
                         },
                     )),
-                    Arc::new(lambda::expressions::DeepExpression(
-                        lambda::expressions::Expression::make_construct_tree(vec![Arc::new(
-                            value_checked_unwrapped.expression,
-                        )]),
-                    )),
+                    Arc::new(value_checked_unwrapped.expression),
                 )),
                 body_checked.type_,
             )),
