@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use crate::{
-    storage::LoadTree,
-    tree::{BlobDigest, TreeBlob},
+    storage::{LoadTree, StoreError, StoreTree},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -12,6 +14,13 @@ pub struct DeepTree {
 impl DeepTree {
     pub fn new(blob: TreeBlob, references: Vec<DeepTree>) -> DeepTree {
         DeepTree { blob, references }
+    }
+
+    pub fn empty() -> DeepTree {
+        DeepTree {
+            blob: TreeBlob::empty(),
+            references: Vec::new(),
+        }
     }
 
     pub fn try_from_string(value: &str) -> Option<DeepTree> {
@@ -41,5 +50,14 @@ impl DeepTree {
             }
         }
         Some(DeepTree::new(blob.clone(), references))
+    }
+
+    pub async fn serialize(&self, store_tree: &dyn StoreTree) -> Result<BlobDigest, StoreError> {
+        let mut references = Vec::new();
+        for reference in &self.references {
+            references.push(Box::pin(reference.serialize(store_tree)).await?);
+        }
+        let tree = Arc::new(Tree::new(self.blob.clone(), references));
+        store_tree.store_tree(&HashedTree::from(tree)).await
     }
 }

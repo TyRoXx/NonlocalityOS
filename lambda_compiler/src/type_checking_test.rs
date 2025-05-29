@@ -1,9 +1,11 @@
 use crate::{
     ast::{self, LambdaParameter},
     compilation::{CompilerOutput, SourceLocation},
-    type_checking::{check_types, EnvironmentBuilder, Type, TypedExpression},
+    type_checking::{
+        check_types, type_to_deep_tree, DeepType, EnvironmentBuilder, GenericType, TypedExpression,
+    },
 };
-use astraea::{deep_tree::DeepTree, tree::Tree};
+use astraea::deep_tree::DeepTree;
 use lambda::{
     expressions::{evaluate, DeepExpression, Expression},
     name::{Name, NamespaceId},
@@ -34,7 +36,7 @@ async fn test_check_types_lambda_0_parameters() {
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    let output = check_types(&input, &mut environment_builder).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -43,10 +45,10 @@ async fn test_check_types_lambda_0_parameters() {
                     lambda::expressions::Expression::make_construct_tree(vec![]),
                 )),
             }),
-            Type::Function {
+            DeepType(GenericType::Function {
                 parameters: vec![],
-                return_type: Box::new(Type::TreeWithKnownChildTypes(vec![])),
-            },
+                return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(vec![]))),
+            }),
         )),
         Vec::new(),
     );
@@ -73,7 +75,7 @@ async fn test_check_types_lambda_1_parameter() {
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    let output = check_types(&input, &mut environment_builder).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -82,10 +84,10 @@ async fn test_check_types_lambda_1_parameter() {
                     lambda::expressions::Expression::make_argument(),
                 )),
             }),
-            Type::Function {
-                parameters: vec![Type::Any],
-                return_type: Box::new(Type::Any),
-            },
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Any)],
+                return_type: Box::new(DeepType(GenericType::Any)),
+            }),
         )),
         Vec::new(),
     );
@@ -120,7 +122,7 @@ async fn test_check_types_lambda_2_parameters() {
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    let output = check_types(&input, &mut environment_builder).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -134,10 +136,10 @@ async fn test_check_types_lambda_2_parameters() {
                     ),
                 )),
             }),
-            Type::Function {
-                parameters: vec![Type::Any, Type::Any],
-                return_type: Box::new(Type::Any),
-            },
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Any), DeepType(GenericType::Any)],
+                return_type: Box::new(DeepType(GenericType::Any)),
+            }),
         )),
         Vec::new(),
     );
@@ -167,7 +169,7 @@ async fn test_check_types_lambda_capture_outer_argument() {
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    let output = check_types(&input, &mut environment_builder).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -188,13 +190,13 @@ async fn test_check_types_lambda_capture_outer_argument() {
                     )),
                 })),
             }),
-            Type::Function {
-                parameters: vec![Type::Any],
-                return_type: Box::new(Type::Function {
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Any)],
+                return_type: Box::new(DeepType(GenericType::Function {
                     parameters: vec![],
-                    return_type: Box::new(Type::Any),
-                }),
-            },
+                    return_type: Box::new(DeepType(GenericType::Any)),
+                })),
+            }),
         )),
         Vec::new(),
     );
@@ -241,7 +243,7 @@ async fn test_check_types_lambda_capture_multiple_variables() {
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    let output = check_types(&input, &mut environment_builder).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -289,16 +291,16 @@ async fn test_check_types_lambda_capture_multiple_variables() {
                     )),
                 })),
             }),
-            Type::Function {
-                parameters: vec![Type::Any, Type::Any],
-                return_type: Box::new(Type::Function {
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Any), DeepType(GenericType::Any)],
+                return_type: Box::new(DeepType(GenericType::Function {
                     parameters: vec![],
-                    return_type: Box::new(Type::TreeWithKnownChildTypes(vec![
-                        Type::Any,
-                        Type::Any,
-                    ])),
-                }),
-            },
+                    return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(vec![
+                        DeepType(GenericType::Any),
+                        DeepType(GenericType::Any),
+                    ]))),
+                })),
+            }),
         )),
         Vec::new(),
     );
@@ -345,7 +347,7 @@ async fn test_check_types_lambda_capture_multiple_layers() {
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    let output = check_types(&input, &mut environment_builder).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -402,19 +404,18 @@ async fn test_check_types_lambda_capture_multiple_layers() {
                     })),
                 })),
             }),
-            Type::Function {
-                parameters: vec![Type::Any],
-                return_type: Box::new(Type::Function {
-                    parameters: vec![Type::Any],
-                    return_type: Box::new(Type::Function {
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Any)],
+                return_type: Box::new(DeepType(GenericType::Function {
+                    parameters: vec![DeepType(GenericType::Any)],
+                    return_type: Box::new(DeepType(GenericType::Function {
                         parameters: vec![],
-                        return_type: Box::new(Type::TreeWithKnownChildTypes(vec![
-                            Type::Any,
-                            Type::Any,
-                        ])),
-                    }),
-                }),
-            },
+                        return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(
+                            vec![DeepType(GenericType::Any), DeepType(GenericType::Any)],
+                        ))),
+                    })),
+                })),
+            }),
         )),
         Vec::new(),
     );
@@ -433,7 +434,7 @@ async fn test_unknown_identifier() {
         },
     );
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    let output = check_types(&input, &mut environment_builder).await;
     let expected = CompilerOutput::new(
         None,
         vec![crate::compilation::CompilerError::new(
@@ -473,7 +474,7 @@ async fn test_lambda_parameter_scoping() {
         )],
     };
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    let output = check_types(&input, &mut environment_builder).await;
     let expected = CompilerOutput::new(
         None,
         vec![crate::compilation::CompilerError::new(
@@ -489,23 +490,31 @@ async fn test_lambda_parameter_scoping() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_lambda_parameter_type_to_do() {
+async fn test_lambda_parameter_type() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let string_in_source = Name::new(TEST_SOURCE_NAMESPACE, "String".to_string());
     let input = ast::Expression::Lambda {
         parameters: vec![LambdaParameter::new(
             x_in_source.clone(),
             SourceLocation { line: 0, column: 1 },
-            // TODO: add type annotation
-            None,
-            // Some(ast::Expression::StringLiteral("String".to_string())),
+            Some(ast::Expression::Identifier(
+                string_in_source.clone(),
+                SourceLocation { line: 0, column: 3 },
+            )),
         )],
         body: Box::new(ast::Expression::Identifier(
             x_in_source.clone(),
-            SourceLocation { line: 0, column: 8 },
+            SourceLocation { line: 1, column: 8 },
         )),
     };
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    environment_builder.define_constant(
+        string_in_source.clone(),
+        DeepType(GenericType::Type),
+        type_to_deep_tree(&DeepType(GenericType::String)),
+    );
+    let output = check_types(&input, &mut environment_builder).await;
+    environment_builder.undefine_constant();
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
@@ -515,10 +524,10 @@ async fn test_lambda_parameter_type_to_do() {
                     lambda::expressions::Expression::make_argument(),
                 )),
             }),
-            Type::Function {
-                parameters: vec![Type::Any],
-                return_type: Box::new(Type::Any),
-            },
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::String)],
+                return_type: Box::new(DeepType(GenericType::String)),
+            }),
         )),
         vec![],
     );
@@ -542,7 +551,7 @@ async fn test_let_local_variable() {
         )),
     };
     let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder);
+    let output = check_types(&input, &mut environment_builder).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Apply {
@@ -558,11 +567,11 @@ async fn test_let_local_variable() {
                 )),
                 argument: Arc::new(DeepExpression(
                     lambda::expressions::Expression::make_literal(
-                        Tree::from_string("Hello").unwrap(),
+                        DeepTree::try_from_string("Hello").unwrap(),
                     ),
                 )),
             }),
-            Type::String,
+            DeepType(GenericType::String),
         )),
         vec![],
     );

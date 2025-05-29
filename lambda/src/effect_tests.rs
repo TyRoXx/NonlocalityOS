@@ -2,29 +2,21 @@ use crate::expressions::{
     deserialize_recursively, evaluate, serialize_recursively, DeepExpression, Expression,
     PrintExpression,
 };
-use astraea::{
-    storage::{InMemoryTreeStorage, StoreTree},
-    tree::{HashedTree, Tree},
-};
+use astraea::{deep_tree::DeepTree, storage::InMemoryTreeStorage};
 use std::sync::Arc;
 
 #[test_log::test(tokio::test)]
 async fn effect() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(Tree::empty())));
-    let first_string = Arc::new(Tree::from_string("Hello, ").unwrap());
-    let first_string_ref = storage
-        .store_tree(&HashedTree::from(first_string))
-        .await
-        .unwrap();
+    let empty_tree = Arc::new(DeepExpression(Expression::make_literal(DeepTree::empty())));
     let first_console_output = crate::standard_library::ConsoleOutput {
-        message: first_string_ref,
+        message: DeepTree::try_from_string("Hello, ").unwrap(),
     };
     let first_console_output_tree = first_console_output.to_tree();
     let first_console_output_expression =
         DeepExpression(Expression::make_literal(first_console_output_tree.clone()));
 
-    let second_string = Tree::from_string(" world!\n").unwrap();
+    let second_string = DeepTree::try_from_string(" world!\n").unwrap();
     let second_console_output_expression =
         DeepExpression(Expression::ConstructTree(vec![Arc::new(DeepExpression(
             Expression::make_environment(),
@@ -51,8 +43,8 @@ async fn effect() {
             .print(&mut program_as_string, 0)
             .unwrap();
         assert_eq!(concat!(
-            "$env={literal(Tree { blob: TreeBlob { content.len(): 0 }, references: [] })}($arg) =>\n",
-            "  [literal(Tree { blob: TreeBlob { content.len(): 0 }, references: [BlobDigest(\"d20df37085b023c2b7b8246d8abbbe1185e740129bfd3cb0c5758bfc0d8e51e3013abcde3e5eb92e90c3caeb8856d111db625e8b0c7bdb0274c9dfb1bb43ff7f\")] }), $env={literal(Tree { blob: TreeBlob { content.len(): 0 }, references: [] })}($arg) =>\n",
+            "$env={literal(DeepTree { blob: TreeBlob { content.len(): 0 }, references: [] })}($arg) =>\n",
+            "  [literal(DeepTree { blob: TreeBlob { content.len(): 0 }, references: [DeepTree { blob: TreeBlob { content.len(): 7 }, references: [] }] }), $env={literal(DeepTree { blob: TreeBlob { content.len(): 0 }, references: [] })}($arg) =>\n",
             "    [$env, ], ]"),
             program_as_string.as_str());
     }

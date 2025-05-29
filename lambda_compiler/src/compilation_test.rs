@@ -1,6 +1,6 @@
 use crate::compilation::{compile, CompilerError, CompilerOutput, SourceLocation};
-use crate::type_checking::{Type, TypedExpression};
-use astraea::tree::Tree;
+use crate::type_checking::{DeepType, GenericType, TypedExpression};
+use astraea::deep_tree::DeepTree;
 use lambda::expressions::{DeepExpression, Expression};
 use lambda::name::NamespaceId;
 use std::sync::Arc;
@@ -10,7 +10,7 @@ const TEST_SOURCE_NAMESPACE: NamespaceId =
 
 #[test_log::test(tokio::test)]
 async fn test_compile_empty_source() {
-    let output = compile("", &TEST_SOURCE_NAMESPACE);
+    let output = compile("", &TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         None,
         vec![CompilerError::new(
@@ -24,16 +24,16 @@ async fn test_compile_empty_source() {
 #[test_log::test(tokio::test)]
 async fn test_compile_lambda() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"(x) => x"#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"(x) => x"#, &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
             Arc::new(DeepExpression(Expression::make_argument())),
         )),
-        Type::Function {
-            parameters: vec![Type::Any],
-            return_type: Box::new(Type::Any),
-        },
+        DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any)),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -42,7 +42,7 @@ async fn test_compile_lambda() {
 #[test_log::test(tokio::test)]
 async fn test_compile_multiple_parameters() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"(x, y) => y"#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"(x, y) => y"#, &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
@@ -51,10 +51,10 @@ async fn test_compile_multiple_parameters() {
                 1,
             ))),
         )),
-        Type::Function {
-            parameters: vec![Type::Any, Type::Any],
-            return_type: Box::new(Type::Any),
-        },
+        DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any), DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any)),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -63,7 +63,7 @@ async fn test_compile_multiple_parameters() {
 #[test_log::test(tokio::test)]
 async fn test_compile_function_call() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"(f) => {(g) => g}(f)"#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"(f) => {(g) => g}(f)"#, &TEST_SOURCE_NAMESPACE).await;
     let f = Arc::new(DeepExpression(Expression::make_argument()));
     let g = Arc::new(DeepExpression(Expression::make_argument()));
     let entry_point = TypedExpression::new(
@@ -74,10 +74,10 @@ async fn test_compile_function_call() {
                 f,
             ))),
         )),
-        Type::Function {
-            parameters: vec![Type::Any],
-            return_type: Box::new(Type::Any),
-        },
+        DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any)),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -86,18 +86,18 @@ async fn test_compile_function_call() {
 #[test_log::test(tokio::test)]
 async fn test_compile_quotes() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"() => "Hello, world!""#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"() => "Hello, world!""#, &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
             Arc::new(DeepExpression(Expression::make_literal(
-                Tree::from_string("Hello, world!").unwrap(),
+                DeepTree::try_from_string("Hello, world!").unwrap(),
             ))),
         )),
-        Type::Function {
+        DeepType(GenericType::Function {
             parameters: vec![],
-            return_type: Box::new(Type::String),
-        },
+            return_type: Box::new(DeepType(GenericType::String)),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -108,7 +108,8 @@ async fn test_compile_callee_is_not_a_function() {
     let output = compile(
         r#"(print) => print("Hello, world!")"#,
         &TEST_SOURCE_NAMESPACE,
-    );
+    )
+    .await;
     let expected = CompilerOutput::new(
         None,
         vec![CompilerError::new(
@@ -122,16 +123,16 @@ async fn test_compile_callee_is_not_a_function() {
 #[test_log::test(tokio::test)]
 async fn test_compile_tree_construction_0_children() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"() => []"#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"() => []"#, &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
             Arc::new(DeepExpression(Expression::make_construct_tree(vec![]))),
         )),
-        Type::Function {
+        DeepType(GenericType::Function {
             parameters: vec![],
-            return_type: Box::new(Type::TreeWithKnownChildTypes(vec![])),
-        },
+            return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(vec![]))),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -140,20 +141,22 @@ async fn test_compile_tree_construction_0_children() {
 #[test_log::test(tokio::test)]
 async fn test_compile_tree_construction_1_child() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"() => ["Hello, world!"]"#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"() => ["Hello, world!"]"#, &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
             Arc::new(DeepExpression(Expression::make_construct_tree(vec![
                 Arc::new(DeepExpression(Expression::make_literal(
-                    Tree::from_string("Hello, world!").unwrap(),
+                    DeepTree::try_from_string("Hello, world!").unwrap(),
                 ))),
             ]))),
         )),
-        Type::Function {
+        DeepType(GenericType::Function {
             parameters: vec![],
-            return_type: Box::new(Type::TreeWithKnownChildTypes(vec![Type::String])),
-        },
+            return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(vec![
+                DeepType(GenericType::String),
+            ]))),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -162,26 +165,26 @@ async fn test_compile_tree_construction_1_child() {
 #[test_log::test(tokio::test)]
 async fn test_compile_tree_construction_2_children() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"() => ["Hello, ", "world!"]"#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"() => ["Hello, ", "world!"]"#, &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
             Arc::new(DeepExpression(Expression::make_construct_tree(vec![
                 Arc::new(DeepExpression(Expression::make_literal(
-                    Tree::from_string("Hello, ").unwrap(),
+                    DeepTree::try_from_string("Hello, ").unwrap(),
                 ))),
                 Arc::new(DeepExpression(Expression::make_literal(
-                    Tree::from_string("world!").unwrap(),
+                    DeepTree::try_from_string("world!").unwrap(),
                 ))),
             ]))),
         )),
-        Type::Function {
+        DeepType(GenericType::Function {
             parameters: vec![],
-            return_type: Box::new(Type::TreeWithKnownChildTypes(vec![
-                Type::String,
-                Type::String,
-            ])),
-        },
+            return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(vec![
+                DeepType(GenericType::String),
+                DeepType(GenericType::String),
+            ]))),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -190,24 +193,26 @@ async fn test_compile_tree_construction_2_children() {
 #[test_log::test(tokio::test)]
 async fn test_compile_tree_construction_nested() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"() => [["Hello, world!"]]"#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"() => [["Hello, world!"]]"#, &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
             Arc::new(DeepExpression(Expression::make_construct_tree(vec![
                 Arc::new(DeepExpression(Expression::make_construct_tree(vec![
                     Arc::new(DeepExpression(Expression::make_literal(
-                        Tree::from_string("Hello, world!").unwrap(),
+                        DeepTree::try_from_string("Hello, world!").unwrap(),
                     ))),
                 ]))),
             ]))),
         )),
-        Type::Function {
+        DeepType(GenericType::Function {
             parameters: vec![],
-            return_type: Box::new(Type::TreeWithKnownChildTypes(vec![
-                Type::TreeWithKnownChildTypes(vec![Type::String]),
-            ])),
-        },
+            return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(vec![
+                DeepType(GenericType::TreeWithKnownChildTypes(vec![DeepType(
+                    GenericType::String,
+                )])),
+            ]))),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -216,16 +221,16 @@ async fn test_compile_tree_construction_nested() {
 #[test_log::test(tokio::test)]
 async fn test_compile_extra_token() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"(x) => x)"#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"(x) => x)"#, &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
             Arc::new(DeepExpression(Expression::make_argument())),
         )),
-        Type::Function {
-            parameters: vec![Type::Any],
-            return_type: Box::new(Type::Any),
-        },
+        DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any)),
+        }),
     );
     let expected = CompilerOutput::new(
         Some(entry_point),
@@ -240,16 +245,16 @@ async fn test_compile_extra_token() {
 #[test_log::test(tokio::test)]
 async fn test_compile_braces() {
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile(r#"() => {[]}"#, &TEST_SOURCE_NAMESPACE);
+    let output = compile(r#"() => {[]}"#, &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
             Arc::new(DeepExpression(Expression::make_construct_tree(vec![]))),
         )),
-        Type::Function {
+        DeepType(GenericType::Function {
             parameters: vec![],
-            return_type: Box::new(Type::TreeWithKnownChildTypes(vec![])),
-        },
+            return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(vec![]))),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -259,7 +264,7 @@ async fn test_compile_braces() {
 async fn test_redundant_captures_minimal() {
     // We reference the same outer variable multiple times in a lambda. The environment should only capture the variable once.
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let output = compile("(a) => () => [a, a]", &TEST_SOURCE_NAMESPACE);
+    let output = compile("(a) => () => [a, a]", &TEST_SOURCE_NAMESPACE).await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
@@ -279,13 +284,16 @@ async fn test_redundant_captures_minimal() {
                 ]))),
             ))),
         )),
-        Type::Function {
-            parameters: vec![Type::Any],
-            return_type: Box::new(Type::Function {
+        DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Function {
                 parameters: vec![],
-                return_type: Box::new(Type::TreeWithKnownChildTypes(vec![Type::Any, Type::Any])),
-            }),
-        },
+                return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(vec![
+                    DeepType(GenericType::Any),
+                    DeepType(GenericType::Any),
+                ]))),
+            })),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
@@ -298,7 +306,8 @@ async fn test_redundant_captures_complex() {
     let output = compile(
         "(a) => (b) => () => [a, a, a, a, b, b, b, b]",
         &TEST_SOURCE_NAMESPACE,
-    );
+    )
+    .await;
     let entry_point = TypedExpression::new(
         DeepExpression(Expression::make_lambda(
             empty_tree,
@@ -351,25 +360,25 @@ async fn test_redundant_captures_complex() {
                 ))),
             ))),
         )),
-        Type::Function {
-            parameters: vec![Type::Any],
-            return_type: Box::new(Type::Function {
-                parameters: vec![Type::Any],
-                return_type: Box::new(Type::Function {
+        DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Any)],
+                return_type: Box::new(DeepType(GenericType::Function {
                     parameters: vec![],
-                    return_type: Box::new(Type::TreeWithKnownChildTypes(vec![
-                        Type::Any,
-                        Type::Any,
-                        Type::Any,
-                        Type::Any,
-                        Type::Any,
-                        Type::Any,
-                        Type::Any,
-                        Type::Any,
-                    ])),
-                }),
-            }),
-        },
+                    return_type: Box::new(DeepType(GenericType::TreeWithKnownChildTypes(vec![
+                        DeepType(GenericType::Any),
+                        DeepType(GenericType::Any),
+                        DeepType(GenericType::Any),
+                        DeepType(GenericType::Any),
+                        DeepType(GenericType::Any),
+                        DeepType(GenericType::Any),
+                        DeepType(GenericType::Any),
+                        DeepType(GenericType::Any),
+                    ]))),
+                })),
+            })),
+        }),
     );
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);

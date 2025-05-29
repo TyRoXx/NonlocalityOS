@@ -1,16 +1,16 @@
-use astraea::tree::{BlobDigest, Tree, TreeBlob};
+use astraea::{deep_tree::DeepTree, tree::TreeBlob};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConsoleOutput {
-    pub message: BlobDigest,
+    pub message: DeepTree,
 }
 
 impl ConsoleOutput {
-    pub fn to_tree(&self) -> Tree {
-        Tree::new(TreeBlob::empty(), vec![self.message])
+    pub fn to_tree(&self) -> DeepTree {
+        DeepTree::new(TreeBlob::empty(), vec![self.message.clone()])
     }
 
-    pub fn from_tree(tree: &Tree) -> Option<ConsoleOutput> {
+    pub fn from_tree(tree: &DeepTree) -> Option<ConsoleOutput> {
         if !tree.blob().is_empty() {
             return None;
         }
@@ -18,7 +18,7 @@ impl ConsoleOutput {
             return None;
         }
         Some(ConsoleOutput {
-            message: tree.references()[0],
+            message: tree.references()[0].clone(),
         })
     }
 }

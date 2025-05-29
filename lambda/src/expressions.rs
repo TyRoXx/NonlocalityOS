@@ -1,4 +1,5 @@
 use crate::name::Name;
+use astraea::deep_tree::DeepTree;
 use astraea::tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeDeserializationError};
 use astraea::{
     storage::{LoadTree, StoreError, StoreTree},
@@ -164,7 +165,7 @@ where
 }
 
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
-pub struct DeepExpression(pub Expression<Arc<DeepExpression>, Tree>);
+pub struct DeepExpression(pub Expression<Arc<DeepExpression>, DeepTree>);
 
 impl PrintExpression for DeepExpression {
     fn print(&self, writer: &mut dyn std::fmt::Write, level: usize) -> std::fmt::Result {
@@ -275,10 +276,9 @@ pub async fn deserialize_recursively(
                     .await
                     .map(Arc::new) })
             },
-            &|child: &BlobDigest| -> Pin<Box<dyn Future<Output = Result<Tree, ()>>>> {
+            &|child: &BlobDigest| -> Pin<Box<dyn Future<Output = Result<DeepTree, ()>>>> {
                 let child = *child;
-                Box::pin(async move { Ok((**load_tree.load_tree(&child).await
-                    .map(|tree| tree.hash().unwrap(/*TODO*/) ).unwrap(/*TODO*/).tree()).clone())})
+                Box::pin(async move { Ok(DeepTree::deserialize(&child, load_tree).await.unwrap(/*TODO*/)) })
             },
         )
         .await?;
@@ -316,12 +316,12 @@ pub async fn serialize_recursively(
                 serialize_recursively(&child, storage)
                     .await
             })
-        },&|child: &Tree| -> Pin<
+        },&|child: &DeepTree| -> Pin<
         Box<dyn Future<Output = Result<BlobDigest, StoreError>>>,
         > {
             let child = child.clone();
             Box::pin(async move {
-                storage.store_tree(&HashedTree::from(Arc::new(child))).await
+                child.serialize(storage).await
             })
         })
         .await?;
@@ -477,11 +477,7 @@ pub async fn evaluate(
     current_lambda_environment: &Option<BlobDigest>,
 ) -> std::result::Result<BlobDigest, StoreError> {
     match &expression.0 {
-        Expression::Literal(literal_value) => {
-            store_tree
-                .store_tree(&HashedTree::from(Arc::new(literal_value.clone())))
-                .await
-        }
+        Expression::Literal(literal_value) => literal_value.serialize(store_tree).await,
         Expression::Apply { callee, argument } => {
             evaluate_apply(
                 callee,

@@ -11,7 +11,7 @@ const TEST_SOURCE_NAMESPACE: NamespaceId =
     NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 
 async fn test_example(source: &str, storage: &InMemoryTreeStorage, expected_result: &BlobDigest) {
-    let output = compile(source, &TEST_SOURCE_NAMESPACE).unwrap();
+    let output = compile(source, &TEST_SOURCE_NAMESPACE).await.unwrap();
     assert_eq!(Vec::<CompilerError>::new(), output.errors);
     let argument = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
