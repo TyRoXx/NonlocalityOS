@@ -2,6 +2,7 @@
 
 use std::path::Path;
 use tracing::{error, info, warn};
+use version_compare::Version;
 
 async fn enable_podman_unix_socket() {
     let program = Path::new("/usr/bin/systemctl");
@@ -103,12 +104,12 @@ async fn test_podman() {
     // there isn't really documentation for the podman API
     let podman_version = podman.version().await.unwrap().version.unwrap();
     info!("Podman version: {}", &podman_version);
-    let expected_status = match podman_version.as_str() {
-        "3.4.4" => "configured",
-        "4.9.3" => "created",
-        "5.2.2" => "created",
-        _ => todo!(),
-    };
+    let expected_status =
+        if Version::from(podman_version.as_str()).unwrap() >= Version::from("4.0.0").unwrap() {
+            "created"
+        } else {
+            "configured"
+        };
 
     let container = podman.containers().get(container_created.id.clone());
     assert_eq!(
