@@ -100,7 +100,7 @@ impl LocalVariable {
 
 struct LambdaScope {
     names: BTreeMap<Name, LocalVariable>,
-    captures: Vec<TypedExpression>,
+    captures: BTreeMap<TypedExpression, u16>,
 }
 
 impl LambdaScope {
@@ -125,7 +125,7 @@ impl LambdaScope {
         }
         Self {
             names,
-            captures: Vec::new(),
+            captures: BTreeMap::new(),
         }
     }
 
@@ -136,12 +136,19 @@ impl LambdaScope {
     }
 
     pub fn capture(&mut self, expression: TypedExpression) -> CompilerOutput {
-        let index = self
-            .captures
-            .len()
-            .try_into()
-            .expect("TODO handle too many captures");
-        self.captures.push(expression);
+        let type_ = expression.type_.clone();
+        let index = match self.captures.get(&expression) {
+            Some(&already_exists) => already_exists,
+            None => {
+                let new_index = self
+                    .captures
+                    .len()
+                    .try_into()
+                    .expect("TODO handle too many captures");
+                self.captures.insert(expression, new_index);
+                new_index
+            }
+        };
         CompilerOutput::new(
             Some(TypedExpression::new(
                 lambda::expressions::DeepExpression(
@@ -152,14 +159,23 @@ impl LambdaScope {
                         index,
                     ),
                 ),
-                self.captures.last().unwrap().type_.clone(),
+                type_,
             )),
             Vec::new(),
         )
     }
 
     pub fn leave(self) -> Vec<TypedExpression> {
-        self.captures
+        let mut as_vec: Vec<(TypedExpression, u16)> = self.captures.into_iter().collect();
+        as_vec.sort_by_key(|(_, index)| *index);
+        // sanity check:
+        for (expected_index, (_, actual_index)) in as_vec.iter().enumerate() {
+            assert_eq!(expected_index, *actual_index as usize);
+        }
+        as_vec
+            .into_iter()
+            .map(|(expression, _)| expression)
+            .collect()
     }
 }
 

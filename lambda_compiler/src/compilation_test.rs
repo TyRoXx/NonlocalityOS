@@ -254,3 +254,123 @@ async fn test_compile_braces() {
     let expected = CompilerOutput::new(Some(entry_point), Vec::new());
     assert_eq!(Ok(expected), output);
 }
+
+#[test_log::test(tokio::test)]
+async fn test_redundant_captures_minimal() {
+    // We reference the same outer variable multiple times in a lambda. The environment should only capture the variable once.
+    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+    let output = compile("(a) => () => [a, a]", &TEST_SOURCE_NAMESPACE);
+    let entry_point = TypedExpression::new(
+        DeepExpression(Expression::make_lambda(
+            empty_tree,
+            Arc::new(DeepExpression(Expression::make_lambda(
+                Arc::new(DeepExpression(Expression::make_construct_tree(vec![
+                    Arc::new(DeepExpression(Expression::make_argument())),
+                ]))),
+                Arc::new(DeepExpression(Expression::make_construct_tree(vec![
+                    Arc::new(DeepExpression(Expression::make_get_child(
+                        Arc::new(DeepExpression(Expression::make_environment())),
+                        0,
+                    ))),
+                    Arc::new(DeepExpression(Expression::make_get_child(
+                        Arc::new(DeepExpression(Expression::make_environment())),
+                        0,
+                    ))),
+                ]))),
+            ))),
+        )),
+        Type::Function {
+            parameters: vec![Type::Any],
+            return_type: Box::new(Type::Function {
+                parameters: vec![],
+                return_type: Box::new(Type::TreeWithKnownChildTypes(vec![Type::Any, Type::Any])),
+            }),
+        },
+    );
+    let expected = CompilerOutput::new(Some(entry_point), Vec::new());
+    assert_eq!(Ok(expected), output);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_redundant_captures_complex() {
+    // We reference the same outer variable multiple times in a lambda. The environment should only capture the variable once.
+    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+    let output = compile(
+        "(a) => (b) => () => [a, a, a, a, b, b, b, b]",
+        &TEST_SOURCE_NAMESPACE,
+    );
+    let entry_point = TypedExpression::new(
+        DeepExpression(Expression::make_lambda(
+            empty_tree,
+            Arc::new(DeepExpression(Expression::make_lambda(
+                Arc::new(DeepExpression(Expression::make_construct_tree(vec![
+                    Arc::new(DeepExpression(Expression::make_argument())),
+                ]))),
+                Arc::new(DeepExpression(Expression::make_lambda(
+                    Arc::new(DeepExpression(Expression::make_construct_tree(vec![
+                        Arc::new(DeepExpression(Expression::make_get_child(
+                            Arc::new(DeepExpression(Expression::make_environment())),
+                            0,
+                        ))),
+                        Arc::new(DeepExpression(Expression::make_argument())),
+                    ]))),
+                    Arc::new(DeepExpression(Expression::make_construct_tree(vec![
+                        Arc::new(DeepExpression(Expression::make_get_child(
+                            Arc::new(DeepExpression(Expression::make_environment())),
+                            0,
+                        ))),
+                        Arc::new(DeepExpression(Expression::make_get_child(
+                            Arc::new(DeepExpression(Expression::make_environment())),
+                            0,
+                        ))),
+                        Arc::new(DeepExpression(Expression::make_get_child(
+                            Arc::new(DeepExpression(Expression::make_environment())),
+                            0,
+                        ))),
+                        Arc::new(DeepExpression(Expression::make_get_child(
+                            Arc::new(DeepExpression(Expression::make_environment())),
+                            0,
+                        ))),
+                        Arc::new(DeepExpression(Expression::make_get_child(
+                            Arc::new(DeepExpression(Expression::make_environment())),
+                            1,
+                        ))),
+                        Arc::new(DeepExpression(Expression::make_get_child(
+                            Arc::new(DeepExpression(Expression::make_environment())),
+                            1,
+                        ))),
+                        Arc::new(DeepExpression(Expression::make_get_child(
+                            Arc::new(DeepExpression(Expression::make_environment())),
+                            1,
+                        ))),
+                        Arc::new(DeepExpression(Expression::make_get_child(
+                            Arc::new(DeepExpression(Expression::make_environment())),
+                            1,
+                        ))),
+                    ]))),
+                ))),
+            ))),
+        )),
+        Type::Function {
+            parameters: vec![Type::Any],
+            return_type: Box::new(Type::Function {
+                parameters: vec![Type::Any],
+                return_type: Box::new(Type::Function {
+                    parameters: vec![],
+                    return_type: Box::new(Type::TreeWithKnownChildTypes(vec![
+                        Type::Any,
+                        Type::Any,
+                        Type::Any,
+                        Type::Any,
+                        Type::Any,
+                        Type::Any,
+                        Type::Any,
+                        Type::Any,
+                    ])),
+                }),
+            }),
+        },
+    );
+    let expected = CompilerOutput::new(Some(entry_point), Vec::new());
+    assert_eq!(Ok(expected), output);
+}
