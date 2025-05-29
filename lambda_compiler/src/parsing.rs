@@ -123,6 +123,32 @@ fn try_skip_right_parenthesis(
     }
 }
 
+fn try_skip_assign(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
+    match peek_next_non_whitespace_token(tokens) {
+        Some(non_whitespace) => match &non_whitespace.content {
+            TokenContent::Whitespace => todo!(),
+            TokenContent::Identifier(_) => false,
+            TokenContent::Assign => {
+                pop_next_non_whitespace_token(tokens);
+                true
+            }
+            TokenContent::LeftParenthesis => todo!(),
+            TokenContent::RightParenthesis => todo!(),
+            TokenContent::LeftBracket => todo!(),
+            TokenContent::RightBracket => todo!(),
+            TokenContent::LeftBrace => false,
+            TokenContent::RightBrace => todo!(),
+            TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
+            TokenContent::Quotes(_) => false,
+            TokenContent::FatArrow => todo!(),
+            TokenContent::Comma => false,
+            TokenContent::EndOfFile => todo!(),
+        },
+        None => todo!(),
+    }
+}
+
 fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
@@ -226,6 +252,36 @@ fn parse_braces(
     Ok(ast::Expression::Braces(Box::new(content)))
 }
 
+fn parse_let(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+    local_namespace: &NamespaceId,
+    let_location: &SourceLocation,
+) -> ParserResult<ast::Expression> {
+    let (name, location) = match try_pop_identifier(tokens) {
+        Some((name, location)) => (name, location),
+        None => {
+            return Err(ParserError::new(
+                "Expected identifier after 'let' keyword.".to_string(),
+                *let_location,
+            ))
+        }
+    };
+    if !try_skip_assign(tokens) {
+        return Err(ParserError::new(
+            "Expected '=' after 'let' identifier.".to_string(),
+            *let_location,
+        ));
+    }
+    let value = parse_expression(tokens, local_namespace)?;
+    let body = parse_expression(tokens, local_namespace)?;
+    Ok(ast::Expression::Let {
+        name: Name::new(*local_namespace, name),
+        location,
+        value: Box::new(value),
+        body: Box::new(body),
+    })
+}
+
 fn parse_expression_start<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
@@ -235,10 +291,14 @@ fn parse_expression_start<'t>(
             TokenContent::Whitespace => todo!(),
             TokenContent::Identifier(identifier) => {
                 pop_next_non_whitespace_token(tokens);
-                Ok(ast::Expression::Identifier(
-                    Name::new(*local_namespace, identifier.clone()),
-                    non_whitespace.location,
-                ))
+                if identifier.as_str() == "let" {
+                    parse_let(tokens, local_namespace, &non_whitespace.location)
+                } else {
+                    Ok(ast::Expression::Identifier(
+                        Name::new(*local_namespace, identifier.clone()),
+                        non_whitespace.location,
+                    ))
+                }
             }
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => {
@@ -268,7 +328,10 @@ fn parse_expression_start<'t>(
                 pop_next_non_whitespace_token(tokens);
                 Ok(ast::Expression::StringLiteral(content.clone()))
             }
-            TokenContent::FatArrow => todo!(),
+            TokenContent::FatArrow => Err(ParserError::new(
+                "Expected expression, found fat arrow.".to_string(),
+                non_whitespace.location,
+            )),
             TokenContent::Comma => Err(ParserError::new(
                 "Expected expression, found comma.".to_string(),
                 non_whitespace.location,
@@ -322,7 +385,7 @@ pub fn parse_expression<'t>(
                 parse_apply(start, tokens, local_namespace)
             }
             TokenContent::RightParenthesis => Ok(start),
-            TokenContent::LeftBracket => todo!(),
+            TokenContent::LeftBracket => Ok(start),
             TokenContent::RightBracket => Ok(start),
             TokenContent::LeftBrace => todo!(),
             TokenContent::RightBrace => Ok(start),

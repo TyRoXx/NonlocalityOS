@@ -234,6 +234,23 @@ fn test_tokenize_default_syntax_identifier_uppercase() {
 }
 
 #[test_log::test]
+fn test_tokenize_default_syntax_let() {
+    test_tokenize_default_syntax(
+        "let",
+        &[
+            Token {
+                content: TokenContent::Identifier("let".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 3 },
+            },
+        ],
+    );
+}
+
+#[test_log::test]
 fn test_tokenize_default_syntax_assign() {
     test_tokenize_default_syntax(
         "=",

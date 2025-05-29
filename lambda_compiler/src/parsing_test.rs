@@ -8,6 +8,34 @@ use lambda::name::{Name, NamespaceId};
 const TEST_NAMESPACE: NamespaceId =
     NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 
+fn find_end_of_file_location(source: &str) -> SourceLocation {
+    SourceLocation {
+        line: source.chars().filter(|c| *c == '\n').count() as u64,
+        column: (source.len() as i64 - 1 - source.rfind('\n').map_or(-1i64, |pos| pos as i64))
+            as u64,
+    }
+}
+
+#[test]
+fn test_find_end_of_file_location() {
+    assert_eq!(
+        find_end_of_file_location(""),
+        SourceLocation { line: 0, column: 0 }
+    );
+    assert_eq!(
+        find_end_of_file_location(" "),
+        SourceLocation { line: 0, column: 1 }
+    );
+    assert_eq!(
+        find_end_of_file_location("\n"),
+        SourceLocation { line: 1, column: 0 }
+    );
+    assert_eq!(
+        find_end_of_file_location("\n "),
+        SourceLocation { line: 1, column: 1 }
+    );
+}
+
 fn parse_wellformed_expression(source: &str) -> ast::Expression {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter().peekable();
@@ -15,10 +43,7 @@ fn parse_wellformed_expression(source: &str) -> ast::Expression {
     assert_eq!(
         Some(&Token::new(
             TokenContent::EndOfFile,
-            SourceLocation {
-                line: 0,
-                column: source.len() as u64
-            }
+            find_end_of_file_location(source)
         )),
         token_iterator.next()
     );
@@ -322,4 +347,55 @@ fn test_parse_braces() {
         )));
         test_wellformed_parsing(source, expected);
     }
+}
+
+#[test_log::test]
+fn test_parse_let() {
+    for source in &["let a = b\na", "let a=b\na"] {
+        let expected = ast::Expression::Let {
+            name: Name::new(TEST_NAMESPACE, "a".to_string()),
+            location: SourceLocation {
+                line: 0,
+                column: source.find("a").unwrap() as u64,
+            },
+            value: Box::new(ast::Expression::Identifier(
+                Name::new(TEST_NAMESPACE, "b".to_string()),
+                SourceLocation {
+                    line: 0,
+                    column: source.find("b").unwrap() as u64,
+                },
+            )),
+            body: Box::new(ast::Expression::Identifier(
+                Name::new(TEST_NAMESPACE, "a".to_string()),
+                SourceLocation { line: 1, column: 0 },
+            )),
+        };
+        test_wellformed_parsing(source, expected);
+    }
+}
+
+#[test_log::test]
+fn test_parse_let_ambiguity() {
+    // b() is parsed as a function call
+    let tokens = tokenize_default_syntax("let a = b () => a");
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::FatArrow,
+            SourceLocation {
+                line: 0,
+                column: 13
+            }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected expression, found fat arrow.".to_string(),
+            SourceLocation::new(0, 13),
+        )],
+    );
+    assert_eq!(expected, output);
 }

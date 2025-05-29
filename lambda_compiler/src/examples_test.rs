@@ -108,3 +108,30 @@ async fn test_lambda_parameters() {
         .unwrap();
     test_example(source, &storage, &expected_result).await;
 }
+
+#[test_log::test(tokio::test)]
+async fn test_local_variables() {
+    let source = include_str!("../examples/local_variables.tl");
+    let storage = InMemoryTreeStorage::empty();
+    let expected_result = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            vec![
+                storage
+                    .store_tree(&HashedTree::from(Arc::new(
+                        Tree::from_string("lam").unwrap(),
+                    )))
+                    .await
+                    .unwrap(),
+                storage
+                    .store_tree(&HashedTree::from(Arc::new(
+                        Tree::from_string("bda").unwrap(),
+                    )))
+                    .await
+                    .unwrap(),
+            ],
+        ))))
+        .await
+        .unwrap();
+    test_example(source, &storage, &expected_result).await;
+}

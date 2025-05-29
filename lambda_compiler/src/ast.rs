@@ -36,6 +36,12 @@ pub enum Expression {
     },
     ConstructTree(Vec<Expression>),
     Braces(Box<Expression>),
+    Let {
+        name: Name,
+        location: SourceLocation,
+        value: Box<Expression>,
+        body: Box<Expression>,
+    },
 }
 
 impl Expression {
@@ -46,7 +52,13 @@ impl Expression {
             Expression::Apply { callee, .. } => callee.source_location(),
             Expression::Lambda { body, .. } => body.source_location(),
             Expression::ConstructTree(_) => todo!(),
-            Expression::Braces(expr) => expr.source_location(),
+            Expression::Braces(expression) => expression.source_location(),
+            Expression::Let {
+                name: _,
+                location,
+                value: _,
+                body: _,
+            } => *location,
         }
     }
 }

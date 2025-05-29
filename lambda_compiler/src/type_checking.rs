@@ -216,6 +216,16 @@ pub struct TypeCheckedLambdaParameter {
     pub type_: Type,
 }
 
+impl TypeCheckedLambdaParameter {
+    pub fn new(name: Name, source_location: SourceLocation, type_: Type) -> Self {
+        Self {
+            name,
+            source_location,
+            type_,
+        }
+    }
+}
+
 pub fn check_lambda_parameters(
     parameters: &[LambdaParameter],
 ) -> Result<Vec<TypeCheckedLambdaParameter>, StoreError> {
@@ -277,6 +287,68 @@ pub fn check_lambda(
                         .collect(),
                     return_type: Box::new(body_checked.type_),
                 },
+            )),
+            errors: body_output.errors,
+        }),
+        None => Ok(CompilerOutput::new(None, body_output.errors)),
+    }
+}
+
+pub fn check_braces(
+    expression: &[ast::Expression],
+    environment_builder: &mut EnvironmentBuilder,
+) -> Result<CompilerOutput, StoreError> {
+    if expression.len() != 1 {
+        todo!()
+    }
+    check_types(&expression[0], environment_builder)
+}
+
+pub fn check_let(
+    name: &Name,
+    location: &SourceLocation,
+    value: &ast::Expression,
+    body: &ast::Expression,
+    environment_builder: &mut EnvironmentBuilder,
+) -> Result<CompilerOutput, StoreError> {
+    let value_checked = check_types(value, environment_builder)?;
+    if !value_checked.errors.is_empty() {
+        todo!()
+    }
+    let value_checked_unwrapped = value_checked.entry_point.unwrap();
+    let checked_parameters = [TypeCheckedLambdaParameter::new(
+        name.clone(),
+        *location,
+        value_checked_unwrapped.type_.clone(),
+    )];
+    environment_builder.enter_lambda_body(&checked_parameters[..]);
+    let body_result = check_types(body, environment_builder);
+    // TODO: use RAII or something?
+    let environment = environment_builder.leave_lambda_body();
+    let environment_expressions = environment
+        .into_iter()
+        .map(|typed_expression| Arc::new(typed_expression.expression))
+        .collect();
+    let body_output = body_result?;
+    match body_output.entry_point {
+        Some(body_checked) => Ok(CompilerOutput {
+            entry_point: Some(TypedExpression::new(
+                lambda::expressions::DeepExpression(lambda::expressions::Expression::make_apply(
+                    Arc::new(lambda::expressions::DeepExpression(
+                        lambda::expressions::Expression::Lambda {
+                            environment: Arc::new(DeepExpression(Expression::make_construct_tree(
+                                environment_expressions,
+                            ))),
+                            body: Arc::new(body_checked.expression),
+                        },
+                    )),
+                    Arc::new(lambda::expressions::DeepExpression(
+                        lambda::expressions::Expression::make_construct_tree(vec![Arc::new(
+                            value_checked_unwrapped.expression,
+                        )]),
+                    )),
+                )),
+                body_checked.type_,
             )),
             errors: body_output.errors,
         }),
@@ -349,9 +421,12 @@ pub fn check_types(
         ast::Expression::ConstructTree(arguments) => {
             check_tree_construction_or_argument_list(&arguments[..], environment_builder)
         }
-        ast::Expression::Braces(expression) => {
-            let output = check_types(expression, environment_builder)?;
-            Ok(output)
-        }
+        ast::Expression::Braces(expression) => check_types(expression, environment_builder),
+        ast::Expression::Let {
+            name,
+            location,
+            value,
+            body,
+        } => check_let(name, location, value, body, environment_builder),
     }
 }

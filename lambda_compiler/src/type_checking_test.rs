@@ -3,6 +3,7 @@ use crate::{
     compilation::{CompilerOutput, SourceLocation},
     type_checking::{check_types, EnvironmentBuilder, Type, TypedExpression},
 };
+use astraea::tree::Tree;
 use lambda::{
     expressions::{DeepExpression, Expression},
     name::{Name, NamespaceId},
@@ -530,6 +531,57 @@ async fn test_lambda_parameter_type_to_do() {
                 parameters: vec![Type::Any],
                 return_type: Box::new(Type::Any),
             },
+        )),
+        vec![],
+    );
+    assert_eq!(output, Ok(expected));
+    assert!(environment_builder.is_empty());
+}
+
+#[test_log::test(tokio::test)]
+async fn test_let_local_variable() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let input = ast::Expression::Let {
+        name: x_in_source.clone(),
+        location: SourceLocation { line: 2, column: 1 },
+        value: Box::new(ast::Expression::StringLiteral("Hello".to_string())),
+        body: Box::new(ast::Expression::Identifier(
+            x_in_source.clone(),
+            SourceLocation {
+                line: 2,
+                column: 10,
+            },
+        )),
+    };
+    let mut environment_builder = EnvironmentBuilder::new();
+    let output = check_types(&input, &mut environment_builder);
+    let expected = CompilerOutput::new(
+        Some(TypedExpression::new(
+            DeepExpression(lambda::expressions::Expression::Apply {
+                callee: Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_lambda(
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_construct_tree(vec![]),
+                        )),
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_get_child(
+                                Arc::new(DeepExpression(
+                                    lambda::expressions::Expression::make_argument(),
+                                )),
+                                0,
+                            ),
+                        )),
+                    ),
+                )),
+                argument: Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_construct_tree(vec![Arc::new(
+                        DeepExpression(lambda::expressions::Expression::make_literal(
+                            Tree::from_string("Hello").unwrap(),
+                        )),
+                    )]),
+                )),
+            }),
+            Type::String,
         )),
         vec![],
     );
