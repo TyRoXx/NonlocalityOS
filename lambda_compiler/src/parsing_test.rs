@@ -56,6 +56,22 @@ fn test_wellformed_parsing(source: &str, expected: ast::Expression) {
 }
 
 #[test_log::test]
+fn test_parse_comment() {
+    let name = Name::new(TEST_NAMESPACE, "f".to_string());
+    let expected = ast::Expression::Identifier(name, SourceLocation { line: 1, column: 0 });
+
+    test_wellformed_parsing("# Comment\nf", expected);
+}
+
+#[test_log::test]
+fn test_parse_comment_with_expression_infront() {
+    let name = Name::new(TEST_NAMESPACE, "foo".to_string());
+    let expected = ast::Expression::Identifier(name, SourceLocation { line: 0, column: 0 });
+
+    test_wellformed_parsing("foo # Comment", expected);
+}
+
+#[test_log::test]
 fn test_parse_lambda_0_parameters() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let expected = ast::Expression::Lambda {

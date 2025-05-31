@@ -406,6 +406,82 @@ fn wellformed_quotes(literal: &str, decoded: &str) {
 }
 
 #[test_log::test]
+fn test_tokenize_comment() {
+    test_tokenize_default_syntax(
+        "#Hallo\n",
+        &[
+            Token {
+                content: TokenContent::Comment("Hallo".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 1, column: 0 },
+            },
+        ],
+    );
+}
+
+#[test_log::test]
+fn test_tokenize_comment_without_new_line() {
+    test_tokenize_default_syntax(
+        "#Hallo",
+        &[
+            Token {
+                content: TokenContent::Comment("Hallo".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 6 },
+            },
+        ],
+    );
+}
+
+#[test_log::test]
+fn test_tokenize_comment_and_line() {
+    test_tokenize_default_syntax(
+        "#Hallo\ntest\n",
+        &[
+            Token {
+                content: TokenContent::Comment("Hallo".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::Identifier("test".to_string()),
+                location: SourceLocation { line: 1, column: 0 },
+            },
+            Token {
+                content: TokenContent::Whitespace,
+                location: SourceLocation { line: 1, column: 4 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 2, column: 0 },
+            },
+        ],
+    );
+}
+
+#[test_log::test]
+fn test_tokenize_comment_empty() {
+    test_tokenize_default_syntax(
+        "#",
+        &[
+            Token {
+                content: TokenContent::Comment("".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 0, column: 1 },
+            },
+        ],
+    );
+}
+
+#[test_log::test]
 fn test_tokenize_default_syntax_string_empty() {
     wellformed_quotes("", "");
 }
