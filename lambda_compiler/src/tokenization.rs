@@ -208,13 +208,53 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(21);
     lazy_static! {
         static ref IDENTIFIER_CHARACTERS: Vec<RegisterValue> = (b'a'..=b'z').chain(b'A'..=b'Z').map(RegisterValue::Byte).collect();
+        static ref QUOTES_PARSING: [Parser; 2] = [
+            // quotes
+            Parser::IsAnyOf {
+                input: FIRST_INPUT,
+                result: IS_ANY_OF_RESULT,
+                candidates: vec![RegisterValue::Byte(b'"')],
+            },
+            Parser::IfElse(
+                IS_ANY_OF_RESULT,
+                Box::new(Parser::Sequence(vec![
+                    Parser::Constant(TOKEN_TAG_QUOTES, RegisterValue::Byte(8)),
+                    Parser::WriteOutputByte(TOKEN_TAG_QUOTES),
+                    // convention: separator starts a variable-length byte array
+                    Parser::WriteOutputSeparator,
+                    Parser::Constant(LOOP_CONDITION, RegisterValue::Boolean(true)),
+                    Parser::Loop{condition: LOOP_CONDITION, body: Box::new(
+                        Parser::Sequence(vec![
+                            Parser::ReadInputByte(SUBSEQUENT_INPUT),
+                            // TODO: support escape sequences
+                            Parser::IsAnyOf {
+                                input: SUBSEQUENT_INPUT,
+                                result: IS_ANY_OF_RESULT,
+                                candidates: vec![RegisterValue::Byte(b'"')],
+                            },
+                            Parser::Not{from: IS_ANY_OF_RESULT, to: LOOP_CONDITION},
+                            Parser::IfElse(
+                                IS_ANY_OF_RESULT,
+                                Box::new(Parser::no_op()),
+                                Box::new(Parser::Sequence(vec![
+                                    Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
+                                    Parser::WriteOutputByte(OUTPUT_BYTE),
+                                ])),
+                            ),
+                        ])
+                    )},
+                    // convention: separator also ends a variable-length byte array
+                    Parser::WriteOutputSeparator,
+                ])),
+                Box::new(Parser::no_op())
+            )];
         static ref TOKEN_PARSER: Parser =
             Parser::Sequence(vec![
                 Parser::IsEndOfInput(IS_END_OF_INPUT),
                 Parser::IfElse(
                     IS_END_OF_INPUT,
                     Box::new(Parser::no_op()),
-                    Box::new(Parser::Sequence(vec![
+                    Box::new(Parser::Sequence([
                         Parser::ReadInputByte(FIRST_INPUT),
 
                         // whitespace
@@ -485,47 +525,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             ])),
                             Box::new(Parser::no_op())
                         ),
-
-                        // quotes
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![RegisterValue::Byte(b'"')],
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_QUOTES, RegisterValue::Byte(8)),
-                                Parser::WriteOutputByte(TOKEN_TAG_QUOTES),
-                                // convention: separator starts a variable-length byte array
-                                Parser::WriteOutputSeparator,
-                                Parser::Constant(LOOP_CONDITION, RegisterValue::Boolean(true)),
-                                Parser::Loop{condition: LOOP_CONDITION, body: Box::new(
-                                    Parser::Sequence(vec![
-                                        Parser::ReadInputByte(SUBSEQUENT_INPUT),
-                                        // TODO: support escape sequences
-                                        Parser::IsAnyOf {
-                                            input: SUBSEQUENT_INPUT,
-                                            result: IS_ANY_OF_RESULT,
-                                            candidates: vec![RegisterValue::Byte(b'"')],
-                                        },
-                                        Parser::Not{from: IS_ANY_OF_RESULT, to: LOOP_CONDITION},
-                                        Parser::IfElse(
-                                            IS_ANY_OF_RESULT,
-                                            Box::new(Parser::no_op()),
-                                            Box::new(Parser::Sequence(vec![
-                                                Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
-                                                Parser::WriteOutputByte(OUTPUT_BYTE),
-                                            ])),
-                                        ),
-                                    ])
-                                )},
-                                // convention: separator also ends a variable-length byte array
-                                Parser::WriteOutputSeparator,
-                            ])),
-                            Box::new(Parser::no_op())
-                        )
-                    ])),
+                    ].into_iter().chain(QUOTES_PARSING.clone()).collect())),
                 ),
             ]);
     }

@@ -3,15 +3,16 @@ use std::collections::{BTreeMap, VecDeque};
 #[cfg(test)]
 mod test;
 
-#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
 pub struct RegisterId(pub u16);
 
-#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
 pub enum RegisterValue {
     Boolean(bool),
     Byte(u8),
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Parser {
     IsEndOfInput(RegisterId),
     ReadInputByte(RegisterId),
