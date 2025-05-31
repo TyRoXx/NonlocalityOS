@@ -53,6 +53,11 @@ pub enum Parser {
         candidates: Vec<RegisterValue>,
     },
     Or(Vec<Parser>),
+    Match {
+        input: RegisterId,
+        cases: BTreeMap<RegisterValue, Parser>,
+        default: Box<Parser>,
+    },
 }
 
 impl Parser {
@@ -351,6 +356,28 @@ impl<'t> Interpreter<'t> {
                     index: 0,
                     is_recoverable: true,
                 });
+            }
+            Parser::Match {
+                input,
+                cases,
+                default,
+            } => {
+                let register_read_result = self.registers.get(input);
+                match register_read_result {
+                    Some(value_to_search_for) => match cases.get(value_to_search_for) {
+                        Some(found) => self.position.push(Frame {
+                            parser: std::slice::from_ref(found),
+                            index: 0,
+                            is_recoverable: false,
+                        }),
+                        None => self.position.push(Frame {
+                            parser: std::slice::from_ref(default.as_ref()),
+                            index: 0,
+                            is_recoverable: false,
+                        }),
+                    },
+                    None => return Some(InterpreterStatus::ErrorInParser),
+                }
             }
         }
         None

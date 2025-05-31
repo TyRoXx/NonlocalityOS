@@ -386,19 +386,19 @@ fn test_tokenize_default_syntax_fat_arrow() {
     );
 }
 
-fn wellformed_quotes(string_content: &str) {
+fn wellformed_quotes(literal: &str, decoded: &str) {
     test_tokenize_default_syntax(
-        &format!("\"{string_content}\""),
+        &format!("\"{literal}\""),
         &[
             Token {
-                content: TokenContent::Quotes(string_content.to_string()),
+                content: TokenContent::Quotes(decoded.to_string()),
                 location: SourceLocation { line: 0, column: 0 },
             },
             Token {
                 content: TokenContent::EndOfFile,
                 location: SourceLocation {
                     line: 0,
-                    column: 2 + string_content.len() as u64,
+                    column: 2 + literal.len() as u64,
                 },
             },
         ],
@@ -407,21 +407,23 @@ fn wellformed_quotes(string_content: &str) {
 
 #[test_log::test]
 fn test_tokenize_default_syntax_string_empty() {
-    wellformed_quotes("");
+    wellformed_quotes("", "");
 }
 
 #[test_log::test]
 fn test_tokenize_default_syntax_string_short() {
-    wellformed_quotes("hello");
+    wellformed_quotes("hello", "hello");
 }
 
 #[test_log::test]
 fn test_tokenize_default_syntax_string_longer() {
-    wellformed_quotes(&std::iter::repeat_n('A', 1000).collect::<String>());
+    let literal = &std::iter::repeat_n('A', 1000).collect::<String>();
+    wellformed_quotes(&literal, &literal);
 }
 
 #[test_log::test]
 fn test_tokenize_default_syntax_string_escape_sequences() {
-    // TODO: support escape sequences, test \"
-    wellformed_quotes("\\\\");
+    wellformed_quotes(r#"\\"#, r#"\"#);
+    wellformed_quotes(r#"\""#, r#"""#);
+    wellformed_quotes(r#"\'"#, r#"'"#);
 }

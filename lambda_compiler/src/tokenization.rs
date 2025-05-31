@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::compilation::SourceLocation;
 use hippeus_parser_generator::{Parser, RegisterValue};
 use lazy_static::lazy_static;
@@ -226,21 +228,22 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                     Parser::Loop{condition: LOOP_CONDITION, body: Box::new(
                         Parser::Sequence(vec![
                             Parser::ReadInputByte(SUBSEQUENT_INPUT),
-                            // TODO: support escape sequences
-                            Parser::IsAnyOf {
+                            Parser::Match {
                                 input: SUBSEQUENT_INPUT,
-                                result: IS_ANY_OF_RESULT,
-                                candidates: vec![RegisterValue::Byte(b'"')],
-                            },
-                            Parser::Not{from: IS_ANY_OF_RESULT, to: LOOP_CONDITION},
-                            Parser::IfElse(
-                                IS_ANY_OF_RESULT,
-                                Box::new(Parser::no_op()),
-                                Box::new(Parser::Sequence(vec![
+                                cases: BTreeMap::from([
+                                    (RegisterValue::Byte(b'"'), Parser::Constant(LOOP_CONDITION, RegisterValue::Boolean(false))),
+                                    (RegisterValue::Byte(b'\\'), Parser::Sequence(vec![
+                                        Parser::ReadInputByte(SUBSEQUENT_INPUT),
+                                        // TODO: check the value of SUBSEQUENT_INPUT
+                                        Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
+                                        Parser::WriteOutputByte(OUTPUT_BYTE),
+                                    ]))
+                                ]),
+                                default: Box::new(Parser::Sequence(vec![
                                     Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
                                     Parser::WriteOutputByte(OUTPUT_BYTE),
                                 ])),
-                            ),
+                            },
                         ])
                     )},
                     // convention: separator also ends a variable-length byte array

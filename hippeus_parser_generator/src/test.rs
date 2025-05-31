@@ -1,4 +1,5 @@
 use crate::{is_match, parse, ParseResult, Parser, RegisterId, RegisterValue, Slice};
+use std::collections::BTreeMap;
 
 #[test_log::test]
 fn test_empty_parser() {
@@ -404,6 +405,21 @@ fn expect_single_byte_output(parser: &Parser, input: &str, expected_output: u8) 
     }
 }
 
+#[cfg(test)]
+fn expect_fail(parser: &Parser, input: &str) {
+    let result = parse(parser, &mut Slice::new(input));
+    match result {
+        ParseResult::Success {
+            output: _,
+            has_extraneous_input: _,
+        } => {
+            panic!();
+        }
+        ParseResult::Failed => {}
+        ParseResult::ErrorInParser => panic!(),
+    }
+}
+
 #[test_log::test]
 fn test_if_else() {
     let parser = Parser::Sequence(vec![
@@ -456,4 +472,45 @@ fn test_if_else_overwriting_condition() {
     ]);
     expect_single_byte_output(&parser, "A", 42);
     expect_single_byte_output(&parser, "B", 43);
+}
+
+#[test_log::test]
+fn test_match() {
+    let parser = Parser::Sequence(vec![
+        Parser::Constant(RegisterId(1), RegisterValue::Byte(42)),
+        Parser::Constant(RegisterId(2), RegisterValue::Byte(43)),
+        Parser::ReadInputByte(RegisterId(0)),
+        Parser::Match {
+            input: RegisterId(0),
+            cases: BTreeMap::from([
+                (
+                    RegisterValue::Byte(b'A'),
+                    Parser::WriteOutputByte(RegisterId(1)),
+                ),
+                (RegisterValue::Byte(b'C'), Parser::Fail),
+            ]),
+            default: Box::new(Parser::WriteOutputByte(RegisterId(2))),
+        },
+    ]);
+    expect_single_byte_output(&parser, "A", 42);
+    expect_single_byte_output(&parser, "B", 43);
+    expect_fail(&parser, "C");
+    expect_fail(&parser, "");
+}
+
+#[test_log::test]
+fn test_match_no_cases() {
+    let parser = Parser::Sequence(vec![
+        Parser::Constant(RegisterId(2), RegisterValue::Byte(43)),
+        Parser::ReadInputByte(RegisterId(0)),
+        Parser::Match {
+            input: RegisterId(0),
+            cases: BTreeMap::from([]),
+            default: Box::new(Parser::WriteOutputByte(RegisterId(2))),
+        },
+    ]);
+    expect_single_byte_output(&parser, "A", 43);
+    expect_single_byte_output(&parser, "B", 43);
+    expect_single_byte_output(&parser, "C", 43);
+    expect_fail(&parser, "");
 }
