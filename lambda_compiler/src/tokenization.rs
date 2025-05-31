@@ -210,6 +210,10 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
         hippeus_parser_generator::RegisterId(21);
     lazy_static! {
         static ref IDENTIFIER_CHARACTERS: Vec<RegisterValue> = (b'a'..=b'z').chain(b'A'..=b'Z').map(RegisterValue::Byte).collect();
+        static ref COPY_SUBSEQUENT_INPUT_TO_OUTPUT: Parser = Parser::Sequence(vec![
+                                    Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
+                                    Parser::WriteOutputByte(OUTPUT_BYTE),
+                                ]);
         static ref QUOTES_PARSING: [Parser; 2] = [
             // quotes
             Parser::IsAnyOf {
@@ -234,15 +238,30 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                                     (RegisterValue::Byte(b'"'), Parser::Constant(LOOP_CONDITION, RegisterValue::Boolean(false))),
                                     (RegisterValue::Byte(b'\\'), Parser::Sequence(vec![
                                         Parser::ReadInputByte(SUBSEQUENT_INPUT),
-                                        // TODO: check the value of SUBSEQUENT_INPUT
-                                        Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
-                                        Parser::WriteOutputByte(OUTPUT_BYTE),
-                                    ]))
+                                        Parser::Match {
+                                            input: SUBSEQUENT_INPUT,
+                                            cases: BTreeMap::from([
+                                                (RegisterValue::Byte(b'\\'), COPY_SUBSEQUENT_INPUT_TO_OUTPUT.clone()),
+                                                (RegisterValue::Byte(b'\"'), COPY_SUBSEQUENT_INPUT_TO_OUTPUT.clone()),
+                                                (RegisterValue::Byte(b'\''), COPY_SUBSEQUENT_INPUT_TO_OUTPUT.clone()),
+                                                (RegisterValue::Byte(b'n'), Parser::Sequence(vec![
+                                                    Parser::Constant(OUTPUT_BYTE, RegisterValue::Byte(b'\n')),
+                                                    Parser::WriteOutputByte(OUTPUT_BYTE),
+                                                ])),
+                                                (RegisterValue::Byte(b'r'), Parser::Sequence(vec![
+                                                    Parser::Constant(OUTPUT_BYTE, RegisterValue::Byte(b'\r')),
+                                                    Parser::WriteOutputByte(OUTPUT_BYTE),
+                                                ])),
+                                                (RegisterValue::Byte(b't'), Parser::Sequence(vec![
+                                                    Parser::Constant(OUTPUT_BYTE, RegisterValue::Byte(b'\t')),
+                                                    Parser::WriteOutputByte(OUTPUT_BYTE),
+                                                ]))
+                                            ]),
+                                            default: Box::new(Parser::Fail),
+                                        }
+                                    ])),
                                 ]),
-                                default: Box::new(Parser::Sequence(vec![
-                                    Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
-                                    Parser::WriteOutputByte(OUTPUT_BYTE),
-                                ])),
+                                default: Box::new(COPY_SUBSEQUENT_INPUT_TO_OUTPUT.clone()),
                             },
                         ])
                     )},

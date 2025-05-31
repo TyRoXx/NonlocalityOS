@@ -417,8 +417,37 @@ fn test_tokenize_default_syntax_string_short() {
 
 #[test_log::test]
 fn test_tokenize_default_syntax_string_longer() {
-    let literal = &std::iter::repeat_n('A', 1000).collect::<String>();
+    let literal = std::iter::repeat_n('A', 1000).collect::<String>();
     wellformed_quotes(&literal, &literal);
+}
+
+#[test_log::test]
+fn test_tokenize_default_syntax_string_new_line() {
+    // TODO: perhaps we should disallow line breaks in string literals
+    test_tokenize_default_syntax(
+        "\"\n\"",
+        &[
+            Token {
+                content: TokenContent::Quotes("\n".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation { line: 1, column: 1 },
+            },
+        ],
+    );
+}
+
+#[test_log::test]
+fn test_tokenize_default_syntax_string_carriage_return() {
+    // TODO: perhaps we should disallow line breaks in string literals
+    wellformed_quotes("\r", "\r");
+}
+
+#[test_log::test]
+fn test_tokenize_default_syntax_string_tab() {
+    wellformed_quotes("\t", "\t");
 }
 
 #[test_log::test]
@@ -426,4 +455,7 @@ fn test_tokenize_default_syntax_string_escape_sequences() {
     wellformed_quotes(r#"\\"#, r#"\"#);
     wellformed_quotes(r#"\""#, r#"""#);
     wellformed_quotes(r#"\'"#, r#"'"#);
+    wellformed_quotes(r#"\n"#, "\n");
+    wellformed_quotes(r#"\r"#, "\r");
+    wellformed_quotes(r#"\t"#, "\t");
 }
