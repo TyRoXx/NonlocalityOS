@@ -1,9 +1,8 @@
-use std::collections::BTreeMap;
-
 use crate::compilation::SourceLocation;
-use hippeus_parser_generator::{Parser, RegisterValue};
+use hippeus_parser_generator::{ParseResult, Parser, RegisterId, RegisterValue};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum TokenContent {
@@ -109,7 +108,7 @@ fn tokenize(source: &str, syntax: &Parser) -> Vec<Token> {
     let mut previous_source_location = input.current_location();
     loop {
         match hippeus_parser_generator::parse(syntax, &mut input) {
-            hippeus_parser_generator::ParseResult::Success {
+            ParseResult::Success {
                 output,
                 has_extraneous_input,
             } => {
@@ -157,8 +156,8 @@ fn tokenize(source: &str, syntax: &Parser) -> Vec<Token> {
                 );
                 previous_source_location = new_source_location;
             }
-            hippeus_parser_generator::ParseResult::Failed => todo!(),
-            hippeus_parser_generator::ParseResult::ErrorInParser => {
+            ParseResult::Failed => todo!(),
+            ParseResult::ErrorInParser => {
                 panic!("this is a bug in the token parser")
             }
         }
@@ -166,52 +165,29 @@ fn tokenize(source: &str, syntax: &Parser) -> Vec<Token> {
 }
 
 pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
-    const IS_END_OF_INPUT: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(0);
-    const STILL_SOMETHING_TO_CHECK: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(1);
-    const FIRST_INPUT: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(2);
-    const IS_ANY_OF_RESULT: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(3);
-    const TOKEN_TAG_WHITESPACE: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(4);
-    const TOKEN_TAG_IDENTIFIER: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(5);
-    const LOOP_CONDITION: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(6);
-    const TOKEN_TAG_ASSIGN: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(7);
-    const SUBSEQUENT_INPUT: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(8);
-    const OUTPUT_BYTE: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(9);
-    const IF_CONDITION: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(10);
-    const TOKEN_TAG_LEFT_PARENTHESIS: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(11);
-    const TOKEN_TAG_RIGHT_PARENTHESIS: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(12);
-    const TOKEN_TAG_LEFT_BRACKET: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(13);
-    const TOKEN_TAG_RIGHT_BRACKET: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(14);
-    const TOKEN_TAG_DOT: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(15);
-    const TOKEN_TAG_COMMA: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(16);
-    const TOKEN_TAG_QUOTES: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(17);
-    const TOKEN_TAG_FAT_ARROW: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(18);
-    const TOKEN_TAG_LEFT_BRACE: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(19);
-    const TOKEN_TAG_RIGHT_BRACE: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(20);
-    const TOKEN_TAG_COLON: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(21);
-    const TOKEN_TAG_COMMENT: hippeus_parser_generator::RegisterId =
-        hippeus_parser_generator::RegisterId(22);
+    const IS_END_OF_INPUT: RegisterId = RegisterId(0);
+    const STILL_SOMETHING_TO_CHECK: RegisterId = RegisterId(1);
+    const FIRST_INPUT: RegisterId = RegisterId(2);
+    const IS_ANY_OF_RESULT: RegisterId = RegisterId(3);
+    const TOKEN_TAG_WHITESPACE: RegisterId = RegisterId(4);
+    const TOKEN_TAG_IDENTIFIER: RegisterId = RegisterId(5);
+    const LOOP_CONDITION: RegisterId = RegisterId(6);
+    const TOKEN_TAG_ASSIGN: RegisterId = RegisterId(7);
+    const SUBSEQUENT_INPUT: RegisterId = RegisterId(8);
+    const OUTPUT_BYTE: RegisterId = RegisterId(9);
+    const IF_CONDITION: RegisterId = RegisterId(10);
+    const TOKEN_TAG_LEFT_PARENTHESIS: RegisterId = RegisterId(11);
+    const TOKEN_TAG_RIGHT_PARENTHESIS: RegisterId = RegisterId(12);
+    const TOKEN_TAG_LEFT_BRACKET: RegisterId = RegisterId(13);
+    const TOKEN_TAG_RIGHT_BRACKET: RegisterId = RegisterId(14);
+    const TOKEN_TAG_DOT: RegisterId = RegisterId(15);
+    const TOKEN_TAG_COMMA: RegisterId = RegisterId(16);
+    const TOKEN_TAG_QUOTES: RegisterId = RegisterId(17);
+    const TOKEN_TAG_FAT_ARROW: RegisterId = RegisterId(18);
+    const TOKEN_TAG_LEFT_BRACE: RegisterId = RegisterId(19);
+    const TOKEN_TAG_RIGHT_BRACE: RegisterId = RegisterId(20);
+    const TOKEN_TAG_COLON: RegisterId = RegisterId(21);
+    const TOKEN_TAG_COMMENT: RegisterId = RegisterId(22);
     lazy_static! {
         static ref IDENTIFIER_CHARACTERS: Vec<RegisterValue> = (b'a'..=b'z').chain(b'A'..=b'Z').map(RegisterValue::Byte).collect();
         static ref COPY_SUBSEQUENT_INPUT_TO_OUTPUT: Parser = Parser::Sequence(vec![
@@ -276,58 +252,58 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
             )];
 
         static ref COMMENT_PARSING: [Parser; 2]  = [
-            hippeus_parser_generator::Parser::IsAnyOf {
+            Parser::IsAnyOf {
                 input: FIRST_INPUT,
                 result: IS_ANY_OF_RESULT,
-                candidates: vec![hippeus_parser_generator::RegisterValue::Byte(b'#')],
+                candidates: vec![RegisterValue::Byte(b'#')],
             },
-            hippeus_parser_generator::Parser::IfElse(
+            Parser::IfElse(
                 IS_ANY_OF_RESULT,
-                Box::new(hippeus_parser_generator::Parser::Sequence(vec![
-                    hippeus_parser_generator::Parser::Constant(
+                Box::new(Parser::Sequence(vec![
+                    Parser::Constant(
                         TOKEN_TAG_COMMENT,
-                        hippeus_parser_generator::RegisterValue::Byte(15)
+                        RegisterValue::Byte(15)
                     ),
-                    hippeus_parser_generator::Parser::WriteOutputByte(
+                    Parser::WriteOutputByte(
                         TOKEN_TAG_COMMENT
                     ),
                     // convention: separator starts a variable-length byte array
-                    hippeus_parser_generator::Parser::WriteOutputSeparator,
-                    hippeus_parser_generator::Parser::Constant(
+                    Parser::WriteOutputSeparator,
+                    Parser::Constant(
                         LOOP_CONDITION,
-                        hippeus_parser_generator::RegisterValue::Boolean(true)
+                        RegisterValue::Boolean(true)
                     ),
-                    hippeus_parser_generator::Parser::Loop{condition: LOOP_CONDITION, body: Box::new(
-                        hippeus_parser_generator::Parser::Sequence(vec![
-                            hippeus_parser_generator::Parser::IsEndOfInput(IS_END_OF_INPUT),
-                            hippeus_parser_generator::Parser::Not{from: IS_END_OF_INPUT, to: LOOP_CONDITION},
-                            hippeus_parser_generator::Parser::IfElse(
+                    Parser::Loop{condition: LOOP_CONDITION, body: Box::new(
+                        Parser::Sequence(vec![
+                            Parser::IsEndOfInput(IS_END_OF_INPUT),
+                            Parser::Not{from: IS_END_OF_INPUT, to: LOOP_CONDITION},
+                            Parser::IfElse(
                                 LOOP_CONDITION,
-                                Box::new(hippeus_parser_generator::Parser::Sequence(vec![
-                                    hippeus_parser_generator::Parser::ReadInputByte(SUBSEQUENT_INPUT),
-                                    hippeus_parser_generator::Parser::IsAnyOf {
+                                Box::new(Parser::Sequence(vec![
+                                    Parser::ReadInputByte(SUBSEQUENT_INPUT),
+                                    Parser::IsAnyOf {
                                         input: SUBSEQUENT_INPUT,
                                         result: IS_ANY_OF_RESULT,
-                                        candidates: vec![hippeus_parser_generator::RegisterValue::Byte(b'\n')],
+                                        candidates: vec![RegisterValue::Byte(b'\n')],
                                     },
-                                    hippeus_parser_generator::Parser::Not{from: IS_ANY_OF_RESULT, to: LOOP_CONDITION},
-                                    hippeus_parser_generator::Parser::IfElse(
+                                    Parser::Not{from: IS_ANY_OF_RESULT, to: LOOP_CONDITION},
+                                    Parser::IfElse(
                                         IS_ANY_OF_RESULT,
-                                        Box::new(hippeus_parser_generator::Parser::no_op()),
-                                        Box::new(hippeus_parser_generator::Parser::Sequence(vec![
-                                            hippeus_parser_generator::Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
-                                            hippeus_parser_generator::Parser::WriteOutputByte(OUTPUT_BYTE),
+                                        Box::new(Parser::no_op()),
+                                        Box::new(Parser::Sequence(vec![
+                                            Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
+                                            Parser::WriteOutputByte(OUTPUT_BYTE),
                                         ])),
                                     ),
                                 ])),
-                                Box::new(hippeus_parser_generator::Parser::no_op())
+                                Box::new(Parser::no_op())
                             )
                         ])
                     )},
                     // convention: separator also ends a variable-length byte array
-                    hippeus_parser_generator::Parser::WriteOutputSeparator,
+                    Parser::WriteOutputSeparator,
                 ])),
-                Box::new(hippeus_parser_generator::Parser::no_op())
+                Box::new(Parser::no_op())
             )
         ];
 

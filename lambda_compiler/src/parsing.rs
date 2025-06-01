@@ -295,8 +295,8 @@ fn parse_expression_start<'t>(
 ) -> ParserResult<ast::Expression> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
-            TokenContent::Whitespace => todo!(),
+            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(identifier) => {
                 pop_next_non_whitespace_token(tokens);
                 if identifier.as_str() == "let" {
@@ -385,7 +385,7 @@ pub fn parse_expression<'t>(
     let start = parse_expression_start(tokens, local_namespace)?;
     match peek_next_non_whitespace_token(tokens) {
         Some(more) => match &more.content {
-            TokenContent::Comment(_) => todo!(),
+            TokenContent::Comment(_) => unreachable!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => Ok(start),
             TokenContent::Assign => Ok(start),
@@ -414,8 +414,8 @@ fn try_pop_identifier(
 ) -> Option<(String, SourceLocation)> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
-            TokenContent::Whitespace => todo!(),
+            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(identifier) => {
                 pop_next_non_whitespace_token(tokens);
                 Some((identifier.clone(), non_whitespace.location))
@@ -441,8 +441,8 @@ fn try_pop_identifier(
 fn try_skip_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
-            TokenContent::Whitespace => todo!(),
+            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_identifier) => false,
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => todo!(),
@@ -468,8 +468,8 @@ fn try_skip_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>)
 fn try_skip_colon(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
-            TokenContent::Whitespace => todo!(),
+            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_identifier) => false,
             TokenContent::Assign => todo!(),
             TokenContent::LeftParenthesis => todo!(),
