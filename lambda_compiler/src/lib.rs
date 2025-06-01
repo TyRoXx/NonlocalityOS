@@ -23,3 +23,8 @@ mod tokenization_test;
 
 #[cfg(test)]
 mod examples_test;
+
+pub mod format;
+
+#[cfg(test)]
+mod format_test;
