@@ -260,13 +260,8 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
             Parser::IfElse(
                 IS_ANY_OF_RESULT,
                 Box::new(Parser::Sequence(vec![
-                    Parser::Constant(
-                        TOKEN_TAG_COMMENT,
-                        RegisterValue::Byte(15)
-                    ),
-                    Parser::WriteOutputByte(
-                        TOKEN_TAG_COMMENT
-                    ),
+                    Parser::Constant(TOKEN_TAG_COMMENT, RegisterValue::Byte(15)),
+                    Parser::WriteOutputByte(TOKEN_TAG_COMMENT),
                     // convention: separator starts a variable-length byte array
                     Parser::WriteOutputSeparator,
                     Parser::Constant(
@@ -432,162 +427,47 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                             ])),
                             Box::new(Parser::no_op())
                         ),
-
-                        // left parenthesis
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                RegisterValue::Byte(b'(')
-                            ]
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_LEFT_PARENTHESIS, RegisterValue::Byte(3)),
-                                Parser::WriteOutputByte(TOKEN_TAG_LEFT_PARENTHESIS)
-                            ])),
-                            Box::new(Parser::no_op())
-                        ),
-
-                        // right parenthesis
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                RegisterValue::Byte(b')')
-                            ]
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_RIGHT_PARENTHESIS, RegisterValue::Byte(4)),
-                                Parser::WriteOutputByte(TOKEN_TAG_RIGHT_PARENTHESIS)
-                            ])),
-                            Box::new(Parser::no_op())
-                        ),
-
-                        // left bracket
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                RegisterValue::Byte(b'[')
-                            ]
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_LEFT_BRACKET, RegisterValue::Byte(5)),
-                                Parser::WriteOutputByte(TOKEN_TAG_LEFT_BRACKET)
-                            ])),
-                            Box::new(Parser::no_op())
-                        ),
-
-                        // right bracket
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                RegisterValue::Byte(b']')
-                            ]
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_RIGHT_BRACKET, RegisterValue::Byte(6)),
-                                Parser::WriteOutputByte(TOKEN_TAG_RIGHT_BRACKET)
-                            ])),
-                            Box::new(Parser::no_op())
-                        ),
-
-                        // left brace
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                RegisterValue::Byte(b'{')
-                            ]
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_LEFT_BRACE, RegisterValue::Byte(12)),
-                                Parser::WriteOutputByte(TOKEN_TAG_LEFT_BRACE)
-                            ])),
-                            Box::new(Parser::no_op())
-                        ),
-
-                        // right brace
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                RegisterValue::Byte(b'}')
-                            ]
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_RIGHT_BRACE, RegisterValue::Byte(13)),
-                                Parser::WriteOutputByte(TOKEN_TAG_RIGHT_BRACE)
-                            ])),
-                            Box::new(Parser::no_op())
-                        ),
-
-                        // dot
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                RegisterValue::Byte(b'.')
-                            ]
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_DOT, RegisterValue::Byte(7)),
-                                Parser::WriteOutputByte(TOKEN_TAG_DOT)
-                            ])),
-                            Box::new(Parser::no_op())
-                        ),
-
-                        // colon
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                RegisterValue::Byte(b':')
-                            ]
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_COLON, RegisterValue::Byte(14)),
-                                Parser::WriteOutputByte(TOKEN_TAG_COLON)
-                            ])),
-                            Box::new(Parser::no_op())
-                        ),
-
-                        // comma
-                        Parser::IsAnyOf {
-                            input: FIRST_INPUT,
-                            result: IS_ANY_OF_RESULT,
-                            candidates: vec![
-                                RegisterValue::Byte(b',')
-                            ]
-                        },
-                        Parser::IfElse(
-                            IS_ANY_OF_RESULT,
-                            Box::new(Parser::Sequence(vec![
-                                Parser::Constant(TOKEN_TAG_COMMA, RegisterValue::Byte(10)),
-                                Parser::WriteOutputByte(TOKEN_TAG_COMMA)
-                            ])),
-                            Box::new(Parser::no_op())
-                        ),
-                    ].into_iter().chain(QUOTES_PARSING.clone()).chain(COMMENT_PARSING.clone()).collect())),
+                    ]
+                    .into_iter()
+                    .chain(QUOTES_PARSING.clone())
+                    .chain(COMMENT_PARSING.clone())
+                    .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_LEFT_PARENTHESIS, b'(', 3))
+                    .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_RIGHT_PARENTHESIS, b')', 4))
+                    .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_LEFT_BRACKET, b'[', 5))
+                    .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_RIGHT_BRACKET, b']', 6))
+                    .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_DOT, b'.', 7))
+                    .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_COMMA, b',', 10))
+                    .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_COLON, b':', 14))
+                    .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_RIGHT_BRACE, b'}', 13))
+                    .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_LEFT_BRACE, b'{', 12))
+                    .collect())),
                 ),
             ]);
     }
     tokenize(source, &TOKEN_PARSER)
+}
+
+fn parse_single_character(
+    first_input: RegisterId,
+    is_any_of_result: RegisterId,
+    token_tag: RegisterId,
+    character_to_match: u8,
+    out_byte: u8,
+) -> [Parser; 2] {
+    [
+        // comma
+        Parser::IsAnyOf {
+            input: first_input,
+            result: is_any_of_result,
+            candidates: vec![RegisterValue::Byte(character_to_match)],
+        },
+        Parser::IfElse(
+            is_any_of_result,
+            Box::new(Parser::Sequence(vec![
+                Parser::Constant(token_tag, RegisterValue::Byte(out_byte)),
+                Parser::WriteOutputByte(token_tag),
+            ])),
+            Box::new(Parser::no_op()),
+        ),
+    ]
 }
