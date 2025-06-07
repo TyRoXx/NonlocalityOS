@@ -154,29 +154,32 @@ impl TypedExpression {
 async fn check_tree_construction_or_argument_list(
     arguments: &[ast::Expression],
     environment_builder: &mut EnvironmentBuilder,
-) -> Result<CompilerOutput, StoreError> {
+) -> Result<(CompilerOutput, Option<DeepTree>), StoreError> {
     let mut errors = Vec::new();
     let mut checked_arguments = Vec::new();
     let mut argument_types = Vec::new();
     for argument in arguments {
         let output = check_types(argument, environment_builder).await?;
-        errors.extend(output.errors);
-        if let Some(checked) = output.entry_point {
+        errors.extend(output.0.errors);
+        if let Some(checked) = output.0.entry_point {
             checked_arguments.push(Arc::new(checked.expression));
             argument_types.push(checked.type_);
         } else {
-            return Ok(CompilerOutput::new(None, errors));
+            return Ok((CompilerOutput::new(None, errors), None));
         }
     }
-    Ok(CompilerOutput {
-        entry_point: Some(TypedExpression::new(
-            lambda::expressions::DeepExpression(lambda::expressions::Expression::ConstructTree(
-                checked_arguments,
+    Ok((
+        CompilerOutput {
+            entry_point: Some(TypedExpression::new(
+                lambda::expressions::DeepExpression(
+                    lambda::expressions::Expression::ConstructTree(checked_arguments),
+                ),
+                DeepType(GenericType::TreeWithKnownChildTypes(argument_types)),
             )),
-            DeepType(GenericType::TreeWithKnownChildTypes(argument_types)),
-        )),
-        errors,
-    })
+            errors,
+        },
+        /*TODO: support compile time tree construction*/ None,
+    ))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -378,7 +381,11 @@ impl EnvironmentBuilder {
         }
     }
 
-    pub fn read(&mut self, identifier: &Name, location: &SourceLocation) -> CompilerOutput {
+    pub fn read(
+        &mut self,
+        identifier: &Name,
+        location: &SourceLocation,
+    ) -> (CompilerOutput, Option<DeepTree>) {
         Self::read_down(&mut self.lambda_layers, identifier, location)
     }
 
@@ -386,45 +393,72 @@ impl EnvironmentBuilder {
         layers: &mut [LambdaScope],
         identifier: &Name,
         location: &SourceLocation,
-    ) -> CompilerOutput {
+    ) -> (CompilerOutput, Option<DeepTree>) {
         let layer_count = layers.len();
         if let Some(last) = layers.last_mut() {
             if let Some((parameter_index, parameter_type, compile_time_value)) =
                 last.find_parameter_index(identifier)
             {
                 return match compile_time_value {
-                    Some(value) => CompilerOutput::new(
-                        Some(TypedExpression::new(
-                            DeepExpression(lambda::expressions::Expression::make_literal(value)),
-                            parameter_type,
-                        )),
-                        Vec::new(),
+                    Some(value) => (
+                        CompilerOutput::new(
+                            Some(TypedExpression::new(
+                                DeepExpression(lambda::expressions::Expression::make_literal(
+                                    value.clone(),
+                                )),
+                                parameter_type,
+                            )),
+                            Vec::new(),
+                        ),
+                        Some(value),
                     ),
-                    None => CompilerOutput::new(
-                        Some(TypedExpression::new(
-                            parameter_index.create_deep_expression(),
-                            parameter_type,
-                        )),
-                        Vec::new(),
+                    None => (
+                        CompilerOutput::new(
+                            Some(TypedExpression::new(
+                                parameter_index.create_deep_expression(),
+                                parameter_type,
+                            )),
+                            Vec::new(),
+                        ),
+                        None,
                     ),
                 };
             } else if layer_count > 1 {
                 let result = Self::read_down(&mut layers[..layer_count - 1], identifier, location);
-                if result.entry_point.is_some() {
-                    return layers
-                        .last_mut()
-                        .unwrap()
-                        .capture(result.entry_point.unwrap());
+                if result.0.entry_point.is_some() {
+                    return match result.1 {
+                        Some(compile_time_value) => (
+                            CompilerOutput::new(
+                                Some(TypedExpression::new(
+                                    DeepExpression(Expression::Literal(compile_time_value.clone())),
+                                    /*TODO: return the actual type*/
+                                    DeepType(GenericType::Any),
+                                )),
+                                result.0.errors,
+                            ),
+                            Some(compile_time_value),
+                        ),
+                        None => (
+                            layers
+                                .last_mut()
+                                .unwrap()
+                                .capture(result.0.entry_point.unwrap()),
+                            None,
+                        ),
+                    };
                 }
                 return result;
             }
         }
-        CompilerOutput::new(
+        (
+            CompilerOutput::new(
+                None,
+                vec![crate::compilation::CompilerError::new(
+                    format!("Identifier {identifier} not found"),
+                    *location,
+                )],
+            ),
             None,
-            vec![crate::compilation::CompilerError::new(
-                format!("Identifier {identifier} not found"),
-                *location,
-            )],
         )
     }
 }
@@ -468,8 +502,12 @@ pub async fn check_lambda_parameters(
         let parameter_type: DeepType = match &parameter.type_annotation {
             Some(type_annotation) => {
                 let checked_type = check_types(type_annotation, environment_builder).await?;
-                if let Some(checked) = checked_type.entry_point {
-                    evaluate_type_at_compile_time(&checked.expression).await
+                if let Some(checked) = checked_type.0.entry_point {
+                    match checked_type.1 {
+                        Some(compile_time_value) => type_from_deep_tree(&compile_time_value),
+                        // TODO: do we even need this call? Shouldn't there always be a compile time value for a type annotation?
+                        None => evaluate_type_at_compile_time(&checked.expression).await,
+                    }
                 } else {
                     todo!()
                 }
@@ -504,7 +542,7 @@ pub async fn check_lambda(
         .map(|typed_expression| Arc::new(typed_expression.expression))
         .collect();
     let body_output = body_result?;
-    match body_output.entry_point {
+    match body_output.0.entry_point {
         Some(body_checked) => Ok(CompilerOutput {
             entry_point: Some(TypedExpression::new(
                 lambda::expressions::DeepExpression(lambda::expressions::Expression::Lambda {
@@ -521,16 +559,16 @@ pub async fn check_lambda(
                     return_type: Box::new(body_checked.type_),
                 }),
             )),
-            errors: body_output.errors,
+            errors: body_output.0.errors,
         }),
-        None => Ok(CompilerOutput::new(None, body_output.errors)),
+        None => Ok(CompilerOutput::new(None, body_output.0.errors)),
     }
 }
 
 pub async fn check_braces(
     expression: &[ast::Expression],
     environment_builder: &mut EnvironmentBuilder,
-) -> Result<CompilerOutput, StoreError> {
+) -> Result<(CompilerOutput, Option<DeepTree>), StoreError> {
     if expression.len() != 1 {
         todo!()
     }
@@ -545,16 +583,15 @@ pub async fn check_let(
     environment_builder: &mut EnvironmentBuilder,
 ) -> Result<CompilerOutput, StoreError> {
     let value_checked = check_types(value, environment_builder).await?;
-    if !value_checked.errors.is_empty() {
+    if !value_checked.0.errors.is_empty() {
         todo!()
     }
-    let value_checked_unwrapped = value_checked.entry_point.unwrap();
+    let value_checked_unwrapped = value_checked.0.entry_point.unwrap();
     let checked_parameters = [TypeCheckedLambdaParameter::new(
         name.clone(),
         *location,
         value_checked_unwrapped.type_.clone(),
-        // TODO: add const keyword or something
-        None,
+        value_checked.1,
     )];
     environment_builder.enter_lambda_body(&checked_parameters[..]);
     let body_result = check_types(body, environment_builder).await;
@@ -565,7 +602,7 @@ pub async fn check_let(
         .map(|typed_expression| Arc::new(typed_expression.expression))
         .collect();
     let body_output = body_result?;
-    match body_output.entry_point {
+    match body_output.0.entry_point {
         Some(body_checked) => Ok(CompilerOutput {
             entry_point: Some(TypedExpression::new(
                 lambda::expressions::DeepExpression(lambda::expressions::Expression::make_apply(
@@ -581,30 +618,38 @@ pub async fn check_let(
                 )),
                 body_checked.type_,
             )),
-            errors: body_output.errors,
+            errors: body_output.0.errors,
         }),
-        None => Ok(CompilerOutput::new(None, body_output.errors)),
+        None => Ok(CompilerOutput::new(None, body_output.0.errors)),
     }
 }
 
 pub async fn check_types(
     syntax_tree: &ast::Expression,
     environment_builder: &mut EnvironmentBuilder,
-) -> Result<CompilerOutput, StoreError> {
+) -> Result<(CompilerOutput, Option<DeepTree>), StoreError> {
     Box::pin(async move {
         match syntax_tree {
             ast::Expression::Identifier(name, location) => {
                 Ok(environment_builder.read(name, location))
             }
-            ast::Expression::StringLiteral(value) => Ok(CompilerOutput::new(
-                Some(TypedExpression::new(
-                    lambda::expressions::DeepExpression(lambda::expressions::Expression::Literal(
-                        DeepTree::try_from_string(value).unwrap(/*TODO*/),
-                    )),
-                    DeepType(GenericType::String),
-                )),
-                Vec::new(),
-            )),
+            ast::Expression::StringLiteral(value) => {
+                let compile_time_value = DeepTree::try_from_string(value).unwrap(/*TODO*/);
+                Ok((
+                    CompilerOutput::new(
+                        Some(TypedExpression::new(
+                            lambda::expressions::DeepExpression(
+                                lambda::expressions::Expression::Literal(
+                                    compile_time_value.clone(),
+                                ),
+                            ),
+                            DeepType(GenericType::String),
+                        )),
+                        Vec::new(),
+                    ),
+                    Some(compile_time_value),
+                ))
+            }
             ast::Expression::Apply { callee, arguments } => {
                 let callee_output = check_types(callee, environment_builder).await?;
                 let argument_output = if arguments.len() == 1 {
@@ -615,45 +660,54 @@ pub async fn check_types(
                         .await?
                 };
                 let errors = callee_output
+                    .0
                     .errors
                     .into_iter()
-                    .chain(argument_output.errors)
+                    .chain(argument_output.0.errors)
                     .collect();
-                match (callee_output.entry_point, argument_output.entry_point) {
+                match (callee_output.0.entry_point, argument_output.0.entry_point) {
                     (Some(callee_checked), Some(argument_checked)) => {
                         let return_type = match &callee_checked.type_.0 {
                             GenericType::Function { return_type, .. } => {
                                 return_type.as_ref().clone()
                             }
                             _ => {
-                                return Ok(CompilerOutput::new(
+                                return Ok((
+                                    CompilerOutput::new(
+                                        None,
+                                        vec![crate::compilation::CompilerError::new(
+                                            "Callee is not a function".to_string(),
+                                            callee.source_location(),
+                                        )],
+                                    ),
                                     None,
-                                    vec![crate::compilation::CompilerError::new(
-                                        "Callee is not a function".to_string(),
-                                        callee.source_location(),
-                                    )],
                                 ))
                             }
                         };
                         // TODO: check argument types against callee parameter types
-                        Ok(CompilerOutput {
-                            entry_point: Some(TypedExpression::new(
-                                lambda::expressions::DeepExpression(
-                                    lambda::expressions::Expression::Apply {
-                                        callee: Arc::new(callee_checked.expression),
-                                        argument: Arc::new(argument_checked.expression),
-                                    },
-                                ),
-                                return_type,
-                            )),
-                            errors,
-                        })
+                        Ok((
+                            CompilerOutput {
+                                entry_point: Some(TypedExpression::new(
+                                    lambda::expressions::DeepExpression(
+                                        lambda::expressions::Expression::Apply {
+                                            callee: Arc::new(callee_checked.expression),
+                                            argument: Arc::new(argument_checked.expression),
+                                        },
+                                    ),
+                                    return_type,
+                                )),
+                                errors,
+                            },
+                            /*TODO: compile time function calls*/ None,
+                        ))
                     }
-                    (None, _) | (_, None) => Ok(CompilerOutput::new(None, errors)),
+                    (None, _) | (_, None) => Ok((CompilerOutput::new(None, errors), None)),
                 }
             }
             ast::Expression::Lambda { parameters, body } => {
-                check_lambda(&parameters[..], body, environment_builder).await
+                check_lambda(&parameters[..], body, environment_builder)
+                    .await
+                    .map(|output| (output, /*TODO: compile time function calls*/ None))
             }
             ast::Expression::ConstructTree(arguments) => {
                 check_tree_construction_or_argument_list(&arguments[..], environment_builder).await
@@ -666,7 +720,13 @@ pub async fn check_types(
                 location,
                 value,
                 body,
-            } => check_let(name, location, value, body, environment_builder).await,
+            } => check_let(name, location, value, body, environment_builder)
+                .await
+                .map(|output| {
+                    (
+                        output, /*TODO: compile time let or a const keyword*/ None,
+                    )
+                }),
         }
     })
     .await
@@ -686,5 +746,5 @@ pub async fn check_types_with_default_globals(
     let output = check_types(syntax_tree, &mut environment_builder).await;
     environment_builder.undefine_constant();
     assert!(environment_builder.is_empty());
-    output
+    output.map(|output| /*TODO: return compile time values*/ output.0)
 }

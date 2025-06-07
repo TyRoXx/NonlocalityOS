@@ -534,7 +534,10 @@ async fn test_let_local_variable() {
                             lambda::expressions::Expression::make_construct_tree(vec![]),
                         )),
                         Arc::new(DeepExpression(
-                            lambda::expressions::Expression::make_argument(),
+                            // The argument is not being used due to constant folding by the type checker.
+                            lambda::expressions::Expression::make_literal(
+                                DeepTree::try_from_string("Hello").unwrap(),
+                            ),
                         )),
                     ),
                 )),
