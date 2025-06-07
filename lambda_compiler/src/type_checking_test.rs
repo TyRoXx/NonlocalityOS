@@ -1,9 +1,7 @@
 use crate::{
     ast::{self, LambdaParameter},
     compilation::{CompilerOutput, SourceLocation},
-    type_checking::{
-        check_types, type_to_deep_tree, DeepType, EnvironmentBuilder, GenericType, TypedExpression,
-    },
+    type_checking::{check_types_with_default_globals, DeepType, GenericType, TypedExpression},
 };
 use astraea::deep_tree::DeepTree;
 use lambda::{
@@ -35,8 +33,7 @@ async fn test_check_types_lambda_0_parameters() {
         body: Box::new(ast::Expression::ConstructTree(vec![])),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder).await;
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -53,7 +50,6 @@ async fn test_check_types_lambda_0_parameters() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -74,8 +70,7 @@ async fn test_check_types_lambda_1_parameter() {
         )),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder).await;
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -92,7 +87,6 @@ async fn test_check_types_lambda_1_parameter() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -121,8 +115,7 @@ async fn test_check_types_lambda_2_parameters() {
         )),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder).await;
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -144,7 +137,6 @@ async fn test_check_types_lambda_2_parameters() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -168,8 +160,7 @@ async fn test_check_types_lambda_capture_outer_argument() {
         }),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder).await;
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -201,7 +192,6 @@ async fn test_check_types_lambda_capture_outer_argument() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -242,8 +232,7 @@ async fn test_check_types_lambda_capture_multiple_variables() {
         }),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder).await;
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -305,7 +294,6 @@ async fn test_check_types_lambda_capture_multiple_variables() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -346,8 +334,7 @@ async fn test_check_types_lambda_capture_multiple_layers() {
         }),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder).await;
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Lambda {
@@ -420,7 +407,6 @@ async fn test_check_types_lambda_capture_multiple_layers() {
         Vec::new(),
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -433,8 +419,7 @@ async fn test_unknown_identifier() {
             column: 10,
         },
     );
-    let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder).await;
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         None,
         vec![crate::compilation::CompilerError::new(
@@ -446,7 +431,6 @@ async fn test_unknown_identifier() {
         )],
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -473,8 +457,7 @@ async fn test_lambda_parameter_scoping() {
             },
         )],
     };
-    let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder).await;
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         None,
         vec![crate::compilation::CompilerError::new(
@@ -486,7 +469,6 @@ async fn test_lambda_parameter_scoping() {
         )],
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -507,14 +489,7 @@ async fn test_lambda_parameter_type() {
             SourceLocation { line: 1, column: 8 },
         )),
     };
-    let mut environment_builder = EnvironmentBuilder::new();
-    environment_builder.define_constant(
-        string_in_source.clone(),
-        DeepType(GenericType::Type),
-        type_to_deep_tree(&DeepType(GenericType::String)),
-    );
-    let output = check_types(&input, &mut environment_builder).await;
-    environment_builder.undefine_constant();
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
@@ -532,7 +507,6 @@ async fn test_lambda_parameter_type() {
         vec![],
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
 }
 
 #[test_log::test(tokio::test)]
@@ -550,8 +524,7 @@ async fn test_let_local_variable() {
             },
         )),
     };
-    let mut environment_builder = EnvironmentBuilder::new();
-    let output = check_types(&input, &mut environment_builder).await;
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
             DeepExpression(lambda::expressions::Expression::Apply {
@@ -576,7 +549,6 @@ async fn test_let_local_variable() {
         vec![],
     );
     assert_eq!(output, Ok(expected));
-    assert!(environment_builder.is_empty());
     let expected_result = DeepTree::try_from_string("Hello").unwrap();
     expect_evaluate_result(
         &output.unwrap().entry_point.unwrap().expression,

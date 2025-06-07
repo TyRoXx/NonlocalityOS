@@ -1,7 +1,7 @@
 use crate::{
     parsing::{parse_expression_tolerantly, pop_next_non_whitespace_token},
     tokenization::tokenize_default_syntax,
-    type_checking::{check_types, TypedExpression},
+    type_checking::{check_types_with_default_globals, TypedExpression},
 };
 use astraea::storage::StoreError;
 use lambda::name::NamespaceId;
@@ -64,10 +64,10 @@ pub async fn compile(
             ));
         }
     }
-    let mut environment_builder = crate::type_checking::EnvironmentBuilder::new();
-    let result = match &result.entry_point {
+    match &result.entry_point {
         Some(entry_point) => {
-            let type_check_result = check_types(entry_point, &mut environment_builder).await?;
+            let type_check_result =
+                check_types_with_default_globals(entry_point, *source_namespace).await?;
             result.errors.extend(type_check_result.errors);
             Ok(CompilerOutput::new(
                 type_check_result.entry_point,
@@ -75,7 +75,5 @@ pub async fn compile(
             ))
         }
         None => Ok(CompilerOutput::new(None, result.errors)),
-    };
-    assert!(environment_builder.is_empty());
-    result
+    }
 }

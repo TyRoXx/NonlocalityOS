@@ -9,7 +9,7 @@ use astraea::{
 };
 use lambda::{
     expressions::{evaluate, DeepExpression, Expression},
-    name::Name,
+    name::{Name, NamespaceId},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
@@ -670,4 +670,21 @@ pub async fn check_types(
         }
     })
     .await
+}
+
+pub async fn check_types_with_default_globals(
+    syntax_tree: &ast::Expression,
+    default_global_namespace: NamespaceId,
+) -> Result<CompilerOutput, StoreError> {
+    let mut environment_builder = EnvironmentBuilder::new();
+    let string_in_source = Name::new(default_global_namespace, "String".to_string());
+    environment_builder.define_constant(
+        string_in_source.clone(),
+        DeepType(GenericType::Type),
+        type_to_deep_tree(&DeepType(GenericType::String)),
+    );
+    let output = check_types(syntax_tree, &mut environment_builder).await;
+    environment_builder.undefine_constant();
+    assert!(environment_builder.is_empty());
+    output
 }
