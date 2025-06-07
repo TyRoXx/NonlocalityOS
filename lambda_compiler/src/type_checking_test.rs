@@ -510,6 +510,142 @@ async fn test_lambda_parameter_type() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_lambda_parameter_type_has_error() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let input = ast::Expression::Lambda {
+        parameters: vec![LambdaParameter::new(
+            x_in_source.clone(),
+            SourceLocation { line: 1, column: 1 },
+            Some(ast::Expression::Identifier(
+                // the identifier doesn't exist yet
+                x_in_source.clone(),
+                SourceLocation { line: 2, column: 2 },
+            )),
+        )],
+        body: Box::new(ast::Expression::Identifier(
+            x_in_source.clone(),
+            SourceLocation { line: 3, column: 3 },
+        )),
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+    let expected = CompilerOutput::new(
+        Some(TypedExpression::new(
+            DeepExpression(lambda::expressions::Expression::Lambda {
+                environment: empty_tree,
+                body: Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_argument(),
+                )),
+            }),
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Any)],
+                return_type: Box::new(DeepType(GenericType::Any)),
+            }),
+        )),
+        vec![crate::compilation::CompilerError::new(
+            format!("Identifier {x_in_source} not found"),
+            SourceLocation { line: 2, column: 2 },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_lambda_parameter_type_is_not_a_type() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let input = ast::Expression::Lambda {
+        parameters: vec![LambdaParameter::new(
+            x_in_source.clone(),
+            SourceLocation { line: 0, column: 1 },
+            Some(ast::Expression::ConstructTree(vec![])),
+        )],
+        body: Box::new(ast::Expression::Identifier(
+            x_in_source.clone(),
+            SourceLocation { line: 1, column: 8 },
+        )),
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+    let expected = CompilerOutput::new(
+        Some(TypedExpression::new(
+            DeepExpression(lambda::expressions::Expression::Lambda {
+                environment: empty_tree,
+                body: Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_argument(),
+                )),
+            }),
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Any)],
+                return_type: Box::new(DeepType(GenericType::Any)),
+            }),
+        )),
+        vec![crate::compilation::CompilerError::new(
+            "Type annotation must be a type".to_string(),
+            SourceLocation { line: 0, column: 1 },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_lambda_parameter_type_is_not_a_compile_time_constant() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
+    let type_in_source = Name::new(TEST_SOURCE_NAMESPACE, "Type".to_string());
+    let input = ast::Expression::Lambda {
+        parameters: vec![LambdaParameter::new(
+            x_in_source.clone(),
+            SourceLocation { line: 1, column: 1 },
+            Some(ast::Expression::Identifier(
+                type_in_source.clone(),
+                SourceLocation { line: 2, column: 2 },
+            )),
+        )],
+        body: Box::new(ast::Expression::Lambda {
+            parameters: vec![LambdaParameter::new(
+                y_in_source.clone(),
+                SourceLocation { line: 3, column: 3 },
+                Some(ast::Expression::Identifier(
+                    x_in_source.clone(),
+                    SourceLocation { line: 4, column: 4 },
+                )),
+            )],
+            body: Box::new(ast::Expression::Identifier(
+                y_in_source.clone(),
+                SourceLocation { line: 5, column: 5 },
+            )),
+        }),
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+    let expected = CompilerOutput::new(
+        Some(TypedExpression::new(
+            DeepExpression(lambda::expressions::Expression::Lambda {
+                environment: empty_tree.clone(),
+                body: Arc::new(DeepExpression(lambda::expressions::Expression::Lambda {
+                    environment: empty_tree,
+                    body: Arc::new(DeepExpression(
+                        lambda::expressions::Expression::make_argument(),
+                    )),
+                })),
+            }),
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Type)],
+                return_type: Box::new(DeepType(GenericType::Function {
+                    parameters: vec![DeepType(GenericType::Any)],
+                    return_type: Box::new(DeepType(GenericType::Any)),
+                })),
+            }),
+        )),
+        vec![crate::compilation::CompilerError::new(
+            "Type annotation must be a compile time constant".to_string(),
+            SourceLocation { line: 3, column: 3 },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
 async fn test_let_local_variable() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let input = ast::Expression::Let {
@@ -534,7 +670,10 @@ async fn test_let_local_variable() {
                             lambda::expressions::Expression::make_construct_tree(vec![]),
                         )),
                         Arc::new(DeepExpression(
-                            lambda::expressions::Expression::make_argument(),
+                            // The argument is not being used due to constant folding by the type checker.
+                            lambda::expressions::Expression::make_literal(
+                                DeepTree::try_from_string("Hello").unwrap(),
+                            ),
                         )),
                     ),
                 )),
@@ -555,4 +694,37 @@ async fn test_let_local_variable() {
         &expected_result,
     )
     .await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_let_local_variable_with_error_in_value() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let input = ast::Expression::Let {
+        name: x_in_source.clone(),
+        location: SourceLocation { line: 2, column: 1 },
+        value: Box::new(ast::Expression::Identifier(
+            // the variable doesn't exist yet
+            x_in_source.clone(),
+            SourceLocation {
+                line: 2,
+                column: 13,
+            },
+        )),
+        body: Box::new(ast::Expression::Identifier(
+            x_in_source.clone(),
+            SourceLocation { line: 3, column: 0 },
+        )),
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        None,
+        vec![crate::compilation::CompilerError::new(
+            format!("Identifier {x_in_source} not found"),
+            SourceLocation {
+                line: 2,
+                column: 13,
+            },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
 }

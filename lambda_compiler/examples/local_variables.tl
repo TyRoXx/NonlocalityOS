@@ -1,5 +1,10 @@
 () => {
     let a = "bda"
     let b = "lam"
-    [b, a]
+    let f = (x: String, y: String) => {
+        let first = y
+        let second = x
+        [first, second]
+    }
+    f(a, b)
 }
