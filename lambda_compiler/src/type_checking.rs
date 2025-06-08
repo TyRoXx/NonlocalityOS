@@ -601,16 +601,6 @@ pub async fn check_lambda(
     }
 }
 
-pub async fn check_braces(
-    expression: &[ast::Expression],
-    environment_builder: &mut EnvironmentBuilder,
-) -> Result<(CompilerOutput, Option<DeepTree>), StoreError> {
-    if expression.len() != 1 {
-        todo!()
-    }
-    check_types(&expression[0], environment_builder).await
-}
-
 pub async fn check_let(
     name: &Name,
     location: &SourceLocation,
