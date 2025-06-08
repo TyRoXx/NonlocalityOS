@@ -669,8 +669,22 @@ pub async fn check_types(
             ast::Expression::Identifier(name, location) => {
                 Ok(environment_builder.read(name, location))
             }
-            ast::Expression::StringLiteral(value) => {
-                let compile_time_value = DeepTree::try_from_string(value).unwrap(/*TODO*/);
+            ast::Expression::StringLiteral(value, source_location) => {
+                let compile_time_value = match DeepTree::try_from_string(value) {
+                    Some(tree) => tree,
+                    None => {
+                        return Ok((
+                            CompilerOutput::new(
+                                None,
+                                vec![CompilerError::new(
+                                    format!("String literal is too long"),
+                                    *source_location,
+                                )],
+                            ),
+                            None,
+                        ))
+                    }
+                };
                 Ok((
                     CompilerOutput::new(
                         Some(TypedExpression::new(

@@ -78,7 +78,9 @@ where
 {
     match expression {
         Expression::Identifier(name, _source_location) => write!(writer, "{}", &name.key),
-        Expression::StringLiteral(content) => format_string_literal(content, writer),
+        Expression::StringLiteral(content, _source_location) => {
+            format_string_literal(content, writer)
+        }
         Expression::Apply { callee, arguments } => {
             format_apply(callee, arguments, indentation_level, writer)
         }

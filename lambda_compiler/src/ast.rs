@@ -25,7 +25,7 @@ impl LambdaParameter {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub enum Expression {
     Identifier(Name, SourceLocation),
-    StringLiteral(String),
+    StringLiteral(String, SourceLocation),
     Apply {
         callee: Box<Expression>,
         arguments: Vec<Expression>,
@@ -48,7 +48,7 @@ impl Expression {
     pub fn source_location(&self) -> SourceLocation {
         match self {
             Expression::Identifier(_, location) => *location,
-            Expression::StringLiteral(_) => todo!(),
+            Expression::StringLiteral(_, location) => *location,
             Expression::Apply { callee, .. } => callee.source_location(),
             Expression::Lambda { body, .. } => body.source_location(),
             Expression::ConstructTree(_) => todo!(),

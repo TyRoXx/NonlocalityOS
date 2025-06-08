@@ -334,7 +334,10 @@ fn parse_expression_start<'t>(
             TokenContent::Colon => todo!(),
             TokenContent::Quotes(content) => {
                 pop_next_non_whitespace_token(tokens);
-                Ok(ast::Expression::StringLiteral(content.clone()))
+                Ok(ast::Expression::StringLiteral(
+                    content.clone(),
+                    non_whitespace.location,
+                ))
             }
             TokenContent::FatArrow => Err(ParserError::new(
                 "Expected expression, found fat arrow.".to_string(),

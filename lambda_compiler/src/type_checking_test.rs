@@ -3,7 +3,7 @@ use crate::{
     compilation::{CompilerOutput, SourceLocation},
     type_checking::{check_types_with_default_globals, DeepType, GenericType, TypedExpression},
 };
-use astraea::deep_tree::DeepTree;
+use astraea::{deep_tree::DeepTree, tree::TREE_BLOB_MAX_LENGTH};
 use lambda::{
     expressions::{evaluate, DeepExpression, Expression},
     name::{Name, NamespaceId},
@@ -651,13 +651,13 @@ async fn test_let_local_variable() {
     let input = ast::Expression::Let {
         name: x_in_source.clone(),
         location: SourceLocation { line: 2, column: 1 },
-        value: Box::new(ast::Expression::StringLiteral("Hello".to_string())),
+        value: Box::new(ast::Expression::StringLiteral(
+            "Hello".to_string(),
+            SourceLocation::new(2, 10),
+        )),
         body: Box::new(ast::Expression::Identifier(
             x_in_source.clone(),
-            SourceLocation {
-                line: 2,
-                column: 10,
-            },
+            SourceLocation { line: 3, column: 0 },
         )),
     };
     let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
@@ -724,6 +724,34 @@ async fn test_let_local_variable_with_error_in_value() {
                 line: 2,
                 column: 13,
             },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_string_literal_too_long() {
+    // Strings are currently represented as a single tree without children.
+    let current_string_size_limit = TREE_BLOB_MAX_LENGTH;
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let input = ast::Expression::Let {
+        name: x_in_source.clone(),
+        location: SourceLocation { line: 2, column: 2 },
+        value: Box::new(ast::Expression::StringLiteral(
+            "a".repeat(current_string_size_limit + 1),
+            SourceLocation { line: 3, column: 3 },
+        )),
+        body: Box::new(ast::Expression::Identifier(
+            x_in_source.clone(),
+            SourceLocation { line: 4, column: 4 },
+        )),
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        None,
+        vec![crate::compilation::CompilerError::new(
+            format!("String literal is too long"),
+            SourceLocation { line: 3, column: 3 },
         )],
     );
     assert_eq!(output, Ok(expected));

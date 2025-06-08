@@ -8,6 +8,7 @@ use lambda::name::{Name, NamespaceId};
 const TEST_NAMESPACE: NamespaceId =
     NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 const IRRELEVANT_INDENTATION_LEVEL: usize = 23;
+const IRRELEVANT_SOURCE_LOCATION: SourceLocation = SourceLocation { line: 1, column: 2 };
 
 #[test]
 fn test_format_identifier() {
@@ -15,8 +16,7 @@ fn test_format_identifier() {
     format_expression(
         &Expression::Identifier(
             Name::new(TEST_NAMESPACE, "id123".to_string()),
-            // location doesn't matter for this test
-            SourceLocation { line: 1, column: 2 },
+            IRRELEVANT_SOURCE_LOCATION,
         ),
         IRRELEVANT_INDENTATION_LEVEL,
         &mut formatted,
@@ -29,7 +29,7 @@ fn test_format_identifier() {
 fn test_format_string_literal_alphanumeric() {
     let mut formatted = String::new();
     format_expression(
-        &Expression::StringLiteral(r#"abc123"#.to_string()),
+        &Expression::StringLiteral(r#"abc123"#.to_string(), IRRELEVANT_SOURCE_LOCATION),
         IRRELEVANT_INDENTATION_LEVEL,
         &mut formatted,
     )
@@ -41,7 +41,7 @@ fn test_format_string_literal_alphanumeric() {
 fn test_format_string_literal_quotes_and_backslash() {
     let mut formatted = String::new();
     format_expression(
-        &Expression::StringLiteral(r#""'\"#.to_string()),
+        &Expression::StringLiteral(r#""'\"#.to_string(), IRRELEVANT_SOURCE_LOCATION),
         IRRELEVANT_INDENTATION_LEVEL,
         &mut formatted,
     )
@@ -53,7 +53,7 @@ fn test_format_string_literal_quotes_and_backslash() {
 fn test_format_string_literal_whitespace() {
     let mut formatted = String::new();
     format_expression(
-        &Expression::StringLiteral("\n\r\t".to_string()),
+        &Expression::StringLiteral("\n\r\t".to_string(), IRRELEVANT_SOURCE_LOCATION),
         IRRELEVANT_INDENTATION_LEVEL,
         &mut formatted,
     )
@@ -68,8 +68,7 @@ fn test_format_apply_0_arguments() {
         &Expression::Apply {
             callee: Box::new(Expression::Identifier(
                 Name::new(TEST_NAMESPACE, "f".to_string()),
-                // location doesn't matter for this test
-                SourceLocation { line: 1, column: 2 },
+                IRRELEVANT_SOURCE_LOCATION,
             )),
             arguments: Vec::new(),
         },
@@ -87,10 +86,12 @@ fn test_format_apply_1_argument() {
         &Expression::Apply {
             callee: Box::new(Expression::Identifier(
                 Name::new(TEST_NAMESPACE, "f".to_string()),
-                // location doesn't matter for this test
-                SourceLocation { line: 1, column: 2 },
+                IRRELEVANT_SOURCE_LOCATION,
             )),
-            arguments: vec![Expression::StringLiteral("test".to_string())],
+            arguments: vec![Expression::StringLiteral(
+                "test".to_string(),
+                IRRELEVANT_SOURCE_LOCATION,
+            )],
         },
         IRRELEVANT_INDENTATION_LEVEL,
         &mut formatted,
@@ -106,12 +107,11 @@ fn test_format_apply_2_arguments() {
         &Expression::Apply {
             callee: Box::new(Expression::Identifier(
                 Name::new(TEST_NAMESPACE, "f".to_string()),
-                // location doesn't matter for this test
-                SourceLocation { line: 1, column: 2 },
+                IRRELEVANT_SOURCE_LOCATION,
             )),
             arguments: vec![
-                Expression::StringLiteral("test".to_string()),
-                Expression::StringLiteral("123".to_string()),
+                Expression::StringLiteral("test".to_string(), IRRELEVANT_SOURCE_LOCATION),
+                Expression::StringLiteral("123".to_string(), IRRELEVANT_SOURCE_LOCATION),
             ],
         },
         IRRELEVANT_INDENTATION_LEVEL,
