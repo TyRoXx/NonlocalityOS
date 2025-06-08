@@ -27,6 +27,7 @@ where
         return_type: Box<T>,
     },
     Type,
+    Named(Name),
 }
 
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
@@ -65,6 +66,7 @@ pub fn to_reference_type(deep_type: &DeepType) -> (GenericType<ReferenceIndex>, 
             )
         }
         GenericType::Type => (GenericType::Type, Vec::new()),
+        GenericType::Named(ref name) => (GenericType::Named(name.clone()), Vec::new()),
     }
 }
 
@@ -125,6 +127,7 @@ pub fn from_reference_type(body: &GenericType<ReferenceIndex>, children: &[DeepT
             })
         }
         GenericType::Type => DeepType(GenericType::Type),
+        GenericType::Named(ref name) => DeepType(GenericType::Named(name.clone())),
     }
 }
 
@@ -494,6 +497,7 @@ fn is_type(type_of_value: &DeepType) -> bool {
             return_type: _,
         } => false,
         GenericType::Type => true,
+        GenericType::Named(_name) => false,
     }
 }
 
@@ -787,7 +791,37 @@ pub async fn check_types_with_default_globals(
         DeepType(GenericType::Type),
         type_to_deep_tree(&DeepType(GenericType::String)),
     );
+    let bool_type = DeepType(GenericType::Named(Name::new(
+        default_global_namespace,
+        "Bool".to_string(),
+    )));
+    environment_builder.define_constant(
+        Name::new(default_global_namespace, "Bool".to_string()),
+        DeepType(GenericType::Type),
+        type_to_deep_tree(&bool_type),
+    );
+    environment_builder.define_constant(
+        Name::new(default_global_namespace, "true".to_string()),
+        bool_type.clone(),
+        DeepTree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(&[1u8]))
+                .expect("one byte will always fit"),
+            Vec::new(),
+        ),
+    );
+    environment_builder.define_constant(
+        Name::new(default_global_namespace, "false".to_string()),
+        bool_type,
+        DeepTree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(&[0u8]))
+                .expect("one byte will always fit"),
+            Vec::new(),
+        ),
+    );
     let output = check_types(syntax_tree, &mut environment_builder).await;
+    environment_builder.undefine_constant();
+    environment_builder.undefine_constant();
+    environment_builder.undefine_constant();
     environment_builder.undefine_constant();
     environment_builder.undefine_constant();
     assert!(environment_builder.is_empty());

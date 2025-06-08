@@ -3,7 +3,10 @@ use crate::{
     compilation::{CompilerOutput, SourceLocation},
     type_checking::{check_types_with_default_globals, DeepType, GenericType, TypedExpression},
 };
-use astraea::{deep_tree::DeepTree, tree::TREE_BLOB_MAX_LENGTH};
+use astraea::{
+    deep_tree::DeepTree,
+    tree::{TreeBlob, TREE_BLOB_MAX_LENGTH},
+};
 use lambda::{
     expressions::{evaluate, DeepExpression, Expression},
     name::{Name, NamespaceId},
@@ -12,6 +15,7 @@ use std::sync::Arc;
 
 const TEST_SOURCE_NAMESPACE: NamespaceId =
     NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+const IRRELEVANT_SOURCE_LOCATION: SourceLocation = SourceLocation { line: 2, column: 3 };
 
 async fn expect_evaluate_result(entry_point: &DeepExpression, expected_result: &DeepTree) {
     let storage = astraea::storage::InMemoryTreeStorage::empty();
@@ -755,4 +759,91 @@ async fn test_string_literal_too_long() {
         )],
     );
     assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_bool() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
+    let true_in_source = Name::new(TEST_SOURCE_NAMESPACE, "true".to_string());
+    let false_in_source = Name::new(TEST_SOURCE_NAMESPACE, "false".to_string());
+    let bool_in_source = Name::new(TEST_SOURCE_NAMESPACE, "Bool".to_string());
+    let input = ast::Expression::Apply {
+        callee: Box::new(ast::Expression::Lambda {
+            parameters: vec![
+                LambdaParameter::new(
+                    x_in_source.clone(),
+                    IRRELEVANT_SOURCE_LOCATION,
+                    Some(ast::Expression::Identifier(
+                        bool_in_source.clone(),
+                        IRRELEVANT_SOURCE_LOCATION,
+                    )),
+                ),
+                LambdaParameter::new(
+                    y_in_source.clone(),
+                    IRRELEVANT_SOURCE_LOCATION,
+                    Some(ast::Expression::Identifier(
+                        bool_in_source.clone(),
+                        IRRELEVANT_SOURCE_LOCATION,
+                    )),
+                ),
+            ],
+            body: Box::new(ast::Expression::Identifier(
+                x_in_source.clone(),
+                IRRELEVANT_SOURCE_LOCATION,
+            )),
+        }),
+        arguments: vec![
+            ast::Expression::Identifier(true_in_source, IRRELEVANT_SOURCE_LOCATION),
+            ast::Expression::Identifier(false_in_source, IRRELEVANT_SOURCE_LOCATION),
+        ],
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let true_deep_tree = DeepTree::new(
+        TreeBlob::try_from(bytes::Bytes::from_static(&[1u8])).expect("one byte will always fit"),
+        Vec::new(),
+    );
+    let expected = CompilerOutput::new(
+        Some(TypedExpression::new(
+            DeepExpression(lambda::expressions::Expression::Apply {
+                callee: Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_lambda(
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_construct_tree(vec![]),
+                        )),
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_get_child(
+                                Arc::new(DeepExpression(
+                                    lambda::expressions::Expression::make_argument(),
+                                )),
+                                0,
+                            ),
+                        )),
+                    ),
+                )),
+                argument: Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_construct_tree(vec![
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_literal(true_deep_tree.clone()),
+                        )),
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_literal(DeepTree::new(
+                                TreeBlob::try_from(bytes::Bytes::from_static(&[0u8]))
+                                    .expect("one byte will always fit"),
+                                Vec::new(),
+                            )),
+                        )),
+                    ]),
+                )),
+            }),
+            DeepType(GenericType::Named(bool_in_source)),
+        )),
+        vec![],
+    );
+    assert_eq!(output, Ok(expected));
+    expect_evaluate_result(
+        &output.unwrap().entry_point.unwrap().expression,
+        &true_deep_tree,
+    )
+    .await;
 }
