@@ -750,7 +750,7 @@ async fn test_string_literal_too_long() {
     let expected = CompilerOutput::new(
         None,
         vec![crate::compilation::CompilerError::new(
-            format!("String literal is too long"),
+            "String literal is too long".to_string(),
             SourceLocation { line: 3, column: 3 },
         )],
     );

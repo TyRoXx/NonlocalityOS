@@ -595,7 +595,7 @@ pub async fn check_lambda(
                     return_type: Box::new(body_checked.type_),
                 }),
             )),
-            errors: errors,
+            errors,
         }),
         None => Ok(CompilerOutput::new(None, errors)),
     }
@@ -667,7 +667,7 @@ pub async fn check_types(
                             CompilerOutput::new(
                                 None,
                                 vec![CompilerError::new(
-                                    format!("String literal is too long"),
+                                    "String literal is too long".to_string(),
                                     *source_location,
                                 )],
                             ),
