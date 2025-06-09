@@ -111,5 +111,10 @@ where
             break_line(indentation_level, writer)?;
             format_expression(body, indentation_level, writer)
         }
+        Expression::TypeOf(expression) => {
+            write!(writer, "type_of(")?;
+            format_expression(expression, indentation_level, writer)?;
+            write!(writer, ")")
+        }
     }
 }

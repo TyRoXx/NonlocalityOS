@@ -97,6 +97,35 @@ fn expect_right_brace(
     }
 }
 
+fn try_skip_left_parenthesis(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+) -> bool {
+    match peek_next_non_whitespace_token(tokens) {
+        Some(non_whitespace) => match &non_whitespace.content {
+            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Whitespace => unreachable!(),
+            TokenContent::Identifier(_) => false,
+            TokenContent::Assign => todo!(),
+            TokenContent::LeftParenthesis => {
+                pop_next_non_whitespace_token(tokens);
+                true
+            }
+            TokenContent::RightParenthesis => todo!(),
+            TokenContent::LeftBracket => false,
+            TokenContent::RightBracket => todo!(),
+            TokenContent::LeftBrace => false,
+            TokenContent::RightBrace => todo!(),
+            TokenContent::Dot => todo!(),
+            TokenContent::Colon => todo!(),
+            TokenContent::Quotes(_) => false,
+            TokenContent::FatArrow => todo!(),
+            TokenContent::Comma => false,
+            TokenContent::EndOfFile => todo!(),
+        },
+        None => todo!(),
+    }
+}
+
 fn try_skip_right_parenthesis(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
 ) -> bool {
@@ -289,6 +318,27 @@ fn parse_let(
     })
 }
 
+fn parse_type_of(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+    local_namespace: &NamespaceId,
+    type_of_location: &SourceLocation,
+) -> ParserResult<ast::Expression> {
+    if !try_skip_left_parenthesis(tokens) {
+        return Err(ParserError::new(
+            "Expected '(' after 'type_of' keyword.".to_string(),
+            *type_of_location,
+        ));
+    }
+    let expression = parse_expression(tokens, local_namespace)?;
+    if !try_skip_right_parenthesis(tokens) {
+        return Err(ParserError::new(
+            "Expected ')' after expression in 'type_of'.".to_string(),
+            expression.source_location(),
+        ));
+    }
+    Ok(ast::Expression::TypeOf(Box::new(expression)))
+}
+
 fn parse_expression_start<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
@@ -301,6 +351,8 @@ fn parse_expression_start<'t>(
                 pop_next_non_whitespace_token(tokens);
                 if identifier.as_str() == "let" {
                     parse_let(tokens, local_namespace, &non_whitespace.location)
+                } else if identifier.as_str() == "type_of" {
+                    parse_type_of(tokens, local_namespace, &non_whitespace.location)
                 } else {
                     Ok(ast::Expression::Identifier(
                         Name::new(*local_namespace, identifier.clone()),

@@ -135,3 +135,30 @@ async fn test_local_variables() {
         .unwrap();
     test_example(source, &storage, &expected_result).await;
 }
+
+#[test_log::test(tokio::test)]
+async fn test_type_of() {
+    let source = include_str!("../examples/type_of.tl");
+    let storage = InMemoryTreeStorage::empty();
+    let expected_result = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            vec![
+                storage
+                    .store_tree(&HashedTree::from(Arc::new(
+                        Tree::from_string("lam").unwrap(),
+                    )))
+                    .await
+                    .unwrap(),
+                storage
+                    .store_tree(&HashedTree::from(Arc::new(
+                        Tree::from_string("bda").unwrap(),
+                    )))
+                    .await
+                    .unwrap(),
+            ],
+        ))))
+        .await
+        .unwrap();
+    test_example(source, &storage, &expected_result).await;
+}

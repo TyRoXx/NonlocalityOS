@@ -345,3 +345,18 @@ fn test_format_lambda_let_indentation() {
     .unwrap();
     assert_eq!(concat!("() => let a = b\n", "    c"), formatted.as_str());
 }
+
+#[test]
+fn test_format_type_of() {
+    let mut formatted = String::new();
+    format_expression(
+        &Expression::TypeOf(Box::new(Expression::Identifier(
+            Name::new(TEST_NAMESPACE, "a".to_string()),
+            IRRELEVANT_SOURCE_LOCATION,
+        ))),
+        IRRELEVANT_INDENTATION_LEVEL,
+        &mut formatted,
+    )
+    .unwrap();
+    assert_eq!("type_of(a)", formatted.as_str());
+}

@@ -415,3 +415,67 @@ fn test_parse_let_ambiguity() {
     );
     assert_eq!(expected, output);
 }
+
+#[test_log::test]
+fn test_parse_type_of() {
+    for source in ["type_of(a)", "type_of (a)", "type_of( a)", "type_of(a )"] {
+        let expected = ast::Expression::TypeOf(Box::new(ast::Expression::Identifier(
+            Name::new(TEST_NAMESPACE, "a".to_string()),
+            SourceLocation {
+                line: 0,
+                column: source.find("a").unwrap() as u64,
+            },
+        )));
+        test_wellformed_parsing(source, expected);
+    }
+}
+
+#[test_log::test]
+fn test_parse_type_of_missing_left_parenthesis() {
+    let tokens = tokenize_default_syntax("type_of a");
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::Identifier("a".to_string()),
+            SourceLocation {
+                line: 0,
+                column: 8
+            }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected '(' after 'type_of' keyword.".to_string(),
+            SourceLocation::new(0, 0),
+        )],
+    );
+    assert_eq!(expected, output);
+}
+
+#[test_log::test]
+fn test_parse_type_of_missing_right_parenthesis() {
+    let tokens = tokenize_default_syntax("type_of(a b");
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::Identifier("b".to_string()),
+            SourceLocation {
+                line: 0,
+                column: 10
+            }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected ')' after expression in 'type_of'.".to_string(),
+            SourceLocation::new(0, 8),
+        )],
+    );
+    assert_eq!(expected, output);
+}

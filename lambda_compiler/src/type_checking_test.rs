@@ -1,7 +1,9 @@
 use crate::{
     ast::{self, LambdaParameter},
-    compilation::{CompilerOutput, SourceLocation},
-    type_checking::{check_types_with_default_globals, DeepType, GenericType, TypedExpression},
+    compilation::{CompilerError, CompilerOutput, SourceLocation},
+    type_checking::{
+        check_types_with_default_globals, type_to_deep_tree, DeepType, GenericType, TypedExpression,
+    },
 };
 use astraea::{
     deep_tree::DeepTree,
@@ -941,4 +943,42 @@ async fn test_bool() {
         &true_deep_tree,
     )
     .await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_type_of() {
+    let input = ast::Expression::TypeOf(Box::new(ast::Expression::StringLiteral(
+        "a".to_string(),
+        SourceLocation { line: 3, column: 3 },
+    )));
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        Some(TypedExpression::new(
+            DeepExpression(lambda::expressions::Expression::make_literal(
+                type_to_deep_tree(&DeepType(GenericType::String)),
+            )),
+            DeepType(GenericType::Type),
+        )),
+        vec![],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_type_of_with_error() {
+    let a = Name::new(TEST_SOURCE_NAMESPACE, "a".to_string());
+    let input = ast::Expression::TypeOf(Box::new(ast::Expression::Identifier(
+        // unknown identifier
+        a.clone(),
+        SourceLocation { line: 3, column: 3 },
+    )));
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        None,
+        vec![CompilerError::new(
+            format!("Identifier {a} not found"),
+            SourceLocation { line: 3, column: 3 },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
 }

@@ -234,6 +234,42 @@ fn test_tokenize_default_syntax_identifier_uppercase() {
 }
 
 #[test_log::test]
+fn test_tokenize_default_syntax_identifier_underscore() {
+    test_tokenize_default_syntax(
+        "type_of",
+        &[
+            Token {
+                content: TokenContent::Identifier("type_of".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation {
+                    line: 0,
+                    column: 7,
+                },
+            },
+        ],
+    );
+    test_tokenize_default_syntax(
+        "_",
+        &[
+            Token {
+                content: TokenContent::Identifier("_".to_string()),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation {
+                    line: 0,
+                    column: 1,
+                },
+            },
+        ],
+    );
+}
+
+#[test_log::test]
 fn test_tokenize_default_syntax_let() {
     test_tokenize_default_syntax(
         "let",

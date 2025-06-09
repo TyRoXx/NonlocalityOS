@@ -189,7 +189,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
     const TOKEN_TAG_COLON: RegisterId = RegisterId(21);
     const TOKEN_TAG_COMMENT: RegisterId = RegisterId(22);
     lazy_static! {
-        static ref IDENTIFIER_CHARACTERS: Vec<RegisterValue> = (b'a'..=b'z').chain(b'A'..=b'Z').map(RegisterValue::Byte).collect();
+        static ref IDENTIFIER_CHARACTERS: Vec<RegisterValue> = (b'a'..=b'z').chain(b'A'..=b'Z').chain([b'_']).map(RegisterValue::Byte).collect();
         static ref COPY_SUBSEQUENT_INPUT_TO_OUTPUT: Parser = Parser::Sequence(vec![
                                     Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
                                     Parser::WriteOutputByte(OUTPUT_BYTE),

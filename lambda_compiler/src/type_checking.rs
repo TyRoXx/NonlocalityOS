@@ -654,6 +654,35 @@ pub async fn check_let(
     }
 }
 
+async fn check_type_of(
+    expression: &ast::Expression,
+    environment_builder: &mut EnvironmentBuilder,
+) -> Result<(CompilerOutput, Option<DeepTree>), StoreError> {
+    // TODO: prevent captures by unevaluated expressions
+    let checked_expression = check_types(expression, environment_builder).await?;
+    let type_ = match checked_expression.0.entry_point {
+        Some(success) => success.type_,
+        None => {
+            assert!(!checked_expression.0.errors.is_empty());
+            return Ok((CompilerOutput::new(None, checked_expression.0.errors), None));
+        }
+    };
+    let errors = checked_expression.0.errors;
+    let type_as_tree = type_to_deep_tree(&type_);
+    Ok((
+        CompilerOutput::new(
+            Some(TypedExpression::new(
+                lambda::expressions::DeepExpression(lambda::expressions::Expression::Literal(
+                    type_as_tree.clone(),
+                )),
+                DeepType(GenericType::Type),
+            )),
+            errors,
+        ),
+        Some(type_as_tree),
+    ))
+}
+
 pub async fn check_types(
     syntax_tree: &ast::Expression,
     environment_builder: &mut EnvironmentBuilder,
@@ -771,6 +800,9 @@ pub async fn check_types(
                         output, /*TODO: compile time let or a const keyword*/ None,
                     )
                 }),
+            ast::Expression::TypeOf(expression) => {
+                check_type_of(expression, environment_builder).await
+            }
         }
     })
     .await

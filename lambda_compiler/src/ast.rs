@@ -42,6 +42,7 @@ pub enum Expression {
         value: Box<Expression>,
         body: Box<Expression>,
     },
+    TypeOf(Box<Expression>),
 }
 
 impl Expression {
@@ -59,6 +60,7 @@ impl Expression {
                 value: _,
                 body: _,
             } => *location,
+            Expression::TypeOf(expression) => expression.source_location(),
         }
     }
 }
