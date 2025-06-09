@@ -209,6 +209,7 @@ impl ParameterIndex {
     }
 }
 
+#[derive(Debug, Clone)]
 struct LocalVariable {
     parameter_index: ParameterIndex,
     type_: DeepType,
@@ -229,6 +230,7 @@ impl LocalVariable {
     }
 }
 
+#[derive(Debug, Clone)]
 struct LambdaScope {
     names: BTreeMap<Name, LocalVariable>,
     captures: BTreeMap<TypedExpression, u16>,
@@ -338,6 +340,7 @@ impl LambdaScope {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct EnvironmentBuilder {
     lambda_layers: Vec<LambdaScope>,
 }
@@ -658,8 +661,12 @@ async fn check_type_of(
     expression: &ast::Expression,
     environment_builder: &mut EnvironmentBuilder,
 ) -> Result<(CompilerOutput, Option<DeepTree>), StoreError> {
-    // TODO: prevent captures by unevaluated expressions
-    let checked_expression = check_types(expression, environment_builder).await?;
+    // Copy environment builder to prevent captures by unevaluated expressions.
+    // TODO: make this more efficient (clone could be expensive).
+    let mut unevaluated_context = environment_builder.clone();
+    let checked_expression = check_types(expression, &mut unevaluated_context).await?;
+    drop(unevaluated_context);
+
     let type_ = match checked_expression.0.entry_point {
         Some(success) => success.type_,
         None => {

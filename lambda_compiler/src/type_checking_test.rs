@@ -982,3 +982,51 @@ async fn test_type_of_with_error() {
     );
     assert_eq!(output, Ok(expected));
 }
+
+#[test_log::test(tokio::test)]
+async fn test_type_of_does_not_capture() {
+    let a = Name::new(TEST_SOURCE_NAMESPACE, "a".to_string());
+    let input = ast::Expression::Lambda {
+        parameters: vec![LambdaParameter::new(
+            a.clone(),
+            IRRELEVANT_SOURCE_LOCATION,
+            None,
+        )],
+        body: Box::new(ast::Expression::Lambda {
+            parameters: vec![],
+            body: Box::new(ast::Expression::TypeOf(Box::new(
+                ast::Expression::Identifier(a, IRRELEVANT_SOURCE_LOCATION),
+            ))),
+        }),
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        Some(TypedExpression::new(
+            DeepExpression(lambda::expressions::Expression::make_lambda(
+                Arc::new(DeepExpression(Expression::ConstructTree(vec![]))),
+                Arc::new(DeepExpression(
+                    lambda::expressions::Expression::make_lambda(
+                        Arc::new(DeepExpression(Expression::ConstructTree(
+                            // The environment is empty because 'a' is not captured. type_of does not evaluate the expression, so it doesn't need to capture any variables.
+                            vec![],
+                        ))),
+                        Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_literal(type_to_deep_tree(
+                                &DeepType(GenericType::Any),
+                            )),
+                        )),
+                    ),
+                )),
+            )),
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::Any)],
+                return_type: Box::new(DeepType(GenericType::Function {
+                    parameters: vec![],
+                    return_type: Box::new(DeepType(GenericType::Type)),
+                })),
+            }),
+        )),
+        vec![],
+    );
+    assert_eq!(output, Ok(expected));
+}
