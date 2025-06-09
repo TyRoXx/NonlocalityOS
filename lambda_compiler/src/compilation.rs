@@ -1,5 +1,5 @@
 use crate::{
-    parsing::{parse_expression_tolerantly, pop_next_non_whitespace_token},
+    parsing::{parse_expression_tolerantly, pop_next_non_whitespace_token, ParserOutput},
     tokenization::tokenize_default_syntax,
     type_checking::{check_types_with_default_globals, TypedExpression},
 };
@@ -46,10 +46,7 @@ impl CompilerOutput {
     }
 }
 
-pub async fn compile(
-    source: &str,
-    source_namespace: &NamespaceId,
-) -> Result<CompilerOutput, StoreError> {
+pub fn parse_source(source: &str, source_namespace: &NamespaceId) -> ParserOutput {
     let tokens = tokenize_default_syntax(source);
     let mut token_iterator = tokens.iter().peekable();
     let mut result = parse_expression_tolerantly(&mut token_iterator, source_namespace);
@@ -64,16 +61,24 @@ pub async fn compile(
             ));
         }
     }
-    match &result.entry_point {
+    result
+}
+
+pub async fn compile(
+    source: &str,
+    source_namespace: &NamespaceId,
+) -> Result<CompilerOutput, StoreError> {
+    let mut parser_output = parse_source(source, source_namespace);
+    match &parser_output.entry_point {
         Some(entry_point) => {
             let type_check_result =
                 check_types_with_default_globals(entry_point, *source_namespace).await?;
-            result.errors.extend(type_check_result.errors);
+            parser_output.errors.extend(type_check_result.errors);
             Ok(CompilerOutput::new(
                 type_check_result.entry_point,
-                result.errors,
+                parser_output.errors,
             ))
         }
-        None => Ok(CompilerOutput::new(None, result.errors)),
+        None => Ok(CompilerOutput::new(None, parser_output.errors)),
     }
 }

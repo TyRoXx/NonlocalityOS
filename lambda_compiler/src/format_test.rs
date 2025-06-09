@@ -97,7 +97,7 @@ fn test_format_apply_1_argument() {
         &mut formatted,
     )
     .unwrap();
-    assert_eq!(r#"f("test", )"#, formatted.as_str());
+    assert_eq!(r#"f("test")"#, formatted.as_str());
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn test_format_apply_2_arguments() {
         &mut formatted,
     )
     .unwrap();
-    assert_eq!(r#"f("test", "123", )"#, formatted.as_str());
+    assert_eq!(r#"f("test", "123")"#, formatted.as_str());
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn test_format_lambda_1_parameter() {
         &mut formatted,
     )
     .unwrap();
-    assert_eq!("(a, ) => f", formatted.as_str());
+    assert_eq!("(a) => f", formatted.as_str());
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn test_format_lambda_2_parameters() {
         &mut formatted,
     )
     .unwrap();
-    assert_eq!("(a, b, ) => f", formatted.as_str());
+    assert_eq!("(a, b) => f", formatted.as_str());
 }
 
 #[test]
@@ -221,7 +221,7 @@ fn test_format_lambda_type_annotation() {
         &mut formatted,
     )
     .unwrap();
-    assert_eq!("(a: String, ) => f", formatted.as_str());
+    assert_eq!("(a: String) => f", formatted.as_str());
 }
 
 #[test]
@@ -249,7 +249,7 @@ fn test_format_construct_tree_1_child() {
         &mut formatted,
     )
     .unwrap();
-    assert_eq!("[a, ]", formatted.as_str());
+    assert_eq!("[a]", formatted.as_str());
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn test_format_construct_tree_2_children() {
         &mut formatted,
     )
     .unwrap();
-    assert_eq!("[a, b, ]", formatted.as_str());
+    assert_eq!("[a, b]", formatted.as_str());
 }
 
 #[test]

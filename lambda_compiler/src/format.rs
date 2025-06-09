@@ -28,9 +28,11 @@ where
 {
     format_expression(callee, indentation_level, writer)?;
     write!(writer, "(")?;
-    for argument in arguments.iter() {
+    for (index, argument) in arguments.iter().enumerate() {
+        if index > 0 {
+            write!(writer, ", ")?;
+        }
         format_expression(argument, indentation_level, writer)?;
-        write!(writer, ", ")?;
     }
     write!(writer, ")")
 }
@@ -45,13 +47,15 @@ where
     W: std::fmt::Write,
 {
     write!(writer, "(")?;
-    for parameter in parameters.iter() {
+    for (index, parameter) in parameters.iter().enumerate() {
+        if index > 0 {
+            write!(writer, ", ")?;
+        }
         write!(writer, "{}", parameter.name.key)?;
         if let Some(type_annotation) = &parameter.type_annotation {
             write!(writer, ": ")?;
             format_expression(type_annotation, indentation_level, writer)?;
         }
-        write!(writer, ", ")?;
     }
     write!(writer, ") => ")?;
     format_expression(body, indentation_level + 1, writer)
@@ -89,9 +93,11 @@ where
         }
         Expression::ConstructTree(children) => {
             write!(writer, "[")?;
-            for child in children.iter() {
+            for (index, child) in children.iter().enumerate() {
+                if index > 0 {
+                    write!(writer, ", ")?;
+                }
                 format_expression(child, indentation_level, writer)?;
-                write!(writer, ", ")?;
             }
             write!(writer, "]")
         }
@@ -117,4 +123,12 @@ where
             write!(writer, ")")
         }
     }
+}
+
+pub fn format_file<W>(entry_point: &Expression, writer: &mut W) -> std::fmt::Result
+where
+    W: std::fmt::Write,
+{
+    format_expression(entry_point, 0, writer)?;
+    writeln!(writer)
 }
