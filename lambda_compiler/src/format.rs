@@ -122,6 +122,11 @@ where
             format_expression(expression, indentation_level, writer)?;
             write!(writer, ")")
         }
+        Expression::Comment(comment, expression, _source_location) => {
+            write!(writer, "#{}", comment)?;
+            break_line(indentation_level, writer)?;
+            format_expression(expression, indentation_level, writer)
+        }
     }
 }
 

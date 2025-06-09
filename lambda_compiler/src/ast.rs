@@ -43,13 +43,14 @@ pub enum Expression {
         body: Box<Expression>,
     },
     TypeOf(Box<Expression>),
+    Comment(String, Box<Expression>, SourceLocation),
 }
 
 impl Expression {
     pub fn source_location(&self) -> SourceLocation {
         match self {
-            Expression::Identifier(_, location) => *location,
-            Expression::StringLiteral(_, location) => *location,
+            Expression::Identifier(_, source_location) => *source_location,
+            Expression::StringLiteral(_, source_location) => *source_location,
             Expression::Apply { callee, .. } => callee.source_location(),
             Expression::Lambda { body, .. } => body.source_location(),
             Expression::ConstructTree(_) => todo!(),
@@ -61,6 +62,7 @@ impl Expression {
                 body: _,
             } => *location,
             Expression::TypeOf(expression) => expression.source_location(),
+            Expression::Comment(_, _, source_location) => *source_location,
         }
     }
 }

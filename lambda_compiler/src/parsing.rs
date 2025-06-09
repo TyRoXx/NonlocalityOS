@@ -43,7 +43,7 @@ pub fn peek_next_non_whitespace_token<'t>(
         let next = tokens.peek();
         match next {
             Some(token) => match token.content {
-                TokenContent::Whitespace | TokenContent::Comment(_) => {
+                TokenContent::Whitespace => {
                     tokens.next();
                     continue;
                 }
@@ -61,6 +61,7 @@ pub fn peek_next_non_whitespace_token<'t>(
                 | TokenContent::Quotes(_)
                 | TokenContent::FatArrow
                 | TokenContent::Comma
+                | TokenContent::Comment(_)
                 | TokenContent::EndOfFile => return Some(token),
             },
             None => return None,
@@ -73,7 +74,7 @@ fn expect_right_brace(
 ) -> ParserResult<()> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => todo!(),
             TokenContent::Assign => todo!(),
@@ -102,7 +103,7 @@ fn try_skip_left_parenthesis(
 ) -> bool {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => false,
             TokenContent::Assign => todo!(),
@@ -131,7 +132,7 @@ fn try_skip_right_parenthesis(
 ) -> bool {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => false,
             TokenContent::Assign => todo!(),
@@ -158,7 +159,7 @@ fn try_skip_right_parenthesis(
 fn try_skip_assign(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => false,
             TokenContent::Assign => {
@@ -185,7 +186,7 @@ fn try_skip_assign(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>
 fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_identifier) => todo!(),
             TokenContent::Assign => todo!(),
@@ -209,7 +210,7 @@ fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>
 fn expect_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => todo!(),
             TokenContent::Assign => todo!(),
@@ -234,7 +235,7 @@ fn skip_right_bracket(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Toke
     let maybe_right_bracket = peek_next_non_whitespace_token(tokens);
     match maybe_right_bracket {
         Some(token) => match &token.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => false,
             TokenContent::Assign => false,
@@ -339,13 +340,26 @@ fn parse_type_of(
     Ok(ast::Expression::TypeOf(Box::new(expression)))
 }
 
+fn parse_comment(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+    content: &str,
+    local_namespace: &NamespaceId,
+    comment_location: &SourceLocation,
+) -> ParserResult<ast::Expression> {
+    let expression = parse_expression(tokens, local_namespace)?;
+    Ok(ast::Expression::Comment(
+        content.to_string(),
+        Box::new(expression),
+        *comment_location,
+    ))
+}
+
 fn parse_expression_start<'t>(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'t, Token>>,
     local_namespace: &NamespaceId,
 ) -> ParserResult<ast::Expression> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(identifier) => {
                 pop_next_non_whitespace_token(tokens);
@@ -403,6 +417,10 @@ fn parse_expression_start<'t>(
                 "Expected expression, got end of file.".to_string(),
                 non_whitespace.location,
             )),
+            TokenContent::Comment(content) => {
+                pop_next_non_whitespace_token(tokens);
+                parse_comment(tokens, content, local_namespace, &non_whitespace.location)
+            }
         },
         None => todo!(),
     }
@@ -440,7 +458,6 @@ pub fn parse_expression<'t>(
     let start = parse_expression_start(tokens, local_namespace)?;
     match peek_next_non_whitespace_token(tokens) {
         Some(more) => match &more.content {
-            TokenContent::Comment(_) => unreachable!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => Ok(start),
             TokenContent::Assign => Ok(start),
@@ -459,6 +476,7 @@ pub fn parse_expression<'t>(
             TokenContent::FatArrow => todo!(),
             TokenContent::Comma => Ok(start),
             TokenContent::EndOfFile => Ok(start),
+            TokenContent::Comment(_) => Ok(start),
         },
         None => todo!(),
     }
@@ -469,7 +487,7 @@ fn try_pop_identifier(
 ) -> Option<(String, SourceLocation)> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(identifier) => {
                 pop_next_non_whitespace_token(tokens);
@@ -496,7 +514,7 @@ fn try_pop_identifier(
 fn try_skip_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_identifier) => false,
             TokenContent::Assign => todo!(),
@@ -523,7 +541,7 @@ fn try_skip_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>)
 fn try_skip_colon(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => unreachable!(),
+            TokenContent::Comment(_) => todo!(),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_identifier) => false,
             TokenContent::Assign => todo!(),

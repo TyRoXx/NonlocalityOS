@@ -58,17 +58,38 @@ fn test_wellformed_parsing(source: &str, expected: ast::Expression) {
 #[test_log::test]
 fn test_parse_comment() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
-    let expected = ast::Expression::Identifier(name, SourceLocation { line: 1, column: 0 });
+    let expected = ast::Expression::Comment(
+        " Comment".to_string(),
+        Box::new(ast::Expression::Identifier(
+            name,
+            SourceLocation { line: 1, column: 0 },
+        )),
+        SourceLocation { line: 0, column: 0 },
+    );
     test_wellformed_parsing("# Comment\nf", expected);
 }
 
 #[test_log::test]
-fn test_parse_comment_with_expression_in_front() {
-    for source in &["foo # Comment", "foo #", "foo# Comment", "foo#", "foo\n#"] {
-        let name = Name::new(TEST_NAMESPACE, "foo".to_string());
-        let expected = ast::Expression::Identifier(name, SourceLocation { line: 0, column: 0 });
-        test_wellformed_parsing(source, expected);
-    }
+fn test_parse_comment_missing_expression() {
+    // Currently a comment cannot stand alone, it must be followed by an expression. This makes the code formatter easier to implement.
+    let tokens = tokenize_default_syntax("# comment");
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::EndOfFile,
+            SourceLocation { line: 0, column: 9 }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected expression, got end of file.".to_string(),
+            SourceLocation::new(0, 9),
+        )],
+    );
+    assert_eq!(expected, output);
 }
 
 #[test_log::test]

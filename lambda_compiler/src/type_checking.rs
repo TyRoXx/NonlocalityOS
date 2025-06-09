@@ -810,6 +810,9 @@ pub async fn check_types(
             ast::Expression::TypeOf(expression) => {
                 check_type_of(expression, environment_builder).await
             }
+            ast::Expression::Comment(_, expression, _) => {
+                check_types(expression, environment_builder).await
+            }
         }
     })
     .await

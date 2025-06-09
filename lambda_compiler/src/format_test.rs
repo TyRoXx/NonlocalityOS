@@ -360,3 +360,22 @@ fn test_format_type_of() {
     .unwrap();
     assert_eq!("type_of(a)", formatted.as_str());
 }
+
+#[test]
+fn test_format_comment() {
+    let mut formatted = String::new();
+    format_expression(
+        &Expression::Comment(
+            " test".to_string(),
+            Box::new(Expression::Identifier(
+                Name::new(TEST_NAMESPACE, "a".to_string()),
+                IRRELEVANT_SOURCE_LOCATION,
+            )),
+            IRRELEVANT_SOURCE_LOCATION,
+        ),
+        0,
+        &mut formatted,
+    )
+    .unwrap();
+    assert_eq!("# test\na", formatted.as_str());
+}
