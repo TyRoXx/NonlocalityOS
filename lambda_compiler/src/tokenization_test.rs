@@ -244,10 +244,7 @@ fn test_tokenize_default_syntax_identifier_underscore() {
             },
             Token {
                 content: TokenContent::EndOfFile,
-                location: SourceLocation {
-                    line: 0,
-                    column: 7,
-                },
+                location: SourceLocation { line: 0, column: 7 },
             },
         ],
     );
@@ -260,10 +257,7 @@ fn test_tokenize_default_syntax_identifier_underscore() {
             },
             Token {
                 content: TokenContent::EndOfFile,
-                location: SourceLocation {
-                    line: 0,
-                    column: 1,
-                },
+                location: SourceLocation { line: 0, column: 1 },
             },
         ],
     );

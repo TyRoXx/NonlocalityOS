@@ -516,6 +516,63 @@ async fn test_lambda_parameter_type() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_lambda_parameter_type_does_not_capture() {
+    let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let string_in_source = Name::new(TEST_SOURCE_NAMESPACE, "String".to_string());
+    let input = ast::Expression::Let {
+        name: y_in_source.clone(),
+        location: IRRELEVANT_SOURCE_LOCATION,
+        value: Box::new(ast::Expression::Identifier(
+            string_in_source.clone(),
+            IRRELEVANT_SOURCE_LOCATION,
+        )),
+        body: Box::new(ast::Expression::Lambda {
+            parameters: vec![LambdaParameter::new(
+                x_in_source.clone(),
+                IRRELEVANT_SOURCE_LOCATION,
+                // The type annotation requires a compile time value, so this variable won't need to be captured.
+                Some(ast::Expression::Identifier(
+                    y_in_source.clone(),
+                    IRRELEVANT_SOURCE_LOCATION,
+                )),
+            )],
+            body: Box::new(ast::Expression::Identifier(
+                x_in_source.clone(),
+                IRRELEVANT_SOURCE_LOCATION,
+            )),
+        }),
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+    let expected = CompilerOutput::new(
+        Some(TypedExpression::new(
+            DeepExpression(lambda::expressions::Expression::Apply {
+                callee: Arc::new(DeepExpression(lambda::expressions::Expression::Lambda {
+                    environment: empty_tree.clone(),
+                    body: Arc::new(DeepExpression(lambda::expressions::Expression::Lambda {
+                        // no capture for the type annotation
+                        environment: empty_tree,
+                        body: Arc::new(DeepExpression(
+                            lambda::expressions::Expression::make_argument(),
+                        )),
+                    })),
+                })),
+                argument: Arc::new(DeepExpression(lambda::expressions::Expression::Literal(
+                    type_to_deep_tree(&DeepType(GenericType::String)),
+                ))),
+            }),
+            DeepType(GenericType::Function {
+                parameters: vec![DeepType(GenericType::String)],
+                return_type: Box::new(DeepType(GenericType::String)),
+            }),
+        )),
+        vec![],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
 async fn test_lambda_parameter_type_has_error() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let input = ast::Expression::Lambda {

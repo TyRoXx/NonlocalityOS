@@ -438,10 +438,7 @@ fn test_parse_type_of_missing_left_parenthesis() {
     assert_eq!(
         Some(&Token::new(
             TokenContent::Identifier("a".to_string()),
-            SourceLocation {
-                line: 0,
-                column: 8
-            }
+            SourceLocation { line: 0, column: 8 }
         )),
         token_iterator.next()
     );
