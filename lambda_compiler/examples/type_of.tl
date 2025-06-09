@@ -11,6 +11,6 @@
     }
     # Variables can hold types.
     let StringAlias = type_of("")
-    let call_function = (function: type_of(f), x: StringAlias, y: type_of(f("", ""))) => function(x, y)
+    let call_function = (function: type_of(f), x: StringAlias, y: String) => function(x, y)
     call_function(f, a, b)
 }

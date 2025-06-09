@@ -294,7 +294,13 @@ fn test_parse_missing_parameter_type() {
 #[test_log::test]
 fn test_parse_tree_construction_0_children() {
     for source in &["[]", " []", "[ ]", " [] ", "[  ]", "[ ] "] {
-        let expected = ast::Expression::ConstructTree(vec![]);
+        let expected = ast::Expression::ConstructTree(
+            vec![],
+            SourceLocation {
+                line: 0,
+                column: source.find("[").unwrap() as u64,
+            },
+        );
         test_wellformed_parsing(source, expected);
     }
 }
@@ -312,7 +318,13 @@ fn test_parse_tree_construction_1_child() {
                 column: source.find("a").unwrap() as u64,
             },
         );
-        let expected = ast::Expression::ConstructTree(vec![a]);
+        let expected = ast::Expression::ConstructTree(
+            vec![a],
+            SourceLocation {
+                line: 0,
+                column: source.find("[").unwrap() as u64,
+            },
+        );
         test_wellformed_parsing(source, expected);
     }
 }
@@ -344,7 +356,13 @@ fn test_parse_tree_construction_2_children() {
                 column: source.find("b").unwrap() as u64,
             },
         );
-        let expected = ast::Expression::ConstructTree(vec![a, b]);
+        let expected = ast::Expression::ConstructTree(
+            vec![a, b],
+            SourceLocation {
+                line: 0,
+                column: source.find("[").unwrap() as u64,
+            },
+        );
         test_wellformed_parsing(source, expected);
     }
 }

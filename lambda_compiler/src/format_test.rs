@@ -228,7 +228,7 @@ fn test_format_lambda_type_annotation() {
 fn test_format_construct_tree_0_children() {
     let mut formatted = String::new();
     format_expression(
-        &Expression::ConstructTree(vec![]),
+        &Expression::ConstructTree(vec![], IRRELEVANT_SOURCE_LOCATION),
         IRRELEVANT_INDENTATION_LEVEL,
         &mut formatted,
     )
@@ -240,11 +240,14 @@ fn test_format_construct_tree_0_children() {
 fn test_format_construct_tree_1_child() {
     let mut formatted = String::new();
     format_expression(
-        &Expression::ConstructTree(vec![Expression::Identifier(
-            Name::new(TEST_NAMESPACE, "a".to_string()),
-            // location doesn't matter for this test
-            SourceLocation { line: 0, column: 0 },
-        )]),
+        &Expression::ConstructTree(
+            vec![Expression::Identifier(
+                Name::new(TEST_NAMESPACE, "a".to_string()),
+                // location doesn't matter for this test
+                SourceLocation { line: 0, column: 0 },
+            )],
+            IRRELEVANT_SOURCE_LOCATION,
+        ),
         IRRELEVANT_INDENTATION_LEVEL,
         &mut formatted,
     )
@@ -256,18 +259,21 @@ fn test_format_construct_tree_1_child() {
 fn test_format_construct_tree_2_children() {
     let mut formatted = String::new();
     format_expression(
-        &Expression::ConstructTree(vec![
-            Expression::Identifier(
-                Name::new(TEST_NAMESPACE, "a".to_string()),
-                // location doesn't matter for this test
-                SourceLocation { line: 0, column: 0 },
-            ),
-            Expression::Identifier(
-                Name::new(TEST_NAMESPACE, "b".to_string()),
-                // location doesn't matter for this test
-                SourceLocation { line: 0, column: 0 },
-            ),
-        ]),
+        &Expression::ConstructTree(
+            vec![
+                Expression::Identifier(
+                    Name::new(TEST_NAMESPACE, "a".to_string()),
+                    // location doesn't matter for this test
+                    SourceLocation { line: 0, column: 0 },
+                ),
+                Expression::Identifier(
+                    Name::new(TEST_NAMESPACE, "b".to_string()),
+                    // location doesn't matter for this test
+                    SourceLocation { line: 0, column: 0 },
+                ),
+            ],
+            IRRELEVANT_SOURCE_LOCATION,
+        ),
         IRRELEVANT_INDENTATION_LEVEL,
         &mut formatted,
     )

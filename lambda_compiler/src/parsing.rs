@@ -262,6 +262,7 @@ fn skip_right_bracket(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Toke
 fn parse_tree_construction(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
     local_namespace: &NamespaceId,
+    location: &SourceLocation,
 ) -> ParserResult<ast::Expression> {
     let mut elements = Vec::new();
     loop {
@@ -277,7 +278,7 @@ fn parse_tree_construction(
         let element = parse_expression(tokens, local_namespace)?;
         elements.push(element);
     }
-    Ok(ast::Expression::ConstructTree(elements))
+    Ok(ast::Expression::ConstructTree(elements, *location))
 }
 
 fn parse_braces(
@@ -385,7 +386,7 @@ fn parse_expression_start<'t>(
             )),
             TokenContent::LeftBracket => {
                 pop_next_non_whitespace_token(tokens);
-                parse_tree_construction(tokens, local_namespace)
+                parse_tree_construction(tokens, local_namespace, &non_whitespace.location)
             }
             TokenContent::RightBracket => Err(ParserError::new(
                 "Expected expression, found right bracket.".to_string(),

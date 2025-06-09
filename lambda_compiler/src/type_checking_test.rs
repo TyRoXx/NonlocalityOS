@@ -2,7 +2,8 @@ use crate::{
     ast::{self, LambdaParameter},
     compilation::{CompilerError, CompilerOutput, SourceLocation},
     type_checking::{
-        check_types_with_default_globals, type_to_deep_tree, DeepType, GenericType, TypedExpression,
+        check_types_with_default_globals, convert_implicitly, type_to_deep_tree, DeepType,
+        GenericType, TypedExpression,
     },
 };
 use astraea::{
@@ -17,7 +18,7 @@ use std::sync::Arc;
 
 const TEST_SOURCE_NAMESPACE: NamespaceId =
     NamespaceId([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-const IRRELEVANT_SOURCE_LOCATION: SourceLocation = SourceLocation { line: 2, column: 3 };
+const IRRELEVANT_SOURCE_LOCATION: SourceLocation = SourceLocation { line: 4, column: 2 };
 
 async fn expect_evaluate_result(entry_point: &DeepExpression, expected_result: &DeepTree) {
     let storage = astraea::storage::InMemoryTreeStorage::empty();
@@ -36,7 +37,10 @@ async fn expect_evaluate_result(entry_point: &DeepExpression, expected_result: &
 async fn test_check_types_lambda_0_parameters() {
     let input = ast::Expression::Lambda {
         parameters: vec![],
-        body: Box::new(ast::Expression::ConstructTree(vec![])),
+        body: Box::new(ast::Expression::ConstructTree(
+            vec![],
+            IRRELEVANT_SOURCE_LOCATION,
+        )),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
     let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
@@ -219,22 +223,25 @@ async fn test_check_types_lambda_capture_multiple_variables() {
         ],
         body: Box::new(ast::Expression::Lambda {
             parameters: vec![],
-            body: Box::new(ast::Expression::ConstructTree(vec![
-                ast::Expression::Identifier(
-                    x_in_source.clone(),
-                    SourceLocation {
-                        line: 0,
-                        column: 10,
-                    },
-                ),
-                ast::Expression::Identifier(
-                    y_in_source.clone(),
-                    SourceLocation {
-                        line: 0,
-                        column: 13,
-                    },
-                ),
-            ])),
+            body: Box::new(ast::Expression::ConstructTree(
+                vec![
+                    ast::Expression::Identifier(
+                        x_in_source.clone(),
+                        SourceLocation {
+                            line: 0,
+                            column: 10,
+                        },
+                    ),
+                    ast::Expression::Identifier(
+                        y_in_source.clone(),
+                        SourceLocation {
+                            line: 0,
+                            column: 13,
+                        },
+                    ),
+                ],
+                IRRELEVANT_SOURCE_LOCATION,
+            )),
         }),
     };
     let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
@@ -320,22 +327,25 @@ async fn test_check_types_lambda_capture_multiple_layers() {
             )],
             body: Box::new(ast::Expression::Lambda {
                 parameters: vec![],
-                body: Box::new(ast::Expression::ConstructTree(vec![
-                    ast::Expression::Identifier(
-                        x_in_source.clone(),
-                        SourceLocation {
-                            line: 0,
-                            column: 10,
-                        },
-                    ),
-                    ast::Expression::Identifier(
-                        y_in_source.clone(),
-                        SourceLocation {
-                            line: 0,
-                            column: 13,
-                        },
-                    ),
-                ])),
+                body: Box::new(ast::Expression::ConstructTree(
+                    vec![
+                        ast::Expression::Identifier(
+                            x_in_source.clone(),
+                            SourceLocation {
+                                line: 0,
+                                column: 10,
+                            },
+                        ),
+                        ast::Expression::Identifier(
+                            y_in_source.clone(),
+                            SourceLocation {
+                                line: 0,
+                                column: 13,
+                            },
+                        ),
+                    ],
+                    IRRELEVANT_SOURCE_LOCATION,
+                )),
             }),
         }),
     };
@@ -618,13 +628,16 @@ async fn test_lambda_parameter_type_is_not_a_type() {
     let a_in_source = Name::new(TEST_SOURCE_NAMESPACE, "a".to_string());
     for non_type_ast in &[
         // testing type TreeWithKnownChildTypes
-        ast::Expression::ConstructTree(vec![]),
+        ast::Expression::ConstructTree(vec![], IRRELEVANT_SOURCE_LOCATION),
         // testing type String
         ast::Expression::StringLiteral("test".to_string(), IRRELEVANT_SOURCE_LOCATION),
         // testing type Function
         ast::Expression::Lambda {
             parameters: vec![],
-            body: Box::new(ast::Expression::ConstructTree(vec![])),
+            body: Box::new(ast::Expression::ConstructTree(
+                vec![],
+                IRRELEVANT_SOURCE_LOCATION,
+            )),
         },
         // testing type Any
         ast::Expression::Apply {
@@ -771,6 +784,131 @@ async fn test_argument_has_type_error() {
         vec![crate::compilation::CompilerError::new(
             format!("Identifier {y_in_source} not found"),
             SourceLocation { line: 3, column: 3 },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_argument_type_mismatch_1_parameter() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let input = ast::Expression::Apply {
+        callee: Box::new(ast::Expression::Lambda {
+            parameters: vec![LambdaParameter::new(
+                x_in_source.clone(),
+                IRRELEVANT_SOURCE_LOCATION,
+                Some(ast::Expression::Identifier(
+                    Name::new(TEST_SOURCE_NAMESPACE, "String".to_string()),
+                    IRRELEVANT_SOURCE_LOCATION,
+                )),
+            )],
+            body: Box::new(ast::Expression::Identifier(
+                x_in_source,
+                IRRELEVANT_SOURCE_LOCATION,
+            )),
+        }),
+        arguments: vec![
+            // The parameter is declared as String, but we pass a tree.
+            ast::Expression::ConstructTree(vec![], SourceLocation { line: 5, column: 5 }),
+        ],
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        None,
+        vec![crate::compilation::CompilerError::new(
+            "Argument type 'DeepType(TreeWithKnownChildTypes([]))' is not convertible into parameter type 'DeepType(String)'".to_string(),
+            SourceLocation { line: 5, column: 5 },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_argument_type_mismatch_2_parameters() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
+    let input = ast::Expression::Apply {
+        callee: Box::new(ast::Expression::Lambda {
+            parameters: vec![
+                LambdaParameter::new(
+                    x_in_source.clone(),
+                    IRRELEVANT_SOURCE_LOCATION,
+                    Some(ast::Expression::Identifier(
+                        Name::new(TEST_SOURCE_NAMESPACE, "String".to_string()),
+                        IRRELEVANT_SOURCE_LOCATION,
+                    )),
+                ),
+                LambdaParameter::new(
+                    y_in_source.clone(),
+                    IRRELEVANT_SOURCE_LOCATION,
+                    Some(ast::Expression::Identifier(
+                        Name::new(TEST_SOURCE_NAMESPACE, "String".to_string()),
+                        IRRELEVANT_SOURCE_LOCATION,
+                    )),
+                ),
+            ],
+            body: Box::new(ast::Expression::Identifier(
+                x_in_source,
+                IRRELEVANT_SOURCE_LOCATION,
+            )),
+        }),
+        arguments: vec![
+            ast::Expression::StringLiteral("".to_string(), IRRELEVANT_SOURCE_LOCATION),
+            // The parameter is declared as String, but we pass a tree.
+            ast::Expression::ConstructTree(vec![], SourceLocation { line: 5, column: 5 }),
+        ],
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        None,
+        vec![crate::compilation::CompilerError::new(
+            "Argument 2 type 'DeepType(TreeWithKnownChildTypes([]))' is not convertible into parameter type 'DeepType(String)'".to_string(),
+            SourceLocation { line: 5, column: 5 },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_argument_count_mismatch() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
+    let input = ast::Expression::Apply {
+        callee: Box::new(ast::Expression::Lambda {
+            parameters: vec![
+                LambdaParameter::new(
+                    x_in_source.clone(),
+                    IRRELEVANT_SOURCE_LOCATION,
+                    Some(ast::Expression::Identifier(
+                        Name::new(TEST_SOURCE_NAMESPACE, "String".to_string()),
+                        IRRELEVANT_SOURCE_LOCATION,
+                    )),
+                ),
+                LambdaParameter::new(
+                    y_in_source.clone(),
+                    IRRELEVANT_SOURCE_LOCATION,
+                    Some(ast::Expression::Identifier(
+                        Name::new(TEST_SOURCE_NAMESPACE, "String".to_string()),
+                        IRRELEVANT_SOURCE_LOCATION,
+                    )),
+                ),
+            ],
+            body: Box::new(ast::Expression::Identifier(
+                x_in_source,
+                SourceLocation { line: 7, column: 8 },
+            )),
+        }),
+        arguments: vec![
+            ast::Expression::StringLiteral("".to_string(), IRRELEVANT_SOURCE_LOCATION),
+            // 2nd argument is missing
+        ],
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        None,
+        vec![crate::compilation::CompilerError::new(
+            "Expected 2 arguments, but got 1".to_string(),
+            SourceLocation { line: 7, column: 8 },
         )],
     );
     assert_eq!(output, Ok(expected));
@@ -1086,4 +1224,133 @@ async fn test_type_of_does_not_capture() {
         vec![],
     );
     assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test]
+fn test_convert_implicitly_any() {
+    assert!(convert_implicitly(
+        &DeepType(GenericType::Any),
+        &DeepType(GenericType::Any)
+    ));
+    assert!(convert_implicitly(
+        &DeepType(GenericType::String),
+        &DeepType(GenericType::Any)
+    ));
+    assert!(!convert_implicitly(
+        &DeepType(GenericType::Any),
+        &DeepType(GenericType::String)
+    ));
+}
+
+#[test_log::test]
+fn test_convert_implicitly_type() {
+    assert!(convert_implicitly(
+        &DeepType(GenericType::Type),
+        &DeepType(GenericType::Type)
+    ));
+    assert!(convert_implicitly(
+        &DeepType(GenericType::Type),
+        &DeepType(GenericType::Any)
+    ));
+    assert!(!convert_implicitly(
+        &DeepType(GenericType::Any),
+        &DeepType(GenericType::Type)
+    ));
+}
+
+#[test_log::test]
+fn test_convert_implicitly_parameter_conversion() {
+    // A function that takes a String can be converted to a function that takes Any, but not the other way around.
+    assert!(convert_implicitly(
+        &DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any))
+        }),
+        &DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::String)],
+            return_type: Box::new(DeepType(GenericType::Any))
+        })
+    ));
+    assert!(!convert_implicitly(
+        &DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::String)],
+            return_type: Box::new(DeepType(GenericType::Any))
+        }),
+        &DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any))
+        })
+    ));
+}
+
+#[test_log::test]
+fn test_convert_implicitly_return_conversion() {
+    // A function that returns a String can be converted to a function that returns Any, but not the other way around.
+    assert!(convert_implicitly(
+        &DeepType(GenericType::Function {
+            parameters: vec![],
+            return_type: Box::new(DeepType(GenericType::String))
+        }),
+        &DeepType(GenericType::Function {
+            parameters: vec![],
+            return_type: Box::new(DeepType(GenericType::Any))
+        })
+    ));
+    assert!(!convert_implicitly(
+        &DeepType(GenericType::Function {
+            parameters: vec![],
+            return_type: Box::new(DeepType(GenericType::Any))
+        }),
+        &DeepType(GenericType::Function {
+            parameters: vec![],
+            return_type: Box::new(DeepType(GenericType::String))
+        })
+    ));
+}
+
+#[test_log::test]
+fn test_convert_implicitly_parameter_count() {
+    assert!(convert_implicitly(
+        &DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any))
+        }),
+        &DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any))
+        })
+    ));
+    // parameter count is wrong
+    assert!(!convert_implicitly(
+        &DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any), DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any))
+        }),
+        &DeepType(GenericType::Function {
+            parameters: vec![DeepType(GenericType::Any)],
+            return_type: Box::new(DeepType(GenericType::Any))
+        })
+    ));
+}
+
+#[test_log::test]
+fn test_convert_implicitly_child_count() {
+    assert!(convert_implicitly(
+        &DeepType(GenericType::TreeWithKnownChildTypes(vec![DeepType(
+            GenericType::Any
+        )])),
+        &DeepType(GenericType::TreeWithKnownChildTypes(vec![DeepType(
+            GenericType::Any
+        )])),
+    ));
+    // child count is wrong
+    assert!(!convert_implicitly(
+        &DeepType(GenericType::TreeWithKnownChildTypes(vec![
+            DeepType(GenericType::Any),
+            DeepType(GenericType::Any)
+        ])),
+        &DeepType(GenericType::TreeWithKnownChildTypes(vec![DeepType(
+            GenericType::Any
+        )])),
+    ));
 }

@@ -113,7 +113,7 @@ where
         Expression::Lambda { parameters, body } => {
             format_lambda(parameters, body, indentation_level, writer)
         }
-        Expression::ConstructTree(children) => {
+        Expression::ConstructTree(children, _) => {
             write!(writer, "[")?;
             for (index, child) in children.iter().enumerate() {
                 if index > 0 {

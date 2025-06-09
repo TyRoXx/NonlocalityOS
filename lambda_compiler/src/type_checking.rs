@@ -690,6 +690,47 @@ async fn check_type_of(
     ))
 }
 
+pub fn convert_implicitly(from: &DeepType, to: &DeepType) -> bool {
+    match (&from.0, &to.0) {
+        (_, GenericType::Any) => true,
+        (GenericType::String, GenericType::String) => true,
+        (
+            GenericType::TreeWithKnownChildTypes(from_children),
+            GenericType::TreeWithKnownChildTypes(to_children),
+        ) => {
+            if from_children.len() != to_children.len() {
+                return false;
+            }
+            from_children
+                .iter()
+                .zip(to_children.iter())
+                .all(|(from_child, to_child)| convert_implicitly(from_child, to_child))
+        }
+        (
+            GenericType::Function {
+                parameters: from_params,
+                return_type: from_return,
+            },
+            GenericType::Function {
+                parameters: to_params,
+                return_type: to_return,
+            },
+        ) => {
+            if from_params.len() != to_params.len() {
+                return false;
+            }
+            from_params
+                .iter()
+                .zip(to_params.iter())
+                .all(|(from_param, to_param)| convert_implicitly(to_param, from_param))
+                && convert_implicitly(from_return.as_ref(), to_return.as_ref())
+        }
+        (GenericType::Type, GenericType::Type) => true,
+        (GenericType::Named(from_name), GenericType::Named(to_name)) => from_name == to_name,
+        _ => false,
+    }
+}
+
 pub async fn check_types(
     syntax_tree: &ast::Expression,
     environment_builder: &mut EnvironmentBuilder,
@@ -747,10 +788,11 @@ pub async fn check_types(
                     .collect();
                 match (callee_output.0.entry_point, argument_output.0.entry_point) {
                     (Some(callee_checked), Some(argument_checked)) => {
-                        let return_type = match &callee_checked.type_.0 {
-                            GenericType::Function { return_type, .. } => {
-                                return_type.as_ref().clone()
-                            }
+                        let (return_type, parameter_types) = match &callee_checked.type_.0 {
+                            GenericType::Function {
+                                return_type,
+                                parameters,
+                            } => (return_type.as_ref().clone(), parameters),
                             _ => {
                                 return Ok((
                                     CompilerOutput::new(
@@ -764,7 +806,71 @@ pub async fn check_types(
                                 ))
                             }
                         };
-                        // TODO: check argument types against callee parameter types
+                        if parameter_types.len() != arguments.len() {
+                            return Ok((
+                                CompilerOutput::new(
+                                    None,
+                                    vec![CompilerError::new(
+                                        format!(
+                                            "Expected {} arguments, but got {}",
+                                            parameter_types.len(),
+                                            arguments.len()
+                                        ),
+                                        callee.source_location(),
+                                    )],
+                                ),
+                                None,
+                            ));
+                        }
+                        if parameter_types.len() == 1 {
+                            if !convert_implicitly(&argument_checked.type_, &parameter_types[0]) {
+                                return Ok((
+                                    CompilerOutput::new(
+                                        None,
+                                        vec![CompilerError::new(
+                                            format!(
+                                                "Argument type '{:?}' is not convertible into parameter type '{:?}'",
+                                                argument_checked.type_, parameter_types[0]
+                                            ),
+                                            arguments[0].source_location(),
+                                        )],
+                                    ),
+                                    None,
+                                ));
+                            }
+                        } else {
+                            match argument_checked.type_.0 {
+                                GenericType::TreeWithKnownChildTypes(argument_types) => {
+                                    assert_eq!(
+                                        argument_types.len(),
+                                        parameter_types.len(),
+                                        "Argument count mismatch"
+                                    );
+                                    for (index, (argument_type, parameter_type)) in argument_types
+                                        .iter()
+                                        .zip(parameter_types.iter())
+                                        .enumerate()
+                                    {
+                                        if !convert_implicitly(argument_type, parameter_type) {
+                                            return Ok((
+                                                CompilerOutput::new(
+                                                    None,
+                                                    vec![CompilerError::new(
+                                                        format!(
+                                                            "Argument {} type '{:?}' is not convertible into parameter type '{:?}'",
+                                                            index + 1, argument_type, parameter_type
+                                                        ),
+                                                        arguments[index].source_location(),
+                                                    )],
+                                                ),
+                                                None,
+                                            ));
+                                        }
+                                    }
+                                }
+                                _ => unreachable!()
+                            }
+                        }
                         Ok((
                             CompilerOutput {
                                 entry_point: Some(TypedExpression::new(
@@ -789,7 +895,7 @@ pub async fn check_types(
                     .await
                     .map(|output| (output, /*TODO: compile time function calls*/ None))
             }
-            ast::Expression::ConstructTree(arguments) => {
+            ast::Expression::ConstructTree(arguments, _) => {
                 check_tree_construction_or_argument_list(&arguments[..], environment_builder).await
             }
             ast::Expression::Braces(expression) => {
