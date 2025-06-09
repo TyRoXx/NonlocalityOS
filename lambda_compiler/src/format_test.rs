@@ -276,7 +276,7 @@ fn test_format_construct_tree_2_children() {
 }
 
 #[test]
-fn test_format_braces() {
+fn test_format_braces_single_line() {
     let mut formatted = String::new();
     format_expression(
         &Expression::Braces(Box::new(Expression::Identifier(
@@ -289,6 +289,29 @@ fn test_format_braces() {
     )
     .unwrap();
     assert_eq!("{a}", formatted.as_str());
+}
+
+#[test]
+fn test_format_braces_multi_line() {
+    let mut formatted = String::new();
+    format_expression(
+        &Expression::Braces(Box::new(Expression::Let {
+            name: Name::new(TEST_NAMESPACE, "a".to_string()),
+            location: IRRELEVANT_SOURCE_LOCATION,
+            value: Box::new(Expression::Identifier(
+                Name::new(TEST_NAMESPACE, "b".to_string()),
+                IRRELEVANT_SOURCE_LOCATION,
+            )),
+            body: Box::new(Expression::Identifier(
+                Name::new(TEST_NAMESPACE, "a".to_string()),
+                IRRELEVANT_SOURCE_LOCATION,
+            )),
+        })),
+        0,
+        &mut formatted,
+    )
+    .unwrap();
+    assert_eq!("{\n    let a = b\n    a\n}", formatted.as_str());
 }
 
 #[test]
@@ -343,7 +366,34 @@ fn test_format_lambda_let_indentation() {
         &mut formatted,
     )
     .unwrap();
-    assert_eq!(concat!("() => let a = b\n", "    c"), formatted.as_str());
+    // TODO: indent 'c'? It's not trivial to achieve this.
+    assert_eq!("() => let a = b\nc", formatted.as_str());
+}
+
+#[test]
+fn test_format_lambda_brace_let_indentation() {
+    let mut formatted = String::new();
+    format_expression(
+        &Expression::Lambda {
+            parameters: Vec::new(),
+            body: Box::new(Expression::Braces(Box::new(Expression::Let {
+                name: Name::new(TEST_NAMESPACE, "a".to_string()),
+                location: IRRELEVANT_SOURCE_LOCATION,
+                value: Box::new(Expression::Identifier(
+                    Name::new(TEST_NAMESPACE, "b".to_string()),
+                    IRRELEVANT_SOURCE_LOCATION,
+                )),
+                body: Box::new(Expression::Identifier(
+                    Name::new(TEST_NAMESPACE, "c".to_string()),
+                    IRRELEVANT_SOURCE_LOCATION,
+                )),
+            }))),
+        },
+        0,
+        &mut formatted,
+    )
+    .unwrap();
+    assert_eq!("() => {\n    let a = b\n    c\n}", formatted.as_str());
 }
 
 #[test]

@@ -58,7 +58,7 @@ where
         }
     }
     write!(writer, ") => ")?;
-    format_expression(body, indentation_level + 1, writer)
+    format_expression(body, indentation_level, writer)
 }
 
 fn break_line<W>(indentation_level: usize, writer: &mut W) -> std::fmt::Result
@@ -70,6 +70,28 @@ where
         write!(writer, "    ")?;
     }
     Ok(())
+}
+
+pub fn format_braces<W>(
+    content: &Expression,
+    indentation_level: usize,
+    writer: &mut W,
+) -> std::fmt::Result
+where
+    W: std::fmt::Write,
+{
+    write!(writer, "{{")?;
+    let mut content_formatted = String::new();
+    format_expression(content, indentation_level, &mut content_formatted)?;
+    if content_formatted.contains('\n') {
+        let inner_indentation_level = indentation_level + 1;
+        break_line(inner_indentation_level, writer)?;
+        format_expression(content, inner_indentation_level, writer)?;
+        break_line(indentation_level, writer)?;
+    } else {
+        write!(writer, "{content_formatted}")?;
+    }
+    write!(writer, "}}")
 }
 
 pub fn format_expression<W>(
@@ -101,11 +123,7 @@ where
             }
             write!(writer, "]")
         }
-        Expression::Braces(expression) => {
-            write!(writer, "{{")?;
-            format_expression(expression, indentation_level, writer)?;
-            write!(writer, "}}")
-        }
+        Expression::Braces(content) => format_braces(content, indentation_level, writer),
         Expression::Let {
             name,
             location: _,
@@ -123,7 +141,7 @@ where
             write!(writer, ")")
         }
         Expression::Comment(comment, expression, _source_location) => {
-            write!(writer, "#{}", comment)?;
+            write!(writer, "#{comment}")?;
             break_line(indentation_level, writer)?;
             format_expression(expression, indentation_level, writer)
         }
