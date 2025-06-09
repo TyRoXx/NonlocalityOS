@@ -556,39 +556,75 @@ async fn test_lambda_parameter_type_has_error() {
 
 #[test_log::test(tokio::test)]
 async fn test_lambda_parameter_type_is_not_a_type() {
-    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
-    let input = ast::Expression::Lambda {
-        parameters: vec![LambdaParameter::new(
-            x_in_source.clone(),
-            SourceLocation { line: 0, column: 1 },
-            Some(ast::Expression::ConstructTree(vec![])),
-        )],
-        body: Box::new(ast::Expression::Identifier(
-            x_in_source.clone(),
-            SourceLocation { line: 1, column: 8 },
-        )),
-    };
-    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
-    let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
-    let expected = CompilerOutput::new(
-        Some(TypedExpression::new(
-            DeepExpression(lambda::expressions::Expression::Lambda {
-                environment: empty_tree,
-                body: Arc::new(DeepExpression(
-                    lambda::expressions::Expression::make_argument(),
+    let a_in_source = Name::new(TEST_SOURCE_NAMESPACE, "a".to_string());
+    for non_type_ast in &[
+        // testing type TreeWithKnownChildTypes
+        ast::Expression::ConstructTree(vec![]),
+        // testing type String
+        ast::Expression::StringLiteral("test".to_string(), IRRELEVANT_SOURCE_LOCATION),
+        // testing type Function
+        ast::Expression::Lambda {
+            parameters: vec![],
+            body: Box::new(ast::Expression::ConstructTree(vec![])),
+        },
+        // testing type Any
+        ast::Expression::Apply {
+            callee: Box::new(ast::Expression::Lambda {
+                parameters: vec![LambdaParameter::new(
+                    a_in_source.clone(),
+                    IRRELEVANT_SOURCE_LOCATION,
+                    None,
+                )],
+                body: Box::new(ast::Expression::Identifier(
+                    a_in_source,
+                    IRRELEVANT_SOURCE_LOCATION,
                 )),
             }),
-            DeepType(GenericType::Function {
-                parameters: vec![DeepType(GenericType::Any)],
-                return_type: Box::new(DeepType(GenericType::Any)),
-            }),
-        )),
-        vec![crate::compilation::CompilerError::new(
-            "Type annotation must be a type".to_string(),
-            SourceLocation { line: 0, column: 1 },
-        )],
-    );
-    assert_eq!(output, Ok(expected));
+            arguments: vec![ast::Expression::StringLiteral(
+                "test".to_string(),
+                IRRELEVANT_SOURCE_LOCATION,
+            )],
+        },
+        // testing type Named
+        ast::Expression::Identifier(
+            Name::new(TEST_SOURCE_NAMESPACE, "true".to_string()),
+            IRRELEVANT_SOURCE_LOCATION,
+        ),
+    ] {
+        let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+        let input = ast::Expression::Lambda {
+            parameters: vec![LambdaParameter::new(
+                x_in_source.clone(),
+                SourceLocation { line: 0, column: 1 },
+                Some(non_type_ast.clone()),
+            )],
+            body: Box::new(ast::Expression::Identifier(
+                x_in_source.clone(),
+                SourceLocation { line: 1, column: 8 },
+            )),
+        };
+        let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+        let empty_tree = Arc::new(DeepExpression(Expression::make_construct_tree(vec![])));
+        let expected = CompilerOutput::new(
+            Some(TypedExpression::new(
+                DeepExpression(lambda::expressions::Expression::Lambda {
+                    environment: empty_tree,
+                    body: Arc::new(DeepExpression(
+                        lambda::expressions::Expression::make_argument(),
+                    )),
+                }),
+                DeepType(GenericType::Function {
+                    parameters: vec![DeepType(GenericType::Any)],
+                    return_type: Box::new(DeepType(GenericType::Any)),
+                }),
+            )),
+            vec![crate::compilation::CompilerError::new(
+                "Type annotation must be a type".to_string(),
+                SourceLocation { line: 0, column: 1 },
+            )],
+        );
+        assert_eq!(output, Ok(expected));
+    }
 }
 
 #[test_log::test(tokio::test)]
