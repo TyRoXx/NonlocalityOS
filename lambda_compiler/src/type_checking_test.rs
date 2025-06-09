@@ -686,6 +686,38 @@ async fn test_lambda_parameter_type_is_not_a_compile_time_constant() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_argument_has_type_error() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
+    let input = ast::Expression::Apply {
+        callee: Box::new(ast::Expression::Lambda {
+            parameters: vec![LambdaParameter::new(
+                x_in_source.clone(),
+                SourceLocation { line: 1, column: 1 },
+                None,
+            )],
+            body: Box::new(ast::Expression::Identifier(
+                x_in_source,
+                SourceLocation { line: 2, column: 2 },
+            )),
+        }),
+        arguments: vec![
+            // this identifier doesn't exist
+            ast::Expression::Identifier(y_in_source.clone(), SourceLocation { line: 3, column: 3 }),
+        ],
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        None,
+        vec![crate::compilation::CompilerError::new(
+            format!("Identifier {y_in_source} not found"),
+            SourceLocation { line: 3, column: 3 },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
 async fn test_let_local_variable() {
     let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
     let input = ast::Expression::Let {
