@@ -734,6 +734,33 @@ async fn test_let_local_variable_with_error_in_value() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_let_local_variable_with_error_in_body() {
+    let x_in_source = Name::new(TEST_SOURCE_NAMESPACE, "x".to_string());
+    let y_in_source = Name::new(TEST_SOURCE_NAMESPACE, "y".to_string());
+    let input = ast::Expression::Let {
+        name: x_in_source,
+        location: SourceLocation { line: 1, column: 1 },
+        value: Box::new(ast::Expression::StringLiteral(
+            "test".to_string(),
+            SourceLocation { line: 2, column: 2 },
+        )),
+        body: Box::new(ast::Expression::Identifier(
+            y_in_source.clone(),
+            SourceLocation { line: 3, column: 3 },
+        )),
+    };
+    let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
+    let expected = CompilerOutput::new(
+        None,
+        vec![crate::compilation::CompilerError::new(
+            format!("Identifier {y_in_source} not found"),
+            SourceLocation { line: 3, column: 3 },
+        )],
+    );
+    assert_eq!(output, Ok(expected));
+}
+
+#[test_log::test(tokio::test)]
 async fn test_string_literal_too_long() {
     // Strings are currently represented as a single tree without children.
     let current_string_size_limit = TREE_BLOB_MAX_LENGTH;
