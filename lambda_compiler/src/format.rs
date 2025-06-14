@@ -1,4 +1,4 @@
-use crate::ast::{Expression, LambdaParameter};
+use crate::{ast::{Expression, LambdaParameter}, tokenization::IntegerBase};
 
 fn format_string_literal<W>(content: &str, writer: &mut W) -> std::fmt::Result
 where
@@ -145,6 +145,10 @@ where
             break_line(indentation_level, writer)?;
             format_expression(expression, indentation_level, writer)
         }
+        Expression::IntegerLiteral(value, base, _source_location) => match base {
+            IntegerBase::Decimal => write!(writer, "{value}"),
+            IntegerBase::Hexadecimal => write!(writer, "0x{value:x}"),
+        },
     }
 }
 

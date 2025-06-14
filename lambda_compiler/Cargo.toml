@@ -19,3 +19,4 @@ rusqlite = {version = "0", features = ["bundled"]}
 
 [dev-dependencies]
 test-log = {version = "0", features = ["trace", "log", "color"]}
+test-case = "3"

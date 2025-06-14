@@ -10,6 +10,7 @@ pub struct RegisterId(pub u16);
 pub enum RegisterValue {
     Boolean(bool),
     Byte(u8),
+    Integer(i64),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -30,6 +31,7 @@ pub enum Parser {
     },
     Constant(RegisterId, RegisterValue),
     WriteOutputByte(RegisterId),
+    WriteOutputInteger(RegisterId),
     WriteOutputSeparator,
     Loop {
         condition: RegisterId,
@@ -46,6 +48,10 @@ pub enum Parser {
     Multiply {
         destination: RegisterId,
         factor: RegisterId,
+    },
+    ByteToInteger {
+        input: RegisterId,
+        output: RegisterId,
     },
     IsAnyOf {
         input: RegisterId,
@@ -77,6 +83,7 @@ pub enum InterpreterStatus {
 
 pub trait WriteOutput {
     fn write_byte(&mut self, element: u8);
+    fn write_postcard_integer(&mut self, element: i64);
     fn write_separator(&mut self);
 }
 
@@ -227,6 +234,7 @@ impl<'t> Interpreter<'t> {
                             });
                         }
                         RegisterValue::Byte(_) => return Some(InterpreterStatus::ErrorInParser),
+                        RegisterValue::Integer(_) => return Some(InterpreterStatus::ErrorInParser),
                     },
                     None => return Some(InterpreterStatus::ErrorInParser),
                 }
@@ -245,6 +253,7 @@ impl<'t> Interpreter<'t> {
                     Some(register_value) => match register_value {
                         RegisterValue::Boolean(boolean) => !boolean,
                         RegisterValue::Byte(_) => return Some(InterpreterStatus::ErrorInParser),
+                        RegisterValue::Integer(_) => return Some(InterpreterStatus::ErrorInParser),
                     },
                     None => return Some(InterpreterStatus::ErrorInParser),
                 };
@@ -268,6 +277,18 @@ impl<'t> Interpreter<'t> {
                     Some(register_value) => match register_value {
                         RegisterValue::Boolean(_) => return Some(InterpreterStatus::ErrorInParser),
                         RegisterValue::Byte(byte) => output.write_byte(*byte),
+                        RegisterValue::Integer(_) => return Some(InterpreterStatus::ErrorInParser),
+                    },
+                    None => return Some(InterpreterStatus::ErrorInParser),
+                }
+            }
+            Parser::WriteOutputInteger(from) => {
+                let register_read_result = self.registers.get(from);
+                match register_read_result {
+                    Some(register_value) => match register_value {
+                        RegisterValue::Boolean(_) => return Some(InterpreterStatus::ErrorInParser),
+                        RegisterValue::Byte(_) => return Some(InterpreterStatus::ErrorInParser),
+                        RegisterValue::Integer(integer) => output.write_postcard_integer(*integer),
                     },
                     None => return Some(InterpreterStatus::ErrorInParser),
                 }
@@ -289,6 +310,7 @@ impl<'t> Interpreter<'t> {
                         }
                         RegisterValue::Boolean(false) => {}
                         RegisterValue::Byte(_) => return Some(InterpreterStatus::ErrorInParser),
+                        RegisterValue::Integer(_) => return Some(InterpreterStatus::ErrorInParser),
                     },
                     None => return Some(InterpreterStatus::ErrorInParser),
                 }
@@ -298,6 +320,7 @@ impl<'t> Interpreter<'t> {
                 let digit: u8 = match register_read_result {
                     Some(register_value) => match register_value {
                         RegisterValue::Boolean(_) => return Some(InterpreterStatus::ErrorInParser),
+                        RegisterValue::Integer(_) => return Some(InterpreterStatus::ErrorInParser),
                         RegisterValue::Byte(byte) => match byte {
                             b'0' => 0,
                             b'1' => 1,
@@ -321,7 +344,7 @@ impl<'t> Interpreter<'t> {
                 summand,
             } => {
                 if let Some(status) =
-                    self.calculate_binary_operation(*destination, *summand, u8::checked_add)
+                    self.calculate_binary_operation(*destination, *summand, i64::checked_add)
                 {
                     return Some(status);
                 }
@@ -331,9 +354,22 @@ impl<'t> Interpreter<'t> {
                 factor,
             } => {
                 if let Some(status) =
-                    self.calculate_binary_operation(*destination, *factor, u8::checked_mul)
+                    self.calculate_binary_operation(*destination, *factor, i64::checked_mul)
                 {
                     return Some(status);
+                }
+            }
+            Parser::ByteToInteger { input, output } => {
+                let register_read_result = self.registers.get(input);
+                match register_read_result {
+                    Some(register_value) => match register_value {
+                        RegisterValue::Boolean(_) => return Some(InterpreterStatus::ErrorInParser),
+                        RegisterValue::Byte(byte) => {
+                            self.write_register(*output, &RegisterValue::Integer(*byte as i64));
+                        }
+                        RegisterValue::Integer(_) => return Some(InterpreterStatus::ErrorInParser),
+                    },
+                    None => return Some(InterpreterStatus::ErrorInParser),
                 }
             }
             Parser::IsAnyOf {
@@ -391,26 +427,28 @@ impl<'t> Interpreter<'t> {
         &mut self,
         destination: RegisterId,
         operand: RegisterId,
-        operation: fn(u8, u8) -> Option<u8>,
+        operation: fn(i64, i64) -> Option<i64>,
     ) -> Option<InterpreterStatus> {
-        let first_operand: u8 = match self.registers.get(&destination) {
+        let first_operand: i64 = match self.registers.get(&destination) {
             Some(register_value) => match register_value {
                 RegisterValue::Boolean(_) => return Some(InterpreterStatus::ErrorInParser),
-                RegisterValue::Byte(byte) => *byte,
+                RegisterValue::Byte(byte) => *byte as i64,
+                RegisterValue::Integer(integer) => *integer,
             },
             None => return Some(InterpreterStatus::ErrorInParser),
         };
-        let second_operand: u8 = match self.registers.get(&operand) {
+        let second_operand: i64 = match self.registers.get(&operand) {
             Some(register_value) => match register_value {
                 RegisterValue::Boolean(_) => return Some(InterpreterStatus::ErrorInParser),
-                RegisterValue::Byte(byte) => *byte,
+                RegisterValue::Byte(byte) => *byte as i64,
+                RegisterValue::Integer(integer) => *integer,
             },
             None => return Some(InterpreterStatus::ErrorInParser),
         };
         let result = operation(first_operand, second_operand);
         match result {
             Some(sum) => {
-                self.write_register(destination, &RegisterValue::Byte(sum));
+                self.write_register(destination, &RegisterValue::Integer(sum));
             }
             None => return Some(InterpreterStatus::Failed),
         };
@@ -466,7 +504,7 @@ struct Ignorance {}
 
 impl WriteOutput for Ignorance {
     fn write_byte(&mut self, _element: u8) {}
-
+    fn write_postcard_integer(&mut self, _element: i64) {}
     fn write_separator(&mut self) {}
 }
 
@@ -512,6 +550,11 @@ impl OutputBuffer {
 impl WriteOutput for OutputBuffer {
     fn write_byte(&mut self, element: u8) {
         self.require_bytes().push(element)
+    }
+
+    fn write_postcard_integer(&mut self, element: i64) {
+        postcard::to_io(&element, self.require_bytes())
+            .expect("appending to a Vec should always work");
     }
 
     fn write_separator(&mut self) {

@@ -1,5 +1,6 @@
 use crate::{is_match, parse, ParseResult, Parser, RegisterId, RegisterValue, Slice};
 use std::collections::BTreeMap;
+use test_case::test_case;
 
 #[test_log::test]
 fn test_empty_parser() {
@@ -208,15 +209,21 @@ fn test_mixed_output() {
     }
 }
 
-#[test_log::test]
-fn test_number_parsing() {
+// https://postcard.jamesmunns.com/wire-format#signed-integer-encoding
+#[test_case("0", &[0])]
+#[test_case("9", &[18])]
+#[test_case("99", &[198, 1])]
+#[test_case("123", &[246, 1])]
+#[test_case("255", &[254, 3])]
+#[test_case("9223372036854775807", &[254, 255, 255, 255, 255, 255, 255, 255, 255, 1])]
+fn test_number_parsing(source: &str, expected_output: &[u8]) {
     let accumulator = RegisterId(0);
     let loop_condition = RegisterId(1);
     let constant_10 = RegisterId(2);
     let input_byte = RegisterId(3);
     let input_digit = RegisterId(4);
     let parser = Parser::Sequence(vec![
-        Parser::Constant(accumulator, RegisterValue::Byte(0)),
+        Parser::Constant(accumulator, RegisterValue::Integer(0)),
         Parser::Constant(loop_condition, RegisterValue::Boolean(true)),
         Parser::Constant(constant_10, RegisterValue::Byte(10)),
         Parser::Loop {
@@ -242,13 +249,9 @@ fn test_number_parsing() {
                 },
             ])),
         },
-        Parser::WriteOutputByte(accumulator),
+        Parser::WriteOutputInteger(accumulator),
     ]);
-    expect_single_byte_output(&parser, "0", 0);
-    expect_single_byte_output(&parser, "9", 9);
-    expect_single_byte_output(&parser, "99", 99);
-    expect_single_byte_output(&parser, "123", 123);
-    expect_single_byte_output(&parser, "255", 255);
+    expect_output(&parser, source, expected_output);
 }
 
 #[test_log::test]
@@ -385,7 +388,7 @@ fn test_or_second() {
 }
 
 #[cfg(test)]
-fn expect_single_byte_output(parser: &Parser, input: &str, expected_output: u8) {
+fn expect_output(parser: &Parser, input: &str, expected_output: &[u8]) {
     let result = parse(parser, &mut Slice::new(input));
     match result {
         ParseResult::Success {
@@ -396,13 +399,18 @@ fn expect_single_byte_output(parser: &Parser, input: &str, expected_output: u8) 
             {
                 let element = &output[0];
                 let non_separator = element.as_ref().unwrap();
-                assert_eq!(&[expected_output][..], &non_separator[..]);
+                assert_eq!(expected_output, &non_separator[..]);
             }
             assert!(!has_extraneous_input);
         }
         ParseResult::Failed => panic!(),
         ParseResult::ErrorInParser => panic!(),
     }
+}
+
+#[cfg(test)]
+fn expect_single_byte_output(parser: &Parser, input: &str, expected_output: u8) {
+    expect_output(parser, input, &[expected_output]);
 }
 
 #[cfg(test)]

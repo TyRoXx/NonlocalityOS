@@ -87,6 +87,31 @@ async fn test_hello_world() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_integers() {
+    let source = normalize_line_endings(include_str!("../examples/integers.tl"));
+    let storage = InMemoryTreeStorage::empty();
+    let expected_result = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            vec![
+                storage
+                    .store_tree(&HashedTree::from(Arc::new(Tree::from_postcard_integer(1))))
+                    .await
+                    .unwrap(),
+                storage
+                    .store_tree(&HashedTree::from(Arc::new(Tree::from_postcard_integer(
+                        123456789,
+                    ))))
+                    .await
+                    .unwrap(),
+            ],
+        ))))
+        .await
+        .unwrap();
+    test_example(&source, &storage, &expected_result).await;
+}
+
+#[test_log::test(tokio::test)]
 async fn test_lambda_captures() {
     let source = normalize_line_endings(include_str!("../examples/lambda_captures.tl"));
     let storage = InMemoryTreeStorage::empty();
