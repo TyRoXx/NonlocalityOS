@@ -28,6 +28,7 @@ where
     },
     Type,
     Named(Name),
+    Integer,
 }
 
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
@@ -67,6 +68,7 @@ pub fn to_reference_type(deep_type: &DeepType) -> (GenericType<ReferenceIndex>, 
         }
         GenericType::Type => (GenericType::Type, Vec::new()),
         GenericType::Named(ref name) => (GenericType::Named(name.clone()), Vec::new()),
+        GenericType::Integer => (GenericType::Integer, Vec::new()),
     }
 }
 
@@ -128,6 +130,7 @@ pub fn from_reference_type(body: &GenericType<ReferenceIndex>, children: &[DeepT
         }
         GenericType::Type => DeepType(GenericType::Type),
         GenericType::Named(ref name) => DeepType(GenericType::Named(name.clone())),
+        GenericType::Integer => DeepType(GenericType::Integer),
     }
 }
 
@@ -501,6 +504,7 @@ fn is_type(type_of_value: &DeepType) -> bool {
         } => false,
         GenericType::Type => true,
         GenericType::Named(_name) => false,
+        GenericType::Integer => false,
     }
 }
 
@@ -727,8 +731,29 @@ pub fn convert_implicitly(from: &DeepType, to: &DeepType) -> bool {
         }
         (GenericType::Type, GenericType::Type) => true,
         (GenericType::Named(from_name), GenericType::Named(to_name)) => from_name == to_name,
+        (GenericType::Integer, GenericType::Integer) => true,
         _ => false,
     }
+}
+
+async fn check_integer_literal(
+    value: i64,
+) -> Result<(CompilerOutput, Option<DeepTree>), StoreError> {
+    let serialized = postcard::to_allocvec(&value).unwrap(/*TODO*/);
+    let tree = DeepTree::new(
+        TreeBlob::try_from(bytes::Bytes::from(serialized)).expect("an integer will always fit"),
+        vec![],
+    );
+    Ok((
+        CompilerOutput::new(
+            Some(TypedExpression::new(
+                DeepExpression(lambda::expressions::Expression::Literal(tree.clone())),
+                DeepType(GenericType::Integer),
+            )),
+            vec![],
+        ),
+        Some(tree),
+    ))
 }
 
 pub async fn check_types(
@@ -919,6 +944,9 @@ pub async fn check_types(
             ast::Expression::Comment(_, expression, _) => {
                 check_types(expression, environment_builder).await
             }
+            ast::Expression::IntegerLiteral(value, _base, _source_location) => {
+                check_integer_literal(*value)                    .await
+            }
         }
     })
     .await
@@ -966,7 +994,13 @@ pub async fn check_types_with_default_globals(
             Vec::new(),
         ),
     );
+    environment_builder.define_constant(
+        Name::new(default_global_namespace, "Int".to_string()),
+        DeepType(GenericType::Type),
+        type_to_deep_tree(&DeepType(GenericType::Integer)),
+    );
     let output = check_types(syntax_tree, &mut environment_builder).await;
+    environment_builder.undefine_constant();
     environment_builder.undefine_constant();
     environment_builder.undefine_constant();
     environment_builder.undefine_constant();

@@ -160,6 +160,19 @@ impl Tree {
         })
     }
 
+    pub fn from_postcard_integer(value: i64) -> Tree {
+        let blob = TreeBlob::try_from(
+            postcard::to_stdvec(&value)
+                .expect("serializing an integer into a Vec should always succeed")
+                .into(),
+        )
+        .expect("this should always fit");
+        Tree {
+            blob,
+            references: Vec::new(),
+        }
+    }
+
     pub fn empty() -> Tree {
         Tree {
             blob: TreeBlob::empty(),

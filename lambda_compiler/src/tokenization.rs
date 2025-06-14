@@ -4,6 +4,12 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum IntegerBase {
+    Decimal,
+    Hexadecimal,
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum TokenContent {
     Whitespace,
@@ -35,6 +41,8 @@ pub enum TokenContent {
     Colon,
     // #
     Comment(String),
+    // 123
+    Integer(i64, IntegerBase),
 }
 
 #[derive(PartialEq, Debug)]
@@ -188,8 +196,13 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
     const TOKEN_TAG_RIGHT_BRACE: RegisterId = RegisterId(20);
     const TOKEN_TAG_COLON: RegisterId = RegisterId(21);
     const TOKEN_TAG_COMMENT: RegisterId = RegisterId(22);
+    const TOKEN_TAG_INTEGER: RegisterId = RegisterId(23);
+    const INTEGER_ACCUMULATOR: RegisterId = RegisterId(24);
+    const ZERO: RegisterId = RegisterId(25);
+    const TEN: RegisterId = RegisterId(26);
     lazy_static! {
         static ref IDENTIFIER_CHARACTERS: Vec<RegisterValue> = (b'a'..=b'z').chain(b'A'..=b'Z').chain([b'_']).map(RegisterValue::Byte).collect();
+        static ref INTEGER_CHARACTERS: Vec<RegisterValue> = (b'0'..=b'9').map(RegisterValue::Byte).collect();
         static ref COPY_SUBSEQUENT_INPUT_TO_OUTPUT: Parser = Parser::Sequence(vec![
                                     Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},
                                     Parser::WriteOutputByte(OUTPUT_BYTE),
@@ -302,6 +315,57 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
             )
         ];
 
+        static ref INTEGER_PARSING: [Parser; 2] = [
+            Parser::IsAnyOf {
+                input: FIRST_INPUT,
+                result: IS_ANY_OF_RESULT,
+                candidates: INTEGER_CHARACTERS.clone(),
+            },
+            Parser::IfElse(
+                IS_ANY_OF_RESULT,
+                Box::new(Parser::Sequence(vec![
+                    Parser::Constant(TOKEN_TAG_INTEGER, RegisterValue::Byte(16)),
+                    Parser::WriteOutputByte(TOKEN_TAG_INTEGER),
+                    Parser::Constant(LOOP_CONDITION, RegisterValue::Boolean(true)),
+                    Parser::RequireDigit{input: FIRST_INPUT, output: INTEGER_ACCUMULATOR},
+                    Parser::ByteToInteger{input: INTEGER_ACCUMULATOR, output: INTEGER_ACCUMULATOR},
+                    Parser::Constant(TEN, RegisterValue::Integer(10)),
+                    Parser::Loop{condition: LOOP_CONDITION, body: Box::new(
+                        Parser::Sequence(vec![
+                            Parser::IsEndOfInput(IS_END_OF_INPUT),
+                            Parser::Not { from: IS_END_OF_INPUT, to: LOOP_CONDITION },
+                            Parser::IfElse(
+                                LOOP_CONDITION,
+                                Box::new(Parser::Sequence(vec![
+                                    Parser::PeekInputByte(SUBSEQUENT_INPUT),
+                                    Parser::IsAnyOf {
+                                        input: SUBSEQUENT_INPUT,
+                                        result: LOOP_CONDITION,
+                                        candidates: INTEGER_CHARACTERS.clone(),
+                                    },
+                                    Parser::IfElse(
+                                        LOOP_CONDITION,
+                                        Box::new(Parser::Sequence(vec![
+                                            Parser::Multiply { destination: INTEGER_ACCUMULATOR, factor: TEN },
+                                            Parser::RequireDigit { input: SUBSEQUENT_INPUT, output: SUBSEQUENT_INPUT },
+                                            Parser::Add { destination: INTEGER_ACCUMULATOR, summand: SUBSEQUENT_INPUT },
+                                            // pop the byte we had peeked at before
+                                            Parser::ReadInputByte(SUBSEQUENT_INPUT),
+                                        ])),
+                                        Box::new(Parser::no_op())
+                                    ),
+                                ])),
+                                Box::new(Parser::no_op())
+                            )
+                        ])
+                    )},
+                    Parser::WriteOutputInteger(INTEGER_ACCUMULATOR),
+                    Parser::Constant(ZERO, RegisterValue::Byte(0)),
+                    Parser::WriteOutputByte(ZERO),
+                ])),
+                Box::new(Parser::no_op())
+            ),
+        ];
 
         static ref TOKEN_PARSER: Parser =
             Parser::Sequence(vec![
@@ -431,6 +495,7 @@ pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
                     .into_iter()
                     .chain(QUOTES_PARSING.clone())
                     .chain(COMMENT_PARSING.clone())
+                    .chain(INTEGER_PARSING.clone())
                     .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_LEFT_PARENTHESIS, b'(', 3))
                     .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_RIGHT_PARENTHESIS, b')', 4))
                     .chain(parse_single_character(FIRST_INPUT, IS_ANY_OF_RESULT, TOKEN_TAG_LEFT_BRACKET, b'[', 5))

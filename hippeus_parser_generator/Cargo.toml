@@ -6,6 +6,8 @@ edition = "2021"
 [lib]
 
 [dependencies]
+postcard = {version = "1", features = ["use-std"]}
 
 [dev-dependencies]
 test-log = {version = "0", features = ["trace", "log", "color"]}
+test-case = "3"

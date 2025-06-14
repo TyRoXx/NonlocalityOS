@@ -2,6 +2,7 @@ use crate::{
     compilation::SourceLocation,
     tokenization::{tokenize_default_syntax, Token, TokenContent},
 };
+use test_case::test_case;
 
 fn test_tokenize_default_syntax(source: &str, expected_tokens: &[Token]) {
     let tokenized = tokenize_default_syntax(source);
@@ -564,4 +565,29 @@ fn test_tokenize_default_syntax_string_escape_sequences() {
     wellformed_quotes(r#"\n"#, "\n");
     wellformed_quotes(r#"\r"#, "\r");
     wellformed_quotes(r#"\t"#, "\t");
+}
+
+#[test_case(0)]
+#[test_case(1)]
+//#[test_case(-1; "negative")]
+#[test_case(i64::MAX)]
+//#[test_case(i64::MIN)]
+fn test_tokenize_default_syntax_integer_decimal(value: i64) {
+    let source = value.to_string();
+    test_tokenize_default_syntax(
+        &source,
+        &[
+            Token {
+                content: TokenContent::Integer(value, crate::tokenization::IntegerBase::Decimal),
+                location: SourceLocation { line: 0, column: 0 },
+            },
+            Token {
+                content: TokenContent::EndOfFile,
+                location: SourceLocation {
+                    line: 0,
+                    column: source.len() as u64,
+                },
+            },
+        ],
+    );
 }

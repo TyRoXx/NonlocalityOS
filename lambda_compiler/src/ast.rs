@@ -1,7 +1,7 @@
-use crate::compilation::SourceLocation;
+use crate::{compilation::SourceLocation, tokenization::IntegerBase};
 use lambda::name::Name;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct LambdaParameter {
     pub name: Name,
     pub source_location: SourceLocation,
@@ -22,7 +22,7 @@ impl LambdaParameter {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Expression {
     Identifier(Name, SourceLocation),
     StringLiteral(String, SourceLocation),
@@ -44,6 +44,7 @@ pub enum Expression {
     },
     TypeOf(Box<Expression>),
     Comment(String, Box<Expression>, SourceLocation),
+    IntegerLiteral(i64, IntegerBase, SourceLocation),
 }
 
 impl Expression {
@@ -63,6 +64,7 @@ impl Expression {
             } => *location,
             Expression::TypeOf(expression) => expression.source_location(),
             Expression::Comment(_, _, source_location) => *source_location,
+            Expression::IntegerLiteral(_, _, source_location) => *source_location,
         }
     }
 }
