@@ -104,6 +104,10 @@ async fn test_integers() {
                     ))))
                     .await
                     .unwrap(),
+                storage
+                    .store_tree(&HashedTree::from(Arc::new(Tree::from_postcard_integer(0))))
+                    .await
+                    .unwrap(),
             ],
         ))))
         .await

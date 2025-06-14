@@ -1,4 +1,7 @@
-use crate::{ast::{Expression, LambdaParameter}, tokenization::IntegerBase};
+use crate::{
+    ast::{Expression, LambdaParameter},
+    tokenization::IntegerBase,
+};
 
 fn format_string_literal<W>(content: &str, writer: &mut W) -> std::fmt::Result
 where

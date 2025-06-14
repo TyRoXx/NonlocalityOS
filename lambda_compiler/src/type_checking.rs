@@ -731,6 +731,7 @@ pub fn convert_implicitly(from: &DeepType, to: &DeepType) -> bool {
         }
         (GenericType::Type, GenericType::Type) => true,
         (GenericType::Named(from_name), GenericType::Named(to_name)) => from_name == to_name,
+        (GenericType::Integer, GenericType::Integer) => true,
         _ => false,
     }
 }
@@ -993,7 +994,13 @@ pub async fn check_types_with_default_globals(
             Vec::new(),
         ),
     );
+    environment_builder.define_constant(
+        Name::new(default_global_namespace, "Int".to_string()),
+        DeepType(GenericType::Type),
+        type_to_deep_tree(&DeepType(GenericType::Integer)),
+    );
     let output = check_types(syntax_tree, &mut environment_builder).await;
+    environment_builder.undefine_constant();
     environment_builder.undefine_constant();
     environment_builder.undefine_constant();
     environment_builder.undefine_constant();

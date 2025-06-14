@@ -153,7 +153,7 @@ fn try_skip_right_parenthesis(
             TokenContent::Quotes(_) => false,
             TokenContent::FatArrow => todo!(),
             TokenContent::Comma => false,
-            TokenContent::Integer(_, _) => todo!(),
+            TokenContent::Integer(_, _) => false,
             TokenContent::EndOfFile => todo!(),
         },
         None => todo!(),
@@ -444,7 +444,7 @@ fn parse_expression_start<'t>(
             }
             TokenContent::Integer(value, base) => {
                 pop_next_non_whitespace_token(tokens);
-                parse_integer( *value, *base, &non_whitespace.location)
+                parse_integer(*value, *base, &non_whitespace.location)
             }
         },
         None => todo!(),
