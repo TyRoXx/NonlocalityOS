@@ -190,6 +190,16 @@ async fn test_store_three_references() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_load_tree_not_found() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    let reference = BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap();
+    let result = storage.load_tree(&reference).await;
+    assert!(result.is_none());
+}
+
+#[test_log::test(tokio::test)]
 async fn test_update_root() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();

@@ -132,7 +132,12 @@ async fn test_seek_operations() {
             storage.clone(),
             test_clock(),
         ));
-        let mut file = DogBoxOpenFile::new(handle, None, 0);
+        let mut file = DogBoxOpenFile::new(
+            relative_path::RelativePathBuf::from_path("test").unwrap(),
+            handle,
+            None,
+            0,
+        );
         assert_eq!(0, file.seek(SeekFrom::Start(0)).await.unwrap());
         assert_eq!(1, file.seek(SeekFrom::Start(1)).await.unwrap());
         assert_eq!(2, file.seek(SeekFrom::Current(1)).await.unwrap());
@@ -179,7 +184,12 @@ async fn test_seek_and_write() {
             storage.clone(),
             test_clock(),
         ));
-        let mut file = DogBoxOpenFile::new(handle.clone(), Some(handle.get_write_permission()), 0);
+        let mut file = DogBoxOpenFile::new(
+            relative_path::RelativePathBuf::from_path("test").unwrap(),
+            handle.clone(),
+            Some(handle.get_write_permission()),
+            0,
+        );
         file.write_bytes(bytes::Bytes::from("test")).await.unwrap();
         let new_size = 4;
         assert_eq!(new_size, file.seek(SeekFrom::Current(0)).await.unwrap());
@@ -247,7 +257,12 @@ async fn test_seek_beyond_the_end() {
             storage.clone(),
             test_clock(),
         ));
-        let mut file = DogBoxOpenFile::new(handle.clone(), Some(handle.get_write_permission()), 0);
+        let mut file = DogBoxOpenFile::new(
+            relative_path::RelativePathBuf::from_path("test").unwrap(),
+            handle.clone(),
+            Some(handle.get_write_permission()),
+            0,
+        );
         assert_eq!(
             1_000_000,
             file.seek(SeekFrom::Start(1_000_000)).await.unwrap()
@@ -308,7 +323,12 @@ async fn test_write_out_of_bounds() {
             storage.clone(),
             test_clock(),
         ));
-        let mut file = DogBoxOpenFile::new(handle.clone(), Some(handle.get_write_permission()), 0);
+        let mut file = DogBoxOpenFile::new(
+            relative_path::RelativePathBuf::from_path("test").unwrap(),
+            handle.clone(),
+            Some(handle.get_write_permission()),
+            0,
+        );
 
         assert_eq!(
             i64::MAX as u64,

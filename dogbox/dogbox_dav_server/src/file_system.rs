@@ -151,6 +151,7 @@ impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
 
 #[derive(Debug)]
 pub(crate) struct DogBoxOpenFile {
+    opened_path: relative_path::RelativePathBuf,
     handle: Arc<OpenFile>,
     write_permission: Option<Arc<OpenFileWritePermission>>,
     cursor: u64,
@@ -159,11 +160,13 @@ pub(crate) struct DogBoxOpenFile {
 impl DogBoxOpenFile {
     #[cfg(test)]
     pub(crate) fn new(
+        opened_path: relative_path::RelativePathBuf,
         handle: Arc<OpenFile>,
         write_permission: Option<Arc<OpenFileWritePermission>>,
         cursor: u64,
     ) -> Self {
         Self {
+            opened_path,
             handle,
             write_permission,
             cursor,
@@ -215,7 +218,13 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
                     self.cursor += result.len() as u64;
                     Ok(result)
                 }
-                Err(error) => Err(handle_error(error)),
+                Err(error) => {
+                    error!(
+                        "Error reading from file {} at {read_at} (up to {count} bytes): {error}",
+                        &self.opened_path
+                    );
+                    Err(handle_error(error))
+                }
             }
         })
     }
@@ -315,6 +324,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 }
             }
             let result = Box::new(DogBoxOpenFile {
+                opened_path: converted_path.to_owned(),
                 handle: open_file,
                 cursor: 0,
                 write_permission,

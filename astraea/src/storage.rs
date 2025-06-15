@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum StoreError {
@@ -291,14 +291,22 @@ impl LoadTree for SQLiteStorage {
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = (*reference).into();
         let mut statement = connection_locked.prepare_cached("SELECT id, tree_blob FROM tree WHERE digest = ?1").unwrap(/*TODO*/);
-        let (id, tree_blob) = statement.query_row(
-            (&digest, ),
-            |row| -> rusqlite::Result<_> {
-                let id : i64 = row.get(0).unwrap(/*TODO*/);
-                let tree_blob_raw : Vec<u8> = row.get(1).unwrap(/*TODO*/);
-                let tree_blob = TreeBlob::try_from(tree_blob_raw.into()).unwrap(/*TODO*/);
-                Ok((id, tree_blob))
-            } ).unwrap(/*TODO*/);
+        let (id, tree_blob) = match statement.query_row((&digest,), |row| -> rusqlite::Result<_> {
+            let id: i64 = row.get(0).unwrap(/*TODO*/);
+            let tree_blob_raw: Vec<u8> = row.get(1).unwrap(/*TODO*/);
+            let tree_blob = TreeBlob::try_from(tree_blob_raw.into()).unwrap(/*TODO*/);
+            Ok((id, tree_blob))
+        }) {
+            Ok(tuple) => tuple,
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                error!("No tree found for digest {reference} in the database.");
+                return None;
+            }
+            Err(error) => {
+                error!("Error loading tree from the database: {error:?}");
+                return None;
+            }
+        };
         let mut statement = connection_locked.prepare_cached(concat!("SELECT zero_based_index, target FROM reference",
             " WHERE origin = ? ORDER BY zero_based_index ASC")).unwrap(/*TODO*/);
         let results = statement.query_map([&id], |row| {

@@ -590,7 +590,7 @@ impl OpenDirectory {
                     open_file_write_buffer_in_blocks,
                 )))
             }
-            None => todo!(),
+            None => Err(Error::MissingTree(*digest)),
         }
     }
 
@@ -1641,7 +1641,10 @@ impl Prefetcher {
             let (block_index, prepare_result) = join_result.unwrap();
             let prepared = match prepare_result {
                 Ok(success) => success,
-                Err(_) => todo!(),
+                Err(error) => {
+                    error!("Error while prefetching block {}: {:?}", block_index, error);
+                    continue;
+                }
             };
             let block = &mut blocks[block_index as usize];
             block.set_prepare_for_reading_result(prepared);
