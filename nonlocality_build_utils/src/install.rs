@@ -232,10 +232,12 @@ async fn deploy_host_binary(
     match sftp.stat(&to_std_path(&nonlocality_dir)) {
         Ok(exists) => {
             if exists.is_dir() {
-                info!("Our directory appears to exist.");
+                info!(
+                    "The nonlocality directory already exists: {}",
+                    nonlocality_dir
+                );
             } else {
-                let message =
-                    format!("Our directory {nonlocality_dir} exists, but is not a directory");
+                let message = format!("{nonlocality_dir} exists, but is not a directory");
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     message,
@@ -243,10 +245,10 @@ async fn deploy_host_binary(
             }
         }
         Err(error) => {
-            info!("Could not stat our directory: {}", error);
-            info!("Creating directory {}", nonlocality_dir);
+            info!("Could not stat nonlocality directory: {}", error);
+            info!("Creating nonlocality directory {}", nonlocality_dir);
             sftp.mkdir(&to_std_path(&nonlocality_dir), 0o755)
-                .expect("Tried to create our directory on the remote");
+                .expect("Tried to create nonlocality directory on the remote");
         }
     }
 
@@ -319,7 +321,10 @@ pub async fn deploy(
     let sudo = RelativePath::new("/usr/bin/sudo");
     run_simple_ssh_command(
         &deployment_session.session,
-        &format!("{} {} install", sudo, deployment_session.remote_host_binary),
+        &format!(
+            "{} '{}' install '{}'",
+            sudo, deployment_session.remote_host_binary, deployment_session.nonlocality_dir
+        ),
     )
     .await;
 
@@ -349,7 +354,7 @@ pub async fn uninstall(
     run_simple_ssh_command(
         &deployment_session.session,
         &format!(
-            "{} {} uninstall",
+            "{} '{}' uninstall",
             sudo, deployment_session.remote_host_binary
         ),
     )

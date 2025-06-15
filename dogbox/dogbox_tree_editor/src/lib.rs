@@ -41,6 +41,14 @@ pub enum Error {
     TooManyReferences(BlobDigest),
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for Error {}
+
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Future<'a, T> = Pin<Box<dyn core::future::Future<Output = Result<T>> + Send + 'a>>;
 pub type Stream<T> = Pin<Box<dyn futures_core::stream::Stream<Item = T> + Send>>;

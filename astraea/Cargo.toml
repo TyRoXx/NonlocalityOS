@@ -29,6 +29,3 @@ rusqlite = {version = "0", features = ["bundled"]}
 proptest = "1"
 rand = { version = "0", features = [ "small_rng", "min_const_gen" ]}
 test-log = {version = "0", features = ["trace", "log", "color"]}
-
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0"

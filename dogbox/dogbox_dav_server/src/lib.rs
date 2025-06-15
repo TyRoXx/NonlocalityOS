@@ -7,20 +7,19 @@ use dogbox_tree_editor::{CacheDropStats, OpenDirectory, OpenDirectoryStatus, Wal
 use file_system::DogBoxFileSystem;
 use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
-use std::{convert::Infallible, net::SocketAddr, path::Path, pin::Pin, sync::Arc};
+use std::{convert::Infallible, path::Path, pin::Pin, sync::Arc};
 use tokio::{
     net::{TcpListener, TcpStream},
     runtime::Handle,
 };
 use tracing::{debug, error, info};
-use tracing_subscriber::fmt::format::FmtSpan;
 mod file_system;
 
 #[cfg(test)]
 mod file_system_test;
 
 #[cfg(test)]
-mod main_test;
+mod lib_test;
 
 async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
     let make_service = move |request: Request<body::Incoming>| {
@@ -53,7 +52,7 @@ async fn handle_tcp_connections(
 }
 
 #[derive(Debug, PartialEq)]
-enum SaveStatus {
+pub enum SaveStatus {
     Saved { files_open_for_writing_count: usize },
     Saving,
 }
@@ -224,7 +223,7 @@ async fn persist_root_on_change(
     }
 }
 
-async fn run_dav_server(
+pub async fn run_dav_server(
     listener: TcpListener,
     database_file_name: &Path,
     modified_default: std::time::SystemTime,
@@ -339,43 +338,4 @@ async fn run_dav_server(
         }
     };
     Ok((save_status_receiver, Box::pin(result), root))
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing_subscriber::fmt()
-        .with_span_events(FmtSpan::CLOSE)
-        .init();
-    let address = SocketAddr::from(([0, 0, 0, 0], 4918));
-    let database_file_name = std::env::current_dir()
-        .unwrap()
-        .join("dogbox_dav_server.sqlite");
-    let listener = TcpListener::bind(address).await?;
-    info!("Serving on http://{}", address);
-    let clock = std::time::SystemTime::now;
-    let modified_default = clock();
-    {
-        let time_string = chrono::DateTime::<chrono::Utc>::from(modified_default).to_rfc3339();
-        info!("Last modification time defaults to {}", &time_string);
-    }
-    let (mut save_status_receiver, server, root_directory) = run_dav_server(
-        listener,
-        &database_file_name,
-        modified_default,
-        clock,
-        std::time::Duration::from_secs(5),
-    )
-    .await?;
-    tokio::try_join!(server, async move {
-        let mut last_save_status = None;
-        while let Some(status) = save_status_receiver.recv().await {
-            if last_save_status.as_ref() != Some(&status) {
-                info!("Save status: {:?}", &status);
-                last_save_status = Some(status);
-            }
-        }
-        Ok(())
-    })?;
-    root_directory.request_save().await.unwrap();
-    Ok(())
 }

@@ -1,8 +1,10 @@
 #![feature(duration_constructors)]
+use crate::dav_server::dav_server_main;
 use nonlocality_host::{INITIAL_DATABASE_FILE_NAME, INSTALLED_DATABASE_FILE_NAME};
 use std::{ffi::OsStr, path::Path};
 use tracing::{error, info, warn};
 use tracing_subscriber::fmt::format::FmtSpan;
+mod dav_server;
 
 async fn run_process(
     working_directory: &std::path::Path,
@@ -14,8 +16,6 @@ async fn run_process(
         .args(arguments)
         .current_dir(working_directory)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .output()
         .await
@@ -54,12 +54,16 @@ async fn run_systemctl(arguments: &[&str]) -> std::io::Result<()> {
     run_process(root_directory, systemctl, arguments).await
 }
 
+fn make_installed_database_path(nonlocality_directory: &Path) -> std::path::PathBuf {
+    nonlocality_directory.join(INSTALLED_DATABASE_FILE_NAME)
+}
+
 async fn install(nonlocality_directory: &Path, host_binary_name: &OsStr) -> std::io::Result<()> {
     info!("Installing host from {}", nonlocality_directory.display());
     let executable = &nonlocality_directory.join(host_binary_name);
 
     let initial_database = &nonlocality_directory.join(INITIAL_DATABASE_FILE_NAME);
-    let installed_database = &nonlocality_directory.join(INSTALLED_DATABASE_FILE_NAME);
+    let installed_database = &make_installed_database_path(nonlocality_directory);
     if std::fs::exists(installed_database)? {
         warn!(
             "Installed database already exists, not going to overwrite it: {}",
@@ -74,6 +78,8 @@ async fn install(nonlocality_directory: &Path, host_binary_name: &OsStr) -> std:
         std::fs::rename(initial_database, installed_database)?;
     }
 
+    let executable_argument = executable.display().to_string();
+    let nonlocality_directory_argument = nonlocality_directory.display().to_string();
     let service_file_content = format!(
         r#"[Unit]
 Description=NonlocalityOS Host
@@ -83,14 +89,14 @@ After=network.target
 Type=simple
 Restart=always
 RestartSec=15
-ExecStart={} run
+ExecStart='{}' run '{}'
 WorkingDirectory=/
 User=root
 
 [Install]
 WantedBy=multi-user.target
 "#,
-        executable.display(),
+        &executable_argument, &nonlocality_directory_argument
     );
     let temporary_directory = tempfile::tempdir().expect("create a temporary directory");
     let temporary_file_path = temporary_directory.path().join(SERVICE_FILE_NAME);
@@ -112,11 +118,8 @@ WantedBy=multi-user.target
     run_systemctl(&["status", SERVICE_FILE_NAME]).await
 }
 
-async fn uninstall(nonlocality_directory: &Path) -> std::io::Result<()> {
-    info!(
-        "Uninstalling systemd service for host {}. Not deleting any other files.",
-        nonlocality_directory.display()
-    );
+async fn uninstall() -> std::io::Result<()> {
+    info!("Uninstalling systemd service. Not deleting any other files.");
     let systemd_service_path = make_service_file_path();
     if std::fs::exists(&systemd_service_path)? {
         run_systemctl(&["disable", SERVICE_FILE_NAME]).await?;
@@ -137,34 +140,67 @@ async fn uninstall(nonlocality_directory: &Path) -> std::io::Result<()> {
 
 async fn run(nonlocality_directory: &Path) -> std::io::Result<()> {
     info!("Running host in {}", nonlocality_directory.display());
-    let duration = std::time::Duration::from_hours(1);
-    warn!(
-        "Nothing to do (not implemented), exiting {:?} from now.",
-        &duration
+    let database_file_name = make_installed_database_path(nonlocality_directory);
+    info!(
+        "Using database file for DAV server: {}",
+        database_file_name.display()
     );
-    tokio::time::sleep(duration).await;
-    warn!("Exiting");
-    Ok(())
+    match dav_server_main(&database_file_name).await {
+        Ok(_) => {
+            warn!("DAV server exited without an error");
+            Ok(())
+        }
+        Err(e) => {
+            error!("DAV server failed: {e}");
+            Err(std::io::Error::other(format!("DAV server failed: {e}")))
+        }
+    }
 }
 
 async fn handle_command_line(
-    nonlocality_directory: &Path,
     host_binary_name: &OsStr,
     command_line_arguments: &[String],
 ) -> std::io::Result<()> {
     info!("Command line arguments: {:?}", command_line_arguments);
-    if command_line_arguments.len() != 1 {
-        error!("Command line argument required: install|run");
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
+    if command_line_arguments.is_empty() {
+        error!("Command line argument required: install|uninstall|run");
+        return Err(std::io::Error::other(
             "Invalid number of command line arguments",
         ));
     }
     let command = command_line_arguments[0].as_str();
     match command {
-        "install" => install(nonlocality_directory, host_binary_name).await,
-        "uninstall" => uninstall(nonlocality_directory).await,
-        "run" => run(nonlocality_directory).await,
+        "install" => {
+            if command_line_arguments.len() != 2 {
+                error!("Command line argument required: install [nonlocality_directory]");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Invalid number of command line arguments",
+                ));
+            }
+            let nonlocality_directory = Path::new(&command_line_arguments[1]);
+            info!(
+                "Nonlocality directory for installation: {}",
+                nonlocality_directory.display()
+            );
+            install(nonlocality_directory, host_binary_name).await
+        }
+        "uninstall" => uninstall().await,
+        "run" => {
+            if command_line_arguments.len() != 2 {
+                error!("Command line argument required: run [nonlocality_directory]");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Invalid number of command line arguments",
+                ));
+            }
+            let nonlocality_directory = Path::new(&command_line_arguments[1]);
+            info!(
+                "Nonlocality directory for running: {}",
+                nonlocality_directory.display()
+            );
+            run(nonlocality_directory).await
+        }
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             format!("Unknown command {command}"),
@@ -180,16 +216,6 @@ async fn main() -> std::io::Result<()> {
     let command_line_arguments: Vec<String> = std::env::args().collect();
     let current_binary = Path::new(&command_line_arguments[0]);
     info!("Current binary: {}", current_binary.display());
-    let nonlocality_directory = current_binary.parent().unwrap();
-    info!(
-        "Nonlocality directory detected: {}",
-        nonlocality_directory.display()
-    );
     let host_binary_name = current_binary.file_name().unwrap();
-    handle_command_line(
-        nonlocality_directory,
-        host_binary_name,
-        &command_line_arguments[1..],
-    )
-    .await
+    handle_command_line(host_binary_name, &command_line_arguments[1..]).await
 }
