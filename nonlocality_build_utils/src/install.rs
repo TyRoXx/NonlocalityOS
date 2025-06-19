@@ -171,7 +171,6 @@ pub type BuildHostBinary = dyn FnOnce(
 
 struct DeploymentSession {
     session: ssh2::Session,
-    sftp: ssh2::Sftp,
     nonlocality_dir: RelativePathBuf,
     remote_host_binary: RelativePathBuf,
 }
@@ -179,13 +178,11 @@ struct DeploymentSession {
 impl DeploymentSession {
     fn new(
         session: ssh2::Session,
-        sftp: ssh2::Sftp,
         nonlocality_dir: RelativePathBuf,
         remote_host_binary: RelativePathBuf,
     ) -> Self {
         Self {
             session,
-            sftp,
             nonlocality_dir,
             remote_host_binary,
         }
@@ -280,7 +277,6 @@ async fn deploy_host_binary(
     .await;
     Ok(DeploymentSession::new(
         session,
-        sftp,
         nonlocality_dir,
         remote_host_binary,
     ))
@@ -288,10 +284,8 @@ async fn deploy_host_binary(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn deploy(
-    initial_database: &std::path::Path,
     build_host_binary: Box<BuildHostBinary>,
     host_binary_name: &str,
-    initial_database_file_name: &str,
     ssh_endpoint: &SocketAddr,
     ssh_user: &str,
     ssh_password: &str,
@@ -306,16 +300,6 @@ pub async fn deploy(
         progress_reporter,
     )
     .await?;
-    let remote_database = deployment_session
-        .nonlocality_dir
-        .join(initial_database_file_name);
-    upload_file(
-        &deployment_session.session,
-        &deployment_session.sftp,
-        initial_database,
-        &remote_database,
-        false,
-    );
 
     info!("Starting the host binary on the remote to install itself as a service.");
     let sudo = RelativePath::new("/usr/bin/sudo");

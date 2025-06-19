@@ -1,4 +1,3 @@
-use astraea::storage::SQLiteStorage;
 use nonlocality_build_utils::host::detect_host_operating_system;
 use nonlocality_build_utils::host::HostOperatingSystem;
 use nonlocality_build_utils::install::deploy;
@@ -10,7 +9,6 @@ use nonlocality_build_utils::raspberrypi::RaspberryPi64Target;
 use nonlocality_build_utils::run::run_cargo_build_for_target;
 use nonlocality_build_utils::run::ConsoleErrorReporter;
 use nonlocality_build_utils::run::ReportProgress;
-use nonlocality_host::INITIAL_DATABASE_FILE_NAME;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -114,20 +112,10 @@ async fn install(
     ssh_password: &str,
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> std::io::Result<()> {
-    let temporary_directory = tempfile::tempdir().unwrap();
-    let database_path = temporary_directory.path().join(INITIAL_DATABASE_FILE_NAME);
-    {
-        let connection1 = rusqlite::Connection::open(&database_path).unwrap();
-        SQLiteStorage::create_schema(&connection1).unwrap();
-        // TODO: put something in the database
-        let _storage = SQLiteStorage::from(connection1).unwrap();
-    }
     let build = make_build_host_binary_function(repository);
     deploy(
-        &database_path,
         build,
         NONLOCALITY_HOST_BINARY_NAME,
-        INITIAL_DATABASE_FILE_NAME,
         ssh_endpoint,
         ssh_user,
         ssh_password,

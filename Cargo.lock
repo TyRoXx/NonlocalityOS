@@ -1832,6 +1832,7 @@ dependencies = [
  "chrono",
  "dogbox_dav_server",
  "lambda",
+ "rusqlite",
  "tempfile",
  "tokio",
  "tracing",
