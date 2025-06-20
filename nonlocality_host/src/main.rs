@@ -1,10 +1,37 @@
 #![feature(duration_constructors)]
 use crate::dav_server::dav_server_main;
+use clap::{Parser, Subcommand};
 use nonlocality_host::{INITIAL_DATABASE_FILE_NAME, INSTALLED_DATABASE_FILE_NAME};
 use std::{ffi::OsStr, path::Path};
 use tracing::{error, info, warn};
 use tracing_subscriber::fmt::format::FmtSpan;
 mod dav_server;
+
+#[derive(Parser)]
+#[command(name = "nonlocality_host")]
+#[command(about = "NonlocalityOS Host Service")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Install the NonlocalityOS host service
+    Install {
+        /// Directory containing the NonlocalityOS installation
+        #[arg(value_name = "NONLOCALITY_DIRECTORY", value_parser = clap::value_parser!(std::path::PathBuf))]
+        nonlocality_directory: std::path::PathBuf,
+    },
+    /// Uninstall the NonlocalityOS host service
+    Uninstall,
+    /// Run the NonlocalityOS host service
+    Run {
+        /// Directory containing the NonlocalityOS installation
+        #[arg(value_name = "NONLOCALITY_DIRECTORY", value_parser = clap::value_parser!(std::path::PathBuf))]
+        nonlocality_directory: std::path::PathBuf,
+    },
+}
 
 async fn run_process(
     working_directory: &std::path::Path,
@@ -157,54 +184,27 @@ async fn run(nonlocality_directory: &Path) -> std::io::Result<()> {
     }
 }
 
-async fn handle_command_line(
-    host_binary_name: &OsStr,
-    command_line_arguments: &[String],
-) -> std::io::Result<()> {
-    info!("Command line arguments: {:?}", command_line_arguments);
-    if command_line_arguments.is_empty() {
-        error!("Command line argument required: install|uninstall|run");
-        return Err(std::io::Error::other(
-            "Invalid number of command line arguments",
-        ));
-    }
-    let command = command_line_arguments[0].as_str();
-    match command {
-        "install" => {
-            if command_line_arguments.len() != 2 {
-                error!("Command line argument required: install [nonlocality_directory]");
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Invalid number of command line arguments",
-                ));
-            }
-            let nonlocality_directory = Path::new(&command_line_arguments[1]);
+async fn handle_command_line(host_binary_name: &OsStr, cli: Cli) -> std::io::Result<()> {
+    match cli.command {
+        Commands::Install {
+            nonlocality_directory,
+        } => {
             info!(
                 "Nonlocality directory for installation: {}",
                 nonlocality_directory.display()
             );
-            install(nonlocality_directory, host_binary_name).await
+            install(&nonlocality_directory, host_binary_name).await
         }
-        "uninstall" => uninstall().await,
-        "run" => {
-            if command_line_arguments.len() != 2 {
-                error!("Command line argument required: run [nonlocality_directory]");
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Invalid number of command line arguments",
-                ));
-            }
-            let nonlocality_directory = Path::new(&command_line_arguments[1]);
+        Commands::Uninstall => uninstall().await,
+        Commands::Run {
+            nonlocality_directory,
+        } => {
             info!(
                 "Nonlocality directory for running: {}",
                 nonlocality_directory.display()
             );
-            run(nonlocality_directory).await
+            run(&nonlocality_directory).await
         }
-        _ => Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("Unknown command {command}"),
-        )),
     }
 }
 
@@ -213,9 +213,10 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_span_events(FmtSpan::CLOSE)
         .init();
+    let cli = Cli::parse();
     let command_line_arguments: Vec<String> = std::env::args().collect();
     let current_binary = Path::new(&command_line_arguments[0]);
     info!("Current binary: {}", current_binary.display());
     let host_binary_name = current_binary.file_name().unwrap();
-    handle_command_line(host_binary_name, &command_line_arguments[1..]).await
+    handle_command_line(host_binary_name, cli).await
 }

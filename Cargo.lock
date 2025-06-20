@@ -1891,6 +1891,7 @@ version = "0.1.0"
 dependencies = [
  "astraea",
  "chrono",
+ "clap",
  "dogbox_dav_server",
  "lambda",
  "tempfile",
