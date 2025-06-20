@@ -8,8 +8,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 mod dav_server;
 
 #[derive(Parser)]
-#[command(name = "nonlocality_host")]
-#[command(about = "NonlocalityOS Host Service")]
+#[command(name = "nonlocality_host", about = "NonlocalityOS Host Service")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

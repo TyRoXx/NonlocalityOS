@@ -3,7 +3,6 @@ use clap::{Parser, Subcommand};
 use nonlocality_build_utils::host::detect_host_operating_system;
 use nonlocality_build_utils::host::HostOperatingSystem;
 use nonlocality_build_utils::install::deploy;
-use nonlocality_build_utils::install::uninstall as uninstall_deployment;
 use nonlocality_build_utils::install::BuildHostBinary;
 use nonlocality_build_utils::install::BuildTarget;
 use nonlocality_build_utils::raspberrypi::install_raspberry_pi_cpp_compiler;
@@ -18,7 +17,6 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::error;
 use tracing::info;
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -162,7 +160,7 @@ async fn uninstall(
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> std::io::Result<()> {
     let build = make_build_host_binary_function(repository);
-    uninstall_deployment(
+    nonlocality_build_utils::install::uninstall(
         build,
         NONLOCALITY_HOST_BINARY_NAME,
         ssh_endpoint,
