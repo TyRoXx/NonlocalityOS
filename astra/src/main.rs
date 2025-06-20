@@ -1,7 +1,9 @@
 use astraea::storage::SQLiteStorage;
+use clap::{Parser, Subcommand};
 use nonlocality_build_utils::host::detect_host_operating_system;
 use nonlocality_build_utils::host::HostOperatingSystem;
 use nonlocality_build_utils::install::deploy;
+use nonlocality_build_utils::install::uninstall as uninstall_deployment;
 use nonlocality_build_utils::install::BuildHostBinary;
 use nonlocality_build_utils::install::BuildTarget;
 use nonlocality_build_utils::raspberrypi::install_raspberry_pi_cpp_compiler;
@@ -21,6 +23,22 @@ use tracing::info;
 use tracing_subscriber::fmt::format::FmtSpan;
 
 const NONLOCALITY_HOST_BINARY_NAME: &str = "nonlocality_host";
+
+#[derive(Parser)]
+#[command(name = "astra")]
+#[command(about = "Astra deployment tool")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Install the application on the target system
+    Install,
+    /// Uninstall the application from the target system
+    Uninstall,
+}
 
 async fn run_cargo_build(
     working_directory: &std::path::Path,
@@ -144,7 +162,7 @@ async fn uninstall(
     progress_reporter: &Arc<dyn ReportProgress + Sync + Send>,
 ) -> std::io::Result<()> {
     let build = make_build_host_binary_function(repository);
-    nonlocality_build_utils::install::uninstall(
+    uninstall_deployment(
         build,
         NONLOCALITY_HOST_BINARY_NAME,
         ssh_endpoint,
@@ -161,13 +179,9 @@ async fn main() -> std::process::ExitCode {
         .with_span_events(FmtSpan::CLOSE)
         .init();
     let started_at = std::time::Instant::now();
-    let command_line_arguments: Vec<String> = std::env::args().collect();
-    info!("Command line arguments: {:?}", &command_line_arguments[1..]);
-    if command_line_arguments.len() != 2 {
-        error!("Command line arguments: install|uninstall");
-        return std::process::ExitCode::FAILURE;
-    }
-    let command = &command_line_arguments[1];
+
+    let cli = Cli::parse();
+    info!("Command: {:?}", cli.command);
 
     let repository = std::env::current_dir().unwrap();
     info!("Repository: {}", repository.display());
@@ -187,8 +201,8 @@ async fn main() -> std::process::ExitCode {
     let progress_reporter: Arc<dyn ReportProgress + Send + Sync> =
         Arc::new(ConsoleErrorReporter {});
 
-    let result = match command.as_str() {
-        "install" => {
+    let result = match cli.command {
+        Commands::Install => {
             install(
                 &repository,
                 &ssh_endpoint,
@@ -198,7 +212,7 @@ async fn main() -> std::process::ExitCode {
             )
             .await
         }
-        "uninstall" => {
+        Commands::Uninstall => {
             uninstall(
                 &repository,
                 &ssh_endpoint,
@@ -207,10 +221,6 @@ async fn main() -> std::process::ExitCode {
                 &progress_reporter,
             )
             .await
-        }
-        _ => {
-            error!("Unknown command {}", command);
-            return std::process::ExitCode::FAILURE;
         }
     };
 
