@@ -18,7 +18,6 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::error;
 use tracing::info;
 use tracing_subscriber::fmt::format::FmtSpan;
 
