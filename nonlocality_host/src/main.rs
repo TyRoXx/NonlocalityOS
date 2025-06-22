@@ -183,7 +183,8 @@ async fn run(nonlocality_directory: &Path) -> std::io::Result<()> {
     }
 }
 
-async fn handle_command_line(host_binary_name: &OsStr, cli: Cli) -> std::io::Result<()> {
+async fn handle_command_line(host_binary_name: &OsStr) -> std::io::Result<()> {
+    let cli = Cli::parse();
     match cli.command {
         Commands::Install {
             nonlocality_directory,
@@ -212,10 +213,10 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_span_events(FmtSpan::CLOSE)
         .init();
-    let cli = Cli::parse();
-    let command_line_arguments: Vec<String> = std::env::args().collect();
-    let current_binary = Path::new(&command_line_arguments[0]);
+
+    let current_binary = std::env::current_exe().unwrap();
     info!("Current binary: {}", current_binary.display());
+
     let host_binary_name = current_binary.file_name().unwrap();
-    handle_command_line(host_binary_name, cli).await
+    handle_command_line(host_binary_name).await
 }
