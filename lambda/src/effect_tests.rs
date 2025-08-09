@@ -3,6 +3,7 @@ use crate::expressions::{
     PrintExpression,
 };
 use astraea::{deep_tree::DeepTree, storage::InMemoryTreeStorage};
+use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
 #[test_log::test(tokio::test)]

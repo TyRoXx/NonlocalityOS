@@ -7,6 +7,8 @@ use astraea::storage::LoadCache;
 use astraea::storage::LoadStoreTree;
 use astraea::storage::SQLiteStorage;
 use astraea::tree::{BlobDigest, TREE_BLOB_MAX_LENGTH};
+use pretty_assertions::assert_eq;
+use pretty_assertions::assert_ne;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;

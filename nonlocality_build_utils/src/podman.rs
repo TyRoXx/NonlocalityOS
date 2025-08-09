@@ -1,5 +1,6 @@
 #![cfg(target_os = "linux")]
 
+use pretty_assertions::assert_eq;
 use std::path::Path;
 use tracing::{error, info, warn};
 use version_compare::Version;

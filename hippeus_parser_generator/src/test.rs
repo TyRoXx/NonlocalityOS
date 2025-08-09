@@ -1,4 +1,5 @@
 use crate::{is_match, parse, ParseResult, Parser, RegisterId, RegisterValue, Slice};
+use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_case::test_case;
 

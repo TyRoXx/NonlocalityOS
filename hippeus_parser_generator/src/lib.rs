@@ -1,3 +1,4 @@
+use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, VecDeque};
 
 #[cfg(test)]

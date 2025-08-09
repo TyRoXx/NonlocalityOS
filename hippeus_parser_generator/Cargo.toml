@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 postcard = {version = "1", features = ["use-std"]}
+pretty_assertions = "1"
 
 [dev-dependencies]
 test-log = {version = "0", features = ["trace", "log", "color"]}

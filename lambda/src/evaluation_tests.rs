@@ -1,5 +1,6 @@
 use crate::expressions::{evaluate, DeepExpression, Expression};
 use astraea::{deep_tree::DeepTree, storage::InMemoryTreeStorage};
+use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
 async fn expect_evaluate_result(

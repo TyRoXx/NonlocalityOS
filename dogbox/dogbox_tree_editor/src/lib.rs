@@ -14,6 +14,7 @@ use bytes::Buf;
 use cached::Cached;
 use dogbox_tree::serialization::{self, DirectoryTree, FileName, SegmentedBlob};
 use futures::future::join_all;
+use pretty_assertions::assert_eq;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     pin::Pin,

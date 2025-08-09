@@ -3,6 +3,7 @@ use crate::{
     storage::{LoadTree, SQLiteStorage, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
+use pretty_assertions::assert_eq;
 use std::sync::Arc;
 use test::Bencher;
 use tokio::runtime::Runtime;

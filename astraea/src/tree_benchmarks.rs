@@ -1,5 +1,6 @@
 extern crate test;
 use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH};
+use pretty_assertions::assert_eq;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;

@@ -1,6 +1,7 @@
 use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH};
 use async_trait::async_trait;
 use cached::Cached;
+use pretty_assertions::assert_eq;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,

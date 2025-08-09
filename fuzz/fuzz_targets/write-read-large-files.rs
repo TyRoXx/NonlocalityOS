@@ -12,6 +12,7 @@ use astraea::{
 };
 use dogbox_tree_editor::{OpenFileContentBuffer, OptimizedWriteBuffer};
 use libfuzzer_sys::{fuzz_target, Corpus};
+use pretty_assertions::assert_eq;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, sync::Arc};
 use tokio::runtime::Runtime;

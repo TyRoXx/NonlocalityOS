@@ -4,6 +4,7 @@ use crate::tree::{
     calculate_reference, BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob,
     TreeDeserializationError, TreeSerializationError, TREE_BLOB_MAX_LENGTH,
 };
+use pretty_assertions::assert_eq;
 use proptest::proptest;
 
 #[test_log::test]

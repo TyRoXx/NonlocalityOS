@@ -3,6 +3,7 @@ use crate::{
     tree::{BlobDigest, HashedTree, Tree, TreeBlob},
 };
 use bytes::Bytes;
+use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
 #[test_log::test]

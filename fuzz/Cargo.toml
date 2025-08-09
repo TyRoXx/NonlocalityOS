@@ -19,6 +19,7 @@ tracing = "0"
 serde = "1"
 tokio-macros = "2"
 rand = { version = "0", features = [ "small_rng" ]}
+pretty_assertions = "1"
 
 [[bin]]
 name = "write-read-large-files"

@@ -18,6 +18,7 @@ futures = "0"
 bytes = "1"
 async-trait = "0"
 rusqlite = {version = "0", features = ["bundled"]}
+pretty_assertions = "1"
 
 [dependencies.uuid]
 version = "1"

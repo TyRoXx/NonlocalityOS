@@ -6,6 +6,7 @@ use astraea::{
     deep_tree::DeepTree,
     tree::{BlobDigest, ReferenceIndex},
 };
+use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
 #[test_log::test(tokio::test)]

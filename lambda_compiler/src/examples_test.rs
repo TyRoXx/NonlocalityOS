@@ -8,6 +8,7 @@ use astraea::{
     tree::{BlobDigest, HashedTree, Tree, TreeBlob},
 };
 use lambda::{expressions::apply_evaluated_argument, name::NamespaceId};
+use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
 const TEST_SOURCE_NAMESPACE: NamespaceId =

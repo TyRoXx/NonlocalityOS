@@ -1,4 +1,5 @@
 use crate::host::{add_executable_ending, HostOperatingSystem};
+use pretty_assertions::assert_eq;
 
 #[test_log::test]
 fn test_add_executable_ending() {

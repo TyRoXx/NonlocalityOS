@@ -14,6 +14,7 @@ use lambda::{
     expressions::{evaluate, DeepExpression, Expression},
     name::{Name, NamespaceId},
 };
+use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
 const TEST_SOURCE_NAMESPACE: NamespaceId =

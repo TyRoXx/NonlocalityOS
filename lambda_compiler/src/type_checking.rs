@@ -11,6 +11,7 @@ use lambda::{
     expressions::{DeepExpression, Expression},
     name::{Name, NamespaceId},
 };
+use pretty_assertions::assert_eq;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 

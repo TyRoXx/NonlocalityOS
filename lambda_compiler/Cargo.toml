@@ -16,6 +16,7 @@ lazy_static = "1"
 futures = "0"
 bytes = "1"
 rusqlite = {version = "0", features = ["bundled"]}
+pretty_assertions = "1"
 
 [dev-dependencies]
 test-log = {version = "0", features = ["trace", "log", "color"]}

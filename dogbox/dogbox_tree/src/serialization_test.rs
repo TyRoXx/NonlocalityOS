@@ -1,4 +1,5 @@
 use crate::serialization::{FileNameContent, FileNameError};
+use pretty_assertions::assert_eq;
 
 #[test_log::test]
 fn test_file_name_content_from() {

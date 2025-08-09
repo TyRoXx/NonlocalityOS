@@ -3,6 +3,7 @@ use crate::type_checking::{DeepType, GenericType, TypedExpression};
 use astraea::deep_tree::DeepTree;
 use lambda::expressions::{DeepExpression, Expression};
 use lambda::name::NamespaceId;
+use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
 const TEST_SOURCE_NAMESPACE: NamespaceId =

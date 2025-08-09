@@ -1,4 +1,5 @@
 use crate::run::ReportProgress;
+use pretty_assertions::assert_eq;
 use relative_path::{RelativePath, RelativePathBuf};
 use ssh2::OpenFlags;
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Instant};

@@ -2,6 +2,7 @@ use crate::{
     compilation::SourceLocation,
     tokenization::{tokenize_default_syntax, Token, TokenContent},
 };
+use pretty_assertions::assert_eq;
 use test_case::test_case;
 
 fn test_tokenize_default_syntax(source: &str, expected_tokens: &[Token]) {

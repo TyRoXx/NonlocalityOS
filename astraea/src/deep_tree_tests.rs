@@ -3,6 +3,7 @@ use crate::{
     storage::{InMemoryTreeStorage, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob},
 };
+use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
 #[test_log::test(tokio::test)]

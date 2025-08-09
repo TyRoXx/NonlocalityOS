@@ -21,10 +21,10 @@ tracing-subscriber = "0"
 relative-path = "2"
 futures = "0"
 rusqlite = {version = "0", features = ["bundled"]}
+pretty_assertions = "1"
 
 [dev-dependencies]
 reqwest_dav = "0"
 test-log = {version = "0", features = ["trace", "log", "color"]}
 tempfile = "3"
 rand = { version = "0", features = [ "small_rng" ]}
-pretty_assertions = "1"
