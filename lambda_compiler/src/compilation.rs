@@ -3,11 +3,14 @@ use crate::{
     tokenization::tokenize_default_syntax,
     type_checking::{check_types_with_default_globals, TypedExpression},
 };
+use arbitrary::Arbitrary;
 use astraea::storage::StoreError;
 use lambda::name::NamespaceId;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+#[derive(
+    Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Arbitrary,
+)]
 pub struct SourceLocation {
     pub line: u64,
     pub column: u64,
