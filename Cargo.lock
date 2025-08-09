@@ -114,6 +114,9 @@ name = "arbitrary"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dde20b3d026af13f561bdd0f15edf01fc734f0dafcedbaf42bba506a9517f223"
+dependencies = [
+ "derive_arbitrary",
+]
 
 [[package]]
 name = "astra"
@@ -662,6 +665,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30542c1ad912e0e3d22a1935c290e12e8a29d704a420177a31faad4a601a0800"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]
@@ -1630,6 +1644,7 @@ dependencies = [
 name = "lambda_compiler"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "astraea",
  "bytes 1.10.1",
  "futures",
@@ -1846,10 +1861,13 @@ dependencies = [
 name = "nonlocality-fuzz"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "astraea",
  "bytes 1.10.1",
  "dogbox_tree",
  "dogbox_tree_editor",
+ "lambda",
+ "lambda_compiler",
  "libfuzzer-sys",
  "postcard",
  "pretty_assertions",

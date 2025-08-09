@@ -1,17 +1,18 @@
 use crate::compilation::SourceLocation;
+use arbitrary::Arbitrary;
 use hippeus_parser_generator::{ParseResult, Parser, RegisterId, RegisterValue};
 use lazy_static::lazy_static;
 use pretty_assertions::assert_ne;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Arbitrary)]
 pub enum IntegerBase {
     Decimal,
     Hexadecimal,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Arbitrary)]
 pub enum TokenContent {
     Whitespace,
     Identifier(String),
@@ -46,7 +47,7 @@ pub enum TokenContent {
     Integer(i64, IntegerBase),
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Arbitrary)]
 pub struct Token {
     pub content: TokenContent,
     pub location: SourceLocation,
