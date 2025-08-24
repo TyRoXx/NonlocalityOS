@@ -25,20 +25,26 @@ mod lib_test;
 
 async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
     let make_service = move |request: Request<body::Incoming>| {
-        debug!("Request: {:?}", &request);
+        info!("Request: {:?}", &request);
         let dav_server = dav_server.clone();
         async move {
             let response = dav_server.handle(request).await;
+            info!("Response: {:?}", &response.headers());
             Ok::<_, Infallible>(response)
         }
     };
     let io = TokioIo::new(stream);
-    if let Err(err) = http1::Builder::new()
+    match http1::Builder::new()
         .max_buf_size(TREE_BLOB_MAX_LENGTH * 500)
         .serve_connection(io, hyper::service::service_fn(make_service))
         .await
     {
-        info!("Error serving connection: {:?}", err);
+        Ok(_) => {
+            info!("Connection served successfully");
+        }
+        Err(err) => {
+            info!("Error serving connection: {:?}", err);
+        }
     }
 }
 
@@ -47,7 +53,8 @@ async fn handle_tcp_connections(
     dav_server: Arc<DavHandler>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
-        let (stream, _) = listener.accept().await?;
+        let (stream, remote_address) = listener.accept().await?;
+        info!("Incoming connection from {}", &remote_address);
         let dav_server = dav_server.clone();
         tokio::task::spawn(async move { serve_connection(stream, dav_server).await });
     }

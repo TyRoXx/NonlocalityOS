@@ -83,7 +83,7 @@ After measuring the test coverage, you can find [an HTML report under `target-co
 
 Caution: The server binds to `0.0.0.0` which means it will be accessible from the local network. It doesn't support auth nor SSL yet, so be careful!
 
-* `cargo run --bin dogbox_dav_server --release`
+* `cargo run --bin nonlocality_host --release -- run [database directory]`
 
 ### Mount the DAV drive on Linux via fstab
 
