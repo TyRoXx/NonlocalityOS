@@ -9,7 +9,7 @@ use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
 use pretty_assertions::assert_eq;
 use pretty_assertions::assert_ne;
-use std::{convert::Infallible, path::Path, pin::Pin, sync::Arc};
+use std::{convert::Infallible, net::SocketAddr, path::Path, pin::Pin, sync::Arc};
 use tokio::{
     net::{TcpListener, TcpStream},
     runtime::Handle,
@@ -23,13 +23,17 @@ mod file_system_test;
 #[cfg(test)]
 mod lib_test;
 
-async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
+async fn serve_connection(
+    stream: TcpStream,
+    remote_endpoint: &SocketAddr,
+    dav_server: Arc<DavHandler>,
+) {
     let make_service = move |request: Request<body::Incoming>| {
-        info!("Request: {:?}", &request);
+        info!("Request from {}: {:?}", remote_endpoint, &request);
         let dav_server = dav_server.clone();
         async move {
             let response = dav_server.handle(request).await;
-            info!("Response: {:?}", &response.headers());
+            info!("Response to {}: {:?}", remote_endpoint, &response.headers());
             Ok::<_, Infallible>(response)
         }
     };
@@ -40,10 +44,10 @@ async fn serve_connection(stream: TcpStream, dav_server: Arc<DavHandler>) {
         .await
     {
         Ok(_) => {
-            info!("Connection served successfully");
+            info!("Successfully served connection {}", remote_endpoint);
         }
         Err(err) => {
-            info!("Error serving connection: {:?}", err);
+            info!("Error serving connection {}: {:?}", remote_endpoint, err);
         }
     }
 }
@@ -53,10 +57,12 @@ async fn handle_tcp_connections(
     dav_server: Arc<DavHandler>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
-        let (stream, remote_address) = listener.accept().await?;
-        info!("Incoming connection from {}", &remote_address);
+        let (stream, remote_endpoint) = listener.accept().await?;
+        info!("Incoming connection from {}", &remote_endpoint);
         let dav_server = dav_server.clone();
-        tokio::task::spawn(async move { serve_connection(stream, dav_server).await });
+        tokio::task::spawn(
+            async move { serve_connection(stream, &remote_endpoint, dav_server).await },
+        );
     }
 }
 
