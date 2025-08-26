@@ -166,6 +166,16 @@ async fn uninstall() -> std::io::Result<()> {
 
 async fn run(nonlocality_directory: &Path) -> std::io::Result<()> {
     info!("Running host in {}", nonlocality_directory.display());
+    match std::fs::create_dir_all(nonlocality_directory) {
+        Ok(_) => {}
+        Err(e) => {
+            error!(
+                "Failed to create Nonlocality directory {}: {e}",
+                nonlocality_directory.display()
+            );
+            return Err(e);
+        }
+    }
     let database_file_name = make_installed_database_path(nonlocality_directory);
     info!(
         "Using database file for DAV server: {}",
