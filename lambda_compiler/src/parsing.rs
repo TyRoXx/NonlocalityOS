@@ -253,15 +253,15 @@ fn skip_right_bracket(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Toke
                 tokens.next();
                 true
             }
-            TokenContent::LeftBrace => todo!(),
-            TokenContent::RightBrace => todo!(),
+            TokenContent::LeftBrace => false,
+            TokenContent::RightBrace => false,
             TokenContent::Dot => false,
-            TokenContent::Colon => todo!(),
+            TokenContent::Colon => false,
             TokenContent::Quotes(_) => false,
             TokenContent::FatArrow => false,
             TokenContent::Comma => false,
-            TokenContent::Integer(_, _) => todo!(),
-            TokenContent::EndOfFile => todo!(),
+            TokenContent::Integer(_, _) => false,
+            TokenContent::EndOfFile => false,
         },
         None => false,
     }

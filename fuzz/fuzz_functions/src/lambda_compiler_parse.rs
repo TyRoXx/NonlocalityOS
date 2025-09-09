@@ -41,3 +41,8 @@ fn crash_1() {
 fn crash_2() {
     assert!(fuzz_function(&[41, 63, 64, 131, 41, 131]));
 }
+
+#[test]
+fn crash_3() {
+    assert!(fuzz_function(&[73, 78, 73, 73, 78]));
+}
