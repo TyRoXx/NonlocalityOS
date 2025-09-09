@@ -1042,6 +1042,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzz_functions"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "lambda",
+ "lambda_compiler",
+ "postcard",
+ "pretty_assertions",
+ "test-case",
+ "test-log",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1874,13 +1887,11 @@ dependencies = [
 name = "nonlocality-fuzz"
 version = "0.0.0"
 dependencies = [
- "arbitrary",
  "astraea",
  "bytes 1.10.1",
  "dogbox_tree",
  "dogbox_tree_editor",
- "lambda",
- "lambda_compiler",
+ "fuzz_functions",
  "libfuzzer-sys",
  "postcard",
  "pretty_assertions",

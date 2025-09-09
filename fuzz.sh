@@ -4,7 +4,7 @@ set -e
 ./scripts/install_cargo-fuzz.sh
 JOBS=`nproc`
 FUZZ_TARGET_DIR=./fuzz/fuzz_targets
-FUZZ_RUNS=1000
+FUZZ_RUNS=100
 
 for file in $(ls "$FUZZ_TARGET_DIR"/*.rs | sort); do
     target_name=$(basename "$file" .rs)

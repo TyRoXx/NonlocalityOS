@@ -6,20 +6,13 @@ fn main() {
     panic!("Fuzzing is not supported on this platform.");
 }
 
-use lambda_compiler::tokenization::tokenize_default_syntax;
-use libfuzzer_sys::{fuzz_target, Corpus};
+use fuzz_functions::lambda_compiler_tokenize;
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| -> libfuzzer_sys::Corpus {
-    let source = match std::str::from_utf8(data) {
-        Ok(success) => success,
-        Err(_) => return Corpus::Reject,
-    };
-    // TODO: check if the result roundtrips?
-    let tokens = tokenize_default_syntax(source);
-    assert_ne!(0, tokens.len());
-    assert_eq!(
-        tokens.last().unwrap().content,
-        lambda_compiler::tokenization::TokenContent::EndOfFile
-    );
-    Corpus::Keep
+    if lambda_compiler_tokenize::fuzz_function(data) {
+        libfuzzer_sys::Corpus::Keep
+    } else {
+        libfuzzer_sys::Corpus::Reject
+    }
 });

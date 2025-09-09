@@ -516,3 +516,25 @@ fn test_parse_type_of_missing_right_parenthesis() {
     );
     assert_eq!(expected, output);
 }
+
+#[test_log::test]
+fn test_parse_dot() {
+    let tokens = tokenize_default_syntax(".");
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::Dot,
+            SourceLocation { line: 0, column: 0 }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected expression, found dot.".to_string(),
+            SourceLocation::new(0, 0),
+        )],
+    );
+    assert_eq!(expected, output);
+}

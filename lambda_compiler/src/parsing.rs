@@ -417,7 +417,10 @@ fn parse_expression_start<'t>(
                 parse_braces(tokens, local_namespace)
             }
             TokenContent::RightBrace => todo!(),
-            TokenContent::Dot => todo!(),
+            TokenContent::Dot => Err(ParserError::new(
+                "Expected expression, found dot.".to_string(),
+                non_whitespace.location,
+            )),
             TokenContent::Colon => todo!(),
             TokenContent::Quotes(content) => {
                 pop_next_non_whitespace_token(tokens);
