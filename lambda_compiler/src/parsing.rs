@@ -116,34 +116,32 @@ fn try_skip_left_parenthesis(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
 ) -> ParserResult<bool> {
     match peek_next_non_whitespace_token(tokens) {
-        Some(non_whitespace) => {
-            match &non_whitespace.content {
-                TokenContent::Comment(_) => Err(ParserError::new(
-                    "Comments are currently not supported where a left parenthesis could appear."
-                        .to_string(),
-                    non_whitespace.location,
-                )),
-                TokenContent::Whitespace => unreachable!(),
-                TokenContent::Identifier(_) => Ok(false),
-                TokenContent::Assign => Ok(false),
-                TokenContent::LeftParenthesis => {
-                    pop_next_non_whitespace_token(tokens);
-                    Ok(true)
-                }
-                TokenContent::RightParenthesis => Ok(false),
-                TokenContent::LeftBracket => Ok(false),
-                TokenContent::RightBracket => Ok(false),
-                TokenContent::LeftBrace => Ok(false),
-                TokenContent::RightBrace => Ok(false),
-                TokenContent::Dot => Ok(false),
-                TokenContent::Colon => Ok(false),
-                TokenContent::Quotes(_) => Ok(false),
-                TokenContent::FatArrow => Ok(false),
-                TokenContent::Comma => Ok(false),
-                TokenContent::Integer(_, _) => Ok(false),
-                TokenContent::EndOfFile => Ok(false),
+        Some(non_whitespace) => match &non_whitespace.content {
+            TokenContent::Comment(_) => Err(ParserError::new(
+                "Comments are currently not supported where a left parenthesis could appear."
+                    .to_string(),
+                non_whitespace.location,
+            )),
+            TokenContent::Whitespace => unreachable!(),
+            TokenContent::Identifier(_) => Ok(false),
+            TokenContent::Assign => Ok(false),
+            TokenContent::LeftParenthesis => {
+                pop_next_non_whitespace_token(tokens);
+                Ok(true)
             }
-        }
+            TokenContent::RightParenthesis => Ok(false),
+            TokenContent::LeftBracket => Ok(false),
+            TokenContent::RightBracket => Ok(false),
+            TokenContent::LeftBrace => Ok(false),
+            TokenContent::RightBrace => Ok(false),
+            TokenContent::Dot => Ok(false),
+            TokenContent::Colon => Ok(false),
+            TokenContent::Quotes(_) => Ok(false),
+            TokenContent::FatArrow => Ok(false),
+            TokenContent::Comma => Ok(false),
+            TokenContent::Integer(_, _) => Ok(false),
+            TokenContent::EndOfFile => Ok(false),
+        },
         None => todo!(),
     }
 }
