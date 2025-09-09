@@ -271,6 +271,28 @@ fn test_parse_missing_argument() {
 }
 
 #[test_log::test]
+fn test_parse_call_missing_comma() {
+    let tokens = tokenize_default_syntax(r#"f(a b)"#);
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::RightParenthesis,
+            SourceLocation { line: 0, column: 5 }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected comma.".to_string(),
+            SourceLocation::new(0, 4),
+        )],
+    );
+    assert_eq!(expected, output);
+}
+
+#[test_log::test]
 fn test_parse_missing_parameter_type() {
     let tokens = tokenize_default_syntax(r#"(f:) => f"#);
     let mut token_iterator = tokens.iter().peekable();
