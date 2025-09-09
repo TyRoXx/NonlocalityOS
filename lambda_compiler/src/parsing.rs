@@ -537,7 +537,7 @@ pub fn parse_expression<'t>(
             TokenContent::RightBracket => Ok(start),
             TokenContent::LeftBrace => Ok(start),
             TokenContent::RightBrace => Ok(start),
-            TokenContent::Dot => todo!(),
+            TokenContent::Dot => Ok(start),
             TokenContent::Colon => Ok(start),
             TokenContent::Quotes(_) => Ok(start),
             TokenContent::FatArrow => Ok(start),
