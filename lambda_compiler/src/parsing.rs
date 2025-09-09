@@ -74,28 +74,34 @@ fn expect_right_brace(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
 ) -> ParserResult<()> {
     match peek_next_non_whitespace_token(tokens) {
-        Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
-            TokenContent::Whitespace => unreachable!(),
-            TokenContent::Identifier(_) => todo!(),
-            TokenContent::Assign => todo!(),
-            TokenContent::LeftParenthesis => todo!(),
-            TokenContent::RightParenthesis => todo!(),
-            TokenContent::LeftBracket => todo!(),
-            TokenContent::RightBracket => todo!(),
-            TokenContent::LeftBrace => todo!(),
-            TokenContent::RightBrace => {
-                pop_next_non_whitespace_token(tokens);
-                Ok(())
+        Some(non_whitespace) => {
+            match &non_whitespace.content {
+                TokenContent::Comment(_) => todo!(),
+                TokenContent::Whitespace => unreachable!(),
+                TokenContent::Identifier(_) => {}
+                TokenContent::Assign => {}
+                TokenContent::LeftParenthesis => {}
+                TokenContent::RightParenthesis => {}
+                TokenContent::LeftBracket => {}
+                TokenContent::RightBracket => {}
+                TokenContent::LeftBrace => {}
+                TokenContent::RightBrace => {
+                    pop_next_non_whitespace_token(tokens);
+                    return Ok(());
+                }
+                TokenContent::Dot => {}
+                TokenContent::Colon => {}
+                TokenContent::Quotes(_) => {}
+                TokenContent::FatArrow => {}
+                TokenContent::Comma => {}
+                TokenContent::Integer(_, _) => {}
+                TokenContent::EndOfFile => {}
             }
-            TokenContent::Dot => todo!(),
-            TokenContent::Colon => todo!(),
-            TokenContent::Quotes(_) => todo!(),
-            TokenContent::FatArrow => todo!(),
-            TokenContent::Comma => todo!(),
-            TokenContent::Integer(_, _) => todo!(),
-            TokenContent::EndOfFile => todo!(),
-        },
+            Err(ParserError::new(
+                "Expected right brace.".to_string(),
+                non_whitespace.location,
+            ))
+        }
         None => todo!(),
     }
 }

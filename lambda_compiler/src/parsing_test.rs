@@ -428,6 +428,28 @@ fn test_parse_braces() {
 }
 
 #[test_log::test]
+fn test_parse_missing_right_brace() {
+    let tokens = tokenize_default_syntax("{a");
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::EndOfFile,
+            SourceLocation { line: 0, column: 2 }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected right brace.".to_string(),
+            SourceLocation::new(0, 2),
+        )],
+    );
+    assert_eq!(expected, output);
+}
+
+#[test_log::test]
 fn test_parse_let() {
     for source in &["let a = b\na", "let a=b\na"] {
         let expected = ast::Expression::Let {
