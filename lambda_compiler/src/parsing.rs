@@ -76,7 +76,13 @@ fn expect_right_brace(
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => {
             match &non_whitespace.content {
-                TokenContent::Comment(_) => todo!(),
+                TokenContent::Comment(_) => {
+                    return Err(ParserError::new(
+                        "Comments are currently not supported where a right brace is expected."
+                            .to_string(),
+                        non_whitespace.location,
+                    ))
+                }
                 TokenContent::Whitespace => unreachable!(),
                 TokenContent::Identifier(_) => {}
                 TokenContent::Assign => {}
@@ -108,30 +114,36 @@ fn expect_right_brace(
 
 fn try_skip_left_parenthesis(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
-) -> bool {
+) -> ParserResult<bool> {
     match peek_next_non_whitespace_token(tokens) {
-        Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
-            TokenContent::Whitespace => unreachable!(),
-            TokenContent::Identifier(_) => false,
-            TokenContent::Assign => todo!(),
-            TokenContent::LeftParenthesis => {
-                pop_next_non_whitespace_token(tokens);
-                true
+        Some(non_whitespace) => {
+            match &non_whitespace.content {
+                TokenContent::Comment(_) => return Err(ParserError::new(
+                    "Comments are currently not supported where a left parenthesis could appear."
+                        .to_string(),
+                    non_whitespace.location,
+                )),
+                TokenContent::Whitespace => unreachable!(),
+                TokenContent::Identifier(_) => Ok(false),
+                TokenContent::Assign => Ok(false),
+                TokenContent::LeftParenthesis => {
+                    pop_next_non_whitespace_token(tokens);
+                    Ok(true)
+                }
+                TokenContent::RightParenthesis => Ok(false),
+                TokenContent::LeftBracket => Ok(false),
+                TokenContent::RightBracket => Ok(false),
+                TokenContent::LeftBrace => Ok(false),
+                TokenContent::RightBrace => Ok(false),
+                TokenContent::Dot => Ok(false),
+                TokenContent::Colon => Ok(false),
+                TokenContent::Quotes(_) => Ok(false),
+                TokenContent::FatArrow => Ok(false),
+                TokenContent::Comma => Ok(false),
+                TokenContent::Integer(_, _) => Ok(false),
+                TokenContent::EndOfFile => Ok(false),
             }
-            TokenContent::RightParenthesis => todo!(),
-            TokenContent::LeftBracket => false,
-            TokenContent::RightBracket => todo!(),
-            TokenContent::LeftBrace => false,
-            TokenContent::RightBrace => todo!(),
-            TokenContent::Dot => todo!(),
-            TokenContent::Colon => todo!(),
-            TokenContent::Quotes(_) => false,
-            TokenContent::FatArrow => todo!(),
-            TokenContent::Comma => false,
-            TokenContent::Integer(_, _) => todo!(),
-            TokenContent::EndOfFile => todo!(),
-        },
+        }
         None => todo!(),
     }
 }
@@ -166,29 +178,35 @@ fn try_skip_right_parenthesis(
     }
 }
 
-fn try_skip_assign(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
+fn try_skip_assign(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+) -> ParserResult<bool> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
+            TokenContent::Comment(_) => return Err(ParserError::new(
+                "Comments are currently not supported where an assignment operator could appear."
+                    .to_string(),
+                non_whitespace.location,
+            )),
             TokenContent::Whitespace => unreachable!(),
-            TokenContent::Identifier(_) => false,
+            TokenContent::Identifier(_) => Ok(false),
             TokenContent::Assign => {
                 pop_next_non_whitespace_token(tokens);
-                true
+                Ok(true)
             }
-            TokenContent::LeftParenthesis => todo!(),
-            TokenContent::RightParenthesis => todo!(),
-            TokenContent::LeftBracket => todo!(),
-            TokenContent::RightBracket => todo!(),
-            TokenContent::LeftBrace => false,
-            TokenContent::RightBrace => todo!(),
-            TokenContent::Dot => todo!(),
-            TokenContent::Colon => todo!(),
-            TokenContent::Quotes(_) => false,
-            TokenContent::FatArrow => todo!(),
-            TokenContent::Comma => false,
-            TokenContent::Integer(_, _) => todo!(),
-            TokenContent::EndOfFile => todo!(),
+            TokenContent::LeftParenthesis => Ok(false),
+            TokenContent::RightParenthesis => Ok(false),
+            TokenContent::LeftBracket => Ok(false),
+            TokenContent::RightBracket => Ok(false),
+            TokenContent::LeftBrace => Ok(false),
+            TokenContent::RightBrace => Ok(false),
+            TokenContent::Dot => Ok(false),
+            TokenContent::Colon => Ok(false),
+            TokenContent::Quotes(_) => Ok(false),
+            TokenContent::FatArrow => Ok(false),
+            TokenContent::Comma => Ok(false),
+            TokenContent::Integer(_, _) => Ok(false),
+            TokenContent::EndOfFile => Ok(false),
         },
         None => todo!(),
     }
@@ -200,7 +218,13 @@ fn expect_fat_arrow(
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => {
             match &non_whitespace.content {
-                TokenContent::Comment(_) => todo!(),
+                TokenContent::Comment(_) => {
+                    return Err(ParserError::new(
+                        "Comments are currently not supported where a fat arrow could appear."
+                            .to_string(),
+                        non_whitespace.location,
+                    ))
+                }
                 TokenContent::Whitespace => unreachable!(),
                 TokenContent::Identifier(_identifier) => {}
                 TokenContent::Assign => {}
@@ -233,7 +257,13 @@ fn expect_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -
     match pop_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => {
             match &non_whitespace.content {
-                TokenContent::Comment(_) => todo!(),
+                TokenContent::Comment(_) => {
+                    return Err(ParserError::new(
+                        "Comments are currently not supported where a comma could appear."
+                            .to_string(),
+                        non_whitespace.location,
+                    ))
+                }
                 TokenContent::Whitespace => unreachable!(),
                 TokenContent::Identifier(_) => {}
                 TokenContent::Assign => {}
@@ -342,7 +372,7 @@ fn parse_let(
             ))
         }
     };
-    if !try_skip_assign(tokens) {
+    if !try_skip_assign(tokens)? {
         return Err(ParserError::new(
             "Expected '=' after 'let' identifier.".to_string(),
             *let_location,
@@ -363,7 +393,7 @@ fn parse_type_of(
     local_namespace: &NamespaceId,
     type_of_location: &SourceLocation,
 ) -> ParserResult<ast::Expression> {
-    if !try_skip_left_parenthesis(tokens) {
+    if !try_skip_left_parenthesis(tokens)? {
         return Err(ParserError::new(
             "Expected '(' after 'type_of' keyword.".to_string(),
             *type_of_location,
@@ -584,59 +614,69 @@ fn try_pop_identifier(
     }
 }
 
-fn try_skip_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
+fn try_skip_comma(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+) -> ParserResult<bool> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
+            TokenContent::Comment(_) => Err(ParserError::new(
+                "Comments are currently not supported where a comma could appear.".to_string(),
+                non_whitespace.location,
+            )),
             TokenContent::Whitespace => unreachable!(),
-            TokenContent::Identifier(_identifier) => false,
-            TokenContent::Assign => todo!(),
-            TokenContent::LeftParenthesis => todo!(),
-            TokenContent::RightParenthesis => false,
-            TokenContent::LeftBracket => todo!(),
-            TokenContent::RightBracket => todo!(),
-            TokenContent::LeftBrace => todo!(),
-            TokenContent::RightBrace => todo!(),
-            TokenContent::Dot => todo!(),
-            TokenContent::Colon => todo!(),
-            TokenContent::Quotes(_) => todo!(),
-            TokenContent::FatArrow => todo!(),
+            TokenContent::Identifier(_identifier) => Ok(false),
+            TokenContent::Assign => Ok(false),
+            TokenContent::LeftParenthesis => Ok(false),
+            TokenContent::RightParenthesis => Ok(false),
+            TokenContent::LeftBracket => Ok(false),
+            TokenContent::RightBracket => Ok(false),
+            TokenContent::LeftBrace => Ok(false),
+            TokenContent::RightBrace => Ok(false),
+            TokenContent::Dot => Ok(false),
+            TokenContent::Colon => Ok(false),
+            TokenContent::Quotes(_) => Ok(false),
+            TokenContent::FatArrow => Ok(false),
             TokenContent::Comma => {
                 pop_next_non_whitespace_token(tokens);
-                true
+                Ok(true)
             }
-            TokenContent::Integer(_, _) => todo!(),
-            TokenContent::EndOfFile => false,
+            TokenContent::Integer(_, _) => Ok(false),
+            TokenContent::EndOfFile => Ok(false),
         },
-        None => false,
+        None => Ok(false),
     }
 }
 
-fn try_skip_colon(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
+fn try_skip_colon(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+) -> ParserResult<bool> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
+            TokenContent::Comment(_) => Err(ParserError::new(
+                "Comments are currently not supported where a colon could appear.".to_string(),
+                non_whitespace.location,
+            )),
             TokenContent::Whitespace => unreachable!(),
-            TokenContent::Identifier(_identifier) => false,
-            TokenContent::Assign => todo!(),
-            TokenContent::LeftParenthesis => todo!(),
-            TokenContent::RightParenthesis => false,
-            TokenContent::LeftBracket => todo!(),
-            TokenContent::RightBracket => todo!(),
-            TokenContent::LeftBrace => todo!(),
-            TokenContent::RightBrace => todo!(),
-            TokenContent::Dot => todo!(),
+            TokenContent::Identifier(_identifier) => Ok(false),
+            TokenContent::Assign => Ok(false),
+            TokenContent::LeftParenthesis => Ok(false),
+            TokenContent::RightParenthesis => Ok(false),
+            TokenContent::LeftBracket => Ok(false),
+            TokenContent::RightBracket => Ok(false),
+            TokenContent::LeftBrace => Ok(false),
+            TokenContent::RightBrace => Ok(false),
+            TokenContent::Dot => Ok(false),
             TokenContent::Colon => {
                 pop_next_non_whitespace_token(tokens);
-                true
+                Ok(true)
             }
-            TokenContent::Quotes(_) => todo!(),
-            TokenContent::FatArrow => todo!(),
-            TokenContent::Comma => false,
-            TokenContent::Integer(_, _) => todo!(),
-            TokenContent::EndOfFile => false,
+            TokenContent::Quotes(_) => Ok(false),
+            TokenContent::FatArrow => Ok(false),
+            TokenContent::Comma => Ok(false),
+            TokenContent::Integer(_, _) => Ok(false),
+            TokenContent::EndOfFile => Ok(false),
         },
-        None => false,
+        None => Ok(false),
     }
 }
 
@@ -648,7 +688,7 @@ fn parse_lambda<'t>(
     while let Some((parameter_name, parameter_location)) = try_pop_identifier(tokens)? {
         let namespaced_name = Name::new(*local_namespace, parameter_name);
         let mut type_annotation = None;
-        if try_skip_colon(tokens) {
+        if try_skip_colon(tokens)? {
             type_annotation = Some(parse_expression(tokens, local_namespace)?);
         }
         parameters.push(LambdaParameter::new(
@@ -656,7 +696,7 @@ fn parse_lambda<'t>(
             parameter_location,
             type_annotation,
         ));
-        if !try_skip_comma(tokens) {
+        if !try_skip_comma(tokens)? {
             break;
         }
     }
