@@ -118,7 +118,7 @@ fn try_skip_left_parenthesis(
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => {
             match &non_whitespace.content {
-                TokenContent::Comment(_) => return Err(ParserError::new(
+                TokenContent::Comment(_) => Err(ParserError::new(
                     "Comments are currently not supported where a left parenthesis could appear."
                         .to_string(),
                     non_whitespace.location,
@@ -183,7 +183,7 @@ fn try_skip_assign(
 ) -> ParserResult<bool> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => return Err(ParserError::new(
+            TokenContent::Comment(_) => Err(ParserError::new(
                 "Comments are currently not supported where an assignment operator could appear."
                     .to_string(),
                 non_whitespace.location,
