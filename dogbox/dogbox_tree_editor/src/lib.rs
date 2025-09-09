@@ -187,7 +187,7 @@ impl NamedEntry {
         }
     }
 
-    fn watch(&mut self, on_change: Box<(dyn Fn() -> Future<'static, ()> + Send + Sync)>) {
+    fn watch(&mut self, on_change: Box<dyn Fn() -> Future<'static, ()> + Send + Sync>) {
         match self {
             NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {}
             NamedEntry::OpenRegularFile(_arc, receiver) => {
@@ -357,7 +357,7 @@ impl OpenDirectoryMutableState {
 #[derive(Debug)]
 pub struct OpenDirectory {
     state: tokio::sync::Mutex<OpenDirectoryMutableState>,
-    storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
     change_event_sender: tokio::sync::watch::Sender<OpenDirectoryStatus>,
     _change_event_receiver: tokio::sync::watch::Receiver<OpenDirectoryStatus>,
     modified: std::time::SystemTime,
@@ -369,7 +369,7 @@ impl OpenDirectory {
     pub fn new(
         digest: DigestStatus,
         names: BTreeMap<String, NamedEntry>,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
         modified: std::time::SystemTime,
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
@@ -391,7 +391,7 @@ impl OpenDirectory {
     pub fn from_entries(
         digest: DigestStatus,
         entries: Vec<DirectoryEntry>,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
         modified: std::time::SystemTime,
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
@@ -537,7 +537,7 @@ impl OpenDirectory {
     }
 
     pub async fn load_directory(
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
         digest: &BlobDigest,
         modified: std::time::SystemTime,
         clock: WallClock,
@@ -647,7 +647,7 @@ impl OpenDirectory {
     }
 
     pub async fn create_directory(
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<OpenDirectory> {
@@ -768,8 +768,8 @@ impl OpenDirectory {
             }
         }
 
-        if state_there_locked.is_some() {
-            Self::notify_about_change(&mut state_there_locked.unwrap(), &there.change_event_sender)
+        if let Some(mut state_there_locked_present) = state_there_locked {
+            Self::notify_about_change(&mut state_there_locked_present, &there.change_event_sender)
                 .await;
         }
         Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
@@ -904,7 +904,7 @@ impl OpenDirectory {
     async fn consider_saving_and_updating_status(
         change_event_sender: &tokio::sync::watch::Sender<OpenDirectoryStatus>,
         state_locked: &mut OpenDirectoryMutableState,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<OpenDirectoryStatus> {
         let digest: Option<BlobDigest> = Self::consider_saving(state_locked, storage).await?;
         Ok(Self::update_status(change_event_sender, state_locked, digest).await)
@@ -912,7 +912,7 @@ impl OpenDirectory {
 
     async fn consider_saving(
         state_locked: &mut OpenDirectoryMutableState,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<Option<BlobDigest>> {
         if state_locked.has_unsaved_changes {
             debug!("We should save this directory.");
@@ -1014,7 +1014,7 @@ impl OpenDirectory {
 
     async fn save(
         state_locked: &mut OpenDirectoryMutableState,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::result::Result<BlobDigest, StoreError> {
         let mut serialization_children = std::collections::BTreeMap::new();
         let mut serialization_references = Vec::new();
@@ -1232,7 +1232,7 @@ pub enum OpenFileContentBlock {
 impl OpenFileContentBlock {
     pub fn prepare_for_reading<'t>(
         &self,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Option<Future<'t, HashedTree>> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
@@ -1262,7 +1262,7 @@ impl OpenFileContentBlock {
     async fn load(
         blob_digest: &BlobDigest,
         size: u16,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<HashedTree> {
         let loaded = if size == 0 {
             // there is nothing to load
@@ -1302,7 +1302,7 @@ impl OpenFileContentBlock {
 
     pub async fn access_content_for_reading(
         &mut self,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<bytes::Bytes> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
@@ -1322,7 +1322,7 @@ impl OpenFileContentBlock {
 
     pub async fn access_content_for_writing(
         &mut self,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<&mut Vec<u8>> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, size) => {
@@ -1356,7 +1356,7 @@ impl OpenFileContentBlock {
         &mut self,
         position_in_block: u16,
         buf: bytes::Bytes,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<WriteResult> {
         let data = self.access_content_for_writing(storage).await?;
         let (mut for_extending, overwritten) =
@@ -1386,7 +1386,7 @@ impl OpenFileContentBlock {
     pub async fn try_store(
         &mut self,
         is_allowed_to_calculate_digest: bool,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::result::Result<Option<BlobDigest>, StoreError> {
         match self {
             OpenFileContentBlock::NotLoaded(blob_digest, _) => Ok(Some(*blob_digest)),
@@ -1602,7 +1602,7 @@ impl Prefetcher {
         &mut self,
         blocks: &mut [OpenFileContentBlock],
         explicitly_requested_blocks_right_now: std::ops::Range<u64>,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) {
         for index in explicitly_requested_blocks_right_now
             .clone()
@@ -1692,7 +1692,7 @@ impl OpenFileContentBufferLoaded {
     //#[instrument(skip_all)]
     pub async fn store_cheap_blocks(
         &mut self,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::result::Result<(), StoreError> {
         debug!(
             "store_cheap_blocks, {} dirty blocks",
@@ -1729,7 +1729,7 @@ impl OpenFileContentBufferLoaded {
     //#[instrument(skip_all)]
     pub async fn store_all(
         &mut self,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::result::Result<StoreChanges, StoreError> {
         debug!("store_all, {} dirty blocks", self.dirty_blocks.len());
 
@@ -1962,7 +1962,7 @@ impl OpenFileContentBuffer {
         &mut self,
         position: u64,
         count: usize,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<bytes::Bytes> {
         let loaded = self.require_loaded(storage.clone()).await?;
         Self::read_from_blocks(loaded, position, count, storage).await
@@ -1970,7 +1970,7 @@ impl OpenFileContentBuffer {
 
     async fn require_loaded(
         &mut self,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<&mut OpenFileContentBufferLoaded> {
         match self {
             OpenFileContentBuffer::NotLoaded {
@@ -2055,7 +2055,7 @@ impl OpenFileContentBuffer {
         loaded: &mut OpenFileContentBufferLoaded,
         position: u64,
         count: usize,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<bytes::Bytes> {
         let block_size = TREE_BLOB_MAX_LENGTH;
         let first_block_index = position / (block_size as u64);
@@ -2094,7 +2094,7 @@ impl OpenFileContentBuffer {
         &mut self,
         position: u64,
         buf: OptimizedWriteBuffer,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<()> {
         debug!(
             "Write prefix {}, full blocks {}, suffix {}",
@@ -2241,7 +2241,7 @@ impl OpenFileContentBuffer {
 
     pub async fn store_all(
         &mut self,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::result::Result<StoreChanges, StoreError> {
         match self {
             OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
@@ -2279,7 +2279,7 @@ pub struct OpenFileWritePermission {}
 #[derive(Debug)]
 pub struct OpenFile {
     content: tokio::sync::Mutex<OpenFileContentBuffer>,
-    storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
     change_event_sender: tokio::sync::watch::Sender<OpenFileStatus>,
     _change_event_receiver: tokio::sync::watch::Receiver<OpenFileStatus>,
     modified: std::time::SystemTime,
@@ -2289,7 +2289,7 @@ pub struct OpenFile {
 impl OpenFile {
     pub fn new(
         content: OpenFileContentBuffer,
-        storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
         modified: std::time::SystemTime,
     ) -> OpenFile {
         let (last_known_digest, last_known_digest_file_size) = content.last_known_digest();
@@ -2397,7 +2397,7 @@ impl OpenFile {
         write_permission: &OpenFileWritePermission,
         position: u64,
         buf: bytes::Bytes,
-    ) -> Future<()> {
+    ) -> Future<'_, ()> {
         self.assert_write_permission(write_permission);
         debug!("Write at {}: {} bytes", position, buf.len());
         Box::pin(async move {
@@ -2421,7 +2421,7 @@ impl OpenFile {
         })
     }
 
-    pub fn read_bytes(&self, position: u64, count: usize) -> Future<bytes::Bytes> {
+    pub fn read_bytes(&self, position: u64, count: usize) -> Future<'_, bytes::Bytes> {
         debug!("Read at {}: Up to {} bytes", position, count);
         Box::pin(async move {
             let mut content_locked = self.content.lock().await;

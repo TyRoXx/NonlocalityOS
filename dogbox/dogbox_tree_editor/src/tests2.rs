@@ -1145,7 +1145,7 @@ async fn open_file_content_buffer_store() {
 async fn check_open_file_content_buffer(
     buffer: &mut OpenFileContentBuffer,
     expected_content: bytes::Bytes,
-    storage: Arc<(dyn LoadStoreTree + Send + Sync)>,
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
 ) {
     let mut checked = 0;
     while checked < expected_content.len() {

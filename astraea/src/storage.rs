@@ -412,12 +412,12 @@ impl CommitChanges for SQLiteStorage {
 
 #[derive(Debug)]
 pub struct LoadCache {
-    next: Arc<(dyn LoadStoreTree + Send + Sync)>,
+    next: Arc<dyn LoadStoreTree + Send + Sync>,
     entries: Mutex<cached::stores::SizedCache<BlobDigest, HashedTree>>,
 }
 
 impl LoadCache {
-    pub fn new(next: Arc<(dyn LoadStoreTree + Send + Sync)>, max_entries: usize) -> Self {
+    pub fn new(next: Arc<dyn LoadStoreTree + Send + Sync>, max_entries: usize) -> Self {
         Self {
             next,
             entries: Mutex::new(cached::stores::SizedCache::with_size(max_entries)),

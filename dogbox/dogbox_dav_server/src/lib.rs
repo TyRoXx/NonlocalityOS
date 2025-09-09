@@ -148,7 +148,7 @@ async fn persist_root_on_change(
     root: Arc<OpenDirectory>,
     root_name: &str,
     blob_storage_update: &(dyn UpdateRoot + Sync),
-    blob_storage_commit: Arc<(dyn CommitChanges + Sync + Send)>,
+    blob_storage_commit: Arc<dyn CommitChanges + Sync + Send>,
     save_status_sender: tokio::sync::mpsc::Sender<SaveStatus>,
 ) {
     let mut number_of_no_changes_in_a_row: u64 = 0;

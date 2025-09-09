@@ -133,17 +133,17 @@ impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
         self.info.name.as_bytes().into()
     }
 
-    fn metadata(&self) -> dav_server::fs::FsFuture<Box<dyn dav_server::fs::DavMetaData>> {
+    fn metadata(&self) -> dav_server::fs::FsFuture<'_, Box<dyn dav_server::fs::DavMetaData>> {
         let result = match self.info.kind {
             dogbox_tree_editor::DirectoryEntryKind::Directory => Box::new(DogBoxDirectoryMetaData {
                 modified: self.info.modified,
             })
-                as Box<(dyn dav_server::fs::DavMetaData + 'static)>,
+                as Box<dyn dav_server::fs::DavMetaData + 'static>,
             dogbox_tree_editor::DirectoryEntryKind::File(size) => Box::new(DogBoxFileMetaData {
                 size,
                 modified: self.info.modified,
             })
-                as Box<(dyn dav_server::fs::DavMetaData + 'static)>,
+                as Box<dyn dav_server::fs::DavMetaData + 'static>,
         };
         Box::pin(async move { Ok(result) })
     }
@@ -175,19 +175,19 @@ impl DogBoxOpenFile {
 }
 
 impl dav_server::fs::DavFile for DogBoxOpenFile {
-    fn metadata(&mut self) -> dav_server::fs::FsFuture<Box<dyn dav_server::fs::DavMetaData>> {
+    fn metadata(&mut self) -> dav_server::fs::FsFuture<'_, Box<dyn dav_server::fs::DavMetaData>> {
         Box::pin(async move {
             Ok(Box::new(DogBoxMetaData {
                 entry: self.handle.get_meta_data().await,
-            }) as Box<(dyn dav_server::fs::DavMetaData)>)
+            }) as Box<dyn dav_server::fs::DavMetaData>)
         })
     }
 
-    fn write_buf(&mut self, _buf: Box<dyn bytes::Buf + Send>) -> dav_server::fs::FsFuture<()> {
+    fn write_buf(&mut self, _buf: Box<dyn bytes::Buf + Send>) -> dav_server::fs::FsFuture<'_, ()> {
         todo!()
     }
 
-    fn write_bytes(&mut self, buf: bytes::Bytes) -> dav_server::fs::FsFuture<()> {
+    fn write_bytes(&mut self, buf: bytes::Bytes) -> dav_server::fs::FsFuture<'_, ()> {
         let write_at = self.cursor;
         let maybe_new_cursor = self.cursor.checked_add(buf.len() as u64);
         match maybe_new_cursor {
@@ -209,7 +209,7 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
         })
     }
 
-    fn read_bytes(&mut self, count: usize) -> dav_server::fs::FsFuture<bytes::Bytes> {
+    fn read_bytes(&mut self, count: usize) -> dav_server::fs::FsFuture<'_, bytes::Bytes> {
         let read_at = self.cursor;
         let open_file = self.handle.clone();
         Box::pin(async move {
@@ -229,7 +229,7 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
         })
     }
 
-    fn seek(&mut self, pos: std::io::SeekFrom) -> dav_server::fs::FsFuture<u64> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> dav_server::fs::FsFuture<'_, u64> {
         let open_file = self.handle.clone();
         Box::pin(async move {
             match pos {
@@ -248,7 +248,7 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
         })
     }
 
-    fn flush(&mut self) -> dav_server::fs::FsFuture<()> {
+    fn flush(&mut self) -> dav_server::fs::FsFuture<'_, ()> {
         Box::pin(async {
             match self.handle.flush().await {
                 Ok(_) => Ok(()),
@@ -376,7 +376,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 Ok(success) => {
                     debug!("Metadata {}: {:?}", path, &success);
                     Ok(Box::new(DogBoxMetaData { entry: success })
-                        as Box<(dyn dav_server::fs::DavMetaData + 'static)>)
+                        as Box<dyn dav_server::fs::DavMetaData + 'static>)
                 }
                 Err(error) => Err(handle_error(error)),
             }
@@ -524,7 +524,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     }
 
     //#[instrument(skip(self))]
-    fn get_quota(&self) -> dav_server::fs::FsFuture<(u64, Option<u64>)> {
+    fn get_quota(&self) -> dav_server::fs::FsFuture<'_, (u64, Option<u64>)> {
         Box::pin(core::future::ready(Err(FsError::NotImplemented)))
     }
 }
