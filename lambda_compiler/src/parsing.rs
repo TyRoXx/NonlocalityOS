@@ -333,7 +333,7 @@ fn parse_let(
     local_namespace: &NamespaceId,
     let_location: &SourceLocation,
 ) -> ParserResult<ast::Expression> {
-    let (name, location) = match try_pop_identifier(tokens) {
+    let (name, location) = match try_pop_identifier(tokens)? {
         Some((name, location)) => (name, location),
         None => {
             return Err(ParserError::new(
@@ -552,31 +552,35 @@ pub fn parse_expression<'t>(
 
 fn try_pop_identifier(
     tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
-) -> Option<(String, SourceLocation)> {
+) -> ParserResult<Option<(String, SourceLocation)>> {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
+            TokenContent::Comment(_) => Err(ParserError::new(
+                "Comments are currently not supported where an identifier could appear."
+                    .to_string(),
+                non_whitespace.location,
+            )),
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(identifier) => {
                 pop_next_non_whitespace_token(tokens);
-                Some((identifier.clone(), non_whitespace.location))
+                Ok(Some((identifier.clone(), non_whitespace.location)))
             }
-            TokenContent::Assign => None,
-            TokenContent::LeftParenthesis => None,
-            TokenContent::RightParenthesis => None,
-            TokenContent::LeftBracket => None,
-            TokenContent::RightBracket => None,
-            TokenContent::LeftBrace => None,
-            TokenContent::RightBrace => None,
-            TokenContent::Dot => None,
-            TokenContent::Colon => None,
-            TokenContent::Quotes(_) => None,
-            TokenContent::FatArrow => None,
-            TokenContent::Comma => None,
-            TokenContent::Integer(_, _) => None,
-            TokenContent::EndOfFile => None,
+            TokenContent::Assign => Ok(None),
+            TokenContent::LeftParenthesis => Ok(None),
+            TokenContent::RightParenthesis => Ok(None),
+            TokenContent::LeftBracket => Ok(None),
+            TokenContent::RightBracket => Ok(None),
+            TokenContent::LeftBrace => Ok(None),
+            TokenContent::RightBrace => Ok(None),
+            TokenContent::Dot => Ok(None),
+            TokenContent::Colon => Ok(None),
+            TokenContent::Quotes(_) => Ok(None),
+            TokenContent::FatArrow => Ok(None),
+            TokenContent::Comma => Ok(None),
+            TokenContent::Integer(_, _) => Ok(None),
+            TokenContent::EndOfFile => Ok(None),
         },
-        None => None,
+        None => Ok(None),
     }
 }
 
@@ -641,7 +645,7 @@ fn parse_lambda<'t>(
     local_namespace: &NamespaceId,
 ) -> ParserResult<ast::Expression> {
     let mut parameters = Vec::new();
-    while let Some((parameter_name, parameter_location)) = try_pop_identifier(tokens) {
+    while let Some((parameter_name, parameter_location)) = try_pop_identifier(tokens)? {
         let namespaced_name = Name::new(*local_namespace, parameter_name);
         let mut type_annotation = None;
         if try_skip_colon(tokens) {
