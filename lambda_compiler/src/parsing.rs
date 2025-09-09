@@ -395,7 +395,10 @@ fn parse_expression_start<'t>(
                     ))
                 }
             }
-            TokenContent::Assign => todo!(),
+            TokenContent::Assign => Err(ParserError::new(
+                "Expected expression, found assignment operator.".to_string(),
+                non_whitespace.location,
+            )),
             TokenContent::LeftParenthesis => {
                 pop_next_non_whitespace_token(tokens);
                 parse_lambda(tokens, local_namespace)
@@ -416,12 +419,18 @@ fn parse_expression_start<'t>(
                 pop_next_non_whitespace_token(tokens);
                 parse_braces(tokens, local_namespace)
             }
-            TokenContent::RightBrace => todo!(),
+            TokenContent::RightBrace => Err(ParserError::new(
+                "Expected expression, found right brace.".to_string(),
+                non_whitespace.location,
+            )),
             TokenContent::Dot => Err(ParserError::new(
                 "Expected expression, found dot.".to_string(),
                 non_whitespace.location,
             )),
-            TokenContent::Colon => todo!(),
+            TokenContent::Colon => Err(ParserError::new(
+                "Expected expression, found colon.".to_string(),
+                non_whitespace.location,
+            )),
             TokenContent::Quotes(content) => {
                 pop_next_non_whitespace_token(tokens);
                 Ok(ast::Expression::StringLiteral(
