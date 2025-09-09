@@ -252,32 +252,38 @@ fn expect_comma(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -
     }
 }
 
-fn skip_right_bracket(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) -> bool {
+fn skip_right_bracket(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+) -> ParserResult<bool> {
     let maybe_right_bracket = peek_next_non_whitespace_token(tokens);
     match maybe_right_bracket {
         Some(token) => match &token.content {
-            TokenContent::Comment(_) => todo!(),
+            TokenContent::Comment(_) => Err(ParserError::new(
+                "Comments are currently not supported where a right bracket could appear."
+                    .to_string(),
+                token.location,
+            )),
             TokenContent::Whitespace => unreachable!(),
-            TokenContent::Identifier(_) => false,
-            TokenContent::Assign => false,
-            TokenContent::LeftParenthesis => false,
-            TokenContent::RightParenthesis => false,
-            TokenContent::LeftBracket => false,
+            TokenContent::Identifier(_) => Ok(false),
+            TokenContent::Assign => Ok(false),
+            TokenContent::LeftParenthesis => Ok(false),
+            TokenContent::RightParenthesis => Ok(false),
+            TokenContent::LeftBracket => Ok(false),
             TokenContent::RightBracket => {
                 tokens.next();
-                true
+                Ok(true)
             }
-            TokenContent::LeftBrace => false,
-            TokenContent::RightBrace => false,
-            TokenContent::Dot => false,
-            TokenContent::Colon => false,
-            TokenContent::Quotes(_) => false,
-            TokenContent::FatArrow => false,
-            TokenContent::Comma => false,
-            TokenContent::Integer(_, _) => false,
-            TokenContent::EndOfFile => false,
+            TokenContent::LeftBrace => Ok(false),
+            TokenContent::RightBrace => Ok(false),
+            TokenContent::Dot => Ok(false),
+            TokenContent::Colon => Ok(false),
+            TokenContent::Quotes(_) => Ok(false),
+            TokenContent::FatArrow => Ok(false),
+            TokenContent::Comma => Ok(false),
+            TokenContent::Integer(_, _) => Ok(false),
+            TokenContent::EndOfFile => Ok(false),
         },
-        None => false,
+        None => Ok(false),
     }
 }
 
@@ -288,13 +294,13 @@ fn parse_tree_construction(
 ) -> ParserResult<ast::Expression> {
     let mut elements = Vec::new();
     loop {
-        if skip_right_bracket(tokens) {
+        if skip_right_bracket(tokens)? {
             break;
         }
         if !elements.is_empty() {
             expect_comma(tokens)?;
         }
-        if skip_right_bracket(tokens) {
+        if skip_right_bracket(tokens)? {
             break;
         }
         let element = parse_expression(tokens, local_namespace)?;
