@@ -194,27 +194,37 @@ fn try_skip_assign(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>
     }
 }
 
-fn expect_fat_arrow(tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>) {
+fn expect_fat_arrow(
+    tokens: &mut std::iter::Peekable<std::slice::Iter<'_, Token>>,
+) -> ParserResult<()> {
     match pop_next_non_whitespace_token(tokens) {
-        Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
-            TokenContent::Whitespace => unreachable!(),
-            TokenContent::Identifier(_identifier) => todo!(),
-            TokenContent::Assign => todo!(),
-            TokenContent::LeftParenthesis => todo!(),
-            TokenContent::RightParenthesis => todo!(),
-            TokenContent::LeftBracket => todo!(),
-            TokenContent::RightBracket => todo!(),
-            TokenContent::LeftBrace => todo!(),
-            TokenContent::RightBrace => todo!(),
-            TokenContent::Dot => todo!(),
-            TokenContent::Colon => todo!(),
-            TokenContent::Quotes(_) => todo!(),
-            TokenContent::FatArrow => {}
-            TokenContent::Comma => todo!(),
-            TokenContent::Integer(_, _) => todo!(),
-            TokenContent::EndOfFile => todo!(),
-        },
+        Some(non_whitespace) => {
+            match &non_whitespace.content {
+                TokenContent::Comment(_) => todo!(),
+                TokenContent::Whitespace => unreachable!(),
+                TokenContent::Identifier(_identifier) => {}
+                TokenContent::Assign => {}
+                TokenContent::LeftParenthesis => {}
+                TokenContent::RightParenthesis => {}
+                TokenContent::LeftBracket => {}
+                TokenContent::RightBracket => {}
+                TokenContent::LeftBrace => {}
+                TokenContent::RightBrace => {}
+                TokenContent::Dot => {}
+                TokenContent::Colon => {}
+                TokenContent::Quotes(_) => {}
+                TokenContent::FatArrow => {
+                    return Ok(());
+                }
+                TokenContent::Comma => {}
+                TokenContent::Integer(_, _) => {}
+                TokenContent::EndOfFile => {}
+            }
+            Err(ParserError::new(
+                "Expected fat arrow (=>).".to_string(),
+                non_whitespace.location,
+            ))
+        }
         None => todo!(),
     }
 }
@@ -653,7 +663,7 @@ fn parse_lambda<'t>(
             next_token.location,
         ));
     }
-    expect_fat_arrow(tokens);
+    expect_fat_arrow(tokens)?;
     let body = parse_expression(tokens, local_namespace)?;
     Ok(ast::Expression::Lambda {
         parameters,

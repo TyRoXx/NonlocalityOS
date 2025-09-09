@@ -226,6 +226,28 @@ fn test_parse_nested_lambda() {
 }
 
 #[test_log::test]
+fn test_parse_missing_fat_arrow() {
+    let tokens = tokenize_default_syntax("(f) a");
+    let mut token_iterator = tokens.iter().peekable();
+    let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
+    assert_eq!(
+        Some(&Token::new(
+            TokenContent::EndOfFile,
+            SourceLocation { line: 0, column: 5 }
+        )),
+        token_iterator.next()
+    );
+    let expected = ParserOutput::new(
+        None,
+        vec![CompilerError::new(
+            "Parser error: Expected fat arrow (=>).".to_string(),
+            SourceLocation::new(0, 4),
+        )],
+    );
+    assert_eq!(expected, output);
+}
+
+#[test_log::test]
 fn test_parse_function_call_1_argument() {
     let name = Name::new(TEST_NAMESPACE, "f".to_string());
     let expected = ast::Expression::Lambda {
