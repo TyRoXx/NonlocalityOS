@@ -94,8 +94,8 @@ jobs:
     - name: Check code formatting
       run: cargo fmt --all -- --check
 
-    - name: Building fuzzers
-      run: ./scripts/build_fuzz.sh
+    - name: Fuzzing
+      run: ./fuzz.sh
 
     - name: sccache stats
       run: sccache --show-adv-stats
