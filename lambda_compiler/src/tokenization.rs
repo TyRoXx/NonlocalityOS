@@ -109,7 +109,7 @@ impl<Next: hippeus_parser_generator::ReadPeekInput> hippeus_parser_generator::Re
 {
 }
 
-fn tokenize(source: &str, syntax: &Parser) -> Vec<Token> {
+fn tokenize(source: &str, syntax: &Parser) -> Option<Vec<Token>> {
     let mut tokens = Vec::new();
     let mut input = SourceLocationTrackingInput::new(
         hippeus_parser_generator::Slice::new(source),
@@ -157,7 +157,7 @@ fn tokenize(source: &str, syntax: &Parser) -> Vec<Token> {
                         TokenContent::EndOfFile,
                         input.current_location(),
                     ));
-                    return tokens;
+                    return Some(tokens);
                 }
                 let new_source_location = input.current_location();
                 assert_ne!(
@@ -166,7 +166,7 @@ fn tokenize(source: &str, syntax: &Parser) -> Vec<Token> {
                 );
                 previous_source_location = new_source_location;
             }
-            ParseResult::Failed => todo!(),
+            ParseResult::Failed => return None,
             ParseResult::ErrorInParser => {
                 panic!("this is a bug in the token parser")
             }
@@ -174,7 +174,7 @@ fn tokenize(source: &str, syntax: &Parser) -> Vec<Token> {
     }
 }
 
-pub fn tokenize_default_syntax(source: &str) -> Vec<Token> {
+pub fn tokenize_default_syntax(source: &str) -> Option<Vec<Token>> {
     const IS_END_OF_INPUT: RegisterId = RegisterId(0);
     const STILL_SOMETHING_TO_CHECK: RegisterId = RegisterId(1);
     const FIRST_INPUT: RegisterId = RegisterId(2);

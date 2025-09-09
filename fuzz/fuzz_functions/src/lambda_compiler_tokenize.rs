@@ -7,10 +7,20 @@ pub fn fuzz_function(data: &[u8]) -> bool {
     };
     // TODO: check if the result roundtrips?
     let tokens = tokenize_default_syntax(source);
-    assert_ne!(0, tokens.len());
-    assert_eq!(
-        tokens.last().unwrap().content,
-        lambda_compiler::tokenization::TokenContent::EndOfFile
-    );
+    match tokens {
+        None => {}
+        Some(tokens) => {
+            assert_ne!(0, tokens.len());
+            assert_eq!(
+                tokens.last().unwrap().content,
+                lambda_compiler::tokenization::TokenContent::EndOfFile
+            );
+        }
+    }
     true
+}
+
+#[test]
+fn crash_0() {
+    assert!(fuzz_function(&[4, 34, 83]));
 }

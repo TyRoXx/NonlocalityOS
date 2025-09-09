@@ -6,7 +6,7 @@ use pretty_assertions::assert_eq;
 use test_case::test_case;
 
 fn test_tokenize_default_syntax(source: &str, expected_tokens: &[Token]) {
-    let tokenized = tokenize_default_syntax(source);
+    let tokenized = tokenize_default_syntax(source).expect("tokenization failed");
     assert_eq!(expected_tokens, &tokenized[..]);
 }
 

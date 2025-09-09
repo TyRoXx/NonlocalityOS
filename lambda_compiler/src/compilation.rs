@@ -50,7 +50,18 @@ impl CompilerOutput {
 }
 
 pub fn parse_source(source: &str, source_namespace: &NamespaceId) -> ParserOutput {
-    let tokens = tokenize_default_syntax(source);
+    let tokens = match tokenize_default_syntax(source) {
+        None => {
+            return ParserOutput {
+                entry_point: None,
+                errors: vec![CompilerError::new(
+                    "Failed to tokenize source code somewhere.".to_string(),
+                    SourceLocation::new(0, 0),
+                )],
+            }
+        }
+        Some(tokens) => tokens,
+    };
     let mut token_iterator = tokens.iter().peekable();
     let mut result = parse_expression_tolerantly(&mut token_iterator, source_namespace);
     let final_token = pop_next_non_whitespace_token(&mut token_iterator)

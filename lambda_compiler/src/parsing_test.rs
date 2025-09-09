@@ -38,7 +38,7 @@ fn test_find_end_of_file_location() {
 }
 
 fn parse_wellformed_expression(source: &str) -> ast::Expression {
-    let tokens = tokenize_default_syntax(source);
+    let tokens = tokenize_default_syntax(source).expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression(&mut token_iterator, &TEST_NAMESPACE).unwrap();
     assert_eq!(
@@ -73,7 +73,7 @@ fn test_parse_comment() {
 #[test_log::test]
 fn test_parse_comment_missing_expression() {
     // Currently a comment cannot stand alone, it must be followed by an expression. This makes the code formatter easier to implement.
-    let tokens = tokenize_default_syntax("# comment");
+    let tokens = tokenize_default_syntax("# comment").expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -227,7 +227,7 @@ fn test_parse_nested_lambda() {
 
 #[test_log::test]
 fn test_parse_missing_fat_arrow() {
-    let tokens = tokenize_default_syntax("(f) a");
+    let tokens = tokenize_default_syntax("(f) a").expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -272,7 +272,7 @@ fn test_parse_function_call_1_argument() {
 
 #[test_log::test]
 fn test_parse_missing_argument() {
-    let tokens = tokenize_default_syntax(r#"(f) => f(,)"#);
+    let tokens = tokenize_default_syntax(r#"(f) => f(,)"#).expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -294,7 +294,7 @@ fn test_parse_missing_argument() {
 
 #[test_log::test]
 fn test_parse_call_missing_comma() {
-    let tokens = tokenize_default_syntax(r#"f(a b)"#);
+    let tokens = tokenize_default_syntax(r#"f(a b)"#).expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -316,7 +316,7 @@ fn test_parse_call_missing_comma() {
 
 #[test_log::test]
 fn test_parse_missing_parameter_type() {
-    let tokens = tokenize_default_syntax(r#"(f:) => f"#);
+    let tokens = tokenize_default_syntax(r#"(f:) => f"#).expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -414,7 +414,7 @@ fn test_parse_tree_construction_2_children() {
 
 #[test_log::test]
 fn test_parse_comment_before_right_bracket() {
-    let tokens = tokenize_default_syntax("[#test\n]");
+    let tokens = tokenize_default_syntax("[#test\n]").expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -436,7 +436,7 @@ fn test_parse_comment_before_right_bracket() {
 
 #[test_log::test]
 fn test_parse_missing_comma_between_parameters() {
-    let tokens = tokenize_default_syntax(r#"(f g) => f()"#);
+    let tokens = tokenize_default_syntax(r#"(f g) => f()"#).expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -473,7 +473,7 @@ fn test_parse_braces() {
 
 #[test_log::test]
 fn test_parse_missing_right_brace() {
-    let tokens = tokenize_default_syntax("{a");
+    let tokens = tokenize_default_syntax("{a").expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -521,7 +521,7 @@ fn test_parse_let() {
 #[test_log::test]
 fn test_parse_let_ambiguity() {
     // b() is parsed as a function call
-    let tokens = tokenize_default_syntax("let a = b () => a");
+    let tokens = tokenize_default_syntax("let a = b () => a").expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -560,7 +560,7 @@ fn test_parse_type_of() {
 
 #[test_log::test]
 fn test_parse_type_of_missing_left_parenthesis() {
-    let tokens = tokenize_default_syntax("type_of a");
+    let tokens = tokenize_default_syntax("type_of a").expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -582,7 +582,7 @@ fn test_parse_type_of_missing_left_parenthesis() {
 
 #[test_log::test]
 fn test_parse_type_of_missing_right_parenthesis() {
-    let tokens = tokenize_default_syntax("type_of(a b");
+    let tokens = tokenize_default_syntax("type_of(a b").expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
@@ -607,7 +607,7 @@ fn test_parse_type_of_missing_right_parenthesis() {
 
 #[test_log::test]
 fn test_parse_dot() {
-    let tokens = tokenize_default_syntax(".");
+    let tokens = tokenize_default_syntax(".").expect("tokenization failed");
     let mut token_iterator = tokens.iter().peekable();
     let output = parse_expression_tolerantly(&mut token_iterator, &TEST_NAMESPACE);
     assert_eq!(
