@@ -135,26 +135,26 @@ fn try_skip_right_parenthesis(
 ) -> bool {
     match peek_next_non_whitespace_token(tokens) {
         Some(non_whitespace) => match &non_whitespace.content {
-            TokenContent::Comment(_) => todo!(),
+            TokenContent::Comment(_) => false,
             TokenContent::Whitespace => unreachable!(),
             TokenContent::Identifier(_) => false,
-            TokenContent::Assign => todo!(),
-            TokenContent::LeftParenthesis => todo!(),
+            TokenContent::Assign => false,
+            TokenContent::LeftParenthesis => false,
             TokenContent::RightParenthesis => {
                 pop_next_non_whitespace_token(tokens);
                 true
             }
             TokenContent::LeftBracket => false,
-            TokenContent::RightBracket => todo!(),
+            TokenContent::RightBracket => false,
             TokenContent::LeftBrace => false,
-            TokenContent::RightBrace => todo!(),
-            TokenContent::Dot => todo!(),
-            TokenContent::Colon => todo!(),
+            TokenContent::RightBrace => false,
+            TokenContent::Dot => false,
+            TokenContent::Colon => false,
             TokenContent::Quotes(_) => false,
-            TokenContent::FatArrow => todo!(),
+            TokenContent::FatArrow => false,
             TokenContent::Comma => false,
             TokenContent::Integer(_, _) => false,
-            TokenContent::EndOfFile => todo!(),
+            TokenContent::EndOfFile => false,
         },
         None => todo!(),
     }

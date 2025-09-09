@@ -31,3 +31,8 @@ pub fn fuzz_function(data: &[u8]) -> bool {
 fn crash_0() {
     assert!(fuzz_function(&[1, 0, 108, 0, 108, 0]));
 }
+
+#[test]
+fn crash_1() {
+    assert!(fuzz_function(&[63, 246, 14, 1, 58]));
+}
