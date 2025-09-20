@@ -1,0 +1,15 @@
+[package]
+name = "sorted_tree"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+astraea = { path ="../astraea" }
+serde = "1"
+postcard = {version = "1", features = ["alloc"]}
+pretty_assertions = "1"
+
+[dev-dependencies]
+test-log = {version = "0", features = ["trace", "log", "color"]}
