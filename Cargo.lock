@@ -2809,6 +2809,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sorted_tree"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "bytes 1.10.1",
+ "postcard",
+ "pretty_assertions",
+ "serde",
+ "test-log",
+ "tokio",
+]
+
+[[package]]
 name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
