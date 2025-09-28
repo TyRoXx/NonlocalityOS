@@ -1,5 +1,6 @@
 use crate::sorted_tree::{find, insert, load_node, new_tree};
 use pretty_assertions::{assert_eq, assert_ne};
+use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
 
@@ -217,5 +218,45 @@ async fn insert_after() {
             &Vec::from([(first_key, first_value), (second_key, second_value)]),
             loaded_back.entries()
         );
+    }
+}
+
+#[test_log::test(tokio::test)]
+async fn insert_many() {
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let mut current_state = new_tree::<String, i64>(&storage)
+        .await
+        .expect("creating a new tree should succeed");
+    let mut all_entries = Vec::new();
+    for index in 0..100 {
+        let key = format!("key-{index}");
+        let value = index;
+        all_entries.push((key, value));
+    }
+    {
+        let mut random = SmallRng::seed_from_u64(123);
+        all_entries.shuffle(&mut random);
+    }
+    let mut expected_entries = Vec::new();
+    for (index, (key, value)) in all_entries.into_iter().enumerate() {
+        current_state =
+            insert::<String, i64>(&storage, &storage, current_state, key.clone(), value)
+                .await
+                .expect("inserting key should succeed");
+        {
+            let found = find::<String, i64>(&storage, current_state, &key).await;
+            assert_eq!(Some(value), found);
+        }
+        assert_eq!(2 + index as u64, storage.number_of_trees().await as u64);
+        expected_entries.push((key, value));
+        expected_entries.sort_by_key(|element| element.0.clone());
+        {
+            let loaded_back = load_node::<String, i64>(&storage, current_state).await;
+            assert_eq!(&expected_entries, loaded_back.entries());
+        }
+    }
+    for (key, value) in expected_entries.iter() {
+        let found = find::<String, i64>(&storage, current_state, key).await;
+        assert_eq!(Some(*value), found);
     }
 }

@@ -85,14 +85,18 @@ pub async fn insert<
 
 pub async fn find<
     Key: Serialize + DeserializeOwned + PartialEq + Ord,
-    Value: Serialize + DeserializeOwned,
+    Value: Serialize + DeserializeOwned + Clone,
 >(
     load_tree: &dyn LoadTree,
     root: BlobDigest,
     key: &Key,
 ) -> Option<Value> {
     let node = load_node::<Key, Value>(load_tree, root).await;
-    node.entries
-        .into_iter()
-        .find_map(|(k, v)| if &k == key { Some(v) } else { None })
+    match node
+        .entries
+        .binary_search_by_key(&key, |element| &element.0)
+    {
+        Ok(index) => Some(node.entries[index].1.clone()),
+        Err(_) => None,
+    }
 }
