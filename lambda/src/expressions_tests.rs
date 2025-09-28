@@ -18,8 +18,8 @@ async fn test_to_reference_expression_argument() {
     assert_eq!(references.len(), 0);
 }
 
-#[test_log::test(tokio::test)]
-async fn print_all_expression_types() {
+#[test_log::test]
+fn print_all_expression_types() {
     let literal_1: DeepExpression = DeepExpression(Expression::make_literal(
         DeepTree::try_from_string("Hello, world!").unwrap(),
     ));
@@ -44,8 +44,8 @@ async fn print_all_expression_types() {
     apply.print(&mut writer, 0).unwrap();
     assert_eq!(
         concat!(
-            "$env={literal(DeepTree { blob: TreeBlob { content.len(): 13 }, references: [] })}($arg) =>\n",
-            "  [$arg, $env, ](literal(DeepTree { blob: TreeBlob { content.len(): 1 }, references: [] }))"),
+            "$env={literal(DeepTree { blob: TreeBlob { content: b\"Hello, world!\" }, references: [] })}($arg) =>\n",
+            "  [$arg, $env, ](literal(DeepTree { blob: TreeBlob { content: b\"2\" }, references: [] }))"),
         writer.as_str());
 }
 
