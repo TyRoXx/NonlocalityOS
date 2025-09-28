@@ -33,7 +33,7 @@ async fn insert_first_key() {
 }
 
 #[test_log::test(tokio::test)]
-async fn overwrite_value() {
+async fn insert_existing_key() {
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let empty = new_tree::<String, i64>(&storage)
         .await
@@ -222,13 +222,14 @@ async fn insert_after() {
 }
 
 #[test_log::test(tokio::test)]
-async fn insert_many() {
+async fn insert_many_new_keys() {
+    let number_of_insertions = 100;
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut current_state = new_tree::<String, i64>(&storage)
         .await
         .expect("creating a new tree should succeed");
     let mut all_entries = Vec::new();
-    for index in 0..100 {
+    for index in 0..number_of_insertions {
         let key = format!("key-{index}");
         let value = index;
         all_entries.push((key, value));
@@ -256,6 +257,50 @@ async fn insert_many() {
         }
     }
     for (key, value) in expected_entries.iter() {
+        let found = find::<String, i64>(&storage, current_state, key).await;
+        assert_eq!(Some(*value), found);
+    }
+}
+
+#[test_log::test(tokio::test)]
+async fn insert_many_with_overwrites() {
+    let number_of_insertions = 100;
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let mut current_state = new_tree::<String, i64>(&storage)
+        .await
+        .expect("creating a new tree should succeed");
+    let mut oracle = BTreeMap::new();
+    let mut all_insertions = Vec::new();
+    for index in 0..number_of_insertions {
+        let overwrite_index = index % 10;
+        let key = format!("key-{overwrite_index}");
+        let value = index;
+        all_insertions.push((key.clone(), value));
+    }
+    {
+        let mut random = SmallRng::seed_from_u64(123);
+        all_insertions.shuffle(&mut random);
+    }
+    for (key, value) in all_insertions.into_iter() {
+        current_state =
+            insert::<String, i64>(&storage, &storage, current_state, key.clone(), value)
+                .await
+                .expect("inserting key should succeed");
+        {
+            let found = find::<String, i64>(&storage, current_state, &key).await;
+            assert_eq!(Some(value), found);
+        }
+        oracle.insert(key, value);
+        {
+            let loaded_back = load_node::<String, i64>(&storage, current_state).await;
+            let expected_entries = oracle
+                .iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect::<Vec<_>>();
+            assert_eq!(&expected_entries, loaded_back.entries());
+        }
+    }
+    for (key, value) in oracle.iter() {
         let found = find::<String, i64>(&storage, current_state, key).await;
         assert_eq!(Some(*value), found);
     }
