@@ -99,9 +99,15 @@ impl TreeBlob {
 
 impl std::fmt::Debug for TreeBlob {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TreeBlob")
-            .field("content.len()", &self.content.len())
-            .finish()
+        if self.content.len() <= 64 {
+            f.debug_struct("TreeBlob")
+                .field("content", &self.content)
+                .finish()
+        } else {
+            f.debug_struct("TreeBlob")
+                .field("content.len()", &self.content.len())
+                .finish()
+        }
     }
 }
 

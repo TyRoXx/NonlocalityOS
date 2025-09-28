@@ -1,4 +1,5 @@
-use crate::sorted_tree::{find, insert, load_node, new_tree};
+use crate::sorted_tree::{find, insert, load_node, new_tree, node_to_tree, Node, TreeReference};
+use astraea::tree::{BlobDigest, Tree, TreeBlob};
 use pretty_assertions::{assert_eq, assert_ne};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
@@ -304,4 +305,68 @@ async fn insert_many_with_overwrites() {
         let found = find::<String, i64>(&storage, current_state, key).await;
         assert_eq!(Some(*value), found);
     }
+}
+
+#[test_log::test]
+fn node_to_tree_without_child_references() {
+    let mut node = Node::<u64, String>::new();
+    node.insert(1, "A".to_string());
+    node.insert(2, "B".to_string());
+    let tree = node_to_tree(&node);
+    let expected = Tree::new(
+        TreeBlob::try_from(bytes::Bytes::from_static(b"\x02\x01\x01A\x02\x01B")).unwrap(),
+        Vec::new(),
+    );
+    assert_eq!(expected, tree);
+}
+
+#[test_log::test]
+fn node_to_tree_with_child_references() {
+    let mut node = Node::<u64, TreeReference>::new();
+    let reference_1 = BlobDigest::hash(&[31]);
+    node.insert(1, TreeReference::new(reference_1));
+    let reference_2 = BlobDigest::hash(&[32]);
+    node.insert(2, TreeReference::new(reference_2));
+    let tree = node_to_tree(&node);
+    let expected = Tree::new(
+        TreeBlob::try_from(bytes::Bytes::from_iter([2, 1, 2])).unwrap(),
+        vec![reference_1, reference_2],
+    );
+    assert_eq!(expected, tree);
+}
+
+#[test_log::test(tokio::test)]
+async fn insert_reference_value() {
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let empty = new_tree::<String, TreeReference>(&storage)
+        .await
+        .expect("creating a new tree should succeed");
+    {
+        let found = find::<String, TreeReference>(&storage, empty, &"key".to_string()).await;
+        assert_eq!(None, found);
+    }
+    let one_element = insert::<String, TreeReference>(
+        &storage,
+        &storage,
+        empty,
+        "key".into(),
+        TreeReference::new(empty),
+    )
+    .await
+    .expect("inserting first key should succeed");
+    assert_ne!(empty, one_element);
+    {
+        let found = find::<String, TreeReference>(&storage, one_element, &"key".to_string()).await;
+        assert_eq!(Some(TreeReference::new(empty)), found);
+    }
+    {
+        let found = find::<String, TreeReference>(&storage, one_element, &"xyz".to_string()).await;
+        assert_eq!(None, found);
+    }
+    assert_eq!(storage.number_of_trees().await, 2);
+    let loaded_back = load_node::<String, TreeReference>(&storage, one_element).await;
+    assert_eq!(
+        &Vec::from([("key".into(), TreeReference::new(empty))]),
+        loaded_back.entries()
+    );
 }
