@@ -42,3 +42,10 @@ path = "fuzz_targets/lambda-compiler-tokenize.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "sorted-tree-insert"
+path = "fuzz_targets/sorted-tree-insert.rs"
+test = false
+doc = false
+bench = false

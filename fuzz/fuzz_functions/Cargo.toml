@@ -8,9 +8,12 @@ edition = "2021"
 [dependencies]
 postcard = {version = "1", features = ["use-std"]}
 pretty_assertions = "1"
-lambda_compiler = { path ="../../lambda_compiler" }
-lambda = { path ="../../lambda" }
+lambda_compiler = { path = "../../lambda_compiler" }
+lambda = { path = "../../lambda" }
 arbitrary = { version = "1", features = ["derive"] }
+tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "sync"]}
+astraea = { path = "../../astraea" }
+sorted_tree = { path = "../../sorted_tree" }
 
 [dev-dependencies]
 test-log = {version = "0", features = ["trace", "log", "color"]}

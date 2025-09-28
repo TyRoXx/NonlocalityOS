@@ -5,11 +5,18 @@ use astraea::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Hash)]
-pub struct Node<Key: Serialize, Value: Serialize> {
+pub struct Node<Key: Serialize + Ord, Value: Serialize> {
+    /// sorted by Key
     entries: Vec<(Key, Value)>,
 }
 
-pub async fn store_node<Key: Serialize, Value: Serialize>(
+impl<Key: Serialize + Ord, Value: Serialize> Node<Key, Value> {
+    pub fn entries(&self) -> &Vec<(Key, Value)> {
+        &self.entries
+    }
+}
+
+pub async fn store_node<Key: Serialize + Ord, Value: Serialize>(
     store_tree: &dyn StoreTree,
     node: &Node<Key, Value>,
 ) -> Result<BlobDigest, StoreError> {
@@ -24,7 +31,10 @@ pub async fn store_node<Key: Serialize, Value: Serialize>(
         .await
 }
 
-pub async fn load_node<Key: Serialize + DeserializeOwned, Value: Serialize + DeserializeOwned>(
+pub async fn load_node<
+    Key: Serialize + DeserializeOwned + Ord,
+    Value: Serialize + DeserializeOwned,
+>(
     load_tree: &dyn LoadTree,
     root: BlobDigest,
 ) -> Node<Key, Value> {
@@ -38,10 +48,13 @@ pub async fn load_node<Key: Serialize + DeserializeOwned, Value: Serialize + Des
     };
     let node = postcard::from_bytes::<Node<Key, Value>>(hashed_tree.tree().blob().as_slice())
         .expect("this should always work");
+    if !node.entries.is_sorted_by_key(|element| &element.0) {
+        todo!("loaded node is not sorted");
+    }
     node
 }
 
-pub async fn new_tree<Key: Serialize, Value: Serialize>(
+pub async fn new_tree<Key: Serialize + Ord, Value: Serialize>(
     store_tree: &dyn StoreTree,
 ) -> Result<BlobDigest, StoreError> {
     let root = Node::<Key, Value> {
@@ -50,7 +63,10 @@ pub async fn new_tree<Key: Serialize, Value: Serialize>(
     store_node(store_tree, &root).await
 }
 
-pub async fn insert<Key: Serialize + DeserializeOwned, Value: Serialize + DeserializeOwned>(
+pub async fn insert<
+    Key: Serialize + DeserializeOwned + Ord,
+    Value: Serialize + DeserializeOwned,
+>(
     load_tree: &dyn LoadTree,
     store_tree: &dyn StoreTree,
     root: BlobDigest,
@@ -58,12 +74,17 @@ pub async fn insert<Key: Serialize + DeserializeOwned, Value: Serialize + Deseri
     value: Value,
 ) -> Result<BlobDigest, StoreError> {
     let mut node = load_node::<Key, Value>(load_tree, root).await;
-    node.entries.push((key, value));
+    let partition_point = node.entries.partition_point(|element| element.0 < key);
+    if partition_point < node.entries.len() && node.entries[partition_point].0 == key {
+        node.entries[partition_point].1 = value;
+    } else {
+        node.entries.insert(partition_point, (key, value));
+    }
     store_node(store_tree, &node).await
 }
 
 pub async fn find<
-    Key: Serialize + DeserializeOwned + PartialEq,
+    Key: Serialize + DeserializeOwned + PartialEq + Ord,
     Value: Serialize + DeserializeOwned,
 >(
     load_tree: &dyn LoadTree,

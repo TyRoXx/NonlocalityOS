@@ -1022,12 +1022,15 @@ name = "fuzz_functions"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "astraea",
  "lambda",
  "lambda_compiler",
  "postcard",
  "pretty_assertions",
+ "sorted_tree",
  "test-case",
  "test-log",
+ "tokio",
 ]
 
 [[package]]
