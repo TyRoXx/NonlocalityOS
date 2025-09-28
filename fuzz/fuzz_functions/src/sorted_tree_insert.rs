@@ -20,7 +20,7 @@ pub fn fuzz_function(data: &[u8]) -> bool {
             let mut oracle = BTreeMap::new();
             for (key, _value) in entries.iter() {
                 let found =
-                    sorted_tree::sorted_tree::find::<String, i64>(&storage, current_state, key)
+                    sorted_tree::sorted_tree::find::<String, i64>(&storage, &current_state, key)
                         .await;
                 assert_eq!(None, found);
             }
@@ -28,21 +28,21 @@ pub fn fuzz_function(data: &[u8]) -> bool {
                 current_state = sorted_tree::sorted_tree::insert::<String, i64>(
                     &storage,
                     &storage,
-                    current_state,
+                    &current_state,
                     key.clone(),
                     *value,
                 )
                 .await
                 .expect("inserting key should succeed");
                 let found =
-                    sorted_tree::sorted_tree::find::<String, i64>(&storage, current_state, key)
+                    sorted_tree::sorted_tree::find::<String, i64>(&storage, &current_state, key)
                         .await;
                 assert_eq!(Some(*value), found);
                 oracle.insert(key.clone(), *value);
             }
             for (key, value) in oracle.iter() {
                 let found =
-                    sorted_tree::sorted_tree::find::<String, i64>(&storage, current_state, key)
+                    sorted_tree::sorted_tree::find::<String, i64>(&storage, &current_state, key)
                         .await;
                 assert_eq!(Some(*value), found);
             }
