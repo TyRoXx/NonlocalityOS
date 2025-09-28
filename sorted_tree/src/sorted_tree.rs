@@ -77,13 +77,13 @@ pub struct Node<Key: Serialize + Ord, Value: NodeValue> {
     entries: Vec<(Key, Value)>,
 }
 
-impl<Key: Serialize + Ord, Value: NodeValue> Default for Node<Key, Value> {
+impl<Key: Serialize + Ord, Value: NodeValue + Clone> Default for Node<Key, Value> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Key: Serialize + Ord, Value: NodeValue> Node<Key, Value> {
+impl<Key: Serialize + Ord, Value: NodeValue + Clone> Node<Key, Value> {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
@@ -100,6 +100,16 @@ impl<Key: Serialize + Ord, Value: NodeValue> Node<Key, Value> {
             self.entries[partition_point].1 = value;
         } else {
             self.entries.insert(partition_point, (key, value));
+        }
+    }
+
+    pub fn find(&self, key: &Key) -> Option<Value> {
+        match self
+            .entries
+            .binary_search_by_key(&key, |element| &element.0)
+        {
+            Ok(index) => Some(self.entries[index].1.clone()),
+            Err(_) => None,
         }
     }
 }
@@ -186,9 +196,9 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
 
 pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>(
     load_tree: &dyn LoadTree,
-    root: BlobDigest,
+    root: &BlobDigest,
 ) -> Node<Key, Value> {
-    let delayed_hashed_tree = match load_tree.load_tree(&root).await {
+    let delayed_hashed_tree = match load_tree.load_tree(root).await {
         Some(tree) => tree,
         None => todo!(),
     };
@@ -208,10 +218,10 @@ pub async fn new_tree<Key: Serialize + Ord, Value: NodeValue>(
     store_node(store_tree, &root).await
 }
 
-pub async fn insert<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>(
+pub async fn insert<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue + Clone>(
     load_tree: &dyn LoadTree,
     store_tree: &dyn StoreTree,
-    root: BlobDigest,
+    root: &BlobDigest,
     key: Key,
     value: Value,
 ) -> Result<BlobDigest, StoreError> {
@@ -222,15 +232,9 @@ pub async fn insert<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>(
 
 pub async fn find<Key: Serialize + DeserializeOwned + PartialEq + Ord, Value: NodeValue + Clone>(
     load_tree: &dyn LoadTree,
-    root: BlobDigest,
+    root: &BlobDigest,
     key: &Key,
 ) -> Option<Value> {
     let node = load_node::<Key, Value>(load_tree, root).await;
-    match node
-        .entries
-        .binary_search_by_key(&key, |element| &element.0)
-    {
-        Ok(index) => Some(node.entries[index].1.clone()),
-        Err(_) => None,
-    }
+    node.find(key)
 }
