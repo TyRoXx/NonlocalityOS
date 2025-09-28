@@ -26,8 +26,8 @@ async fn hello_world() {
             .unwrap();
         assert_eq!(
             concat!(
-            "$env={literal(DeepTree { blob: TreeBlob { content.len(): 0 }, references: [] })}($arg) =>\n",
-            "  literal(DeepTree { blob: TreeBlob { content.len(): 0 }, references: [DeepTree { blob: TreeBlob { content.len(): 14 }, references: [] }] })"),
+            "$env={literal(DeepTree { blob: TreeBlob { content: b\"\" }, references: [] })}($arg) =>\n",
+            "  literal(DeepTree { blob: TreeBlob { content: b\"\" }, references: [DeepTree { blob: TreeBlob { content: b\"Hello, world!\\n\" }, references: [] }] })"),
             program_as_string.as_str()
         );
     }
