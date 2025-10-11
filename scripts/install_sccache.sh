@@ -10,5 +10,5 @@ if which sccache >/dev/null 2>&1; then
 else
     echo "sccache is not in the PATH, trying to install it."
     set CARGO_LOG=info
-    cargo --verbose install --locked sccache --version 0.10.0 || exit 1
+    cargo --verbose install --locked sccache --version 0.11.0 || exit 1
 fi
