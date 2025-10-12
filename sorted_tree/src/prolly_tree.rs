@@ -219,3 +219,64 @@ pub async fn find<
         }
     }
 }
+
+#[derive(Debug)]
+pub enum RecursiveLeafCount {
+    Leaf(usize),
+    Internal(Vec<RecursiveLeafCount>),
+}
+
+#[derive(Debug)]
+pub struct InMemoryLeafNode<Key, Value> {
+    pub entries: Vec<(Key, Value)>,
+}
+
+#[derive(Debug)]
+pub enum InMemoryEitherNodeType<Key, Value> {
+    Leaf(InMemoryLeafNode<Key, Value>),
+    Internal(InMemoryInternalNode<Key, Value>),
+}
+
+impl<Key, Value> InMemoryEitherNodeType<Key, Value> {
+    pub fn count(&self) -> RecursiveLeafCount {
+        match self {
+            InMemoryEitherNodeType::Leaf(node) => RecursiveLeafCount::Leaf(node.entries.len()),
+            InMemoryEitherNodeType::Internal(node) => {
+                let mut counts = Vec::new();
+                for (_key, child) in &node.entries {
+                    counts.push(child.count());
+                }
+                RecursiveLeafCount::Internal(counts)
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InMemoryInternalNode<Key, Value> {
+    pub entries: Vec<(Key, InMemoryEitherNodeType<Key, Value>)>,
+}
+
+pub async fn load_in_memory_node<
+    Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone,
+    Value: NodeValue + Clone,
+>(
+    load_tree: &dyn LoadTree,
+    root: &BlobDigest,
+) -> InMemoryEitherNodeType<Key, Value> {
+    let loaded = load_node(load_tree, root).await.expect("TODO");
+    match loaded {
+        EitherNodeType::Leaf(node) => InMemoryEitherNodeType::Leaf(InMemoryLeafNode {
+            entries: node.entries().to_vec(),
+        }),
+        EitherNodeType::Internal(node) => {
+            let mut entries = Vec::new();
+            for (key, tree_reference) in node.entries() {
+                let child =
+                    Box::pin(load_in_memory_node(load_tree, tree_reference.reference())).await;
+                entries.push((key.clone(), child));
+            }
+            InMemoryEitherNodeType::Internal(InMemoryInternalNode { entries })
+        }
+    }
+}

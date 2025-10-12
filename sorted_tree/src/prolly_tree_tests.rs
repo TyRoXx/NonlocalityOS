@@ -1,5 +1,5 @@
 use crate::{
-    prolly_tree::{find, insert, load_node, new_tree, EitherNodeType},
+    prolly_tree::{find, insert, load_in_memory_node, load_node, new_tree, EitherNodeType},
     sorted_tree::TreeReference,
 };
 use astraea::{
@@ -108,7 +108,7 @@ async fn insert_tree_reference() {
 
 #[test_log::test(tokio::test)]
 async fn insert_many_flat_values() {
-    let number_of_insertions = 100;
+    let number_of_insertions = 1000;
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut current_state = new_tree::<String, i64>(&storage)
         .await
@@ -140,6 +140,9 @@ async fn insert_many_flat_values() {
         let found = find::<String, i64>(&storage, &current_state, key).await;
         assert_eq!(Some(*value), found);
     }
+    let in_memory_node = load_in_memory_node::<String, i64>(&storage, &current_state).await;
+    println!("Entire tree: {:?}", in_memory_node);
+    println!("Leaf counts: {:?}", in_memory_node.count());
 }
 
 #[test_log::test(tokio::test)]
