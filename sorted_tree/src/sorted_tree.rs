@@ -46,6 +46,10 @@ impl TreeReference {
     pub fn new(reference: BlobDigest) -> Self {
         Self { reference }
     }
+
+    pub fn reference(&self) -> &BlobDigest {
+        &self.reference
+    }
 }
 
 impl NodeValue for TreeReference {
@@ -77,13 +81,13 @@ pub struct Node<Key: Serialize + Ord, Value: NodeValue> {
     entries: Vec<(Key, Value)>,
 }
 
-impl<Key: Serialize + Ord, Value: NodeValue + Clone> Default for Node<Key, Value> {
+impl<Key: Serialize + Ord + Clone, Value: NodeValue + Clone> Default for Node<Key, Value> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Key: Serialize + Ord, Value: NodeValue + Clone> Node<Key, Value> {
+impl<Key: Serialize + Ord + Clone, Value: NodeValue + Clone> Node<Key, Value> {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
@@ -101,6 +105,11 @@ impl<Key: Serialize + Ord, Value: NodeValue + Clone> Node<Key, Value> {
         } else {
             self.entries.insert(partition_point, (key, value));
         }
+    }
+
+    pub fn replace_chunk(&mut self, index: usize, new_chunks: &[(Key, Value)]) {
+        self.entries
+            .splice(index..=index, new_chunks.iter().cloned());
     }
 
     pub fn find(&self, key: &Key) -> Option<Value> {
@@ -126,7 +135,10 @@ impl<Key: Serialize + Ord, Value: Serialize> SerializableNodeContent<Key, Value>
     }
 }
 
-pub fn node_to_tree<Key: Serialize + Ord, Value: NodeValue>(node: &Node<Key, Value>) -> Tree {
+pub fn node_to_tree<Key: Serialize + Ord, Value: NodeValue>(
+    node: &Node<Key, Value>,
+    metadata: &bytes::Bytes,
+) -> Tree {
     let serializable_node_content = SerializableNodeContent {
         entries: node
             .entries
@@ -140,12 +152,11 @@ pub fn node_to_tree<Key: Serialize + Ord, Value: NodeValue>(node: &Node<Key, Val
         .iter()
         .filter_map(|(_key, value)| value.get_reference())
         .collect();
+    let mut buffer = Vec::from_iter(metadata.iter().cloned());
+    postcard::to_io(&serializable_node_content, &mut buffer)
+        .expect("serializing a node should always work");
     Tree::new(
-        TreeBlob::try_from(bytes::Bytes::from(
-            postcard::to_stdvec(&serializable_node_content)
-                .expect("serializing a new tree should always succeed"),
-        ))
-        .expect("this should always fit"),
+        TreeBlob::try_from(bytes::Bytes::from(buffer)).expect("this should always fit"),
         references,
     )
 }
@@ -153,8 +164,9 @@ pub fn node_to_tree<Key: Serialize + Ord, Value: NodeValue>(node: &Node<Key, Val
 pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
     store_tree: &dyn StoreTree,
     node: &Node<Key, Value>,
+    metadata: &bytes::Bytes,
 ) -> Result<BlobDigest, StoreError> {
-    let tree = node_to_tree(node);
+    let tree = node_to_tree(node, metadata);
     store_tree
         .store_tree(&HashedTree::from(std::sync::Arc::new(tree)))
         .await
@@ -162,9 +174,10 @@ pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
 
 pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>(
     tree: &Tree,
+    metadata_to_skip: usize,
 ) -> Node<Key, Value> {
     let node = postcard::from_bytes::<SerializableNodeContent<Key, Value::Content>>(
-        tree.blob().as_slice(),
+        tree.blob().as_slice().split_at(metadata_to_skip).1,
     )
     .expect("this should always work");
     if !node.entries.is_sorted_by_key(|element| &element.0) {
@@ -206,7 +219,7 @@ pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue
         Some(tree) => tree,
         None => todo!(),
     };
-    node_from_tree::<Key, Value>(hashed_tree.tree())
+    node_from_tree::<Key, Value>(hashed_tree.tree(), 0)
 }
 
 pub async fn new_tree<Key: Serialize + Ord, Value: NodeValue>(
@@ -215,10 +228,10 @@ pub async fn new_tree<Key: Serialize + Ord, Value: NodeValue>(
     let root = Node::<Key, Value> {
         entries: Vec::new(),
     };
-    store_node(store_tree, &root).await
+    store_node(store_tree, &root,  /*this function is only used by sorted_tree_tests, so we don't need the prolly_tree metadata*/ &bytes::Bytes::new()).await
 }
 
-pub async fn insert<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue + Clone>(
+pub async fn insert<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>(
     load_tree: &dyn LoadTree,
     store_tree: &dyn StoreTree,
     root: &BlobDigest,
@@ -227,10 +240,13 @@ pub async fn insert<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue + 
 ) -> Result<BlobDigest, StoreError> {
     let mut node = load_node::<Key, Value>(load_tree, root).await;
     node.insert(key, value);
-    store_node(store_tree, &node).await
+    store_node(store_tree, &node, /*this function is only used by sorted_tree_tests, so we don't need the prolly_tree metadata*/ &bytes::Bytes::new()).await
 }
 
-pub async fn find<Key: Serialize + DeserializeOwned + PartialEq + Ord, Value: NodeValue + Clone>(
+pub async fn find<
+    Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone,
+    Value: NodeValue + Clone,
+>(
     load_tree: &dyn LoadTree,
     root: &BlobDigest,
     key: &Key,

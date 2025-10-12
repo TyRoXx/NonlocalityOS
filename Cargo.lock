@@ -2758,6 +2758,7 @@ dependencies = [
  "pretty_assertions",
  "rand 0.8.5",
  "serde",
+ "sha3",
  "test-log",
  "tokio",
 ]

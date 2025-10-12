@@ -1,12 +1,39 @@
 use crate::{
-    prolly_tree::{find, insert, new_tree},
+    prolly_tree::{find, insert, load_node, new_tree, EitherNodeType},
     sorted_tree::TreeReference,
 };
-use astraea::tree::BlobDigest;
+use astraea::{
+    storage::LoadTree,
+    tree::{BlobDigest, Tree, TreeBlob},
+};
 use pretty_assertions::{assert_eq, assert_ne};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
+
+#[test_log::test(tokio::test)]
+async fn new_tree_serialization() {
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let empty = new_tree::<String, i64>(&storage)
+        .await
+        .expect("creating a new tree should succeed");
+    let loaded = storage
+        .load_tree(&empty)
+        .await
+        .expect("loading the tree should succeed");
+    let hashed = loaded.hash().expect("hashing the tree should succeed");
+    let tree = hashed.tree();
+    assert_eq!(
+        &Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(&[
+                /*metadata is_leaf: true*/ 1, /*empty list of entries*/ 0
+            ]))
+            .expect("must succeed"),
+            Vec::new()
+        ),
+        tree.as_ref()
+    );
+}
 
 #[test_log::test(tokio::test)]
 async fn insert_flat_value() {
@@ -32,8 +59,15 @@ async fn insert_flat_value() {
         assert_eq!(None, found);
     }
     assert_eq!(storage.number_of_trees().await, 2);
-    let loaded_back = crate::sorted_tree::load_node::<String, i64>(&storage, &one_element).await;
-    assert_eq!(&Vec::from([("key".into(), value)]), loaded_back.entries());
+    let loaded_back = load_node::<String, i64>(&storage, &one_element)
+        .await
+        .expect("loading has to work");
+    match loaded_back {
+        EitherNodeType::Leaf(node) => {
+            assert_eq!(&Vec::from([("key".into(), value)]), node.entries())
+        }
+        EitherNodeType::Internal(_) => panic!("expected a leaf node"),
+    }
 }
 
 #[test_log::test(tokio::test)]
@@ -61,9 +95,15 @@ async fn insert_tree_reference() {
         assert_eq!(None, found);
     }
     assert_eq!(storage.number_of_trees().await, 2);
-    let loaded_back =
-        crate::sorted_tree::load_node::<String, TreeReference>(&storage, &one_element).await;
-    assert_eq!(&Vec::from([("key".into(), value)]), loaded_back.entries());
+    let loaded_back = load_node::<String, TreeReference>(&storage, &one_element)
+        .await
+        .expect("loading has to work");
+    match loaded_back {
+        EitherNodeType::Leaf(node) => {
+            assert_eq!(&Vec::from([("key".into(), value)]), node.entries())
+        }
+        EitherNodeType::Internal(_) => panic!("expected a leaf node"),
+    }
 }
 
 #[test_log::test(tokio::test)]
@@ -84,7 +124,7 @@ async fn insert_many_flat_values() {
         all_entries.shuffle(&mut random);
     }
     let mut expected_entries = Vec::new();
-    for (index, (key, value)) in all_entries.into_iter().enumerate() {
+    for (key, value) in all_entries.into_iter() {
         current_state =
             insert::<String, i64>(&storage, &storage, &current_state, key.clone(), value)
                 .await
@@ -93,14 +133,8 @@ async fn insert_many_flat_values() {
             let found = find::<String, i64>(&storage, &current_state, &key).await;
             assert_eq!(Some(value), found);
         }
-        assert_eq!(2 + index as u64, storage.number_of_trees().await as u64);
         expected_entries.push((key, value));
         expected_entries.sort_by_key(|element| element.0.clone());
-        {
-            let loaded_back =
-                crate::sorted_tree::load_node::<String, i64>(&storage, &current_state).await;
-            assert_eq!(&expected_entries, loaded_back.entries());
-        }
     }
     for (key, value) in expected_entries.iter() {
         let found = find::<String, i64>(&storage, &current_state, key).await;
@@ -126,7 +160,7 @@ async fn insert_many_tree_references() {
         all_entries.shuffle(&mut random);
     }
     let mut expected_entries = Vec::new();
-    for (index, (key, value)) in all_entries.into_iter().enumerate() {
+    for (key, value) in all_entries.into_iter() {
         current_state =
             insert::<String, TreeReference>(&storage, &storage, &current_state, key.clone(), value)
                 .await
@@ -135,15 +169,8 @@ async fn insert_many_tree_references() {
             let found = find::<String, TreeReference>(&storage, &current_state, &key).await;
             assert_eq!(Some(value), found);
         }
-        assert_eq!(2 + index as u64, storage.number_of_trees().await as u64);
         expected_entries.push((key, value));
         expected_entries.sort_by_key(|element| element.0.clone());
-        {
-            let loaded_back =
-                crate::sorted_tree::load_node::<String, TreeReference>(&storage, &current_state)
-                    .await;
-            assert_eq!(&expected_entries, loaded_back.entries());
-        }
     }
     for (key, value) in expected_entries.iter() {
         let found = find::<String, TreeReference>(&storage, &current_state, key).await;
