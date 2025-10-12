@@ -27,13 +27,9 @@ pub async fn insert<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue + 
         None => todo!(),
     };
     let tree = hashed.tree();
-    if tree.references().is_empty() {
-        let mut node = sorted_tree::node_from_tree::<Key, Value>(tree);
-        node.insert(key, value);
-        sorted_tree::store_node(store_tree, &node).await
-    } else {
-        todo!()
-    }
+    let mut node = sorted_tree::node_from_tree::<Key, Value>(tree);
+    node.insert(key, value);
+    sorted_tree::store_node(store_tree, &node).await
 }
 
 pub async fn find<Key: Serialize + DeserializeOwned + PartialEq + Ord, Value: NodeValue + Clone>(
@@ -44,10 +40,6 @@ pub async fn find<Key: Serialize + DeserializeOwned + PartialEq + Ord, Value: No
     let loaded = load_tree.load_tree(root).await?;
     let hashed = loaded.hash()?;
     let tree = hashed.tree();
-    if tree.references().is_empty() {
-        let node = sorted_tree::node_from_tree::<Key, Value>(tree);
-        node.find(key)
-    } else {
-        todo!()
-    }
+    let node = sorted_tree::node_from_tree::<Key, Value>(tree);
+    node.find(key)
 }
