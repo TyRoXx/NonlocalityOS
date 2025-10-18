@@ -156,8 +156,8 @@ async fn insert_many_flat_values() {
             assert_eq!(Some(value), found);
         }
         expected_entries.push((key, value));
-        expected_entries.sort_by_key(|element| element.0.clone());
     }
+    expected_entries.sort_by_key(|element| element.0.clone());
     for (key, value) in expected_entries.iter() {
         let found = find::<String, i64>(&storage, &current_state, key).await;
         assert_eq!(Some(*value), found);
