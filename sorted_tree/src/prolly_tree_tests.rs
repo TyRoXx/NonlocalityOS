@@ -1,5 +1,8 @@
 use crate::{
-    prolly_tree::{find, insert, load_in_memory_node, load_node, new_tree, EitherNodeType},
+    prolly_tree::{
+        default_is_split_after_key, find, insert, load_in_memory_node, load_node, new_tree,
+        EitherNodeType,
+    },
     sorted_tree::TreeReference,
 };
 use astraea::{
@@ -46,9 +49,16 @@ async fn insert_flat_value() {
         assert_eq!(None, found);
     }
     let value = 42;
-    let one_element = insert::<String, i64>(&storage, &storage, &empty, "key".into(), value)
-        .await
-        .expect("inserting first key should succeed");
+    let one_element = insert::<String, i64>(
+        &storage,
+        &storage,
+        &empty,
+        "key".into(),
+        value,
+        default_is_split_after_key,
+    )
+    .await
+    .expect("inserting first key should succeed");
     assert_ne!(empty, one_element);
     {
         let found = find::<String, i64>(&storage, &one_element, &"key".to_string()).await;
@@ -81,10 +91,16 @@ async fn insert_tree_reference() {
         assert_eq!(None, found);
     }
     let value = TreeReference::new(empty);
-    let one_element =
-        insert::<String, TreeReference>(&storage, &storage, &empty, "key".into(), value)
-            .await
-            .expect("inserting first key should succeed");
+    let one_element = insert::<String, TreeReference>(
+        &storage,
+        &storage,
+        &empty,
+        "key".into(),
+        value,
+        default_is_split_after_key,
+    )
+    .await
+    .expect("inserting first key should succeed");
     assert_ne!(empty, one_element);
     {
         let found = find::<String, TreeReference>(&storage, &one_element, &"key".to_string()).await;
@@ -125,10 +141,16 @@ async fn insert_many_flat_values() {
     }
     let mut expected_entries = Vec::new();
     for (key, value) in all_entries.into_iter() {
-        current_state =
-            insert::<String, i64>(&storage, &storage, &current_state, key.clone(), value)
-                .await
-                .expect("inserting key should succeed");
+        current_state = insert::<String, i64>(
+            &storage,
+            &storage,
+            &current_state,
+            key.clone(),
+            value,
+            default_is_split_after_key,
+        )
+        .await
+        .expect("inserting key should succeed");
         {
             let found = find::<String, i64>(&storage, &current_state, &key).await;
             assert_eq!(Some(value), found);
@@ -164,10 +186,16 @@ async fn insert_many_tree_references() {
     }
     let mut expected_entries = Vec::new();
     for (key, value) in all_entries.into_iter() {
-        current_state =
-            insert::<String, TreeReference>(&storage, &storage, &current_state, key.clone(), value)
-                .await
-                .expect("inserting key should succeed");
+        current_state = insert::<String, TreeReference>(
+            &storage,
+            &storage,
+            &current_state,
+            key.clone(),
+            value,
+            default_is_split_after_key,
+        )
+        .await
+        .expect("inserting key should succeed");
         {
             let found = find::<String, TreeReference>(&storage, &current_state, &key).await;
             assert_eq!(Some(value), found);

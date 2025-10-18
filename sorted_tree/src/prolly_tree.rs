@@ -15,6 +15,14 @@ pub fn hash_key<Key: Serialize>(key: &Key) -> u8 {
     result[0]
 }
 
+pub type IsSplitAfterKey<Key> = fn(key: &Key) -> bool;
+
+pub fn default_is_split_after_key<Key: Serialize>(key: &Key) -> bool {
+    let hash = hash_key(key);
+    let chunk_boundary_threshold = 10;
+    return hash < chunk_boundary_threshold;
+}
+
 #[derive(Serialize, Deserialize, Clone, Hash)]
 pub struct Metadata {
     pub is_leaf: bool,
@@ -32,8 +40,8 @@ pub fn split_node_as_necessary<
     Value: NodeValue + Clone,
 >(
     original: sorted_tree::Node<Key, Value>,
+    is_split_after_key: IsSplitAfterKey<Key>,
 ) -> Vec<sorted_tree::Node<Key, Value>> {
-    let chunk_boundary_threshold = 10;
     let mut results = Vec::new();
     results.push(sorted_tree::Node::new());
     for (key, value) in original.entries() {
@@ -41,7 +49,7 @@ pub fn split_node_as_necessary<
             .last_mut()
             .expect("at least one node should be available")
             .insert((*key).clone(), value.clone());
-        if hash_key(key) < chunk_boundary_threshold {
+        if is_split_after_key(key) {
             results.push(sorted_tree::Node::new());
         }
     }
@@ -72,8 +80,11 @@ pub async fn insert<Key: Serialize + DeserializeOwned + Ord + Clone, Value: Node
     root: &BlobDigest,
     key: Key,
     value: Value,
+    is_split_after_key: IsSplitAfterKey<Key>,
 ) -> Result<BlobDigest, StoreError> {
-    let chunks = insert_impl::<Key, Value>(load_tree, store_tree, root, key, value).await?;
+    let chunks =
+        insert_impl::<Key, Value>(load_tree, store_tree, root, key, value, is_split_after_key)
+            .await?;
     assert!(!chunks.is_empty());
     if chunks.len() == 1 {
         Ok(chunks
@@ -135,12 +146,13 @@ pub async fn insert_impl<
     root: &BlobDigest,
     key: Key,
     value: Value,
+    is_split_after_key: IsSplitAfterKey<Key>,
 ) -> Result<Vec<(Key, TreeReference)>, StoreError> {
     let loaded = load_node(load_tree, root).await.expect("TODO");
     match loaded {
         EitherNodeType::Leaf(mut node) => {
             node.insert(key, value);
-            let nodes = split_node_as_necessary(node);
+            let nodes = split_node_as_necessary(node, is_split_after_key);
             let mut results = Vec::new();
             for node in nodes.iter() {
                 let first_key = node.entries().first().expect("node is not empty").0.clone();
@@ -164,11 +176,12 @@ pub async fn insert_impl<
                     node.entries()[partition_point - 1].1.reference(),
                     key,
                     value,
+                    is_split_after_key,
                 ))
                 .await?;
                 node.replace_chunk(partition_point - 1, &chunks);
             }
-            let nodes = split_node_as_necessary(node);
+            let nodes = split_node_as_necessary(node, is_split_after_key);
             let mut results = Vec::new();
             for node in nodes.iter() {
                 let first_key = node.entries().first().expect("node is not empty").0.clone();
