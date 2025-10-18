@@ -2759,6 +2759,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "sha3",
+ "test-case",
  "test-log",
  "tokio",
 ]

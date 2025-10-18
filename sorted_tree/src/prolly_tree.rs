@@ -20,7 +20,7 @@ pub type IsSplitAfterKey<Key> = fn(key: &Key) -> bool;
 pub fn default_is_split_after_key<Key: Serialize>(key: &Key) -> bool {
     let hash = hash_key(key);
     let chunk_boundary_threshold = 10;
-    return hash < chunk_boundary_threshold;
+    hash < chunk_boundary_threshold
 }
 
 #[derive(Serialize, Deserialize, Clone, Hash)]
@@ -87,12 +87,11 @@ pub async fn insert<Key: Serialize + DeserializeOwned + Ord + Clone, Value: Node
             .await?;
     assert!(!chunks.is_empty());
     if chunks.len() == 1 {
-        Ok(chunks
+        Ok(*chunks
             .first()
             .expect("at least one chunk should be available")
             .1
-            .reference()
-            .clone())
+            .reference())
     } else {
         let mut node = sorted_tree::Node::<Key, TreeReference>::new();
         for (key, digest) in chunks.into_iter() {
@@ -156,7 +155,7 @@ pub async fn insert_impl<
             let mut results = Vec::new();
             for node in nodes.iter() {
                 let first_key = node.entries().first().expect("node is not empty").0.clone();
-                let digest = store_node(store_tree, &node, &Metadata { is_leaf: true }).await?;
+                let digest = store_node(store_tree, node, &Metadata { is_leaf: true }).await?;
                 results.push((first_key, TreeReference::new(digest)));
             }
             Ok(results)
@@ -185,7 +184,7 @@ pub async fn insert_impl<
             let mut results = Vec::new();
             for node in nodes.iter() {
                 let first_key = node.entries().first().expect("node is not empty").0.clone();
-                let digest = store_node(store_tree, &node, &Metadata { is_leaf: false }).await?;
+                let digest = store_node(store_tree, node, &Metadata { is_leaf: false }).await?;
                 results.push((first_key, TreeReference::new(digest)));
             }
             Ok(results)
