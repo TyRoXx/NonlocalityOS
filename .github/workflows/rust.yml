@@ -109,6 +109,15 @@ jobs:
       if: matrix.task == 'cargo_lint'
       run: cargo fmt --all -- --check
 
+    # Reuse corpus between runs so that the fuzzer won't have to start at zero every time.
+    - name: Cache fuzzer corpus
+      if: matrix.task == 'cargo_lint'
+      uses: actions/cache@v4
+      with:
+        path: |
+          fuzz/corpus
+        key: fuzz_corpus
+
     - name: Fuzzing
       if: matrix.task == 'cargo_lint'
       run: ./fuzz.sh
