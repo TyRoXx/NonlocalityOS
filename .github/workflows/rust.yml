@@ -18,10 +18,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     concurrency:
-      # Group by branch
-      group: ${{ github.ref }}
+      # https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.task }}
       # Cancel any in-progress jobs in this group to avoid wasting time on obsolete commits
       cancel-in-progress: true
+    strategy:
+      # https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations
+      matrix:
+        task: [ cargo_test, cargo_lint ]
 
     env:
       SCCACHE_VERSION: "v0.12.0"
@@ -75,27 +79,41 @@ jobs:
           ~/.cargo/.crates2.json
           target/
           target-coverage/
-        key: cargo-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'scripts/install_cargo-tarpaulin.sh', 'scripts/coverage.sh', 'scripts/build_fuzz.sh', '**/rust-toolchain.toml') }}
+        # separate cache entries for test and lint because they run in parallel
+        key: cargo-${{ matrix.task }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'scripts/install_cargo-tarpaulin.sh', 'scripts/coverage.sh', 'scripts/build_fuzz.sh', '**/rust-toolchain.toml') }}
 
+    ########################
+    # task cargo_test begin
     - name: Run tests with coverage
+      if: matrix.task == 'cargo_test'
       run: ./coverage.sh
 
     - name: Coveralls
+      if: matrix.task == 'cargo_test'
       uses: coverallsapp/github-action@v2
       with:
         file: target-coverage/lcov.info
         format: lcov
+    # task cargo_test end
+    ######################
 
+    ########################
+    # task cargo_lint begin
     - name: Check code linting
+      if: matrix.task == 'cargo_lint'
       run: |
         cargo clippy --version
         cargo clippy --all-targets --all-features -- -D warnings
 
     - name: Check code formatting
+      if: matrix.task == 'cargo_lint'
       run: cargo fmt --all -- --check
 
     - name: Fuzzing
+      if: matrix.task == 'cargo_lint'
       run: ./fuzz.sh
+    # task cargo_lint end
+    ######################
 
     - name: sccache stats
       run: sccache --show-adv-stats
