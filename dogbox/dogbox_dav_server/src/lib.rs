@@ -197,18 +197,20 @@ async fn persist_root_on_change(
                 debug!("Root digest is up to date.");
 
                 match root.request_save().await {
+                    // TODO: redesign all of this because I have no idea whether it's correct.
                     Ok(double_checked_status) => {
                         if double_checked_status.digest.is_digest_up_to_date {
                             assert_eq!(0, double_checked_status.bytes_unflushed_count);
                             assert_eq!(0, double_checked_status.files_unflushed_count);
                             assert_eq!(0, double_checked_status.directories_unsaved_count);
-                            if double_checked_status == root_status {
+                            if double_checked_status.digest == root_status.digest {
                                 SaveStatus::Saved {
-                                    files_open_for_writing_count: root_status
+                                    files_open_for_writing_count: double_checked_status
                                         .files_open_for_writing_count,
                                 }
                             } else {
-                                info!("It turned out the status has changed in the meantime.");
+                                info!("It turned out the status digest has changed in the meantime. Before: {:?}, after: {:?}",
+                                &root_status.digest, &double_checked_status.digest);
                                 SaveStatus::Saving
                             }
                         } else {
