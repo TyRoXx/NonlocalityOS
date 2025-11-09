@@ -11,10 +11,11 @@ use pretty_assertions::assert_eq;
 use pretty_assertions::assert_ne;
 use std::{convert::Infallible, net::SocketAddr, path::Path, pin::Pin, sync::Arc};
 use tokio::{
+    io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
     runtime::Handle,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 mod file_system;
 
 #[cfg(test)]
@@ -57,8 +58,30 @@ async fn handle_tcp_connections(
     dav_server: Arc<DavHandler>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
-        let (stream, remote_endpoint) = listener.accept().await?;
+        let (mut stream, remote_endpoint) = listener.accept().await?;
         info!("Incoming connection from {}", &remote_endpoint);
+        // Disabling Nagle's algorithm is very important to reduce latency. Otherwise there will be unnecessary delays of typically 40 ms on Linux.
+        match stream.set_nodelay(true) {
+            Ok(_) => {}
+            Err(error) => {
+                // set_nodelay could potentially fail if the connection is already closed.
+                warn!(
+                    "Could not set TCP_NODELAY on connection from {}: {:?}",
+                    &remote_endpoint, &error
+                );
+                match stream.shutdown().await {
+                    Ok(_) => {}
+                    Err(error) => {
+                        warn!(
+                            "Could not shutdown connection from {}: {:?}",
+                            &remote_endpoint, &error
+                        );
+                    }
+                }
+                // We drop the connection so that we will definitely notice when set_nodelay fails unexpectedly.
+                continue;
+            }
+        }
         let dav_server = dav_server.clone();
         tokio::task::spawn(
             async move { serve_connection(stream, &remote_endpoint, dav_server).await },
