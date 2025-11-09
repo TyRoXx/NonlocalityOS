@@ -1,12 +1,20 @@
 #![feature(duration_constructors)]
-use crate::dav_server::dav_server_main;
+use crate::{
+    dav_server::dav_server_main,
+    operating_system::{file_exists, Directory, LinuxOperatingSystem, OperatingSystem},
+};
 use clap::{Parser, Subcommand};
-use std::{ffi::OsStr, path::Path};
+use std::{ffi::OsStr, path::Path, sync::Arc};
 use tracing::{error, info, warn};
 use tracing_subscriber::fmt::format::FmtSpan;
 mod dav_server;
 use astraea::storage::SQLiteStorage;
 use nonlocality_host::INSTALLED_DATABASE_FILE_NAME;
+#[cfg(test)]
+mod fake_operating_system;
+#[cfg(test)]
+mod main_tests;
+mod operating_system;
 
 #[derive(Parser)]
 #[command(name = "nonlocality_host", about = "NonlocalityOS Host Service")]
@@ -33,73 +41,69 @@ enum Commands {
     },
 }
 
-async fn run_process(
-    working_directory: &std::path::Path,
-    executable: &std::path::Path,
-    arguments: &[&str],
-) -> std::io::Result<()> {
-    info!("Run process: {} {:?}", executable.display(), arguments);
-    let output = tokio::process::Command::new(executable)
-        .args(arguments)
-        .current_dir(working_directory)
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true)
-        .output()
+pub const SERVICE_FILE_NAME: &str = "nonlocalityos_host.service";
+pub const SYSTEMD_SERVICES_DIRECTORY: &str = "/etc/systemd/system";
+
+async fn open_systemd_service_directory(
+    operating_system: &dyn OperatingSystem,
+) -> std::io::Result<Arc<dyn Directory + Sync + Send>> {
+    operating_system
+        .open_directory(std::path::Path::new(SYSTEMD_SERVICES_DIRECTORY))
         .await
-        .expect("start process");
-    if output.status.success() {
-        info!("Success");
-        Ok(())
-    } else {
-        info!("Working directory: {}", working_directory.display());
-        error!("Exit status: {}", output.status);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if !stdout.is_empty() {
-            error!("Standard output:\n{}", stdout.trim_end());
-        }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.is_empty() {
-            error!("Standard error:\n{}", stderr.trim_end());
-        }
-        Err(std::io::Error::other(format!(
-            "Process failed with exit code: {}",
-            output.status
-        )))
-    }
 }
 
-const SERVICE_FILE_NAME: &str = "nonlocalityos_host.service";
-
-fn make_service_file_path() -> std::path::PathBuf {
-    let systemd_services_directory = std::path::Path::new("/etc/systemd/system");
-    systemd_services_directory.join(SERVICE_FILE_NAME)
-}
-
-async fn run_systemctl(arguments: &[&str]) -> std::io::Result<()> {
+async fn run_systemctl(
+    arguments: &[&str],
+    operating_system: &dyn OperatingSystem,
+) -> std::io::Result<()> {
     let systemctl = std::path::Path::new("/usr/bin/systemctl");
     let root_directory = std::path::Path::new("/");
-    run_process(root_directory, systemctl, arguments).await
+    operating_system
+        .run_process(root_directory, systemctl, arguments)
+        .await
 }
 
 fn make_installed_database_path(nonlocality_directory: &Path) -> std::path::PathBuf {
     nonlocality_directory.join(INSTALLED_DATABASE_FILE_NAME)
 }
 
-async fn install(nonlocality_directory: &Path, host_binary_name: &OsStr) -> std::io::Result<()> {
+async fn install(
+    nonlocality_directory: &Path,
+    host_binary_name: &OsStr,
+    operating_system: &dyn OperatingSystem,
+) -> std::io::Result<()> {
     info!("Installing host from {}", nonlocality_directory.display());
     let executable = &nonlocality_directory.join(host_binary_name);
 
     let installed_database = &make_installed_database_path(nonlocality_directory);
-    if std::fs::exists(installed_database)? {
+    if file_exists(installed_database, operating_system).await? {
         warn!(
             "Installed database already exists, not going to overwrite it: {}",
             installed_database.display()
         );
     } else {
         info!("Generating database: {}", installed_database.display());
-
-        SQLiteStorage::create_schema(&rusqlite::Connection::open(installed_database).unwrap())
-            .unwrap();
+        let database_directory = operating_system
+            .open_directory(nonlocality_directory)
+            .await?;
+        match database_directory.create().await {
+            Ok(_) => {}
+            Err(e) => {
+                error!(
+                    "Failed to create directory for database at {}: {}",
+                    nonlocality_directory.display(),
+                    e
+                );
+                return Err(e);
+            }
+        }
+        let locked_directory = database_directory.lock().await?;
+        let locked_installed_database = make_installed_database_path(&locked_directory);
+        SQLiteStorage::create_schema(
+            &rusqlite::Connection::open(locked_installed_database).unwrap(),
+        )
+        .unwrap();
+        database_directory.unlock().await?;
     }
 
     let executable_argument = executable.display().to_string();
@@ -122,14 +126,20 @@ WantedBy=multi-user.target
 "#,
         &executable_argument, &nonlocality_directory_argument
     );
-    let temporary_directory = tempfile::tempdir().expect("create a temporary directory");
-    let temporary_file_path = temporary_directory.path().join(SERVICE_FILE_NAME);
+    let temporary_directory = operating_system
+        .create_temporary_directory()
+        .await
+        .expect("create a temporary directory");
+    let temporary_directory_path = temporary_directory.lock().await?;
+    let temporary_file_path = temporary_directory_path.join(SERVICE_FILE_NAME);
     let mut temporary_file =
         std::fs::File::create_new(&temporary_file_path).expect("create temporary file");
     use std::io::Write;
     write!(&mut temporary_file, "{}", &service_file_content)
         .expect("write content of the service file");
-    let systemd_service_path = make_service_file_path();
+    let systemd_service_directory = open_systemd_service_directory(operating_system).await?;
+    let systemd_service_directory_path = systemd_service_directory.lock().await?;
+    let systemd_service_path = systemd_service_directory_path.join(SERVICE_FILE_NAME);
     info!(
         "Installing systemd service file to {}",
         systemd_service_path.display()
@@ -137,30 +147,43 @@ WantedBy=multi-user.target
 
     std::fs::rename(&temporary_file_path, &systemd_service_path)
         .expect("move temporary service file into systemd directory");
+    systemd_service_directory.unlock().await?;
+    drop(systemd_service_directory);
+    temporary_directory.unlock().await?;
+    drop(temporary_directory);
 
-    run_systemctl(&["daemon-reload"]).await?;
-    run_systemctl(&["enable", SERVICE_FILE_NAME]).await?;
-    run_systemctl(&["restart", SERVICE_FILE_NAME]).await?;
-    run_systemctl(&["status", SERVICE_FILE_NAME]).await
+    run_systemctl(&["daemon-reload"], operating_system).await?;
+    run_systemctl(&["enable", SERVICE_FILE_NAME], operating_system).await?;
+    run_systemctl(&["restart", SERVICE_FILE_NAME], operating_system).await?;
+    run_systemctl(&["status", SERVICE_FILE_NAME], operating_system).await
 }
 
-async fn uninstall() -> std::io::Result<()> {
+async fn uninstall(operating_system: &dyn OperatingSystem) -> std::io::Result<()> {
     info!("Uninstalling systemd service. Not deleting any other files.");
-    let systemd_service_path = make_service_file_path();
-    if std::fs::exists(&systemd_service_path)? {
-        run_systemctl(&["disable", SERVICE_FILE_NAME]).await?;
+    let systemd_service_directory = open_systemd_service_directory(operating_system).await?;
+    let systemd_service_path = systemd_service_directory
+        .path()
+        .await?
+        .join(SERVICE_FILE_NAME);
+    if systemd_service_directory
+        .file_exists(std::ffi::OsStr::new(SERVICE_FILE_NAME))
+        .await?
+    {
+        run_systemctl(&["disable", SERVICE_FILE_NAME], operating_system).await?;
         info!(
             "Deleting systemd service file {}",
             systemd_service_path.display()
         );
-        std::fs::remove_file(&systemd_service_path)?;
+        systemd_service_directory
+            .remove_file(std::ffi::OsStr::new(SERVICE_FILE_NAME))
+            .await?;
     } else {
         info!(
             "Systemd service file {} does not exist; nothing to delete",
             systemd_service_path.display()
         );
     }
-    run_systemctl(&["daemon-reload"]).await?;
+    run_systemctl(&["daemon-reload"], operating_system).await?;
     Ok(())
 }
 
@@ -193,7 +216,10 @@ async fn run(nonlocality_directory: &Path) -> std::io::Result<()> {
     }
 }
 
-async fn handle_command_line(host_binary_name: &OsStr) -> std::io::Result<()> {
+async fn handle_command_line(
+    host_binary_name: &OsStr,
+    operating_system: &dyn OperatingSystem,
+) -> std::io::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Install {
@@ -203,9 +229,9 @@ async fn handle_command_line(host_binary_name: &OsStr) -> std::io::Result<()> {
                 "Nonlocality directory for installation: {}",
                 nonlocality_directory.display()
             );
-            install(&nonlocality_directory, host_binary_name).await
+            install(&nonlocality_directory, host_binary_name, operating_system).await
         }
-        Commands::Uninstall => uninstall().await,
+        Commands::Uninstall => uninstall(operating_system).await,
         Commands::Run {
             nonlocality_directory,
         } => {
@@ -228,5 +254,6 @@ async fn main() -> std::io::Result<()> {
     info!("Current binary: {}", current_binary.display());
 
     let host_binary_name = current_binary.file_name().unwrap();
-    handle_command_line(host_binary_name).await
+    let operating_system = LinuxOperatingSystem {};
+    handle_command_line(host_binary_name, &operating_system).await
 }

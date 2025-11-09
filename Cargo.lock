@@ -1886,12 +1886,15 @@ name = "nonlocality_host"
 version = "0.1.0"
 dependencies = [
  "astraea",
+ "async-trait",
  "chrono",
  "clap",
  "dogbox_dav_server",
  "lambda",
+ "pretty_assertions",
  "rusqlite",
  "tempfile",
+ "test-log",
  "tokio",
  "tracing",
  "tracing-subscriber",
