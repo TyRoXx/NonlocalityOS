@@ -93,7 +93,8 @@ async fn test_podman() {
         .create(
             &podman_api::opts::ContainerCreateOpts::builder()
                 .image(&image_id)
-                .command(["/usr/bin/sleep", "1"])
+                // TODO: find a faster solution than sleeping for a fixed time
+                .command(["/usr/bin/sleep", "2"])
                 .build(),
         )
         .await
@@ -165,27 +166,23 @@ async fn test_podman() {
 }
 
 async fn use_running_container(container: &Container) {
-    assert_eq!(
-        Some("running"),
-        container
-            .inspect()
-            .await
-            .unwrap()
-            .state
-            .unwrap()
-            .status
-            .as_deref()
-    );
+    {
+        let container_state = container.inspect().await.unwrap().state.unwrap();
+        info!("{:?}", &container_state);
+        let status = container_state.status;
+        match status.as_deref() {
+            Some("running") => {}
+            _ => panic!("Container has unexpected status: {:?}", &status),
+        }
+    }
+    run_command(container, &["/usr/bin/which", "sleep"]).await;
+}
 
-    info!(
-        "{:?}",
-        container.inspect().await.unwrap().state.unwrap().status
-    );
-
-    let exec = container
+async fn run_command(container: &Container, command: &[&str]) {
+    let exec: podman_api::api::Exec = container
         .create_exec(
             &podman_api::opts::ExecCreateOpts::builder()
-                .command(["/usr/bin/which", "apt"])
+                .command(command)
                 .attach_stdout(true)
                 .attach_stderr(true)
                 .build(),
@@ -205,5 +202,15 @@ async fn use_running_container(container: &Container) {
             }
             _ => {}
         }
+    }
+
+    let exec_result = exec.inspect().await.unwrap();
+    info!("Exec result: {:?}", &exec_result);
+    match exec_result {
+        serde_json::value::Value::Object(object) => {
+            let exit_code = object.get("ExitCode").unwrap().as_i64().unwrap();
+            assert_eq!(0, exit_code);
+        }
+        _ => panic!("Unexpected type of exec result"),
     }
 }

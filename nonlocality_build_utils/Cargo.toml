@@ -19,6 +19,7 @@ futures-util = "0"
 tracing = "0"
 version-compare = "0"
 pretty_assertions = "1"
+serde_json = {version = "1"}
 
 [dev-dependencies]
 test-log = {version = "0", features = ["trace", "log", "color"]}

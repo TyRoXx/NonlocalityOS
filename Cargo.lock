@@ -1869,6 +1869,7 @@ dependencies = [
  "podman-api",
  "pretty_assertions",
  "relative-path",
+ "serde_json",
  "ssh2",
  "tar",
  "tempfile",
