@@ -1,5 +1,6 @@
 #![cfg(target_os = "linux")]
 
+use podman_api::api::Container;
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use tracing::{error, info, warn};
@@ -92,7 +93,7 @@ async fn test_podman() {
         .create(
             &podman_api::opts::ContainerCreateOpts::builder()
                 .image(&image_id)
-                .command(["/usr/bin/sleep", "9"])
+                .command(["/usr/bin/sleep", "1"])
                 .build(),
         )
         .await
@@ -148,6 +149,22 @@ async fn test_podman() {
     });
 
     container.start(None).await.unwrap();
+    use_running_container(&container).await;
+    // It is important to clean up.
+    // TODO: use a scope guard here to ensure cleanup on panic, but it's difficult to do with await.
+    info!("Deleting container");
+    container
+        .delete(
+            &podman_api::opts::ContainerDeleteOpts::builder()
+                .force(true)
+                .build(),
+        )
+        .await
+        .unwrap();
+    info!("Container deleted");
+}
+
+async fn use_running_container(container: &Container) {
     assert_eq!(
         Some("running"),
         container
