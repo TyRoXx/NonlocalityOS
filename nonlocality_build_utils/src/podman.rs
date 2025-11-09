@@ -185,7 +185,7 @@ async fn use_running_container(container: &Container) {
     let exec = container
         .create_exec(
             &podman_api::opts::ExecCreateOpts::builder()
-                .command(["/usr/bin/ls", "/usr/bin"])
+                .command(["/usr/bin/which", "apt"])
                 .attach_stdout(true)
                 .attach_stderr(true)
                 .build(),
