@@ -288,7 +288,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         path: &'a dav_server::davpath::DavPath,
         options: dav_server::fs::OpenOptions,
     ) -> dav_server::fs::FsFuture<'a, Box<dyn dav_server::fs::DavFile>> {
-        info!("Open {} | write: {}", path, options.write);
+        debug!("Open {} | write: {}", path, options.write);
         if options.append {
             todo!()
         }
@@ -300,7 +300,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         }
         if let Some(size) = options.size {
             if size != 0 {
-                info!("Ignoring size hint ({} B)", size);
+                debug!("Ignoring size hint ({} B)", size);
             }
         }
         Box::pin(async move {
@@ -449,7 +449,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         _from: &'a dav_server::davpath::DavPath,
         _to: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, ()> {
-        info!("Rename {} to {}", _from, _to);
+        debug!("Rename {} to {}", _from, _to);
         Box::pin(async move {
             let from_converted_path = convert_path(_from)?;
             let to_converted_path = convert_path(_to)?;

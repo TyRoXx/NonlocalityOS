@@ -236,7 +236,7 @@ impl NamedEntry {
                                         &previous_status
                                     );
                                 } else {
-                                    info!("Open directory status changed: {:?}", &current_status);
+                                    debug!("Open directory status changed: {:?}", &current_status);
                                     previous_status = current_status;
                                     on_change().await.unwrap();
                                 }
@@ -499,7 +499,7 @@ impl OpenDirectory {
                     self.storage.clone(),
                     (self.clock)(),
                 ));
-                info!("Adding file {} to the directory which sends a change event for its parent directory.", &name);
+                debug!("Adding file {} to the directory which sends a change event for its parent directory.", &name);
                 let receiver = open_file.watch().await;
                 self.clone().insert_entry(
                     &mut state_locked,
@@ -552,7 +552,7 @@ impl OpenDirectory {
                         Err(error) => return Err(Error::Postcard(error)),
                     };
                 let mut entries = vec![];
-                info!(
+                debug!(
                     "Loading directory with {} entries",
                     parsed_directory.children.len()
                 );
@@ -830,7 +830,7 @@ impl OpenDirectory {
             None => return Err(Error::NotFound(name_here.to_string())),
         }
 
-        info!(
+        debug!(
             "Renaming from {} to {} sending a change event to the directory.",
             name_here, name_there
         );
@@ -1051,13 +1051,13 @@ impl OpenDirectory {
             );
         }
         if serialization_children.len() > 5 {
-            info!(
+            debug!(
                 "Saving directory with {} entries",
                 serialization_children.len()
             );
             debug!("Saving directory: {:?}", &serialization_children);
         } else {
-            info!("Saving directory: {:?}", &serialization_children);
+            debug!("Saving directory: {:?}", &serialization_children);
         }
         let maybe_tree_blob = TreeBlob::try_from(bytes::Bytes::from(
             postcard::to_allocvec(&DirectoryTree {

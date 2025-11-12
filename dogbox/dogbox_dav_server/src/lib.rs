@@ -30,11 +30,11 @@ async fn serve_connection(
     dav_server: Arc<DavHandler>,
 ) {
     let make_service = move |request: Request<body::Incoming>| {
-        info!("Request from {}: {:?}", remote_endpoint, &request);
+        debug!("Request from {}: {:?}", remote_endpoint, &request);
         let dav_server = dav_server.clone();
         async move {
             let response = dav_server.handle(request).await;
-            info!("Response to {}: {:?}", remote_endpoint, &response.headers());
+            debug!("Response to {}: {:?}", remote_endpoint, &response.headers());
             Ok::<_, Infallible>(response)
         }
     };
@@ -45,7 +45,7 @@ async fn serve_connection(
         .await
     {
         Ok(_) => {
-            info!("Successfully served connection {}", remote_endpoint);
+            debug!("Successfully served connection {}", remote_endpoint);
         }
         Err(err) => {
             info!("Error serving connection {}: {:?}", remote_endpoint, err);
@@ -59,7 +59,7 @@ async fn handle_tcp_connections(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
         let (mut stream, remote_endpoint) = listener.accept().await?;
-        info!("Incoming connection from {}", &remote_endpoint);
+        debug!("Incoming connection from {}", &remote_endpoint);
         // Disabling Nagle's algorithm is very important to reduce latency. Otherwise there will be unnecessary delays of typically 40 ms on Linux.
         match stream.set_nodelay(true) {
             Ok(_) => {}
