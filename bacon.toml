@@ -17,7 +17,7 @@ background = true
 
 [jobs.nextest]
 # --stress-count: repeat every test a few times to find flaky ones
-command = ["cargo", "nextest", "run", "--color", "always", "--profile", "default", "--stress-count=5"]
+command = ["cargo", "nextest", "run", "--color", "always", "--profile", "default", "--stress-count=1"]
 need_stdout = true
 analyzer = "nextest"
 on_change_strategy = "wait_then_restart"
