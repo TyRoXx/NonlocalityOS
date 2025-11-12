@@ -283,7 +283,7 @@ impl NamedEntry {
                 CacheDropStats::new(0, 0, 0)
             }
             NamedEntry::OpenRegularFile(arc, _receiver) => {
-                if Arc::strong_count(arc) == 1 {
+                if !arc.is_open_for_anything() {
                     let (digest, size) = arc.last_known_digest().await;
                     if digest.is_digest_up_to_date {
                         let modified = arc.modified();
@@ -293,6 +293,7 @@ impl NamedEntry {
                         );
                         return CacheDropStats::new(0, 1, 0);
                     }
+                    warn!("Cannot drop unused file because its digest is not up to date.");
                 }
                 arc.drop_all_read_caches().await
             }
@@ -2362,6 +2363,11 @@ impl OpenFile {
 
     fn is_open_for_writing(write_permission: &Arc<OpenFileWritePermission>) -> bool {
         Arc::strong_count(write_permission) > 1
+    }
+
+    pub fn is_open_for_anything(&self) -> bool {
+        Self::is_open_for_reading(&self.read_permission)
+            || Self::is_open_for_writing(&self.write_permission)
     }
 
     async fn update_status(
