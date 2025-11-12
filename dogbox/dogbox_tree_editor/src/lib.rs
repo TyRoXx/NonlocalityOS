@@ -105,9 +105,10 @@ impl MutableDirectoryEntry {
 
 #[derive(Debug, PartialEq)]
 pub struct CacheDropStats {
-    hashed_trees_dropped: usize,
-    open_files_closed: usize,
-    open_directories_closed: usize,
+    pub hashed_trees_dropped: usize,
+    pub open_files_closed: usize,
+    pub open_directories_closed: usize,
+    pub files_and_directories_remaining_open: usize,
 }
 
 impl CacheDropStats {
@@ -115,11 +116,13 @@ impl CacheDropStats {
         hashed_trees_dropped: usize,
         open_files_closed: usize,
         open_directories_closed: usize,
+        files_and_directories_remaining_open: usize,
     ) -> Self {
         Self {
             hashed_trees_dropped,
             open_files_closed,
             open_directories_closed,
+            files_and_directories_remaining_open,
         }
     }
 
@@ -127,6 +130,7 @@ impl CacheDropStats {
         self.hashed_trees_dropped += other.hashed_trees_dropped;
         self.open_files_closed += other.open_files_closed;
         self.open_directories_closed += other.open_directories_closed;
+        self.files_and_directories_remaining_open += other.files_and_directories_remaining_open;
     }
 }
 
@@ -280,7 +284,7 @@ impl NamedEntry {
     async fn drop_all_read_caches(&mut self) -> CacheDropStats {
         match self {
             NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {
-                CacheDropStats::new(0, 0, 0)
+                CacheDropStats::new(0, 0, 0, 0)
             }
             NamedEntry::OpenRegularFile(arc, _receiver) => {
                 if !arc.is_open_for_anything() {
@@ -291,15 +295,29 @@ impl NamedEntry {
                             DirectoryEntryMetaData::new(DirectoryEntryKind::File(size), modified),
                             digest.last_known_digest,
                         );
-                        return CacheDropStats::new(0, 1, 0);
+                        return CacheDropStats::new(0, 1, 0, 0);
                     }
                     warn!("Cannot drop unused file because its digest is not up to date.");
                 }
                 arc.drop_all_read_caches().await
             }
             NamedEntry::OpenSubdirectory(arc, _receiver) => {
-                //TODO: close open directories (correctly)
-                Box::pin(arc.drop_all_read_caches()).await
+                let mut stats = Box::pin(arc.drop_all_read_caches()).await;
+                if stats.files_and_directories_remaining_open == 0 {
+                    let modified = arc.modified();
+                    let latest_status = arc.latest_status();
+                    if latest_status.digest.is_digest_up_to_date {
+                        *self = NamedEntry::NotOpen(
+                            DirectoryEntryMetaData::new(DirectoryEntryKind::Directory, modified),
+                            latest_status.digest.last_known_digest,
+                        );
+                        stats.open_directories_closed += 1;
+                    } else {
+                        warn!("Cannot drop unused directory because its digest is not up to date.");
+                        stats.files_and_directories_remaining_open += 1;
+                    }
+                }
+                stats
             }
         }
     }
@@ -348,14 +366,24 @@ struct OpenDirectoryMutableState {
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
     names: BTreeMap<String, NamedEntry>,
     has_unsaved_changes: bool,
+    last_accessed_at: std::time::SystemTime,
 }
 
 impl OpenDirectoryMutableState {
-    fn new(names: BTreeMap<String, NamedEntry>, has_unsaved_changes: bool) -> Self {
+    fn new(
+        names: BTreeMap<String, NamedEntry>,
+        has_unsaved_changes: bool,
+        last_accessed_at: std::time::SystemTime,
+    ) -> Self {
         Self {
             names,
             has_unsaved_changes,
+            last_accessed_at,
         }
+    }
+
+    pub fn record_access(&mut self, accessed_at: std::time::SystemTime) {
+        self.last_accessed_at = accessed_at;
     }
 }
 
@@ -382,8 +410,13 @@ impl OpenDirectory {
         let has_unsaved_changes = !digest.is_digest_up_to_date;
         let (change_event_sender, change_event_receiver) =
             tokio::sync::watch::channel(OpenDirectoryStatus::new(digest, 1, 0, 0, 0, 0, 0, 0));
+        let last_accessed_at = (clock)();
         Self {
-            state: Mutex::new(OpenDirectoryMutableState::new(names, has_unsaved_changes)),
+            state: Mutex::new(OpenDirectoryMutableState::new(
+                names,
+                has_unsaved_changes,
+                last_accessed_at,
+            )),
             storage,
             change_event_sender,
             _change_event_receiver: change_event_receiver,
@@ -437,7 +470,8 @@ impl OpenDirectory {
     }
 
     pub async fn read(&self) -> Stream<MutableDirectoryEntry> {
-        let state_locked = self.state.lock().await;
+        let mut state_locked = self.state.lock().await;
+        state_locked.record_access((self.clock)());
         let snapshot = state_locked.names.clone();
         debug!("Reading directory with {} entries", snapshot.len());
         Box::pin(stream! {
@@ -449,7 +483,8 @@ impl OpenDirectory {
     }
 
     pub async fn get_meta_data(&self, name: &str) -> Result<DirectoryEntryMetaData> {
-        let state_locked = self.state.lock().await;
+        let mut state_locked = self.state.lock().await;
+        state_locked.record_access((self.clock)());
         match state_locked.names.get(name) {
             Some(found) => {
                 let found_clone = (*found).clone();
@@ -465,6 +500,7 @@ impl OpenDirectory {
         empty_file_digest: &BlobDigest,
     ) -> Result<Arc<OpenFile>> {
         let mut state_locked = self.state.lock().await;
+        state_locked.record_access((self.clock)());
         match state_locked.names.get_mut(name) {
             Some(found) => match found {
                 NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
@@ -536,6 +572,7 @@ impl OpenDirectory {
         name: String,
         mut entry: NamedEntry,
     ) {
+        state.record_access((self.clock)());
         self.watch_new_entry(&mut entry);
         let previous_entry = state.names.insert(name, entry);
         assert!(previous_entry.is_none());
@@ -605,6 +642,7 @@ impl OpenDirectory {
         name: String,
     ) -> Result<Arc<OpenDirectory>> {
         let mut state_locked = self.state.lock().await;
+        state_locked.record_access((self.clock)());
         match state_locked.names.get_mut(&name) {
             Some(found) => match found {
                 NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
@@ -687,6 +725,7 @@ impl OpenDirectory {
         empty_directory_digest: BlobDigest,
     ) -> Result<()> {
         let mut state_locked = self.state.lock().await;
+        state_locked.record_access((self.clock)());
         match state_locked.names.get(&name) {
             Some(_found) => todo!(),
             None => {
@@ -716,6 +755,7 @@ impl OpenDirectory {
 
     pub async fn remove(&self, name_here: &str) -> Result<()> {
         let mut state_locked = self.state.lock().await;
+        state_locked.record_access((self.clock)());
         if !state_locked.names.contains_key(name_here) {
             return Err(Error::NotFound(name_here.to_string()));
         }
@@ -748,6 +788,14 @@ impl OpenDirectory {
                 state_there_locked = Some(there.state.lock().await);
                 state_locked = self.state.lock().await;
             }
+        }
+
+        state_locked.record_access((self.clock)());
+        match state_there_locked {
+            Some(ref mut state_there_locked_present) => {
+                state_there_locked_present.record_access((there.clock)());
+            }
+            None => {}
         }
 
         match state_locked.names.get(name_here) {
@@ -828,6 +876,14 @@ impl OpenDirectory {
                 state_there_locked = Some(there.state.lock().await);
                 state_locked = self.state.lock().await;
             }
+        }
+
+        state_locked.record_access((self.clock)());
+        match state_there_locked {
+            Some(ref mut state_there_locked_present) => {
+                state_there_locked_present.record_access((there.clock)());
+            }
+            None => {}
         }
 
         match state_locked.names.get(name_here) {
@@ -1094,12 +1150,28 @@ impl OpenDirectory {
         }
     }
 
-    //#[instrument(skip_all)]
     pub async fn drop_all_read_caches(&self) -> CacheDropStats {
         let mut state_locked = self.state.lock().await;
-        let mut result = CacheDropStats::new(0, 0, 0);
+        let mut result = CacheDropStats::new(0, 0, 0, 0);
         for (_name, entry) in state_locked.names.iter_mut() {
             result.add(&entry.drop_all_read_caches().await);
+        }
+        if result.files_and_directories_remaining_open == 0 {
+            let now = (self.clock)();
+            let last_accessed_at = state_locked.last_accessed_at;
+            if now
+                .duration_since(last_accessed_at)
+                .unwrap_or_default()
+                .as_secs()
+                >= 60
+            {
+                info!(
+                    "Dropping directory read cache as it has been unused for at least 60 seconds."
+                );
+            } else {
+                // keep this directory alive for caching purposes
+                result.files_and_directories_remaining_open += 1;
+            }
         }
         result
     }
@@ -1447,7 +1519,7 @@ impl OpenFileContentBlock {
 
     async fn drop_all_read_caches(&mut self) -> CacheDropStats {
         match self {
-            OpenFileContentBlock::NotLoaded(_blob_digest, _) => CacheDropStats::new(0, 0, 0),
+            OpenFileContentBlock::NotLoaded(_blob_digest, _) => CacheDropStats::new(0, 0, 0, 0),
             OpenFileContentBlock::Loaded(loaded_block) => match loaded_block {
                 LoadedBlock::KnownDigest(hashed_tree) => {
                     // free some memory:
@@ -1455,9 +1527,9 @@ impl OpenFileContentBlock {
                         *hashed_tree.digest(),
                         hashed_tree.tree().blob().len(),
                     );
-                    CacheDropStats::new(1, 0, 0)
+                    CacheDropStats::new(1, 0, 0, 0)
                 }
-                LoadedBlock::UnknownDigest(_vec) => CacheDropStats::new(0, 0, 0),
+                LoadedBlock::UnknownDigest(_vec) => CacheDropStats::new(0, 0, 0, 0),
             },
         }
     }
@@ -1789,12 +1861,13 @@ impl OpenFileContentBufferLoaded {
     }
 
     async fn drop_all_read_caches(&mut self) -> CacheDropStats {
-        let mut result = CacheDropStats::new(0, 0, 0);
+        let mut result = CacheDropStats::new(0, 0, 0, 0);
         for block in self.blocks.iter_mut() {
             result.add(&block.drop_all_read_caches().await);
         }
         assert_eq!(0, result.open_files_closed);
         assert_eq!(0, result.open_directories_closed);
+        assert_eq!(0, result.files_and_directories_remaining_open);
         result
     }
 }
@@ -2284,7 +2357,7 @@ impl OpenFileContentBuffer {
                 digest: _,
                 size: _,
                 write_buffer_in_blocks: _,
-            } => CacheDropStats::new(0, 0, 0),
+            } => CacheDropStats::new(0, 0, 0, 0),
             OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
                 open_file_content_buffer_loaded.drop_all_read_caches().await
             }
@@ -2560,7 +2633,12 @@ impl OpenFile {
 
     async fn drop_all_read_caches(&self) -> CacheDropStats {
         let mut content_locked = self.content.lock().await;
-        content_locked.drop_all_read_caches().await
+        let mut stats = content_locked.drop_all_read_caches().await;
+        assert_eq!(0, stats.open_files_closed);
+        assert_eq!(0, stats.open_directories_closed);
+        assert_eq!(0, stats.files_and_directories_remaining_open);
+        stats.files_and_directories_remaining_open += 1;
+        stats
     }
 }
 

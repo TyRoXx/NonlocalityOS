@@ -3,7 +3,7 @@ use astraea::{
     tree::TREE_BLOB_MAX_LENGTH,
 };
 use dav_server::{fakels::FakeLs, DavHandler};
-use dogbox_tree_editor::{CacheDropStats, OpenDirectory, OpenDirectoryStatus, WallClock};
+use dogbox_tree_editor::{OpenDirectory, OpenDirectoryStatus, WallClock};
 use file_system::DogBoxFileSystem;
 use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
@@ -115,7 +115,10 @@ async fn drop_all_read_caches_regularly(
 ) {
     loop {
         let drop_stats = root.drop_all_read_caches().await;
-        if drop_stats != CacheDropStats::new(0, 0, 0) {
+        if drop_stats.hashed_trees_dropped > 0
+            || drop_stats.open_files_closed > 0
+            || drop_stats.open_directories_closed > 0
+        {
             info!("Dropped some read caches: {:?}", &drop_stats);
         }
         tokio::time::sleep(drop_interval).await;
