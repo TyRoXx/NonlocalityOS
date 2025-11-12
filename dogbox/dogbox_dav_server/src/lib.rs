@@ -354,7 +354,7 @@ pub async fn run_dav_server(
                     async move {
                         drop_all_read_caches_regularly(
                             root.clone(),
-                            std::time::Duration::from_secs(60 * 5),
+                            std::time::Duration::from_secs(27),
                         )
                         .await;
                         Ok(())
