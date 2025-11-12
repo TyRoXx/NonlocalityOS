@@ -250,9 +250,8 @@ impl StoreTree for SQLiteStorage {
         let mut state_locked = self.state.lock().await;
         let reference = *tree.digest();
         let origin_digest: [u8; 64] = reference.into();
-        state_locked.require_transaction(1 + tree.tree().references().len() as u64).unwrap(/*TODO*/);
-        let connection_locked = &state_locked.connection;
         {
+            let connection_locked = &state_locked.connection;
             let mut statement = connection_locked.prepare_cached(
                 "SELECT COUNT(*) FROM tree WHERE digest = ?").unwrap(/*TODO*/);
             let existing_count: i64 = statement
@@ -268,6 +267,8 @@ impl StoreTree for SQLiteStorage {
             }
         }
 
+        state_locked.require_transaction(1 + tree.tree().references().len() as u64).unwrap(/*TODO*/);
+        let connection_locked = &state_locked.connection;
         let mut statement = connection_locked.prepare_cached(
             "INSERT INTO tree (digest, tree_blob) VALUES (?1, ?2)").unwrap(/*TODO*/);
         let rows_inserted = statement.execute(
