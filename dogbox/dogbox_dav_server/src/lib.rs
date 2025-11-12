@@ -312,13 +312,16 @@ pub async fn run_dav_server(
     let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);
     let root_name = "latest";
     let open_file_write_buffer_in_blocks = 200;
-    let root = match blob_storage_database.load_root(root_name).await {
+    let root_path = std::path::PathBuf::from("/");
+    let root: Arc<OpenDirectory> = match blob_storage_database.load_root(root_name).await {
         Some(found) => {
-            OpenDirectory::load_directory(blob_storage_database.clone(), &found, modified_default, clock, open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
+            OpenDirectory::load_directory(
+                root_path,
+                blob_storage_database.clone(), &found, modified_default, clock, open_file_write_buffer_in_blocks).await.unwrap(/*TODO*/)
         }
         None => {
             let dir = Arc::new(
-                OpenDirectory::create_directory(blob_storage_database.clone(), clock,
+                OpenDirectory::create_directory(root_path,blob_storage_database.clone(), clock,
                 open_file_write_buffer_in_blocks)
                 .await
                 .unwrap(/*TODO*/),

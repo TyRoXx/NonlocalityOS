@@ -27,9 +27,14 @@ async fn test_dav_access() {
         .filesystem(Box::new(DogBoxFileSystem::new(
             dogbox_tree_editor::TreeEditor::new(
                 Arc::new(
-                    OpenDirectory::create_directory(blob_storage, test_clock, 1)
-                        .await
-                        .unwrap(),
+                    OpenDirectory::create_directory(
+                        std::path::PathBuf::from("/"),
+                        blob_storage,
+                        test_clock,
+                        1,
+                    )
+                    .await
+                    .unwrap(),
                 ),
                 None,
             ),

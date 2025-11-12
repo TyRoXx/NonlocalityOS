@@ -281,6 +281,7 @@ async fn test_open_directory_get_meta_data() {
     let modified = test_clock();
     let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
     let directory = OpenDirectory::new(
+        std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::from([(
             "test.txt".to_string(),
@@ -301,6 +302,7 @@ async fn test_open_directory_nothing_happens() {
     let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let directory = OpenDirectory::new(
+        std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::from([(
             "test.txt".to_string(),
@@ -345,6 +347,7 @@ async fn test_open_directory_open_file() {
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let directory = Arc::new(OpenDirectory::new(
+        std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::new(),
         storage.clone(),
@@ -381,6 +384,7 @@ async fn test_read_directory_after_file_write() {
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let directory = Arc::new(OpenDirectory::new(
+        std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::new(),
         storage.clone(),
@@ -418,6 +422,7 @@ async fn test_get_meta_data_after_file_write() {
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let directory = Arc::new(OpenDirectory::new(
+        std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::new(),
         storage.clone(),
@@ -453,6 +458,7 @@ async fn test_read_empty_root() {
     let modified = test_clock();
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![],
             Arc::new(NeverUsedStorage {}),
@@ -501,6 +507,7 @@ async fn test_get_meta_data_of_root() {
     let modified = test_clock();
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![],
             Arc::new(NeverUsedStorage {}),
@@ -525,6 +532,7 @@ async fn test_get_meta_data_of_non_normalized_path() {
     let modified = test_clock();
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![],
             Arc::new(NeverUsedStorage {}),
@@ -548,6 +556,7 @@ async fn test_get_meta_data_of_unknown_path() {
     let modified = test_clock();
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![],
             Arc::new(NeverUsedStorage {}),
@@ -571,6 +580,7 @@ async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
     let modified = test_clock();
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![],
             Arc::new(NeverUsedStorage {}),
@@ -594,6 +604,7 @@ async fn test_read_directory_on_closed_regular_file() {
     let modified = test_clock();
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![DirectoryEntry {
                 name: "test.txt".to_string(),
@@ -627,6 +638,7 @@ async fn test_read_directory_on_open_regular_file() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![DirectoryEntry {
                 name: "test.txt".to_string(),
@@ -663,6 +675,7 @@ async fn test_create_directory() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![],
             storage,
@@ -701,6 +714,7 @@ async fn test_read_created_directory() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![],
             storage,
@@ -730,6 +744,7 @@ async fn test_nested_create_directory() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
         Arc::new(OpenDirectory::from_entries(
+            std::path::PathBuf::from("/"),
             DigestStatus::new(*DUMMY_DIGEST, false),
             vec![],
             storage,

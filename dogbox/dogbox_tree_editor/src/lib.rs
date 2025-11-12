@@ -389,6 +389,7 @@ impl OpenDirectoryMutableState {
 
 #[derive(Debug)]
 pub struct OpenDirectory {
+    original_path: std::path::PathBuf,
     state: tokio::sync::Mutex<OpenDirectoryMutableState>,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
     change_event_sender: tokio::sync::watch::Sender<OpenDirectoryStatus>,
@@ -400,6 +401,7 @@ pub struct OpenDirectory {
 
 impl OpenDirectory {
     pub fn new(
+        original_path: std::path::PathBuf,
         digest: DigestStatus,
         names: BTreeMap<String, NamedEntry>,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
@@ -412,6 +414,7 @@ impl OpenDirectory {
             tokio::sync::watch::channel(OpenDirectoryStatus::new(digest, 1, 0, 0, 0, 0, 0, 0));
         let last_accessed_at = (clock)();
         Self {
+            original_path,
             state: Mutex::new(OpenDirectoryMutableState::new(
                 names,
                 has_unsaved_changes,
@@ -427,6 +430,7 @@ impl OpenDirectory {
     }
 
     pub fn from_entries(
+        original_path: std::path::PathBuf,
         digest: DigestStatus,
         entries: Vec<DirectoryEntry>,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
@@ -444,6 +448,7 @@ impl OpenDirectory {
             )
         }));
         OpenDirectory::new(
+            original_path,
             digest,
             names,
             storage.clone(),
@@ -579,6 +584,7 @@ impl OpenDirectory {
     }
 
     pub async fn load_directory(
+        original_path: std::path::PathBuf,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
         digest: &BlobDigest,
         modified: std::time::SystemTime,
@@ -625,6 +631,7 @@ impl OpenDirectory {
                     entries.push(entry);
                 }
                 Ok(Arc::new(OpenDirectory::from_entries(
+                    original_path,
                     DigestStatus::new(*digest, true),
                     entries,
                     storage,
@@ -648,6 +655,7 @@ impl OpenDirectory {
                 NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
                     DirectoryEntryKind::Directory => {
                         let subdirectory = Self::load_directory(
+                            self.original_path.join(&name),
                             self.storage.clone(),
                             digest,
                             self.modified,
@@ -690,6 +698,7 @@ impl OpenDirectory {
     }
 
     pub async fn create_directory(
+        original_path: std::path::PathBuf,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
@@ -710,6 +719,7 @@ impl OpenDirectory {
             Err(error) => return Err(Error::Storage(error)),
         };
         Ok(OpenDirectory::new(
+            original_path,
             DigestStatus::new(empty_directory_digest, true),
             BTreeMap::new(),
             storage,
@@ -734,6 +744,7 @@ impl OpenDirectory {
                     &name
                 );
                 let directory = Self::load_directory(
+                    self.original_path.join(&name),
                     self.storage.clone(),
                     &empty_directory_digest,
                     (self.clock)(),
@@ -1166,7 +1177,8 @@ impl OpenDirectory {
                 >= 60
             {
                 info!(
-                    "Dropping directory read cache as it has been unused for at least 60 seconds."
+                    "{}: Dropping directory read cache as it has been unused for at least 60 seconds.",
+                    self.original_path.display()
                 );
             } else {
                 // keep this directory alive for caching purposes
@@ -2708,6 +2720,7 @@ impl TreeEditor {
             Some(exists) => Ok(exists),
             None => {
                 let directory = OpenDirectory::create_directory(
+                    std::path::PathBuf::from("should be irrelevant"),
                     self.root.get_storage(),
                     self.root.get_clock(),
                     1,
