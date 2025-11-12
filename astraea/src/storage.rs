@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum StoreError {
@@ -143,19 +143,27 @@ impl LoadTree for InMemoryTreeStorage {
 impl LoadStoreTree for InMemoryTreeStorage {}
 
 #[derive(Debug)]
+struct TransactionStats {
+    writes: u64,
+}
+
+#[derive(Debug)]
 struct SQLiteState {
     connection: rusqlite::Connection,
-    is_in_transaction: bool,
+    transaction: Option<TransactionStats>,
 }
 
 impl SQLiteState {
-    fn require_transaction(&mut self) -> std::result::Result<(), rusqlite::Error> {
-        match self.is_in_transaction {
-            true => Ok(()),
-            false => {
+    fn require_transaction(&mut self, add_writes: u64) -> std::result::Result<(), rusqlite::Error> {
+        match self.transaction {
+            Some(ref mut stats) => {
+                stats.writes += add_writes;
+                Ok(())
+            }
+            None => {
                 debug!("BEGIN TRANSACTION");
                 self.connection.execute("BEGIN TRANSACTION;", ())?;
-                self.is_in_transaction = true;
+                self.transaction = Some(TransactionStats { writes: add_writes });
                 Ok(())
             }
         }
@@ -179,7 +187,7 @@ impl SQLiteStorage {
         Ok(Self {
             state: Mutex::new(SQLiteState {
                 connection,
-                is_in_transaction: false,
+                transaction: None,
             }),
         })
     }
@@ -242,7 +250,7 @@ impl StoreTree for SQLiteStorage {
         let mut state_locked = self.state.lock().await;
         let reference = *tree.digest();
         let origin_digest: [u8; 64] = reference.into();
-        state_locked.require_transaction().unwrap(/*TODO*/);
+        state_locked.require_transaction(1 + tree.tree().references().len() as u64).unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
         {
             let mut statement = connection_locked.prepare_cached(
@@ -356,7 +364,7 @@ impl UpdateRoot for SQLiteStorage {
     async fn update_root(&self, name: &str, target: &BlobDigest) {
         info!("Update root {} to {}", name, target);
         let mut state_locked = self.state.lock().await;
-        state_locked.require_transaction().unwrap(/*TODO*/);
+        state_locked.require_transaction(1).unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
         let target_array: [u8; 64] = (*target).into();
         connection_locked.execute(
@@ -395,17 +403,17 @@ pub trait CommitChanges {
 
 #[async_trait]
 impl CommitChanges for SQLiteStorage {
-    //#[instrument(skip_all)]
+    #[instrument(skip_all)]
     async fn commit_changes(&self) -> Result<(), rusqlite::Error> {
         let mut state_locked = self.state.lock().await;
-        match state_locked.is_in_transaction {
-            true => {
-                state_locked.is_in_transaction = false;
-                info!("COMMIT");
+        match state_locked.transaction {
+            Some(ref stats) => {
+                info!("COMMITting transaction with {} writes", stats.writes);
+                state_locked.transaction = None;
                 state_locked.connection.execute("COMMIT;", ())?;
                 Ok(())
             }
-            false => Ok(()),
+            None => Ok(()),
         }
     }
 }
