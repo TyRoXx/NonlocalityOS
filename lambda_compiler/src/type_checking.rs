@@ -768,13 +768,13 @@ pub async fn check_types(
             }
             ast::Expression::StringLiteral(value, source_location) => {
                 let compile_time_value = match DeepTree::try_from_string(value) {
-                    Some(tree) => tree,
-                    None => {
+                    Ok(tree) => tree,
+                    Err(error) => {
                         return Ok((
                             CompilerOutput::new(
                                 None,
                                 vec![CompilerError::new(
-                                    "String literal is too long".to_string(),
+                                    format!("String literal could not be serialized: {}", error),
                                     *source_location,
                                 )],
                             ),

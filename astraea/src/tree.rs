@@ -75,11 +75,11 @@ impl TreeBlob {
         }
     }
 
-    pub fn try_from(content: bytes::Bytes) -> Option<TreeBlob> {
+    pub fn try_from(content: bytes::Bytes) -> Result<TreeBlob, TreeSerializationError> {
         if content.len() > TREE_BLOB_MAX_LENGTH {
-            return None;
+            return Err(TreeSerializationError::BlobTooLong);
         }
-        Some(Self { content })
+        Ok(Self { content })
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -111,7 +111,7 @@ impl std::fmt::Debug for TreeBlob {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TreeSerializationError {
     Postcard(postcard::Error),
     BlobTooLong,
@@ -159,7 +159,7 @@ impl Tree {
         &self.references
     }
 
-    pub fn from_string(value: &str) -> Option<Tree> {
+    pub fn from_string(value: &str) -> Result<Tree, TreeSerializationError> {
         TreeBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes())).map(|blob| Tree {
             blob,
             references: Vec::new(),

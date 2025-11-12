@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     storage::{LoadTree, StoreError, StoreTree},
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeSerializationError},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -23,8 +23,8 @@ impl DeepTree {
         }
     }
 
-    pub fn try_from_string(value: &str) -> Option<DeepTree> {
-        Some(DeepTree::new(
+    pub fn try_from_string(value: &str) -> Result<DeepTree, TreeSerializationError> {
+        Ok(DeepTree::new(
             TreeBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes()))?,
             Vec::new(),
         ))

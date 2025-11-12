@@ -50,7 +50,7 @@ proptest! {
     fn tree_blob_try_from_failure(length in (TREE_BLOB_MAX_LENGTH + 1)..(TREE_BLOB_MAX_LENGTH * 3) /*We don't want to allocate too much memory here.*/) {
         let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, length));
         let result = TreeBlob::try_from(content.clone());
-        assert_eq!(None, result);
+        assert_eq!(Err(TreeSerializationError::BlobTooLong), result);
     }
 }
 

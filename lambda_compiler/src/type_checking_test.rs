@@ -1047,7 +1047,7 @@ async fn test_string_literal_too_long() {
     let expected = CompilerOutput::new(
         None,
         vec![crate::compilation::CompilerError::new(
-            "String literal is too long".to_string(),
+            "String literal could not be serialized: BlobTooLong".to_string(),
             SourceLocation { line: 3, column: 3 },
         )],
     );

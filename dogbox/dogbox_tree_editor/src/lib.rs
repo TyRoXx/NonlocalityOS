@@ -1015,7 +1015,7 @@ impl OpenDirectory {
     async fn save(
         state_locked: &mut OpenDirectoryMutableState,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
-    ) -> std::result::Result<BlobDigest, StoreError> {
+    ) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
         let mut serialization_children = std::collections::BTreeMap::new();
         let mut serialization_references = Vec::new();
         for entry in state_locked.names.iter_mut() {
@@ -1066,15 +1066,13 @@ impl OpenDirectory {
             .unwrap(),
         ));
         match maybe_tree_blob {
-            Some(tree_blob) => {
-                storage
-                    .store_tree(&HashedTree::from(Arc::new(Tree::new(
-                        tree_blob,
-                        serialization_references,
-                    ))))
-                    .await
-            }
-            None => todo!(),
+            Ok(tree_blob) => Ok(storage
+                .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                    tree_blob,
+                    serialization_references,
+                ))))
+                .await?),
+            Err(error) => Err(error.into()),
         }
     }
 
