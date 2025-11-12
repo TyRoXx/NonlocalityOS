@@ -1039,9 +1039,9 @@ impl OpenDirectory {
                         directories_unsaved_count +=
                             open_directory_status.directories_unsaved_count;
                         files_open_count += open_directory_status.files_open_count;
-                        files_open_for_reading_count =
+                        files_open_for_reading_count +=
                             open_directory_status.files_open_for_reading_count;
-                        files_open_for_writing_count =
+                        files_open_for_writing_count +=
                             open_directory_status.files_open_for_writing_count;
                         files_unflushed_count += open_directory_status.files_unflushed_count;
                         bytes_unflushed_count += open_directory_status.bytes_unflushed_count;
