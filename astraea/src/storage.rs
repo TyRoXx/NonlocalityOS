@@ -410,8 +410,8 @@ impl CommitChanges for SQLiteStorage {
         match state_locked.transaction {
             Some(ref stats) => {
                 info!("COMMITting transaction with {} writes", stats.writes);
-                state_locked.transaction = None;
                 state_locked.connection.execute("COMMIT;", ())?;
+                state_locked.transaction = None;
                 Ok(())
             }
             None => Ok(()),
