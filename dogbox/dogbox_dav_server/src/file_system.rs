@@ -57,6 +57,10 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
         }
         dogbox_tree_editor::Error::Storage(_) => todo!(),
         dogbox_tree_editor::Error::TooManyReferences(_blob_digest) => todo!(),
+        dogbox_tree_editor::Error::SaveFailed => {
+            error!("Saving failed");
+            dav_server::fs::FsError::GeneralFailure
+        }
     }
 }
 

@@ -40,6 +40,7 @@ pub enum Error {
     MissingTree(BlobDigest),
     Storage(StoreError),
     TooManyReferences(BlobDigest),
+    SaveFailed,
 }
 
 impl std::fmt::Display for Error {
@@ -919,7 +920,13 @@ impl OpenDirectory {
             for entry in state_locked.names.iter() {
                 entry.1.request_save().await?;
             }
-            let saved = Self::save(state_locked, storage).await.unwrap(/*TODO*/);
+            let saved = match Self::save(state_locked, storage).await {
+                Ok(saved) => saved,
+                Err(error) => {
+                    error!("Error saving directory: {:?}", error);
+                    return Err(Error::SaveFailed);
+                }
+            };
             assert!(state_locked.has_unsaved_changes);
             state_locked.has_unsaved_changes = false;
             Ok(Some(saved))
