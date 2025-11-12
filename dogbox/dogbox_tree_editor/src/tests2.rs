@@ -332,6 +332,7 @@ async fn test_open_directory_nothing_happens() {
             0,
             0,
             0,
+            0,
             0
         ),
         status

@@ -312,6 +312,7 @@ pub struct OpenDirectoryStatus {
     pub directories_open_count: usize,
     pub directories_unsaved_count: usize,
     pub files_open_count: usize,
+    pub files_open_for_reading_count: usize,
     pub files_open_for_writing_count: usize,
     pub files_unflushed_count: usize,
     pub bytes_unflushed_count: u64,
@@ -323,6 +324,7 @@ impl OpenDirectoryStatus {
         directories_open_count: usize,
         directories_unsaved_count: usize,
         files_open_count: usize,
+        files_open_for_reading_count: usize,
         files_open_for_writing_count: usize,
         files_unflushed_count: usize,
         bytes_unflushed_count: u64,
@@ -332,6 +334,7 @@ impl OpenDirectoryStatus {
             directories_open_count,
             directories_unsaved_count,
             files_open_count,
+            files_open_for_reading_count,
             files_open_for_writing_count,
             files_unflushed_count,
             bytes_unflushed_count,
@@ -377,7 +380,7 @@ impl OpenDirectory {
     ) -> Self {
         let has_unsaved_changes = !digest.is_digest_up_to_date;
         let (change_event_sender, change_event_receiver) =
-            tokio::sync::watch::channel(OpenDirectoryStatus::new(digest, 1, 0, 0, 0, 0, 0));
+            tokio::sync::watch::channel(OpenDirectoryStatus::new(digest, 1, 0, 0, 0, 0, 0, 0));
         Self {
             state: Mutex::new(OpenDirectoryMutableState::new(names, has_unsaved_changes)),
             storage,
@@ -944,6 +947,7 @@ impl OpenDirectory {
         let mut directories_open_count: usize= /*count self*/ 1;
         let mut directories_unsaved_count: usize = 0;
         let mut files_open_count: usize = 0;
+        let mut files_open_for_reading_count: usize = 0;
         let mut files_open_for_writing_count: usize = 0;
         let mut files_unflushed_count: usize = 0;
         let mut bytes_unflushed_count: u64 = 0;
@@ -958,6 +962,8 @@ impl OpenDirectory {
                         directories_unsaved_count +=
                             open_directory_status.directories_unsaved_count;
                         files_open_count += open_directory_status.files_open_count;
+                        files_open_for_reading_count =
+                            open_directory_status.files_open_for_reading_count;
                         files_open_for_writing_count =
                             open_directory_status.files_open_for_writing_count;
                         files_unflushed_count += open_directory_status.files_unflushed_count;
@@ -969,6 +975,9 @@ impl OpenDirectory {
                     }
                     OpenNamedEntryStatus::File(open_file_status) => {
                         files_open_count += 1;
+                        if open_file_status.is_open_for_reading {
+                            files_open_for_reading_count += 1;
+                        }
                         if open_file_status.is_open_for_writing {
                             files_open_for_writing_count += 1;
                         }
@@ -1000,6 +1009,7 @@ impl OpenDirectory {
                 directories_open_count,
                 directories_unsaved_count,
                 files_open_count,
+                files_open_for_reading_count,
                 files_open_for_writing_count,
                 files_unflushed_count,
                 bytes_unflushed_count,
@@ -1177,6 +1187,7 @@ pub struct OpenFileStatus {
     pub digest: DigestStatus,
     pub size: u64,
     pub last_known_digest_file_size: u64,
+    pub is_open_for_reading: bool,
     pub is_open_for_writing: bool,
     pub bytes_unflushed_count: u64,
 }
@@ -1186,6 +1197,7 @@ impl OpenFileStatus {
         digest: DigestStatus,
         size: u64,
         last_known_digest_file_size: u64,
+        is_open_for_reading: bool,
         is_open_for_writing: bool,
         bytes_unflushed_count: u64,
     ) -> Self {
@@ -1193,6 +1205,7 @@ impl OpenFileStatus {
             digest,
             size,
             last_known_digest_file_size,
+            is_open_for_reading,
             is_open_for_writing,
             bytes_unflushed_count,
         }
@@ -2279,6 +2292,9 @@ impl OpenFileContentBuffer {
 }
 
 #[derive(Debug)]
+pub struct OpenFileReadPermission {}
+
+#[derive(Debug)]
 pub struct OpenFileWritePermission {}
 
 #[derive(Debug)]
@@ -2288,6 +2304,7 @@ pub struct OpenFile {
     change_event_sender: tokio::sync::watch::Sender<OpenFileStatus>,
     _change_event_receiver: tokio::sync::watch::Receiver<OpenFileStatus>,
     modified: std::time::SystemTime,
+    read_permission: Arc<OpenFileReadPermission>,
     write_permission: Arc<OpenFileWritePermission>,
 }
 
@@ -2303,6 +2320,7 @@ impl OpenFile {
             content.size(),
             last_known_digest_file_size,
             false,
+            false,
             0,
         ));
         OpenFile {
@@ -2311,6 +2329,7 @@ impl OpenFile {
             change_event_sender: sender,
             _change_event_receiver: receiver,
             modified,
+            read_permission: Arc::new(OpenFileReadPermission {}),
             write_permission: Arc::new(OpenFileWritePermission {}),
         }
     }
@@ -2337,6 +2356,10 @@ impl OpenFile {
         content_locked.last_known_digest()
     }
 
+    fn is_open_for_reading(read_permission: &Arc<OpenFileReadPermission>) -> bool {
+        Arc::strong_count(read_permission) > 1
+    }
+
     fn is_open_for_writing(write_permission: &Arc<OpenFileWritePermission>) -> bool {
         Arc::strong_count(write_permission) > 1
     }
@@ -2344,14 +2367,17 @@ impl OpenFile {
     async fn update_status(
         change_event_sender: &tokio::sync::watch::Sender<OpenFileStatus>,
         content: &OpenFileContentBuffer,
+        read_permission: &Arc<OpenFileReadPermission>,
         write_permission: &Arc<OpenFileWritePermission>,
     ) -> std::result::Result<OpenFileStatus, StoreError> {
         let (last_known_digest, last_known_digest_file_size) = content.last_known_digest();
+        let is_open_for_reading = Self::is_open_for_reading(read_permission);
         let is_open_for_writing = Self::is_open_for_writing(write_permission);
         let status = OpenFileStatus::new(
             last_known_digest,
             content.size(),
             last_known_digest_file_size,
+            is_open_for_reading,
             is_open_for_writing,
             content.unsaved_blocks() * (TREE_BLOB_MAX_LENGTH as u64),
         );
@@ -2373,11 +2399,26 @@ impl OpenFile {
         Ok(status)
     }
 
+    pub fn get_read_permission(&self) -> Arc<OpenFileReadPermission> {
+        self.read_permission.clone()
+    }
+
     pub fn get_write_permission(&self) -> Arc<OpenFileWritePermission> {
         self.write_permission.clone()
     }
 
-    //#[instrument(skip_all)]
+    pub fn notify_dropped_read_permission(&self) {
+        self.change_event_sender.send_if_modified(|status| {
+            let is_open_for_reading = Self::is_open_for_reading(&self.read_permission);
+            if status.is_open_for_reading == is_open_for_reading {
+                false
+            } else {
+                status.is_open_for_reading = is_open_for_reading;
+                true
+            }
+        });
+    }
+
     pub fn notify_dropped_write_permission(&self) {
         self.change_event_sender.send_if_modified(|status| {
             let is_open_for_writing = Self::is_open_for_writing(&self.write_permission);
@@ -2388,6 +2429,13 @@ impl OpenFile {
                 true
             }
         });
+    }
+
+    fn assert_read_permission(&self, read_permission: &Arc<OpenFileReadPermission>) {
+        assert!(std::ptr::eq(
+            self.read_permission.as_ref(),
+            read_permission.as_ref()
+        ));
     }
 
     fn assert_write_permission(&self, write_permission: &OpenFileWritePermission) {
@@ -2415,6 +2463,7 @@ impl OpenFile {
             let update_result = Self::update_status(
                 &self.change_event_sender,
                 &content_locked,
+                &self.read_permission,
                 &self.write_permission,
             )
             .await;
@@ -2426,7 +2475,13 @@ impl OpenFile {
         })
     }
 
-    pub fn read_bytes(&self, position: u64, count: usize) -> Future<'_, bytes::Bytes> {
+    pub fn read_bytes(
+        &self,
+        read_permission: &Arc<OpenFileReadPermission>,
+        position: u64,
+        count: usize,
+    ) -> Future<'_, bytes::Bytes> {
+        self.assert_read_permission(read_permission);
         debug!("Read at {}: Up to {} bytes", position, count);
         Box::pin(async move {
             let mut content_locked = self.content.lock().await;
@@ -2448,6 +2503,7 @@ impl OpenFile {
                 Self::update_status(
                     &self.change_event_sender,
                     &content_locked,
+                    &self.read_permission,
                     &self.write_permission,
                 )
                 .await
@@ -2488,6 +2544,7 @@ impl OpenFile {
         let _update_result = Self::update_status(
             &self.change_event_sender,
             &content_locked,
+            &self.read_permission,
             &self.write_permission,
         )
         .await

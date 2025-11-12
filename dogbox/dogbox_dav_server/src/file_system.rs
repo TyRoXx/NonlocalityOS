@@ -4,6 +4,7 @@ use dogbox_tree_editor::DirectoryEntryKind;
 use dogbox_tree_editor::DirectoryEntryMetaData;
 use dogbox_tree_editor::NormalizedPath;
 use dogbox_tree_editor::OpenFile;
+use dogbox_tree_editor::OpenFileReadPermission;
 use dogbox_tree_editor::OpenFileWritePermission;
 use futures::stream::StreamExt;
 use std::sync::Arc;
@@ -157,6 +158,7 @@ impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
 pub(crate) struct DogBoxOpenFile {
     opened_path: relative_path::RelativePathBuf,
     handle: Arc<OpenFile>,
+    read_permission: Option<Arc<OpenFileReadPermission>>,
     write_permission: Option<Arc<OpenFileWritePermission>>,
     cursor: u64,
 }
@@ -166,12 +168,14 @@ impl DogBoxOpenFile {
     pub(crate) fn new(
         opened_path: relative_path::RelativePathBuf,
         handle: Arc<OpenFile>,
+        read_permission: Option<Arc<OpenFileReadPermission>>,
         write_permission: Option<Arc<OpenFileWritePermission>>,
         cursor: u64,
     ) -> Self {
         Self {
             opened_path,
             handle,
+            read_permission,
             write_permission,
             cursor,
         }
@@ -217,17 +221,23 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
         let read_at = self.cursor;
         let open_file = self.handle.clone();
         Box::pin(async move {
-            match open_file.read_bytes(read_at, count).await {
-                Ok(result) => {
-                    self.cursor += result.len() as u64;
-                    Ok(result)
-                }
-                Err(error) => {
-                    error!(
+            match &self.read_permission {
+                Some(readable) => match open_file.read_bytes(readable, read_at, count).await {
+                    Ok(result) => {
+                        self.cursor += result.len() as u64;
+                        Ok(result)
+                    }
+                    Err(error) => {
+                        error!(
                         "Error reading from file {} at {read_at} (up to {count} bytes): {error}",
                         &self.opened_path
                     );
-                    Err(handle_error(error))
+                        Err(handle_error(error))
+                    }
+                },
+                None => {
+                    warn!("Disallowed reading from a file that has not been opened for reading.");
+                    Err(FsError::Forbidden)
                 }
             }
         })
@@ -264,6 +274,10 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
 
 impl Drop for DogBoxOpenFile {
     fn drop(&mut self) {
+        if self.read_permission.is_some() {
+            self.read_permission = None;
+            self.handle.notify_dropped_read_permission();
+        }
         if self.write_permission.is_some() {
             self.write_permission = None;
             self.handle.notify_dropped_write_permission();
@@ -317,6 +331,10 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 Ok(success) => success,
                 Err(_error) => todo!(),
             };
+            let read_permission = match options.read {
+                true => Some(open_file.get_read_permission()),
+                false => None,
+            };
             let write_permission = match options.write {
                 true => Some(open_file.get_write_permission()),
                 false => None,
@@ -331,6 +349,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
                 opened_path: converted_path.to_owned(),
                 handle: open_file,
                 cursor: 0,
+                read_permission,
                 write_permission,
             });
             Ok(result as Box<dyn dav_server::fs::DavFile>)

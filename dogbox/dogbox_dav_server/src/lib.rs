@@ -153,6 +153,12 @@ fn log_differences(old: &OpenDirectoryStatus, new: &OpenDirectoryStatus) {
             &old.files_open_count, &new.files_open_count
         );
     }
+    if old.files_open_for_reading_count != new.files_open_for_reading_count {
+        info!(
+            "Root files_open_for_reading_count changed from {:?} to {:?}",
+            &old.files_open_for_reading_count, &new.files_open_for_reading_count
+        );
+    }
     if old.files_open_for_writing_count != new.files_open_for_writing_count {
         info!(
             "Root files_open_for_writing_count changed from {:?} to {:?}",

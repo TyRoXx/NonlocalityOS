@@ -136,6 +136,7 @@ async fn test_seek_operations() {
             relative_path::RelativePathBuf::from_path("test").unwrap(),
             handle,
             None,
+            None,
             0,
         );
         assert_eq!(0, file.seek(SeekFrom::Start(0)).await.unwrap());
@@ -187,6 +188,7 @@ async fn test_seek_and_write() {
         let mut file = DogBoxOpenFile::new(
             relative_path::RelativePathBuf::from_path("test").unwrap(),
             handle.clone(),
+            None,
             Some(handle.get_write_permission()),
             0,
         );
@@ -260,6 +262,7 @@ async fn test_seek_beyond_the_end() {
         let mut file = DogBoxOpenFile::new(
             relative_path::RelativePathBuf::from_path("test").unwrap(),
             handle.clone(),
+            None,
             Some(handle.get_write_permission()),
             0,
         );
@@ -326,6 +329,7 @@ async fn test_write_out_of_bounds() {
         let mut file = DogBoxOpenFile::new(
             relative_path::RelativePathBuf::from_path("test").unwrap(),
             handle.clone(),
+            None,
             Some(handle.get_write_permission()),
             0,
         );
