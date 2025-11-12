@@ -947,6 +947,7 @@ impl OpenDirectory {
                 &self.change_event_sender,
                 &mut state_locked,
                 self.storage.clone(),
+                &self.original_path,
             )
             .await
         })
@@ -977,14 +978,17 @@ impl OpenDirectory {
         change_event_sender: &tokio::sync::watch::Sender<OpenDirectoryStatus>,
         state_locked: &mut OpenDirectoryMutableState,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
+        original_path: &std::path::Path,
     ) -> Result<OpenDirectoryStatus> {
-        let digest: Option<BlobDigest> = Self::consider_saving(state_locked, storage).await?;
+        let digest: Option<BlobDigest> =
+            Self::consider_saving(state_locked, storage, original_path).await?;
         Ok(Self::update_status(change_event_sender, state_locked, digest).await)
     }
 
     async fn consider_saving(
         state_locked: &mut OpenDirectoryMutableState,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
+        original_path: &std::path::Path,
     ) -> Result<Option<BlobDigest>> {
         if state_locked.has_unsaved_changes {
             debug!("We should save this directory.");
@@ -994,7 +998,12 @@ impl OpenDirectory {
             let saved = match Self::save(state_locked, storage).await {
                 Ok(saved) => saved,
                 Err(error) => {
-                    error!("Error saving directory: {:?}", error);
+                    error!(
+                        "{}: Error saving directory ({} entries): {:?}",
+                        original_path.display(),
+                        state_locked.names.len(),
+                        error
+                    );
                     return Err(Error::SaveFailed);
                 }
             };
