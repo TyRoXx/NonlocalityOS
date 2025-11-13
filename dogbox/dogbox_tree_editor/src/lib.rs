@@ -561,14 +561,10 @@ impl OpenDirectory {
         assert!(previous_entry.is_none());
     }
 
-    pub async fn load_directory(
-        original_path: std::path::PathBuf,
+    async fn deserialize_directory(
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
         digest: &BlobDigest,
-        modified: std::time::SystemTime,
-        clock: WallClock,
-        open_file_write_buffer_in_blocks: usize,
-    ) -> Result<Arc<OpenDirectory>> {
+    ) -> Result<BTreeMap<String, (serialization::DirectoryEntryKind, BlobDigest)>> {
         let delayed_loaded = match storage.load_tree(digest).await {
             Some(delayed_loaded) => delayed_loaded,
             None => return Err(Error::MissingTree(*digest)),
@@ -579,15 +575,13 @@ impl OpenDirectory {
                 Ok(success) => success,
                 Err(error) => return Err(Error::Postcard(error)),
             };
-        let mut entries = BTreeMap::new();
         debug!(
             "Loading directory with {} entries",
             parsed_directory.children.len()
         );
-        for maybe_entry in parsed_directory
-            .children
-            .iter()
-            .map(|child| match &child.1.content {
+        let mut result = BTreeMap::new();
+        for child in parsed_directory.children {
+            match &child.1.content {
                 serialization::ReferenceIndexOrInlineContent::Indirect(reference_index) => {
                     let index: usize = usize::try_from(reference_index.0)
                         .map_err(|_error| Error::ReferenceIndexOutOfRange)?;
@@ -595,12 +589,25 @@ impl OpenDirectory {
                         return Err(Error::ReferenceIndexOutOfRange);
                     }
                     let digest = loaded.tree().references()[index];
-                    Ok((child.0.clone().into(), child.1.kind, digest))
+                    result.insert(child.0.clone().into(), (child.1.kind, digest));
                 }
                 serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
-            })
-        {
-            let (name, kind, digest) = maybe_entry?;
+            }
+        }
+        Ok(result)
+    }
+
+    pub async fn load_directory(
+        original_path: std::path::PathBuf,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+        digest: &BlobDigest,
+        modified: std::time::SystemTime,
+        clock: WallClock,
+        open_file_write_buffer_in_blocks: usize,
+    ) -> Result<Arc<OpenDirectory>> {
+        let mut entries = BTreeMap::new();
+        for maybe_entry in Self::deserialize_directory(storage.clone(), digest).await? {
+            let (name, (kind, digest)) = maybe_entry;
             entries.insert(
                 name,
                 NamedEntry::NotOpen(DirectoryEntryMetaData::new(kind, modified), digest),
