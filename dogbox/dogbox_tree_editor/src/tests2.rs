@@ -1,7 +1,7 @@
 use crate::{
     AccessOrderLowerIsMoreRecent, DigestStatus, DirectoryEntry, DirectoryEntryKind,
     DirectoryEntryMetaData, Error, MutableDirectoryEntry, NamedEntry, NormalizedPath,
-    OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer,
+    OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer, OpenFileStats,
     OptimizedWriteBuffer, Prefetcher, StreakDirection, TreeEditor,
 };
 use astraea::storage::{DelayedHashedTree, InMemoryTreeStorage, LoadTree, StoreError, StoreTree};
@@ -331,11 +331,7 @@ async fn test_open_directory_nothing_happens() {
             ),
             1,
             0,
-            0,
-            0,
-            0,
-            0,
-            0
+            OpenFileStats::new(0, 0, 0, 0, 0),
         ),
         status
     );

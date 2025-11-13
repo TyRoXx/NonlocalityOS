@@ -3,7 +3,7 @@ use astraea::{
     tree::TREE_BLOB_MAX_LENGTH,
 };
 use dav_server::{fakels::FakeLs, DavHandler};
-use dogbox_tree_editor::{OpenDirectory, OpenDirectoryStatus, WallClock};
+use dogbox_tree_editor::{OpenDirectory, OpenDirectoryStatus, OpenFileStats, WallClock};
 use file_system::DogBoxFileSystem;
 use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
@@ -132,12 +132,6 @@ fn log_differences(old: &OpenDirectoryStatus, new: &OpenDirectoryStatus) {
             &old.digest, &new.digest
         );
     }
-    if old.bytes_unflushed_count != new.bytes_unflushed_count {
-        info!(
-            "Root bytes_unflushed_count changed from {:?} to {:?}",
-            &old.bytes_unflushed_count, &new.bytes_unflushed_count
-        );
-    }
     if old.directories_open_count != new.directories_open_count {
         info!(
             "Root directories_open_count changed from {:?} to {:?}",
@@ -150,6 +144,10 @@ fn log_differences(old: &OpenDirectoryStatus, new: &OpenDirectoryStatus) {
             &old.directories_unsaved_count, &new.directories_unsaved_count
         );
     }
+    log_differences_between_file_stats(&old.open_files, &new.open_files);
+}
+
+fn log_differences_between_file_stats(old: &OpenFileStats, new: &OpenFileStats) {
     if old.files_open_count != new.files_open_count {
         info!(
             "Root files_open_count changed from {:?} to {:?}",
@@ -172,6 +170,12 @@ fn log_differences(old: &OpenDirectoryStatus, new: &OpenDirectoryStatus) {
         info!(
             "Root files_unflushed_count changed from {:?} to {:?}",
             &old.files_unflushed_count, &new.files_unflushed_count
+        );
+    }
+    if old.bytes_unflushed_count != new.bytes_unflushed_count {
+        info!(
+            "Root bytes_unflushed_count changed from {:?} to {:?}",
+            &old.bytes_unflushed_count, &new.bytes_unflushed_count
         );
     }
 }
@@ -223,8 +227,8 @@ async fn persist_root_on_change(
                 .unwrap();
             }
             let save_status = if root_status.digest.is_digest_up_to_date {
-                assert_eq!(0, root_status.bytes_unflushed_count);
-                assert_eq!(0, root_status.files_unflushed_count);
+                assert_eq!(0, root_status.open_files.bytes_unflushed_count);
+                assert_eq!(0, root_status.open_files.files_unflushed_count);
                 assert_eq!(0, root_status.directories_unsaved_count);
                 debug!("Root digest is up to date.");
 
@@ -232,12 +236,13 @@ async fn persist_root_on_change(
                     // TODO: redesign all of this because I have no idea whether it's correct.
                     Ok(double_checked_status) => {
                         if double_checked_status.digest.is_digest_up_to_date {
-                            assert_eq!(0, double_checked_status.bytes_unflushed_count);
-                            assert_eq!(0, double_checked_status.files_unflushed_count);
+                            assert_eq!(0, double_checked_status.open_files.bytes_unflushed_count);
+                            assert_eq!(0, double_checked_status.open_files.files_unflushed_count);
                             assert_eq!(0, double_checked_status.directories_unsaved_count);
                             if double_checked_status.digest == root_status.digest {
                                 SaveStatus::Saved {
                                     files_open_for_writing_count: double_checked_status
+                                        .open_files
                                         .files_open_for_writing_count,
                                 }
                             } else {

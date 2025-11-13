@@ -58,13 +58,13 @@ async fn run_dav_server_instance<'t>(
                         if *files_open_for_writing_count == 0 {
                             let root_status = root_directory.latest_status();
                             assert!(root_status.digest.is_digest_up_to_date);
-                            assert_eq!(0, root_status.bytes_unflushed_count);
-                            assert_eq!(0, root_status.files_unflushed_count);
+                            assert_eq!(0, root_status.open_files.bytes_unflushed_count);
+                            assert_eq!(0, root_status.open_files.files_unflushed_count);
                             assert!(root_status.directories_open_count >= 1);
                             assert_eq!(0, root_status.directories_unsaved_count);
                             //TODO: can we somehow wait for files to be closed?
                             //assert_eq!(0, root_status.files_open_count);
-                            assert_eq!(0, root_status.files_open_for_writing_count);
+                            assert_eq!(0, root_status.open_files.files_open_for_writing_count);
                             break;
                         }
                         info!("Waiting for remaining files to be closed.");
@@ -89,13 +89,13 @@ async fn run_dav_server_instance<'t>(
             }
             let root_status = root_directory.latest_status();
             assert!(root_status.digest.is_digest_up_to_date);
-            assert_eq!(0, root_status.bytes_unflushed_count);
-            assert_eq!(0, root_status.files_unflushed_count);
+            assert_eq!(0, root_status.open_files.bytes_unflushed_count);
+            assert_eq!(0, root_status.open_files.files_unflushed_count);
             assert!(root_status.directories_open_count >= 1);
             assert_eq!(0, root_status.directories_unsaved_count);
             //TODO: can we somehow wait for files to be closed?
             //assert_eq!(0, root_status.files_open_count);
-            assert_eq!(0, root_status.files_open_for_writing_count);
+            assert_eq!(0, root_status.open_files.files_open_for_writing_count);
         }
     };
     let testing = async {

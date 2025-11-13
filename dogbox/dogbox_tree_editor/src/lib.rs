@@ -326,10 +326,7 @@ impl NamedEntry {
 pub type WallClock = fn() -> std::time::SystemTime;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
-pub struct OpenDirectoryStatus {
-    pub digest: DigestStatus,
-    pub directories_open_count: usize,
-    pub directories_unsaved_count: usize,
+pub struct OpenFileStats {
     pub files_open_count: usize,
     pub files_open_for_reading_count: usize,
     pub files_open_for_writing_count: usize,
@@ -337,11 +334,8 @@ pub struct OpenDirectoryStatus {
     pub bytes_unflushed_count: u64,
 }
 
-impl OpenDirectoryStatus {
+impl OpenFileStats {
     pub fn new(
-        digest: DigestStatus,
-        directories_open_count: usize,
-        directories_unsaved_count: usize,
         files_open_count: usize,
         files_open_for_reading_count: usize,
         files_open_for_writing_count: usize,
@@ -349,14 +343,43 @@ impl OpenDirectoryStatus {
         bytes_unflushed_count: u64,
     ) -> Self {
         Self {
-            digest,
-            directories_open_count,
-            directories_unsaved_count,
             files_open_count,
             files_open_for_reading_count,
             files_open_for_writing_count,
             files_unflushed_count,
             bytes_unflushed_count,
+        }
+    }
+
+    pub fn add(&mut self, other: &OpenFileStats) {
+        self.files_open_count += other.files_open_count;
+        self.files_open_for_reading_count += other.files_open_for_reading_count;
+        self.files_open_for_writing_count += other.files_open_for_writing_count;
+        self.files_unflushed_count += other.files_unflushed_count;
+        self.bytes_unflushed_count += other.bytes_unflushed_count;
+    }
+}
+
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub struct OpenDirectoryStatus {
+    pub digest: DigestStatus,
+    pub directories_open_count: usize,
+    pub directories_unsaved_count: usize,
+    pub open_files: OpenFileStats,
+}
+
+impl OpenDirectoryStatus {
+    pub fn new(
+        digest: DigestStatus,
+        directories_open_count: usize,
+        directories_unsaved_count: usize,
+        open_files: OpenFileStats,
+    ) -> Self {
+        Self {
+            digest,
+            directories_open_count,
+            directories_unsaved_count,
+            open_files,
         }
     }
 }
@@ -410,8 +433,9 @@ impl OpenDirectory {
         open_file_write_buffer_in_blocks: usize,
     ) -> Self {
         let has_unsaved_changes = !digest.is_digest_up_to_date;
-        let (change_event_sender, change_event_receiver) =
-            tokio::sync::watch::channel(OpenDirectoryStatus::new(digest, 1, 0, 0, 0, 0, 0, 0));
+        let (change_event_sender, change_event_receiver) = tokio::sync::watch::channel(
+            OpenDirectoryStatus::new(digest, 1, 0, OpenFileStats::new(0, 0, 0, 0, 0)),
+        );
         let last_accessed_at = (clock)();
         Self {
             original_path,
@@ -1023,11 +1047,7 @@ impl OpenDirectory {
     ) -> OpenDirectoryStatus {
         let mut directories_open_count: usize= /*count self*/ 1;
         let mut directories_unsaved_count: usize = 0;
-        let mut files_open_count: usize = 0;
-        let mut files_open_for_reading_count: usize = 0;
-        let mut files_open_for_writing_count: usize = 0;
-        let mut files_unflushed_count: usize = 0;
-        let mut bytes_unflushed_count: u64 = 0;
+        let mut open_files = OpenFileStats::new(0, 0, 0, 0, 0);
         let mut are_children_up_to_date = true;
         for entry in state_locked.names.iter_mut() {
             let named_entry_status = entry.1.get_status();
@@ -1038,30 +1058,24 @@ impl OpenDirectory {
                         directories_open_count += open_directory_status.directories_open_count;
                         directories_unsaved_count +=
                             open_directory_status.directories_unsaved_count;
-                        files_open_count += open_directory_status.files_open_count;
-                        files_open_for_reading_count +=
-                            open_directory_status.files_open_for_reading_count;
-                        files_open_for_writing_count +=
-                            open_directory_status.files_open_for_writing_count;
-                        files_unflushed_count += open_directory_status.files_unflushed_count;
-                        bytes_unflushed_count += open_directory_status.bytes_unflushed_count;
+                        open_files.add(&open_directory_status.open_files);
                         if !open_directory_status.digest.is_digest_up_to_date {
                             debug!("Child directory is not up to date.");
                             are_children_up_to_date = false;
                         }
                     }
                     OpenNamedEntryStatus::File(open_file_status) => {
-                        files_open_count += 1;
+                        open_files.files_open_count += 1;
                         if open_file_status.is_open_for_reading {
-                            files_open_for_reading_count += 1;
+                            open_files.files_open_for_reading_count += 1;
                         }
                         if open_file_status.is_open_for_writing {
-                            files_open_for_writing_count += 1;
+                            open_files.files_open_for_writing_count += 1;
                         }
                         if open_file_status.bytes_unflushed_count > 0 {
-                            files_unflushed_count += 1;
+                            open_files.files_unflushed_count += 1;
                         }
-                        bytes_unflushed_count += open_file_status.bytes_unflushed_count;
+                        open_files.bytes_unflushed_count += open_file_status.bytes_unflushed_count;
                         if !open_file_status.digest.is_digest_up_to_date {
                             debug!("Child file is not up to date.");
                             are_children_up_to_date = false;
@@ -1085,11 +1099,7 @@ impl OpenDirectory {
                 digest,
                 directories_open_count,
                 directories_unsaved_count,
-                files_open_count,
-                files_open_for_reading_count,
-                files_open_for_writing_count,
-                files_unflushed_count,
-                bytes_unflushed_count,
+                open_files,
             );
             if *last_status == status {
                 debug!(
