@@ -584,12 +584,10 @@ impl OpenDirectory {
             "Loading directory with {} entries",
             parsed_directory.children.len()
         );
-        for maybe_entry in parsed_directory.children.iter().map(|child| {
-            let kind = match child.1.kind {
-                serialization::DirectoryEntryKind::Directory => DirectoryEntryKind::Directory,
-                serialization::DirectoryEntryKind::File(size) => DirectoryEntryKind::File(size),
-            };
-            match &child.1.content {
+        for maybe_entry in parsed_directory
+            .children
+            .iter()
+            .map(|child| match &child.1.content {
                 serialization::ReferenceIndexOrInlineContent::Indirect(reference_index) => {
                     let index: usize = usize::try_from(reference_index.0)
                         .map_err(|_error| Error::ReferenceIndexOutOfRange)?;
@@ -599,12 +597,15 @@ impl OpenDirectory {
                     let digest = loaded.tree().references()[index];
                     Ok((
                         child.0.clone().into(),
-                        NamedEntry::NotOpen(DirectoryEntryMetaData::new(kind, modified), digest),
+                        NamedEntry::NotOpen(
+                            DirectoryEntryMetaData::new(child.1.kind, modified),
+                            digest,
+                        ),
                     ))
                 }
                 serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
-            }
-        }) {
+            })
+        {
             let entry = maybe_entry?;
             entries.insert(entry.0, entry.1);
         }
