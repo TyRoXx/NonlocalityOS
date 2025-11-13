@@ -715,6 +715,7 @@ dependencies = [
  "astraea",
  "async-stream",
  "async-trait",
+ "bytes 1.10.1",
  "futures-core",
  "futures-util",
  "postcard",

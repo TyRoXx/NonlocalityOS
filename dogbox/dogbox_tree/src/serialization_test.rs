@@ -1,5 +1,8 @@
-use crate::serialization::{FileNameContent, FileNameError};
+use crate::serialization::{serialize_directory, FileNameContent, FileNameError};
+use astraea::tree::BlobDigest;
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
+use tokio::sync::Mutex;
 
 #[test_log::test]
 fn test_file_name_content_from() {
@@ -68,5 +71,21 @@ fn test_file_name_content_from() {
         FileNameContent::from("aaaaaaaaaaaaaaaaaaaaaaa".to_string())
             .unwrap()
             .as_str()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_serialize_directory_empty() {
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let result = serialize_directory(&BTreeMap::from([]), &storage)
+        .await
+        .unwrap();
+    assert_eq!(1, storage.number_of_trees().await);
+    assert_eq!(
+        BlobDigest::parse_hex_string(
+            "735a02ee9ca2990d0e4a464e2512dbc35f3d4d15addb0faa60813203b5dd5b01e22f13ba911e23f629267dd39a1622c45288c3ff5d627cb85e7fb2519f0fd0c3"
+        )
+        .unwrap(),
+        result
     );
 }

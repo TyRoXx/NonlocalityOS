@@ -2,8 +2,9 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use astraea::{
     storage::LoadStoreTree,
-    tree::{BlobDigest, ReferenceIndex},
+    tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob},
 };
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -149,6 +150,49 @@ pub enum DeserializationError {
 impl std::fmt::Display for DeserializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{self:?}")
+    }
+}
+
+pub async fn serialize_directory(
+    entries: &BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)>,
+    storage: &(dyn LoadStoreTree + Send + Sync),
+) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
+    let mut serialization_children = std::collections::BTreeMap::new();
+    let mut serialization_references = Vec::new();
+    for (name, (kind, digest)) in entries.iter() {
+        let reference_index = ReferenceIndex(serialization_references.len() as u64);
+        serialization_references.push(*digest);
+        serialization_children.insert(
+            name.clone(),
+            DirectoryEntry {
+                kind: *kind,
+                content: ReferenceIndexOrInlineContent::Indirect(reference_index),
+            },
+        );
+    }
+    if serialization_children.len() > 5 {
+        debug!(
+            "Saving directory with {} entries",
+            serialization_children.len()
+        );
+        debug!("Saving directory: {:?}", &serialization_children);
+    } else {
+        debug!("Saving directory: {:?}", &serialization_children);
+    }
+    let maybe_tree_blob = TreeBlob::try_from(Bytes::from(
+        postcard::to_allocvec(&DirectoryTree {
+            children: serialization_children,
+        })
+        .unwrap(),
+    ));
+    match maybe_tree_blob {
+        Ok(tree_blob) => Ok(storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                tree_blob,
+                serialization_references,
+            ))))
+            .await?),
+        Err(error) => Err(error.into()),
     }
 }
 

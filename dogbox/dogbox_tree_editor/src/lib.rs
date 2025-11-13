@@ -7,14 +7,14 @@ mod tests2;
 
 use astraea::{
     storage::{LoadStoreTree, StoreError},
-    tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
 use async_stream::stream;
 use bytes::Buf;
 use cached::Cached;
 use dogbox_tree::serialization::{
-    self, deserialize_directory, DeserializationError, DirectoryEntryKind, DirectoryTree, FileName,
-    SegmentedBlob,
+    self, deserialize_directory, serialize_directory, DeserializationError, DirectoryEntryKind,
+    DirectoryTree, FileName, SegmentedBlob,
 };
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
@@ -890,7 +890,7 @@ impl OpenDirectory {
             Self::consider_saving_and_updating_status(
                 &self.change_event_sender,
                 &mut state_locked,
-                self.storage.clone(),
+                self.storage.as_ref(),
                 &self.original_path,
             )
             .await
@@ -921,7 +921,7 @@ impl OpenDirectory {
     async fn consider_saving_and_updating_status(
         change_event_sender: &tokio::sync::watch::Sender<OpenDirectoryStatus>,
         state_locked: &mut OpenDirectoryMutableState,
-        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+        storage: &(dyn LoadStoreTree + Send + Sync),
         original_path: &std::path::Path,
     ) -> Result<OpenDirectoryStatus> {
         let digest: Option<BlobDigest> =
@@ -931,7 +931,7 @@ impl OpenDirectory {
 
     async fn consider_saving(
         state_locked: &mut OpenDirectoryMutableState,
-        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+        storage: &(dyn LoadStoreTree + Send + Sync),
         original_path: &std::path::Path,
     ) -> Result<Option<BlobDigest>> {
         if state_locked.has_unsaved_changes {
@@ -1036,54 +1036,9 @@ impl OpenDirectory {
         *change_event_sender.borrow()
     }
 
-    async fn serialize_directory(
-        entries: &BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)>,
-        storage: Arc<dyn LoadStoreTree + Send + Sync>,
-    ) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
-        let mut serialization_children = std::collections::BTreeMap::new();
-        let mut serialization_references = Vec::new();
-        for (name, (kind, digest)) in entries.iter() {
-            let reference_index = ReferenceIndex(serialization_references.len() as u64);
-            serialization_references.push(*digest);
-            serialization_children.insert(
-                name.clone(),
-                serialization::DirectoryEntry {
-                    kind: *kind,
-                    content: serialization::ReferenceIndexOrInlineContent::Indirect(
-                        reference_index,
-                    ),
-                },
-            );
-        }
-        if serialization_children.len() > 5 {
-            debug!(
-                "Saving directory with {} entries",
-                serialization_children.len()
-            );
-            debug!("Saving directory: {:?}", &serialization_children);
-        } else {
-            debug!("Saving directory: {:?}", &serialization_children);
-        }
-        let maybe_tree_blob = TreeBlob::try_from(bytes::Bytes::from(
-            postcard::to_allocvec(&DirectoryTree {
-                children: serialization_children,
-            })
-            .unwrap(),
-        ));
-        match maybe_tree_blob {
-            Ok(tree_blob) => Ok(storage
-                .store_tree(&HashedTree::from(Arc::new(Tree::new(
-                    tree_blob,
-                    serialization_references,
-                ))))
-                .await?),
-            Err(error) => Err(error.into()),
-        }
-    }
-
     async fn save(
         state_locked: &mut OpenDirectoryMutableState,
-        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+        storage: &(dyn LoadStoreTree + Send + Sync),
     ) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
         let mut entries: BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)> = BTreeMap::new();
         for entry in state_locked.names.iter_mut() {
@@ -1108,7 +1063,7 @@ impl OpenDirectory {
             };
             entries.insert(name, (kind, digest));
         }
-        Self::serialize_directory(&entries, storage).await
+        serialize_directory(&entries, storage).await
     }
 
     pub async fn drop_all_read_caches(&self) -> CacheDropStats {
