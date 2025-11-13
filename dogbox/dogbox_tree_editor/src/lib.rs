@@ -1036,38 +1036,19 @@ impl OpenDirectory {
         *change_event_sender.borrow()
     }
 
-    async fn save(
-        state_locked: &mut OpenDirectoryMutableState,
+    async fn serialize_directory(
+        entries: &BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)>,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
         let mut serialization_children = std::collections::BTreeMap::new();
         let mut serialization_references = Vec::new();
-        for entry in state_locked.names.iter_mut() {
-            let name = FileName::try_from(entry.0.as_str()).unwrap();
-            let named_entry_status = entry.1.get_status();
-            let (kind, digest) = match named_entry_status {
-                NamedEntryStatus::Closed(directory_entry_kind, blob_digest) => {
-                    (directory_entry_kind, blob_digest)
-                }
-                NamedEntryStatus::Open(open_named_entry_status) => match open_named_entry_status {
-                    OpenNamedEntryStatus::Directory(open_directory_status) => (
-                        serialization::DirectoryEntryKind::Directory,
-                        open_directory_status.digest.last_known_digest,
-                    ),
-                    OpenNamedEntryStatus::File(open_file_status) => (
-                        serialization::DirectoryEntryKind::File(
-                            open_file_status.last_known_digest_file_size,
-                        ),
-                        open_file_status.digest.last_known_digest,
-                    ),
-                },
-            };
+        for (name, (kind, digest)) in entries.iter() {
             let reference_index = ReferenceIndex(serialization_references.len() as u64);
-            serialization_references.push(digest);
+            serialization_references.push(*digest);
             serialization_children.insert(
-                name,
+                name.clone(),
                 serialization::DirectoryEntry {
-                    kind,
+                    kind: *kind,
                     content: serialization::ReferenceIndexOrInlineContent::Indirect(
                         reference_index,
                     ),
@@ -1098,6 +1079,36 @@ impl OpenDirectory {
                 .await?),
             Err(error) => Err(error.into()),
         }
+    }
+
+    async fn save(
+        state_locked: &mut OpenDirectoryMutableState,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
+        let mut entries: BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)> = BTreeMap::new();
+        for entry in state_locked.names.iter_mut() {
+            let name = FileName::try_from(entry.0.as_str()).unwrap();
+            let named_entry_status = entry.1.get_status();
+            let (kind, digest) = match named_entry_status {
+                NamedEntryStatus::Closed(directory_entry_kind, blob_digest) => {
+                    (directory_entry_kind, blob_digest)
+                }
+                NamedEntryStatus::Open(open_named_entry_status) => match open_named_entry_status {
+                    OpenNamedEntryStatus::Directory(open_directory_status) => (
+                        serialization::DirectoryEntryKind::Directory,
+                        open_directory_status.digest.last_known_digest,
+                    ),
+                    OpenNamedEntryStatus::File(open_file_status) => (
+                        serialization::DirectoryEntryKind::File(
+                            open_file_status.last_known_digest_file_size,
+                        ),
+                        open_file_status.digest.last_known_digest,
+                    ),
+                },
+            };
+            entries.insert(name, (kind, digest));
+        }
+        Self::serialize_directory(&entries, storage).await
     }
 
     pub async fn drop_all_read_caches(&self) -> CacheDropStats {
