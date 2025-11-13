@@ -197,7 +197,7 @@ pub async fn serialize_directory(
 }
 
 pub async fn deserialize_directory(
-    storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    storage: &(dyn LoadStoreTree + Send + Sync),
     digest: &BlobDigest,
 ) -> Result<BTreeMap<String, (DirectoryEntryKind, BlobDigest)>, DeserializationError> {
     let delayed_loaded = match storage.load_tree(digest).await {

@@ -568,7 +568,7 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<Arc<OpenDirectory>> {
-        let deserialized_directory = match deserialize_directory(storage.clone(), digest).await {
+        let deserialized_directory = match deserialize_directory(storage.as_ref(), digest).await {
             Ok(deserialized_directory) => deserialized_directory,
             Err(error) => {
                 error!("Failed to deserialize directory: {}", error);
