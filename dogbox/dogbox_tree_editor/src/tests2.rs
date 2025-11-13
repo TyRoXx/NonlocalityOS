@@ -460,7 +460,7 @@ fn open_directory_from_entries(
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
 ) -> OpenDirectory {
     let modified = test_clock();
-    return OpenDirectory::new(
+    OpenDirectory::new(
         std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         entries
@@ -468,8 +468,8 @@ fn open_directory_from_entries(
             .map(|entry| {
                 (entry.name.clone(), {
                     NamedEntry::NotOpen(
-                        DirectoryEntryMetaData::new(entry.kind.clone(), modified),
-                        entry.digest.clone(),
+                        DirectoryEntryMetaData::new(entry.kind, modified),
+                        entry.digest,
                     )
                 })
             })
@@ -478,7 +478,7 @@ fn open_directory_from_entries(
         modified,
         test_clock,
         1,
-    );
+    )
 }
 
 #[test_log::test(tokio::test)]
