@@ -569,62 +569,54 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<Arc<OpenDirectory>> {
-        match storage.load_tree(digest).await {
-            Some(delayed_loaded) => {
-                let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
-                let parsed_directory: DirectoryTree =
-                    match postcard::from_bytes(loaded.tree().blob().as_slice()) {
-                        Ok(success) => success,
-                        Err(error) => return Err(Error::Postcard(error)),
-                    };
-                let mut entries = BTreeMap::new();
-                debug!(
-                    "Loading directory with {} entries",
-                    parsed_directory.children.len()
-                );
-                for maybe_entry in parsed_directory.children.iter().map(|child| {
-                    let kind = match child.1.kind {
-                        serialization::DirectoryEntryKind::Directory => {
-                            DirectoryEntryKind::Directory
-                        }
-                        serialization::DirectoryEntryKind::File(size) => {
-                            DirectoryEntryKind::File(size)
-                        }
-                    };
-                    match &child.1.content {
-                        serialization::ReferenceIndexOrInlineContent::Indirect(reference_index) => {
-                            let index: usize = usize::try_from(reference_index.0)
-                                .map_err(|_error| Error::ReferenceIndexOutOfRange)?;
-                            if index >= loaded.tree().references().len() {
-                                return Err(Error::ReferenceIndexOutOfRange);
-                            }
-                            let digest = loaded.tree().references()[index];
-                            Ok((
-                                child.0.clone().into(),
-                                NamedEntry::NotOpen(
-                                    DirectoryEntryMetaData::new(kind, modified),
-                                    digest,
-                                ),
-                            ))
-                        }
-                        serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
+        let delayed_loaded = match storage.load_tree(digest).await {
+            Some(delayed_loaded) => delayed_loaded,
+            None => return Err(Error::MissingTree(*digest)),
+        };
+        let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
+        let parsed_directory: DirectoryTree =
+            match postcard::from_bytes(loaded.tree().blob().as_slice()) {
+                Ok(success) => success,
+                Err(error) => return Err(Error::Postcard(error)),
+            };
+        let mut entries = BTreeMap::new();
+        debug!(
+            "Loading directory with {} entries",
+            parsed_directory.children.len()
+        );
+        for maybe_entry in parsed_directory.children.iter().map(|child| {
+            let kind = match child.1.kind {
+                serialization::DirectoryEntryKind::Directory => DirectoryEntryKind::Directory,
+                serialization::DirectoryEntryKind::File(size) => DirectoryEntryKind::File(size),
+            };
+            match &child.1.content {
+                serialization::ReferenceIndexOrInlineContent::Indirect(reference_index) => {
+                    let index: usize = usize::try_from(reference_index.0)
+                        .map_err(|_error| Error::ReferenceIndexOutOfRange)?;
+                    if index >= loaded.tree().references().len() {
+                        return Err(Error::ReferenceIndexOutOfRange);
                     }
-                }) {
-                    let entry = maybe_entry?;
-                    entries.insert(entry.0, entry.1);
+                    let digest = loaded.tree().references()[index];
+                    Ok((
+                        child.0.clone().into(),
+                        NamedEntry::NotOpen(DirectoryEntryMetaData::new(kind, modified), digest),
+                    ))
                 }
-                Ok(Arc::new(OpenDirectory::new(
-                    original_path,
-                    DigestStatus::new(*digest, true),
-                    entries,
-                    storage,
-                    modified,
-                    clock,
-                    open_file_write_buffer_in_blocks,
-                )))
+                serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
             }
-            None => Err(Error::MissingTree(*digest)),
+        }) {
+            let entry = maybe_entry?;
+            entries.insert(entry.0, entry.1);
         }
+        Ok(Arc::new(OpenDirectory::new(
+            original_path,
+            DigestStatus::new(*digest, true),
+            entries,
+            storage,
+            modified,
+            clock,
+            open_file_write_buffer_in_blocks,
+        )))
     }
 
     async fn open_subdirectory(
