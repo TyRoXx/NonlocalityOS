@@ -826,11 +826,8 @@ impl OpenDirectory {
         }
 
         state_locked.record_access((self.clock)());
-        match state_there_locked {
-            Some(ref mut state_there_locked_present) => {
-                state_there_locked_present.record_access((there.clock)());
-            }
-            None => {}
+        if let Some(ref mut state_there_locked_present) = state_there_locked {
+            state_there_locked_present.record_access((there.clock)());
         }
 
         match state_locked.names.get(name_here) {
@@ -914,11 +911,8 @@ impl OpenDirectory {
         }
 
         state_locked.record_access((self.clock)());
-        match state_there_locked {
-            Some(ref mut state_there_locked_present) => {
-                state_there_locked_present.record_access((there.clock)());
-            }
-            None => {}
+        if let Some(ref mut state_there_locked_present) = state_there_locked {
+            state_there_locked_present.record_access((there.clock)());
         }
 
         match state_locked.names.get(name_here) {
