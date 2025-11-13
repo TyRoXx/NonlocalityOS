@@ -1,8 +1,8 @@
 use crate::{
-    AccessOrderLowerIsMoreRecent, DigestStatus, DirectoryEntry, DirectoryEntryKind,
-    DirectoryEntryMetaData, Error, MutableDirectoryEntry, NamedEntry, NormalizedPath,
-    OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer, OpenFileStats,
-    OptimizedWriteBuffer, Prefetcher, StreakDirection, TreeEditor,
+    AccessOrderLowerIsMoreRecent, DigestStatus, DirectoryEntryKind, DirectoryEntryMetaData, Error,
+    MutableDirectoryEntry, NamedEntry, NormalizedPath, OpenDirectory, OpenDirectoryStatus,
+    OpenFileContentBlock, OpenFileContentBuffer, OpenFileStats, OptimizedWriteBuffer, Prefetcher,
+    StreakDirection, TreeEditor,
 };
 use astraea::storage::{DelayedHashedTree, InMemoryTreeStorage, LoadTree, StoreError, StoreTree};
 use astraea::tree::calculate_reference;
@@ -448,19 +448,46 @@ async fn test_get_meta_data_after_file_write() {
     );
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct DirectoryEntry {
+    pub name: String,
+    pub kind: DirectoryEntryKind,
+    pub digest: BlobDigest,
+}
+
+fn open_directory_from_entries(
+    entries: Vec<DirectoryEntry>,
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
+) -> OpenDirectory {
+    let modified = test_clock();
+    return OpenDirectory::new(
+        std::path::PathBuf::from("/"),
+        DigestStatus::new(*DUMMY_DIGEST, false),
+        entries
+            .iter()
+            .map(|entry| {
+                (entry.name.clone(), {
+                    NamedEntry::NotOpen(
+                        DirectoryEntryMetaData::new(entry.kind.clone(), modified),
+                        entry.digest.clone(),
+                    )
+                })
+            })
+            .collect(),
+        storage,
+        modified,
+        test_clock,
+        1,
+    );
+}
+
 #[test_log::test(tokio::test)]
 async fn test_read_empty_root() {
     use futures::StreamExt;
-    let modified = test_clock();
     let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
+        Arc::new(open_directory_from_entries(
             vec![],
             Arc::new(NeverUsedStorage {}),
-            modified,
-            test_clock,
-            1,
         )),
         None,
     );
@@ -502,14 +529,9 @@ impl LoadStoreTree for NeverUsedStorage {}
 async fn test_get_meta_data_of_root() {
     let modified = test_clock();
     let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
+        Arc::new(open_directory_from_entries(
             vec![],
             Arc::new(NeverUsedStorage {}),
-            modified,
-            test_clock,
-            1,
         )),
         None,
     );
@@ -525,16 +547,10 @@ async fn test_get_meta_data_of_root() {
 
 #[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_non_normalized_path() {
-    let modified = test_clock();
     let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
+        Arc::new(open_directory_from_entries(
             vec![],
             Arc::new(NeverUsedStorage {}),
-            modified,
-            test_clock,
-            1,
         )),
         None,
     );
@@ -549,16 +565,10 @@ async fn test_get_meta_data_of_non_normalized_path() {
 
 #[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_unknown_path() {
-    let modified = test_clock();
     let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
+        Arc::new(open_directory_from_entries(
             vec![],
             Arc::new(NeverUsedStorage {}),
-            modified,
-            test_clock,
-            1,
         )),
         None,
     );
@@ -573,16 +583,10 @@ async fn test_get_meta_data_of_unknown_path() {
 
 #[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
-    let modified = test_clock();
     let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
+        Arc::new(open_directory_from_entries(
             vec![],
             Arc::new(NeverUsedStorage {}),
-            modified,
-            test_clock,
-            1,
         )),
         None,
     );
@@ -597,20 +601,14 @@ async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
 
 #[test_log::test(tokio::test)]
 async fn test_read_directory_on_closed_regular_file() {
-    let modified = test_clock();
     let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
+        Arc::new(open_directory_from_entries(
             vec![DirectoryEntry {
                 name: "test.txt".to_string(),
                 kind: DirectoryEntryKind::File(4),
                 digest: BlobDigest::hash(b"TEST"),
             }],
             Arc::new(NeverUsedStorage {}),
-            modified,
-            test_clock,
-            1,
         )),
         None,
     );
@@ -630,21 +628,15 @@ async fn test_read_directory_on_closed_regular_file() {
 #[test_log::test(tokio::test)]
 async fn test_read_directory_on_open_regular_file() {
     use relative_path::RelativePath;
-    let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
+        Arc::new(open_directory_from_entries(
             vec![DirectoryEntry {
                 name: "test.txt".to_string(),
                 kind: DirectoryEntryKind::File(0),
                 digest: BlobDigest::hash(b""),
             }],
             storage,
-            modified,
-            test_clock,
-            1,
         )),
         None,
     );
@@ -669,18 +661,7 @@ async fn test_create_directory() {
     use relative_path::RelativePath;
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
-            vec![],
-            storage,
-            modified,
-            test_clock,
-            1,
-        )),
-        None,
-    );
+    let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
     editor
         .create_directory(NormalizedPath::new(RelativePath::new("/test")))
         .await
@@ -706,20 +687,8 @@ async fn test_create_directory() {
 async fn test_read_created_directory() {
     use futures::StreamExt;
     use relative_path::RelativePath;
-    let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
-            vec![],
-            storage,
-            modified,
-            test_clock,
-            1,
-        )),
-        None,
-    );
+    let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
     editor
         .create_directory(NormalizedPath::new(RelativePath::new("/test")))
         .await
@@ -738,18 +707,7 @@ async fn test_nested_create_directory() {
     use relative_path::RelativePath;
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let editor = TreeEditor::new(
-        Arc::new(OpenDirectory::from_entries(
-            std::path::PathBuf::from("/"),
-            DigestStatus::new(*DUMMY_DIGEST, false),
-            vec![],
-            storage,
-            modified,
-            test_clock,
-            1,
-        )),
-        None,
-    );
+    let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
     editor
         .create_directory(NormalizedPath::new(RelativePath::new("/test")))
         .await

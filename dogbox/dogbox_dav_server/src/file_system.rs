@@ -1,6 +1,6 @@
 use async_stream::stream;
 use dav_server::fs::FsError;
-use dogbox_tree_editor::DirectoryEntryKind;
+use dogbox_tree::serialization::DirectoryEntryKind;
 use dogbox_tree_editor::DirectoryEntryMetaData;
 use dogbox_tree_editor::NormalizedPath;
 use dogbox_tree_editor::OpenFile;
@@ -140,15 +140,17 @@ impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
 
     fn metadata(&self) -> dav_server::fs::FsFuture<'_, Box<dyn dav_server::fs::DavMetaData>> {
         let result = match self.info.kind {
-            dogbox_tree_editor::DirectoryEntryKind::Directory => Box::new(DogBoxDirectoryMetaData {
-                modified: self.info.modified,
-            })
-                as Box<dyn dav_server::fs::DavMetaData + 'static>,
-            dogbox_tree_editor::DirectoryEntryKind::File(size) => Box::new(DogBoxFileMetaData {
-                size,
-                modified: self.info.modified,
-            })
-                as Box<dyn dav_server::fs::DavMetaData + 'static>,
+            dogbox_tree::serialization::DirectoryEntryKind::Directory => {
+                Box::new(DogBoxDirectoryMetaData {
+                    modified: self.info.modified,
+                }) as Box<dyn dav_server::fs::DavMetaData + 'static>
+            }
+            dogbox_tree::serialization::DirectoryEntryKind::File(size) => {
+                Box::new(DogBoxFileMetaData {
+                    size,
+                    modified: self.info.modified,
+                }) as Box<dyn dav_server::fs::DavMetaData + 'static>
+            }
         };
         Box::pin(async move { Ok(result) })
     }

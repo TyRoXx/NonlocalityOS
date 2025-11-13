@@ -12,7 +12,9 @@ use astraea::{
 use async_stream::stream;
 use bytes::Buf;
 use cached::Cached;
-use dogbox_tree::serialization::{self, DirectoryTree, FileName, SegmentedBlob};
+use dogbox_tree::serialization::{
+    self, DirectoryEntryKind, DirectoryTree, FileName, SegmentedBlob,
+};
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
 use std::{
@@ -56,12 +58,6 @@ pub type Future<'a, T> = Pin<Box<dyn core::future::Future<Output = Result<T>> + 
 pub type Stream<T> = Pin<Box<dyn futures_core::stream::Stream<Item = T> + Send>>;
 
 #[derive(Clone, Debug, PartialEq, Copy)]
-pub enum DirectoryEntryKind {
-    Directory,
-    File(u64),
-}
-
-#[derive(Clone, Debug, PartialEq, Copy)]
 pub struct DirectoryEntryMetaData {
     pub kind: DirectoryEntryKind,
     pub modified: std::time::SystemTime,
@@ -70,19 +66,6 @@ pub struct DirectoryEntryMetaData {
 impl DirectoryEntryMetaData {
     pub fn new(kind: DirectoryEntryKind, modified: std::time::SystemTime) -> Self {
         Self { kind, modified }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct DirectoryEntry {
-    pub name: String,
-    pub kind: DirectoryEntryKind,
-    pub digest: BlobDigest,
-}
-
-impl DirectoryEntry {
-    pub fn new(name: String, kind: DirectoryEntryKind, digest: BlobDigest) -> Self {
-        Self { name, kind, digest }
     }
 }
 
@@ -453,35 +436,6 @@ impl OpenDirectory {
         }
     }
 
-    pub fn from_entries(
-        original_path: std::path::PathBuf,
-        digest: DigestStatus,
-        entries: Vec<DirectoryEntry>,
-        storage: Arc<dyn LoadStoreTree + Send + Sync>,
-        modified: std::time::SystemTime,
-        clock: WallClock,
-        open_file_write_buffer_in_blocks: usize,
-    ) -> OpenDirectory {
-        let names = BTreeMap::from_iter(entries.iter().map(|entry| {
-            (
-                entry.name.clone(),
-                NamedEntry::NotOpen(
-                    DirectoryEntryMetaData::new(entry.kind, modified),
-                    entry.digest,
-                ),
-            )
-        }));
-        OpenDirectory::new(
-            original_path,
-            digest,
-            names,
-            storage.clone(),
-            modified,
-            clock,
-            open_file_write_buffer_in_blocks,
-        )
-    }
-
     pub fn get_storage(&self) -> Arc<dyn LoadStoreTree + Send + Sync> {
         self.storage.clone()
     }
@@ -623,12 +577,11 @@ impl OpenDirectory {
                         Ok(success) => success,
                         Err(error) => return Err(Error::Postcard(error)),
                     };
-                let mut entries = vec![];
+                let mut entries = BTreeMap::new();
                 debug!(
                     "Loading directory with {} entries",
                     parsed_directory.children.len()
                 );
-                entries.reserve(parsed_directory.children.len());
                 for maybe_entry in parsed_directory.children.iter().map(|child| {
                     let kind = match child.1.kind {
                         serialization::DirectoryEntryKind::Directory => {
@@ -646,15 +599,21 @@ impl OpenDirectory {
                                 return Err(Error::ReferenceIndexOutOfRange);
                             }
                             let digest = loaded.tree().references()[index];
-                            Ok(DirectoryEntry::new(child.0.clone().into(), kind, digest))
+                            Ok((
+                                child.0.clone().into(),
+                                NamedEntry::NotOpen(
+                                    DirectoryEntryMetaData::new(kind, modified),
+                                    digest,
+                                ),
+                            ))
                         }
                         serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
                     }
                 }) {
                     let entry = maybe_entry?;
-                    entries.push(entry);
+                    entries.insert(entry.0, entry.1);
                 }
-                Ok(Arc::new(OpenDirectory::from_entries(
+                Ok(Arc::new(OpenDirectory::new(
                     original_path,
                     DigestStatus::new(*digest, true),
                     entries,

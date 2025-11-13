@@ -691,6 +691,7 @@ dependencies = [
  "async-stream",
  "bytes 1.10.1",
  "dav-server",
+ "dogbox_tree",
  "dogbox_tree_editor",
  "futures",
  "hyper 1.7.0",

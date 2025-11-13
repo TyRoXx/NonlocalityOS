@@ -97,7 +97,7 @@ impl From<FileName> for String {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum DirectoryEntryKind {
     Directory,
     /// the size is duplicated here so that you can enumerate directories and get the file sizes without having to access every file's blob

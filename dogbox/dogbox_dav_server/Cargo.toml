@@ -10,6 +10,7 @@ edition = "2021"
 [dependencies]
 astraea = { path ="../../astraea" }
 dogbox_tree_editor = { path ="../dogbox_tree_editor" }
+dogbox_tree = { path ="../dogbox_tree" }
 dav-server = "0"
 hyper = { version = "1", features = [ "http1", "http2", "server" ] }
 hyper-util = { version = "*", features = [ "tokio" ] }
