@@ -595,19 +595,16 @@ impl OpenDirectory {
                         return Err(Error::ReferenceIndexOutOfRange);
                     }
                     let digest = loaded.tree().references()[index];
-                    Ok((
-                        child.0.clone().into(),
-                        NamedEntry::NotOpen(
-                            DirectoryEntryMetaData::new(child.1.kind, modified),
-                            digest,
-                        ),
-                    ))
+                    Ok((child.0.clone().into(), child.1.kind, digest))
                 }
                 serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
             })
         {
-            let entry = maybe_entry?;
-            entries.insert(entry.0, entry.1);
+            let (name, kind, digest) = maybe_entry?;
+            entries.insert(
+                name,
+                NamedEntry::NotOpen(DirectoryEntryMetaData::new(kind, modified), digest),
+            );
         }
         Ok(Arc::new(OpenDirectory::new(
             original_path,
