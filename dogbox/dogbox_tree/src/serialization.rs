@@ -1,5 +1,11 @@
-use astraea::tree::ReferenceIndex;
+use std::{collections::BTreeMap, sync::Arc};
+
+use astraea::{
+    storage::LoadStoreTree,
+    tree::{BlobDigest, ReferenceIndex},
+};
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 #[serde(try_from = "String")]
@@ -131,6 +137,55 @@ impl DirectoryTree {
     pub fn new(children: std::collections::BTreeMap<FileName, DirectoryEntry>) -> DirectoryTree {
         DirectoryTree { children }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum DeserializationError {
+    MissingTree(BlobDigest),
+    Postcard(postcard::Error),
+    ReferenceIndexOutOfRange,
+}
+
+impl std::fmt::Display for DeserializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+pub async fn deserialize_directory(
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    digest: &BlobDigest,
+) -> Result<BTreeMap<String, (DirectoryEntryKind, BlobDigest)>, DeserializationError> {
+    let delayed_loaded = match storage.load_tree(digest).await {
+        Some(delayed_loaded) => delayed_loaded,
+        None => return Err(DeserializationError::MissingTree(*digest)),
+    };
+    let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
+    let parsed_directory: DirectoryTree =
+        match postcard::from_bytes(loaded.tree().blob().as_slice()) {
+            Ok(success) => success,
+            Err(error) => return Err(DeserializationError::Postcard(error)),
+        };
+    debug!(
+        "Loading directory with {} entries",
+        parsed_directory.children.len()
+    );
+    let mut result = BTreeMap::new();
+    for child in parsed_directory.children {
+        match &child.1.content {
+            ReferenceIndexOrInlineContent::Indirect(reference_index) => {
+                let index: usize = usize::try_from(reference_index.0)
+                    .map_err(|_error| DeserializationError::ReferenceIndexOutOfRange)?;
+                if index >= loaded.tree().references().len() {
+                    return Err(DeserializationError::ReferenceIndexOutOfRange);
+                }
+                let digest = loaded.tree().references()[index];
+                result.insert(child.0.clone().into(), (child.1.kind, digest));
+            }
+            ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
+        }
+    }
+    Ok(result)
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -723,6 +723,7 @@ dependencies = [
  "test-log",
  "tokio",
  "tokio-macros",
+ "tracing",
 ]
 
 [[package]]

@@ -37,8 +37,6 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
             dav_server::fs::FsError::NotImplemented
         }
         dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
-        dogbox_tree_editor::Error::Postcard(_error) => todo!(),
-        dogbox_tree_editor::Error::ReferenceIndexOutOfRange => todo!(),
         dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
         dogbox_tree_editor::Error::SegmentedBlobSizeMismatch {
             digest,
@@ -52,15 +50,30 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
             dav_server::fs::FsError::GeneralFailure
         }
         dogbox_tree_editor::Error::CannotRename => FsError::Forbidden,
-        dogbox_tree_editor::Error::MissingTree(missing) => {
-            error!("Missing tree for digest: {:?}", missing);
-            dav_server::fs::FsError::GeneralFailure
-        }
         dogbox_tree_editor::Error::Storage(_) => todo!(),
         dogbox_tree_editor::Error::TooManyReferences(_blob_digest) => todo!(),
         dogbox_tree_editor::Error::SaveFailed => {
             error!("Saving failed");
             dav_server::fs::FsError::GeneralFailure
+        }
+        dogbox_tree_editor::Error::Deserialization(deserialization_error) => {
+            match deserialization_error {
+                dogbox_tree::serialization::DeserializationError::MissingTree(digest) => {
+                    error!("Deserialization failed due to missing tree: {}", digest);
+                    dav_server::fs::FsError::GeneralFailure
+                }
+                dogbox_tree::serialization::DeserializationError::Postcard(postcard_error) => {
+                    error!(
+                        "Deserialization failed due to postcard error: {}",
+                        postcard_error
+                    );
+                    dav_server::fs::FsError::GeneralFailure
+                }
+                dogbox_tree::serialization::DeserializationError::ReferenceIndexOutOfRange => {
+                    error!("Deserialization failed due to reference index out of range");
+                    dav_server::fs::FsError::GeneralFailure
+                }
+            }
         }
     }
 }

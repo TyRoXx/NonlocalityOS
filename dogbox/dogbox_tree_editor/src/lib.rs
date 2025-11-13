@@ -13,7 +13,8 @@ use async_stream::stream;
 use bytes::Buf;
 use cached::Cached;
 use dogbox_tree::serialization::{
-    self, DirectoryEntryKind, DirectoryTree, FileName, SegmentedBlob,
+    self, deserialize_directory, DeserializationError, DirectoryEntryKind, DirectoryTree, FileName,
+    SegmentedBlob,
 };
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
@@ -30,8 +31,6 @@ pub enum Error {
     NotFound(String),
     CannotOpenRegularFileAsDirectory(String),
     CannotOpenDirectoryAsRegularFile,
-    Postcard(postcard::Error),
-    ReferenceIndexOutOfRange,
     FileSizeMismatch,
     SegmentedBlobSizeMismatch {
         digest: BlobDigest,
@@ -39,10 +38,10 @@ pub enum Error {
         directory_entry_size: u64,
     },
     CannotRename,
-    MissingTree(BlobDigest),
     Storage(StoreError),
     TooManyReferences(BlobDigest),
     SaveFailed,
+    Deserialization(DeserializationError),
 }
 
 impl std::fmt::Display for Error {
@@ -561,42 +560,6 @@ impl OpenDirectory {
         assert!(previous_entry.is_none());
     }
 
-    async fn deserialize_directory(
-        storage: Arc<dyn LoadStoreTree + Send + Sync>,
-        digest: &BlobDigest,
-    ) -> Result<BTreeMap<String, (serialization::DirectoryEntryKind, BlobDigest)>> {
-        let delayed_loaded = match storage.load_tree(digest).await {
-            Some(delayed_loaded) => delayed_loaded,
-            None => return Err(Error::MissingTree(*digest)),
-        };
-        let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
-        let parsed_directory: DirectoryTree =
-            match postcard::from_bytes(loaded.tree().blob().as_slice()) {
-                Ok(success) => success,
-                Err(error) => return Err(Error::Postcard(error)),
-            };
-        debug!(
-            "Loading directory with {} entries",
-            parsed_directory.children.len()
-        );
-        let mut result = BTreeMap::new();
-        for child in parsed_directory.children {
-            match &child.1.content {
-                serialization::ReferenceIndexOrInlineContent::Indirect(reference_index) => {
-                    let index: usize = usize::try_from(reference_index.0)
-                        .map_err(|_error| Error::ReferenceIndexOutOfRange)?;
-                    if index >= loaded.tree().references().len() {
-                        return Err(Error::ReferenceIndexOutOfRange);
-                    }
-                    let digest = loaded.tree().references()[index];
-                    result.insert(child.0.clone().into(), (child.1.kind, digest));
-                }
-                serialization::ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
-            }
-        }
-        Ok(result)
-    }
-
     pub async fn load_directory(
         original_path: std::path::PathBuf,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
@@ -605,8 +568,15 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<Arc<OpenDirectory>> {
+        let deserialized_directory = match deserialize_directory(storage.clone(), digest).await {
+            Ok(deserialized_directory) => deserialized_directory,
+            Err(error) => {
+                error!("Failed to deserialize directory: {}", error);
+                return Err(Error::Deserialization(error));
+            }
+        };
         let mut entries = BTreeMap::new();
-        for maybe_entry in Self::deserialize_directory(storage.clone(), digest).await? {
+        for maybe_entry in deserialized_directory {
             let (name, (kind, digest)) = maybe_entry;
             entries.insert(
                 name,
@@ -1342,14 +1312,22 @@ impl OpenFileContentBlock {
         } else {
             let delayed = match storage.load_tree(blob_digest).await {
                 Some(success) => success,
-                None => return Err(Error::MissingTree(*blob_digest)),
+                None => {
+                    return Err(Error::Deserialization(DeserializationError::MissingTree(
+                        *blob_digest,
+                    )))
+                }
             };
             let hashed = tokio::task::spawn_blocking(move || delayed.hash())
                 .await
                 .unwrap();
             match hashed {
                 Some(success) => success,
-                None => return Err(Error::MissingTree(*blob_digest)),
+                None => {
+                    return Err(Error::Deserialization(DeserializationError::MissingTree(
+                        *blob_digest,
+                    )))
+                }
             }
         };
         if loaded.tree().blob().as_slice().len() != size as usize {
@@ -2056,16 +2034,28 @@ impl OpenFileContentBuffer {
                 } else {
                     let delayed_hashed_tree = match storage.load_tree(digest).await {
                         Some(success) => success,
-                        None => return Err(Error::MissingTree(*digest)),
+                        None => {
+                            return Err(Error::Deserialization(DeserializationError::MissingTree(
+                                *digest,
+                            )))
+                        }
                     };
                     let hashed_tree = match delayed_hashed_tree.hash() {
                         Some(success) => success,
-                        None => return Err(Error::MissingTree(*digest)),
+                        None => {
+                            return Err(Error::Deserialization(DeserializationError::MissingTree(
+                                *digest,
+                            )))
+                        }
                     };
                     let info: SegmentedBlob =
                         match postcard::from_bytes(hashed_tree.tree().blob().as_slice()) {
                             Ok(success) => success,
-                            Err(error) => return Err(Error::Postcard(error)),
+                            Err(error) => {
+                                return Err(Error::Deserialization(DeserializationError::Postcard(
+                                    error,
+                                )))
+                            }
                         };
                     if info.size_in_bytes != *size {
                         return Err(Error::SegmentedBlobSizeMismatch {
