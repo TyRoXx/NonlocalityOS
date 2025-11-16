@@ -6,11 +6,11 @@ fn main() {
     panic!("Fuzzing is not supported on this platform.");
 }
 
-use fuzz_functions::prolly_tree_insert;
+use fuzz_functions::prolly_tree_editable_node_remove;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| -> libfuzzer_sys::Corpus {
-    if prolly_tree_insert::fuzz_function(data) {
+    if prolly_tree_editable_node_remove::fuzz_function(data) {
         libfuzzer_sys::Corpus::Keep
     } else {
         libfuzzer_sys::Corpus::Reject
