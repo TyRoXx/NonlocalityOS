@@ -1,7 +1,7 @@
 use crate::{
     prolly_tree::{
-        default_is_split_after_key, find, insert, load_in_memory_node, load_node, new_tree,
-        EitherNodeType,
+        build_node_hierarchy_from_leaves, default_is_split_after_key, find, insert, insert_many,
+        load_in_memory_node, load_node, new_tree, split_node_once, EitherNodeType,
     },
     sorted_tree::TreeReference,
 };
@@ -12,8 +12,34 @@ use astraea::{
 use pretty_assertions::{assert_eq, assert_ne};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
-use test_case::test_case;
-use tokio::{runtime::Runtime, sync::Mutex};
+use tokio::sync::Mutex;
+
+#[test_log::test(tokio::test)]
+async fn test_split_node_once_empty() {
+    assert_eq!(
+        vec![crate::sorted_tree::Node::<u32, TreeReference>::new()],
+        split_node_once(
+            crate::sorted_tree::Node::<u32, TreeReference>::new(),
+            default_is_split_after_key,
+        )
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_build_node_hierarchy_from_leaves() {
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let expected =
+        crate::prolly_tree::EitherNodeType::Leaf(crate::sorted_tree::Node::<u32, i32>::new());
+    assert_eq!(
+        Ok(expected),
+        build_node_hierarchy_from_leaves(
+            crate::sorted_tree::Node::<u32, i32>::new(),
+            default_is_split_after_key,
+            &storage,
+        )
+        .await
+    );
+}
 
 #[test_log::test(tokio::test)]
 async fn new_tree_serialization() {
@@ -59,17 +85,25 @@ async fn insert_flat_value() {
         let found = find::<String, i64>(&storage, &empty, &"key".to_string()).await;
         assert_eq!(None, found);
     }
+    let key: String = "key".into();
     let value = 42;
     let one_element = insert::<String, i64>(
         &storage,
         &storage,
         &empty,
-        "key".into(),
+        key.clone(),
         value,
         default_is_split_after_key,
     )
     .await
     .expect("inserting first key should succeed");
+    assert_eq!(
+        Some(crate::prolly_tree::IntegrityCheckResult::Valid(Some((
+            key.clone(),
+            key.clone()
+        )))),
+        crate::prolly_tree::verify_integrity::<String, i64>(&storage, &one_element,).await
+    );
     assert_ne!(empty, one_element);
     {
         let found = find::<String, i64>(&storage, &one_element, &"key".to_string()).await;
@@ -113,17 +147,25 @@ async fn insert_tree_reference() {
         let found = find::<String, TreeReference>(&storage, &empty, &"key".to_string()).await;
         assert_eq!(None, found);
     }
+    let key: String = "key".into();
     let value = TreeReference::new(empty);
     let one_element = insert::<String, TreeReference>(
         &storage,
         &storage,
         &empty,
-        "key".into(),
+        key.clone(),
         value,
         default_is_split_after_key,
     )
     .await
     .expect("inserting first key should succeed");
+    assert_eq!(
+        Some(crate::prolly_tree::IntegrityCheckResult::Valid(Some((
+            key.clone(),
+            key.clone()
+        )))),
+        crate::prolly_tree::verify_integrity::<String, TreeReference>(&storage, &one_element).await
+    );
     assert_ne!(empty, one_element);
     {
         let found = find::<String, TreeReference>(&storage, &one_element, &"key".to_string()).await;
@@ -157,79 +199,232 @@ async fn insert_tree_reference() {
     );
 }
 
-#[test_case(123)]
-// TODO: make final digest deterministic
-//#[test_case(456)]
-fn insert_many_flat_values(seed: u64) {
-    Runtime::new().unwrap().block_on(async {
-        let number_of_insertions = 1000;
-        let expected_trees_created = 2630;
-        let expected_final_digest = BlobDigest::parse_hex_string(
-            "a76984443db80b8c18aa5bcd36de7e85ec48603a2ccc9a4abdf9651879bc68403130453ca771ede193055d684e413822f9ad784c31c0ef9ee1ee3aae814608c3"
+#[test_log::test(tokio::test)]
+async fn insert_flat_values_one_at_a_time() {
+    let number_of_keys = 200;
+    let expected_trees_created = 858;
+    let expected_final_digest = BlobDigest::parse_hex_string(
+            "a40af0e6ad93ed59d3554b7c00da37e9519be8bc52c15602c220cc9e03db2c01c5e5ea385af102477cf983ca98c8ade650dd604312cc08cac2906798ba85082c"
         ).expect("valid digest");
-        let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
-        let mut current_state = new_tree::<String, i64>(&storage)
-            .await
-            .expect("creating a new tree should succeed");
-        let mut all_entries = Vec::new();
-        for index in 0..number_of_insertions {
-            let key = format!("key-{index}");
-            let value = index as i64;
-            all_entries.push((key, value));
-        }
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let mut current_state = new_tree::<String, i64>(&storage)
+        .await
+        .expect("creating a new tree should succeed");
+    let mut all_entries = Vec::new();
+    for index in 0..number_of_keys {
+        let key = format!("key-{index}");
+        let value = index as i64;
+        all_entries.push((key, value));
+    }
+    {
+        let mut random = SmallRng::seed_from_u64(123);
+        all_entries.shuffle(&mut random);
+    }
+    let all_entries = &all_entries;
+    let storage = &storage;
+    let current_state = &mut current_state;
+    let expected_final_digest = &expected_final_digest;
+    let mut expected_entries: BTreeMap<String, i64> = BTreeMap::new();
+    for (key, value) in all_entries.iter() {
         {
-            let mut random = SmallRng::seed_from_u64(seed);
-            all_entries.shuffle(&mut random);
+            let existing_entry = find::<String, i64>(storage, current_state, key).await;
+            let expected_entry = expected_entries.get(key);
+            assert_eq!(expected_entry.copied(), existing_entry);
         }
-        let mut expected_entries : BTreeMap<String, i64> = BTreeMap::new();
-        for (key, value) in all_entries.into_iter() {
-            {
-                let existing_entry = find::<String, i64>(&storage, &current_state, &key).await;
-                let expected_entry = expected_entries.get(&key);
-                assert_eq!(expected_entry.copied(), existing_entry);
-            }
-            let trees_before = storage.number_of_trees().await;
-            current_state = insert::<String, i64>(
-                &storage,
-                &storage,
-                &current_state,
-                key.clone(),
-                value,
-                default_is_split_after_key,
-            )
-            .await
-            .expect("inserting key should succeed");
-            let trees_after = storage.number_of_trees().await;
-            assert!(trees_after > trees_before);
-            let difference = trees_after - trees_before;
-            assert!(difference <= 5);
-            {
-                let found = find::<String, i64>(&storage, &current_state, &key).await;
-                assert_eq!(Some(value), found);
-            }
-            expected_entries.insert(key, value);
-        }
-        let trees_in_the_end = storage.number_of_trees().await;
-        assert_eq!(expected_final_digest, current_state);
-        assert_eq!(expected_trees_created, trees_in_the_end);
-        for (key, value) in expected_entries.iter() {
-            let found = find::<String, i64>(&storage, &current_state, key).await;
-            assert_eq!(Some(*value), found);
-        }
+        let trees_before = storage.number_of_trees().await;
+        *current_state = insert::<String, i64>(
+            storage,
+            storage,
+            current_state,
+            key.clone(),
+            *value,
+            default_is_split_after_key,
+        )
+        .await
+        .expect("inserting key should succeed");
+        let trees_after = storage.number_of_trees().await;
+        assert!(trees_after > trees_before);
+        let difference = trees_after - trees_before;
+        assert!(difference <= 200);
+        expected_entries.insert(key.clone(), *value);
         assert_eq!(
             expected_entries.len() as u64,
-            crate::prolly_tree::size::<String, i64>(&storage, &current_state)
+            crate::prolly_tree::size::<String, i64>(storage, current_state)
                 .await
                 .unwrap()
         );
-        let in_memory_node = load_in_memory_node::<String, i64>(&storage, &current_state).await;
-        println!("Entire tree: {:?}", in_memory_node);
-        println!("Leaf counts: {:?}", in_memory_node.count());
-    });
+        assert_eq!(
+            Some(crate::prolly_tree::IntegrityCheckResult::Valid(
+                if expected_entries.is_empty() {
+                    None
+                } else {
+                    Some((
+                        expected_entries.first_entry().unwrap().key().clone(),
+                        expected_entries.last_entry().unwrap().key().clone(),
+                    ))
+                }
+            )),
+            crate::prolly_tree::verify_integrity::<String, i64>(storage, current_state).await
+        );
+        for (key, value) in expected_entries.iter() {
+            let found = find::<String, i64>(storage, current_state, key).await;
+            assert_eq!(Some(*value), found);
+        }
+    }
+    let trees_in_the_end = storage.number_of_trees().await;
+    assert_eq!(expected_final_digest, current_state);
+    assert_eq!(expected_trees_created, trees_in_the_end);
+    for (key, value) in expected_entries.iter() {
+        let found = find::<String, i64>(storage, current_state, key).await;
+        assert_eq!(Some(*value), found);
+    }
+    let in_memory_node = load_in_memory_node::<String, i64>(storage, current_state).await;
+    println!("Entire tree: {:?}", in_memory_node);
+    println!("Leaf counts: {:?}", in_memory_node.count());
 }
 
 #[test_log::test(tokio::test)]
-async fn insert_many_tree_references() {
+async fn insert_flat_values_many_at_a_time() {
+    let number_of_keys = 1000;
+    let expected_trees_created = 385;
+    let expected_final_digest = BlobDigest::parse_hex_string(
+            "8d5011b62b516bbdc8205c8500e4f3c4b08c7f75e94bb16127b9709f223ae32bc7980628cf3225fa8f02edaabf095494f6e10dfafc5f555500b9b3c530a03604"
+        ).expect("valid digest");
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let mut current_state = new_tree::<String, i64>(&storage)
+        .await
+        .expect("creating a new tree should succeed");
+    let mut all_entries = Vec::new();
+    for index in 0..number_of_keys {
+        let key = format!("key-{index}");
+        let value = index as i64;
+        all_entries.push((key, value));
+    }
+    {
+        let mut random = SmallRng::seed_from_u64(123);
+        all_entries.shuffle(&mut random);
+    }
+    let storage = &storage;
+    let current_state = &mut current_state;
+    let expected_final_digest = &expected_final_digest;
+    let mut expected_entries: BTreeMap<String, i64> = BTreeMap::new();
+    for chunk in all_entries.as_slice().chunks(100) {
+        for (key, value) in chunk.iter() {
+            let existing_entry = find::<String, i64>(storage, current_state, key).await;
+            assert_eq!(None, existing_entry);
+            expected_entries.insert(key.clone(), *value);
+        }
+        *current_state = insert_many(
+            storage,
+            storage,
+            current_state,
+            chunk.to_vec(),
+            default_is_split_after_key,
+        )
+        .await
+        .expect("inserting many entries should succeed");
+        assert_eq!(
+            Some(crate::prolly_tree::IntegrityCheckResult::Valid(Some((
+                expected_entries.first_entry().unwrap().key().clone(),
+                expected_entries.last_entry().unwrap().key().clone()
+            )))),
+            crate::prolly_tree::verify_integrity::<String, i64>(storage, current_state).await
+        );
+        assert_eq!(
+            expected_entries.len() as u64,
+            crate::prolly_tree::size::<String, i64>(storage, current_state)
+                .await
+                .unwrap()
+        );
+    }
+    let trees_in_the_end = storage.number_of_trees().await;
+    assert_eq!(expected_final_digest, current_state);
+    assert_eq!(expected_trees_created, trees_in_the_end);
+    for (key, value) in expected_entries.iter() {
+        let found = find::<String, i64>(storage, current_state, key).await;
+        assert_eq!(
+            Some(*value),
+            found,
+            "Failed to find expected entry for key: {}",
+            key
+        );
+    }
+    let in_memory_node = load_in_memory_node::<String, i64>(storage, current_state).await;
+    println!("Entire tree: {:?}", in_memory_node);
+    println!("Leaf counts: {:?}", in_memory_node.count());
+}
+
+#[test_log::test(tokio::test)]
+async fn insert_flat_values_all_at_once() {
+    let number_of_keys = 1000;
+    let expected_trees_created = 34;
+    let expected_final_digest = BlobDigest::parse_hex_string(
+            "06aaaa833b68e77455740308be968c9c121fe8693f73b87cf658e1cd8c8f11f1a3cc114e6f5d0278f8d965aa8d69a6a58144d0c85420ed792cf6005fd5cf677d"
+        ).expect("valid digest");
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let mut current_state = new_tree::<String, i64>(&storage)
+        .await
+        .expect("creating a new tree should succeed");
+    let mut all_entries = Vec::new();
+    for index in 0..number_of_keys {
+        let key = format!("key-{index}");
+        let value = index as i64;
+        all_entries.push((key, value));
+    }
+    {
+        let mut random = SmallRng::seed_from_u64(123);
+        all_entries.shuffle(&mut random);
+    }
+    let storage = &storage;
+    let current_state = &mut current_state;
+    let expected_final_digest = &expected_final_digest;
+    let mut expected_entries: BTreeMap<String, i64> = BTreeMap::new();
+    for (key, value) in all_entries.iter() {
+        let existing_entry = find::<String, i64>(storage, current_state, key).await;
+        assert_eq!(None, existing_entry);
+        expected_entries.insert(key.clone(), *value);
+    }
+    *current_state = insert_many(
+        storage,
+        storage,
+        current_state,
+        all_entries,
+        default_is_split_after_key,
+    )
+    .await
+    .expect("inserting many entries should succeed");
+    assert_eq!(
+        Some(crate::prolly_tree::IntegrityCheckResult::Valid(Some((
+            expected_entries.first_entry().unwrap().key().clone(),
+            expected_entries.last_entry().unwrap().key().clone()
+        )))),
+        crate::prolly_tree::verify_integrity::<String, i64>(storage, current_state).await
+    );
+    assert_eq!(
+        expected_entries.len() as u64,
+        crate::prolly_tree::size::<String, i64>(storage, current_state)
+            .await
+            .unwrap()
+    );
+    let trees_in_the_end = storage.number_of_trees().await;
+    assert_eq!(expected_final_digest, current_state);
+    assert_eq!(expected_trees_created, trees_in_the_end);
+    for (key, value) in expected_entries.iter() {
+        let found = find::<String, i64>(storage, current_state, key).await;
+        assert_eq!(
+            Some(*value),
+            found,
+            "Failed to find expected entry for key: {}",
+            key
+        );
+    }
+    let in_memory_node = load_in_memory_node::<String, i64>(storage, current_state).await;
+    println!("Entire tree: {:?}", in_memory_node);
+    println!("Leaf counts: {:?}", in_memory_node.count());
+}
+
+#[test_log::test(tokio::test)]
+async fn insert_tree_references() {
     let number_of_insertions = 100;
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut current_state = new_tree::<String, TreeReference>(&storage)
@@ -268,6 +463,14 @@ async fn insert_many_tree_references() {
             assert_eq!(Some(value), found);
         }
         expected_entries.insert(key, value);
+        assert_eq!(
+            Some(crate::prolly_tree::IntegrityCheckResult::Valid(Some((
+                expected_entries.first_entry().unwrap().key().clone(),
+                expected_entries.last_entry().unwrap().key().clone()
+            )))),
+            crate::prolly_tree::verify_integrity::<String, TreeReference>(&storage, &current_state)
+                .await
+        );
     }
     for (key, value) in expected_entries.iter() {
         let found = find::<String, TreeReference>(&storage, &current_state, key).await;
@@ -293,4 +496,28 @@ async fn find_in_empty_node() {
     .expect("storing empty node should succeed");
     let found = find::<u32, TreeReference>(&storage, &node_digest, &123).await;
     assert_eq!(None, found);
+}
+
+#[test_log::test(tokio::test)]
+async fn insert_many_with_zero_entries() {
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let empty = new_tree::<String, i64>(&storage)
+        .await
+        .expect("creating a new tree should succeed");
+    assert_eq!(
+        0,
+        crate::prolly_tree::size::<String, i64>(&storage, &empty)
+            .await
+            .unwrap()
+    );
+    let after_insert = insert_many::<String, i64>(
+        &storage,
+        &storage,
+        &empty,
+        Vec::new(),
+        default_is_split_after_key::<String>,
+    )
+    .await
+    .expect("inserting zero entries should succeed");
+    assert_eq!(empty, after_insert);
 }

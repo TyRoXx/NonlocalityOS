@@ -101,9 +101,7 @@ jobs:
     # task cargo_lint begin
     - name: Check code linting
       if: matrix.task == 'cargo_lint'
-      run: |
-        cargo clippy --version
-        cargo clippy --all-targets --all-features -- -D warnings
+      run: ./clippy.sh
 
     - name: Check code formatting
       if: matrix.task == 'cargo_lint'
@@ -111,7 +109,7 @@ jobs:
 
     - name: Fuzzing
       if: matrix.task == 'cargo_lint'
-      run: ./fuzz.sh
+      run: ./quick_fuzzing.sh
     # task cargo_lint end
     ######################
 

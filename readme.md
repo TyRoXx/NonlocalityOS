@@ -103,8 +103,8 @@ You will have to explicitly mount the filesystem after starting your DAV server.
 
 # Fuzzing (Linux only)
 
-* `./fuzz.sh`
-* `./fuzzing_coverage.sh`
+* `./quick_fuzzing.sh`
+* or `./fuzz.sh prolly-tree-insert`
 
 # Benchmarks
 
