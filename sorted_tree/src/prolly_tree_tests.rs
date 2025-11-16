@@ -37,6 +37,12 @@ async fn new_tree_serialization() {
         ),
         tree.as_ref()
     );
+    assert_eq!(
+        0,
+        crate::prolly_tree::size::<String, i64>(&storage, &empty)
+            .await
+            .unwrap()
+    );
 }
 
 #[test_log::test(tokio::test)]
@@ -79,6 +85,18 @@ async fn insert_flat_value() {
         }
         EitherNodeType::Internal(_) => panic!("expected a leaf node"),
     }
+    assert_eq!(
+        0,
+        crate::prolly_tree::size::<String, i64>(&storage, &empty)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        1,
+        crate::prolly_tree::size::<String, i64>(&storage, &one_element)
+            .await
+            .unwrap()
+    );
 }
 
 #[test_log::test(tokio::test)]
@@ -121,6 +139,18 @@ async fn insert_tree_reference() {
         }
         EitherNodeType::Internal(_) => panic!("expected a leaf node"),
     }
+    assert_eq!(
+        0,
+        crate::prolly_tree::size::<String, TreeReference>(&storage, &empty)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        1,
+        crate::prolly_tree::size::<String, TreeReference>(&storage, &one_element)
+            .await
+            .unwrap()
+    );
 }
 
 #[test_case(123)]
@@ -178,6 +208,12 @@ fn insert_many_flat_values(seed: u64) {
             let found = find::<String, i64>(&storage, &current_state, key).await;
             assert_eq!(Some(*value), found);
         }
+        assert_eq!(
+            expected_entries.len() as u64,
+            crate::prolly_tree::size::<String, i64>(&storage, &current_state)
+                .await
+                .unwrap()
+        );
         let in_memory_node = load_in_memory_node::<String, i64>(&storage, &current_state).await;
         println!("Entire tree: {:?}", in_memory_node);
         println!("Leaf counts: {:?}", in_memory_node.count());
@@ -224,4 +260,10 @@ async fn insert_many_tree_references() {
         let found = find::<String, TreeReference>(&storage, &current_state, key).await;
         assert_eq!(Some(*value), found);
     }
+    assert_eq!(
+        expected_entries.len() as u64,
+        crate::prolly_tree::size::<String, TreeReference>(&storage, &current_state)
+            .await
+            .unwrap()
+    );
 }

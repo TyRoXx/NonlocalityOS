@@ -49,3 +49,10 @@ path = "fuzz_targets/sorted-tree-insert.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "prolly-tree-insert"
+path = "fuzz_targets/prolly-tree-insert.rs"
+test = false
+doc = false
+bench = false

@@ -232,6 +232,27 @@ pub async fn find<
     }
 }
 
+pub async fn size<
+    Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone,
+    Value: NodeValue + Clone,
+>(
+    load_tree: &dyn LoadTree,
+    root: &BlobDigest,
+) -> Option<u64> {
+    let loaded: EitherNodeType<Key, Value> = load_node(load_tree, root).await?;
+    match loaded {
+        EitherNodeType::Leaf(node) => Some(node.entries().len() as u64),
+        EitherNodeType::Internal(node) => {
+            let mut total_size = 0;
+            for (_key, child) in node.entries() {
+                let child_size = Box::pin(size::<Key, Value>(load_tree, child.reference())).await?;
+                total_size += child_size;
+            }
+            Some(total_size)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum RecursiveLeafCount {
     Leaf(usize),

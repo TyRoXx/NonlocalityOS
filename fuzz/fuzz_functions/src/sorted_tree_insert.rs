@@ -8,8 +8,7 @@ pub fn fuzz_function(data: &[u8]) -> bool {
         Ok(success) => success,
         Err(_) => return false,
     };
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
+    tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap()
         .block_on(async {
