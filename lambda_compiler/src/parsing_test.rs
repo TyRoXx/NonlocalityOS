@@ -911,10 +911,7 @@ fn test_parse_function_call_0_arguments() {
         let expected = ast::Expression::Apply {
             callee: Box::new(ast::Expression::Identifier(
                 name,
-                SourceLocation {
-                    line: 0,
-                    column: 0,
-                },
+                SourceLocation { line: 0, column: 0 },
             )),
             arguments: vec![],
         };
