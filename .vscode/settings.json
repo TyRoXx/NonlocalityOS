@@ -6,6 +6,4 @@
     "[rust]": {
         "editor.formatOnSave": true,
     },
-    "files.autoSaveWhenNoErrors": false,
-    "files.autoSave": "afterDelay"
 }
