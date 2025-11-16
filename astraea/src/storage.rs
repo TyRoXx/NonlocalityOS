@@ -184,6 +184,19 @@ impl SQLiteStorage {
         // "The WAL journaling mode uses a write-ahead log instead of a rollback journal to implement transactions. The WAL journaling mode is persistent; after being set it stays in effect across multiple database connections and after closing and reopening the database. A database in WAL journaling mode can only be accessed by SQLite version 3.7.0 (2010-07-21) or later."
         // https://www.sqlite.org/wal.html
         connection.pragma_update(None, "journal_mode", "WAL")?;
+        // "With synchronous=NORMAL, SQLite will write to the WAL without syncing but will sync the WAL before each commit. This is sufficient for most applications."
+        // https://briandouglas.ie/sqlite-defaults/
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
+        // "Set a busy timeout to avoid immediate SQLITE_BUSY errors when the database is locked by another connection."
+        // Recommended: 5000 milliseconds (5 seconds)
+        // https://briandouglas.ie/sqlite-defaults/
+        connection.pragma_update(None, "busy_timeout", "5000")?;
+        // "Store temporary tables and indices in memory for better performance."
+        // https://briandouglas.ie/sqlite-defaults/
+        connection.pragma_update(None, "temp_store", "MEMORY")?;
+        // "Enable memory-mapped I/O for better read performance. Setting to 30GB allows SQLite to use mmap for the first 30GB of the database file."
+        // https://briandouglas.ie/sqlite-defaults/
+        connection.pragma_update(None, "mmap_size", "30000000000")?;
         Ok(Self {
             state: Mutex::new(SQLiteState {
                 connection,
