@@ -280,3 +280,17 @@ async fn insert_many_tree_references() {
             .unwrap()
     );
 }
+
+#[test_log::test(tokio::test)]
+async fn find_in_empty_node() {
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let node_digest = crate::prolly_tree::store_node(
+        &storage,
+        &crate::sorted_tree::Node::<u32, TreeReference>::new(),
+        &crate::prolly_tree::Metadata { is_leaf: false },
+    )
+    .await
+    .expect("storing empty node should succeed");
+    let found = find::<u32, TreeReference>(&storage, &node_digest, &123).await;
+    assert_eq!(None, found);
+}

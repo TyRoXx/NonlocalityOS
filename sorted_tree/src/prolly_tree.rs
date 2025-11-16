@@ -204,22 +204,22 @@ pub async fn find<
     match loaded {
         EitherNodeType::Leaf(node) => node.find(key),
         EitherNodeType::Internal(node) => {
+            if node.entries().is_empty() {
+                // This shouldn't normally happen because insert doesn't create empty internal nodes.
+                return None;
+            }
             let partition_point = node.entries().partition_point(|element| element.0 <= *key);
             if partition_point == 0 {
-                if node.entries().is_empty() {
-                    None
-                } else {
-                    Box::pin(find(
-                        load_tree,
-                        node.entries()
-                            .first()
-                            .expect("at least one entry")
-                            .1
-                            .reference(),
-                        key,
-                    ))
-                    .await
-                }
+                Box::pin(find(
+                    load_tree,
+                    node.entries()
+                        .first()
+                        .expect("at least one entry")
+                        .1
+                        .reference(),
+                    key,
+                ))
+                .await
             } else {
                 Box::pin(find(
                     load_tree,
