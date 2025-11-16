@@ -18,6 +18,12 @@ pub enum EditableNode<Key, Value> {
 impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeValue + Clone>
     EditableNode<Key, Value>
 {
+    pub fn new() -> Self {
+        EditableNode::Loaded(EditableLoadedNode::Leaf(EditableLeafNode {
+            entries: BTreeMap::new(),
+        }))
+    }
+
     pub async fn insert(
         &mut self,
         entries: &[(Key, Value)],
@@ -50,6 +56,13 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         todo!()
     }
 
+    pub async fn range(
+        &mut self,
+        load_tree: &dyn LoadTree,
+    ) -> Result<std::ops::Range<Key>, Box<dyn std::error::Error>> {
+        todo!()
+    }
+
     pub async fn normalize(
         &mut self,
         load_tree: &dyn LoadTree,
@@ -61,7 +74,10 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         &mut self,
         store_tree: &dyn StoreTree,
     ) -> Result<BlobDigest, Box<dyn std::error::Error>> {
-        todo!()
+        match self {
+            EditableNode::Reference(tree_ref) => Ok(tree_ref.reference().clone()),
+            EditableNode::Loaded(loaded_node) => loaded_node.save(store_tree).await,
+        }
     }
 }
 
@@ -123,9 +139,50 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
                 for (key, value) in entries {
                     leaf_node.entries.insert(key.clone(), value.clone());
                 }
-                todo!()
+                Ok(())
             }
             EditableLoadedNode::Internal(internal_node) => internal_node.insert(entries).await,
+        }
+    }
+
+    pub async fn save(
+        &mut self,
+        store_tree: &dyn StoreTree,
+    ) -> Result<BlobDigest, Box<dyn std::error::Error>> {
+        match self {
+            EditableLoadedNode::Leaf(leaf_node) => {
+                let mut new_node = crate::sorted_tree::Node {
+                    entries: Vec::new(),
+                };
+                for (key, value) in &leaf_node.entries {
+                    new_node.entries.push((key.clone(), value.clone()));
+                }
+                let digest = crate::prolly_tree::store_node(
+                    store_tree,
+                    &new_node,
+                    &crate::prolly_tree::Metadata { is_leaf: true },
+                )
+                .await?;
+                Ok(digest)
+            }
+            EditableLoadedNode::Internal(internal_node) => {
+                let mut new_node = crate::sorted_tree::Node {
+                    entries: Vec::new(),
+                };
+                for (key, child_node) in &mut internal_node.entries {
+                    let child_digest = Box::pin(child_node.save(store_tree)).await?;
+                    new_node
+                        .entries
+                        .push((key.clone(), TreeReference::new(child_digest)));
+                }
+                let digest = crate::prolly_tree::store_node(
+                    store_tree,
+                    &new_node,
+                    &crate::prolly_tree::Metadata { is_leaf: false },
+                )
+                .await?;
+                Ok(digest)
+            }
         }
     }
 }
