@@ -248,3 +248,147 @@ async fn test_roots_may_be_equal() {
     assert_eq!(Some(reference_1), storage.load_root(name_1).await);
     assert_eq!(Some(reference_1), storage.load_root(name_1).await);
 }
+
+#[test_log::test(tokio::test)]
+async fn test_compression_compressible_data() {
+    // Test that compressible data works correctly with compression
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+
+    // Create a highly compressible blob (repeated data)
+    let compressible_data = "A".repeat(1000);
+    let tree = Arc::new(Tree::new(
+        TreeBlob::try_from(Bytes::from(compressible_data.clone())).unwrap(),
+        vec![],
+    ));
+    let reference = storage
+        .store_tree(&HashedTree::from(tree.clone()))
+        .await
+        .unwrap();
+
+    // Verify we can load it back correctly
+    let expected = HashedTree::from(tree);
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    assert_eq!(expected, loaded_back);
+
+    storage.commit_changes().await.unwrap();
+
+    // Verify we can still load after commit
+    let loaded_back_after_commit = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    assert_eq!(expected, loaded_back_after_commit);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_compression_uncompressible_data() {
+    // Test that uncompressible data is stored and retrieved correctly
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+
+    // Create random-like data that won't compress well
+    let uncompressible_data: Vec<u8> = (0..100).map(|i| (i * 7 + 13) as u8).collect();
+    let tree = Arc::new(Tree::new(
+        TreeBlob::try_from(Bytes::from(uncompressible_data.clone())).unwrap(),
+        vec![],
+    ));
+    let reference = storage
+        .store_tree(&HashedTree::from(tree.clone()))
+        .await
+        .unwrap();
+
+    // Verify we can load it back correctly
+    let expected = HashedTree::from(tree);
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    assert_eq!(expected, loaded_back);
+
+    storage.commit_changes().await.unwrap();
+
+    // Verify we can still load after commit
+    let loaded_back_after_commit = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    assert_eq!(expected, loaded_back_after_commit);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_compression_large_blob() {
+    // Test compression with a larger blob
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+
+    // Create a large compressible blob (half repetitive, half varied)
+    let mut large_data = "ABCDEFGH".repeat(500);
+    large_data.push_str(
+        &(0..500)
+            .map(|i| ((i % 26) as u8 + b'a') as char)
+            .collect::<String>(),
+    );
+
+    let tree = Arc::new(Tree::new(
+        TreeBlob::try_from(Bytes::from(large_data.clone())).unwrap(),
+        vec![],
+    ));
+    let reference = storage
+        .store_tree(&HashedTree::from(tree.clone()))
+        .await
+        .unwrap();
+
+    // Verify we can load it back correctly
+    let expected = HashedTree::from(tree);
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    assert_eq!(expected, loaded_back);
+
+    storage.commit_changes().await.unwrap();
+
+    // Verify we can still load after commit
+    let loaded_back_after_commit = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    assert_eq!(expected, loaded_back_after_commit);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_compression_empty_blob() {
+    // Test that empty blobs work correctly
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+
+    let tree = Arc::new(Tree::empty());
+    let reference = storage
+        .store_tree(&HashedTree::from(tree.clone()))
+        .await
+        .unwrap();
+
+    // Verify we can load it back correctly
+    let expected = HashedTree::from(tree);
+    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    assert_eq!(expected, loaded_back);
+
+    storage.commit_changes().await.unwrap();
+
+    // Verify we can still load after commit
+    let loaded_back_after_commit = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    assert_eq!(expected, loaded_back_after_commit);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_compression_load_corrupted_blob() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let reference = BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap();
+    let reference_digest: [u8; 64] = reference.into();
+    connection
+        .execute(
+            "INSERT INTO tree (digest, is_compressed, tree_blob) VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                reference_digest,
+                1u8,
+                // Insert invalid compressed data
+                vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            ],
+        )
+        .unwrap();
+
+    let storage = SQLiteStorage::from(connection).unwrap();
+    let loaded_back = storage.load_tree(&reference).await;
+    assert!(loaded_back.is_none());
+}

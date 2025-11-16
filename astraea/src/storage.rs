@@ -201,8 +201,10 @@ impl SQLiteStorage {
                 id INTEGER PRIMARY KEY NOT NULL,
                 digest BLOB UNIQUE NOT NULL,
                 tree_blob BLOB NOT NULL,
+                is_compressed INTEGER NOT NULL,
                 CONSTRAINT digest_length_matches_sha3_512 CHECK (LENGTH(digest) == 64),
-                CONSTRAINT tree_blob_max_length CHECK (LENGTH(tree_blob) <= {TREE_BLOB_MAX_LENGTH})
+                CONSTRAINT tree_blob_max_length CHECK (LENGTH(tree_blob) <= {TREE_BLOB_MAX_LENGTH}),
+                CONSTRAINT is_compressed_boolean CHECK (is_compressed IN (0, 1))
             ) STRICT"
             );
             connection
@@ -269,10 +271,24 @@ impl StoreTree for SQLiteStorage {
 
         state_locked.require_transaction(1 + tree.tree().references().len() as u64).unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
+
+        // Try to compress the blob, but only store compressed if it's beneficial
+        let original_blob = tree.tree().blob().as_slice();
+        let compressed = lz4_flex::compress_prepend_size(original_blob);
+
+        let (blob_to_store, is_compressed): (&[u8], i32) = if compressed.len() < original_blob.len()
+        {
+            // Compression is beneficial, store compressed
+            (&compressed, 1)
+        } else {
+            // Compression doesn't help, store uncompressed to save CPU time on loading
+            (original_blob, 0)
+        };
+
         let mut statement = connection_locked.prepare_cached(
-            "INSERT INTO tree (digest, tree_blob) VALUES (?1, ?2)").unwrap(/*TODO*/);
+            "INSERT INTO tree (digest, tree_blob, is_compressed) VALUES (?1, ?2, ?3)").unwrap(/*TODO*/);
         let rows_inserted = statement.execute(
-            (&origin_digest, tree.tree().blob().as_slice()),
+            (&origin_digest, blob_to_store, &is_compressed),
         ).unwrap(/*TODO*/);
         assert_eq!(1, rows_inserted);
 
@@ -300,11 +316,29 @@ impl LoadTree for SQLiteStorage {
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = (*reference).into();
-        let mut statement = connection_locked.prepare_cached("SELECT id, tree_blob FROM tree WHERE digest = ?1").unwrap(/*TODO*/);
+        let mut statement = connection_locked.prepare_cached("SELECT id, tree_blob, is_compressed FROM tree WHERE digest = ?1").unwrap(/*TODO*/);
         let (id, tree_blob) = match statement.query_row((&digest,), |row| -> rusqlite::Result<_> {
             let id: i64 = row.get(0).unwrap(/*TODO*/);
             let tree_blob_raw: Vec<u8> = row.get(1).unwrap(/*TODO*/);
-            let tree_blob = TreeBlob::try_from(tree_blob_raw.into()).unwrap(/*TODO*/);
+            let is_compressed: i32 = row.get(2).unwrap(/*TODO*/);
+
+            // Decompress if needed
+            let decompressed_data = match is_compressed {
+                1 => match lz4_flex::decompress_size_prepended(&tree_blob_raw) {
+                    Ok(data) => data,
+                    Err(error) => {
+                        error!("Failed to decompress tree blob: {error:?}");
+                        return Err(rusqlite::Error::InvalidQuery);
+                    }
+                },
+                0 => tree_blob_raw,
+                _ => {
+                    error!("Invalid is_compressed value: {is_compressed}, expected 0 or 1");
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
+            };
+
+            let tree_blob = TreeBlob::try_from(decompressed_data.into()).unwrap(/*TODO*/);
             Ok((id, tree_blob))
         }) {
             Ok(tuple) => tuple,

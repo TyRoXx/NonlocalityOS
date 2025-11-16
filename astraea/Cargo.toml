@@ -25,6 +25,7 @@ async-trait = "0"
 async-scoped = {version = "0", features = ["use-tokio"]}
 rusqlite = {version = "0", features = ["bundled"]}
 pretty_assertions = "1"
+lz4_flex = "0"
 
 [dev-dependencies]
 proptest = "1"
