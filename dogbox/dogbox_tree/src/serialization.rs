@@ -1,11 +1,10 @@
-use std::{collections::BTreeMap, sync::Arc};
-
 use astraea::{
     storage::LoadStoreTree,
     tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob},
 };
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, sync::Arc};
 use tracing::debug;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
@@ -179,12 +178,9 @@ pub async fn serialize_directory(
     } else {
         debug!("Saving directory: {:?}", &serialization_children);
     }
-    let maybe_tree_blob = TreeBlob::try_from(Bytes::from(
-        postcard::to_allocvec(&DirectoryTree {
-            children: serialization_children,
-        })
-        .unwrap(),
-    ));
+    let maybe_tree_blob = TreeBlob::try_from(Bytes::from(postcard::to_allocvec(&DirectoryTree {
+        children: serialization_children,
+    })?));
     match maybe_tree_blob {
         Ok(tree_blob) => Ok(storage
             .store_tree(&HashedTree::from(Arc::new(Tree::new(
@@ -204,7 +200,10 @@ pub async fn deserialize_directory(
         Some(delayed_loaded) => delayed_loaded,
         None => return Err(DeserializationError::MissingTree(*digest)),
     };
-    let loaded = delayed_loaded.hash().unwrap(/*TODO*/);
+    let loaded = match delayed_loaded.hash() {
+        Some(hashed) => hashed,
+        None => return Err(DeserializationError::MissingTree(*digest)),
+    };
     let parsed_directory: DirectoryTree =
         match postcard::from_bytes(loaded.tree().blob().as_slice()) {
             Ok(success) => success,
