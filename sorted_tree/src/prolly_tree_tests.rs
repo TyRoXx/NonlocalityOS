@@ -55,6 +55,10 @@ async fn insert_flat_value() {
         let found = find::<String, i64>(&storage, &empty, &"key".to_string()).await;
         assert_eq!(None, found);
     }
+    {
+        let found = find::<String, i64>(&storage, &empty, &"key".to_string()).await;
+        assert_eq!(None, found);
+    }
     let value = 42;
     let one_element = insert::<String, i64>(
         &storage,
@@ -177,8 +181,13 @@ fn insert_many_flat_values(seed: u64) {
             let mut random = SmallRng::seed_from_u64(seed);
             all_entries.shuffle(&mut random);
         }
-        let mut expected_entries = Vec::new();
+        let mut expected_entries : BTreeMap<String, i64> = BTreeMap::new();
         for (key, value) in all_entries.into_iter() {
+            {
+                let existing_entry = find::<String, i64>(&storage, &current_state, &key).await;
+                let expected_entry = expected_entries.get(&key);
+                assert_eq!(expected_entry.copied(), existing_entry);
+            }
             let trees_before = storage.number_of_trees().await;
             current_state = insert::<String, i64>(
                 &storage,
@@ -198,12 +207,11 @@ fn insert_many_flat_values(seed: u64) {
                 let found = find::<String, i64>(&storage, &current_state, &key).await;
                 assert_eq!(Some(value), found);
             }
-            expected_entries.push((key, value));
+            expected_entries.insert(key, value);
         }
         let trees_in_the_end = storage.number_of_trees().await;
         assert_eq!(expected_final_digest, current_state);
         assert_eq!(expected_trees_created, trees_in_the_end);
-        expected_entries.sort_by_key(|element| element.0.clone());
         for (key, value) in expected_entries.iter() {
             let found = find::<String, i64>(&storage, &current_state, key).await;
             assert_eq!(Some(*value), found);
@@ -237,8 +245,14 @@ async fn insert_many_tree_references() {
         let mut random = SmallRng::seed_from_u64(123);
         all_entries.shuffle(&mut random);
     }
-    let mut expected_entries = Vec::new();
+    let mut expected_entries: BTreeMap<String, TreeReference> = BTreeMap::new();
     for (key, value) in all_entries.into_iter() {
+        {
+            let existing_entry =
+                find::<String, TreeReference>(&storage, &current_state, &key).await;
+            let expected_entry = expected_entries.get(&key);
+            assert_eq!(expected_entry.copied(), existing_entry);
+        }
         current_state = insert::<String, TreeReference>(
             &storage,
             &storage,
@@ -253,8 +267,7 @@ async fn insert_many_tree_references() {
             let found = find::<String, TreeReference>(&storage, &current_state, &key).await;
             assert_eq!(Some(value), found);
         }
-        expected_entries.push((key, value));
-        expected_entries.sort_by_key(|element| element.0.clone());
+        expected_entries.insert(key, value);
     }
     for (key, value) in expected_entries.iter() {
         let found = find::<String, TreeReference>(&storage, &current_state, key).await;

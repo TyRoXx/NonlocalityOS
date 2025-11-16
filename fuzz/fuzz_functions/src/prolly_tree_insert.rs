@@ -15,6 +15,12 @@ async fn insert_many_entries(entries: &[(u32, i64)]) {
     }
     for (key, value) in entries.iter() {
         {
+            let existing_entry =
+                sorted_tree::prolly_tree::find::<u32, i64>(&storage, &current_state, &key).await;
+            let expected_entry = oracle.get(key);
+            assert_eq!(expected_entry.copied(), existing_entry);
+        }
+        {
             let number_of_trees_before = storage.number_of_trees().await;
             current_state = sorted_tree::prolly_tree::insert::<u32, i64>(
                 &storage,
