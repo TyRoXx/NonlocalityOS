@@ -103,6 +103,14 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
     ) -> Result<(), Box<dyn std::error::Error>> {
         todo!()
     }
+
+    pub async fn find(
+        &mut self,
+        key: &Key,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+        todo!()
+    }
 }
 
 #[derive(Debug)]
@@ -155,9 +163,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.get(key).cloned()),
-            EditableLoadedNode::Internal(internal_node) => {
-                todo!()
-            }
+            EditableLoadedNode::Internal(internal_node) => internal_node.find(key, load_tree).await,
         }
     }
 
