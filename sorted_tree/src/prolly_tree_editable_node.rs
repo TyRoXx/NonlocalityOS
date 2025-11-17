@@ -73,20 +73,6 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         Box::pin(loaded.size(load_tree)).await
     }
 
-    pub async fn range(
-        &mut self,
-        load_tree: &dyn LoadTree,
-    ) -> Result<std::ops::Range<Key>, Box<dyn std::error::Error>> {
-        todo!()
-    }
-
-    pub async fn normalize(
-        &mut self,
-        load_tree: &dyn LoadTree,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        todo!()
-    }
-
     pub async fn save(
         &mut self,
         store_tree: &dyn StoreTree,
