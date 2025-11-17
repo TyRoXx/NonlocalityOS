@@ -10,6 +10,7 @@ async fn test_insert() {
     assert_eq!(None, editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&3, &storage).await.unwrap());
+    assert_eq!(0, editable_node.size(&storage).await.unwrap());
     editable_node
         .insert(&[(1, 10), (2, 20), (3, 30)], &storage)
         .await
@@ -21,4 +22,5 @@ async fn test_insert() {
     assert_eq!(Some(10), editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(Some(20), editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(Some(30), editable_node.find(&3, &storage).await.unwrap());
+    assert_eq!(3, editable_node.size(&storage).await.unwrap());
 }

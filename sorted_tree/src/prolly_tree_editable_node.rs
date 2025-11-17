@@ -69,7 +69,8 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         &mut self,
         load_tree: &dyn LoadTree,
     ) -> Result<usize, Box<dyn std::error::Error>> {
-        todo!()
+        let loaded = self.require_loaded(load_tree).await?;
+        Box::pin(loaded.size(load_tree)).await
     }
 
     pub async fn range(
@@ -170,6 +171,22 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
             EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.get(key).cloned()),
             EditableLoadedNode::Internal(internal_node) => {
                 todo!()
+            }
+        }
+    }
+
+    pub async fn size(
+        &mut self,
+        load_tree: &dyn LoadTree,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        match self {
+            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.len()),
+            EditableLoadedNode::Internal(internal_node) => {
+                let mut total_size = 0;
+                for (_key, child_node) in &mut internal_node.entries {
+                    total_size += child_node.size(load_tree).await?;
+                }
+                Ok(total_size)
             }
         }
     }
