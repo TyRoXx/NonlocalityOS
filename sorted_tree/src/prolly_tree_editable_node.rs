@@ -49,11 +49,12 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
 
     pub async fn insert(
         &mut self,
-        entries: &[(Key, Value)],
+        key: Key,
+        value: Value,
         load_tree: &dyn LoadTree,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
-        loaded.insert(entries).await
+        loaded.insert(key, value).await
     }
 
     pub async fn find(
@@ -99,7 +100,8 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
 {
     pub async fn insert(
         &mut self,
-        entries: &[(Key, Value)],
+        key: Key,
+        value: Value,
     ) -> Result<(), Box<dyn std::error::Error>> {
         todo!()
     }
@@ -143,16 +145,15 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
 
     pub async fn insert(
         &mut self,
-        entries: &[(Key, Value)],
+        key: Key,
+        value: Value,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => {
-                for (key, value) in entries {
-                    leaf_node.entries.insert(key.clone(), value.clone());
-                }
+                leaf_node.entries.insert(key, value);
                 Ok(())
             }
-            EditableLoadedNode::Internal(internal_node) => internal_node.insert(entries).await,
+            EditableLoadedNode::Internal(internal_node) => internal_node.insert(key, value).await,
         }
     }
 
