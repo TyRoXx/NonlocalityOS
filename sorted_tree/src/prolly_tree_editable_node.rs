@@ -24,20 +24,35 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         }))
     }
 
+    pub fn from_reference(reference: TreeReference) -> Self {
+        EditableNode::Reference(reference)
+    }
+
+    async fn require_loaded(
+        &mut self,
+        load_tree: &dyn LoadTree,
+    ) -> Result<&mut EditableLoadedNode<Key, Value>, Box<dyn std::error::Error>> {
+        match self {
+            EditableNode::Reference(tree_ref) => {
+                let loaded: EitherNodeType<Key, Value> =
+                    load_node(load_tree, tree_ref.reference()).await.unwrap(/*TODO */);
+                *self = EditableNode::Loaded(EditableLoadedNode::new(loaded));
+            }
+            EditableNode::Loaded(_loaded_node) => {}
+        };
+        let loaded = match self {
+            EditableNode::Loaded(loaded_node) => loaded_node,
+            _ => unreachable!(),
+        };
+        Ok(loaded)
+    }
+
     pub async fn insert(
         &mut self,
         entries: &[(Key, Value)],
         load_tree: &dyn LoadTree,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let loaded = match self {
-            EditableNode::Reference(tree_ref) => {
-                let loaded: EitherNodeType<Key, Value> =
-                    load_node(load_tree, tree_ref.reference()).await.unwrap(/*TODO */);
-                *self = EditableNode::Loaded(EditableLoadedNode::new(loaded));
-                todo!()
-            }
-            EditableNode::Loaded(loaded_node) => loaded_node,
-        };
+        let loaded = self.require_loaded(load_tree).await?;
         loaded.insert(entries).await
     }
 
@@ -46,7 +61,8 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         key: &Key,
         load_tree: &dyn LoadTree,
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
-        todo!()
+        let loaded = self.require_loaded(load_tree).await?;
+        loaded.find(key, load_tree).await
     }
 
     pub async fn size(
@@ -142,6 +158,19 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
                 Ok(())
             }
             EditableLoadedNode::Internal(internal_node) => internal_node.insert(entries).await,
+        }
+    }
+
+    pub async fn find(
+        &mut self,
+        key: &Key,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+        match self {
+            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.get(key).cloned()),
+            EditableLoadedNode::Internal(internal_node) => {
+                todo!()
+            }
         }
     }
 
