@@ -57,6 +57,15 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         loaded.insert(key, value).await
     }
 
+    pub async fn remove(
+        &mut self,
+        key: &Key,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+        let loaded = self.require_loaded(load_tree).await?;
+        loaded.remove(key, load_tree).await
+    }
+
     pub async fn find(
         &mut self,
         key: &Key,
@@ -154,6 +163,19 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
                 Ok(())
             }
             EditableLoadedNode::Internal(internal_node) => internal_node.insert(key, value).await,
+        }
+    }
+
+    pub async fn remove(
+        &mut self,
+        key: &Key,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+        match self {
+            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.remove(key)),
+            EditableLoadedNode::Internal(internal_node) => {
+                todo!()
+            }
         }
     }
 
