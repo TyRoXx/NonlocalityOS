@@ -20,8 +20,8 @@ jobs:
     concurrency:
       # https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
       group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.task }}
-      # Cancel any in-progress jobs in this group to avoid wasting time on obsolete commits
-      cancel-in-progress: true
+      # Changed from true in an attempt to make Actions work on Copilot PRs
+      cancel-in-progress: false
     strategy:
       # https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations
       matrix:
