@@ -1,4 +1,4 @@
-use crate::is_file_located_in_directory;
+use crate::{is_file_located_in_directory, upgrade_schema};
 
 #[test]
 fn test_is_file_located_in_directory() {
@@ -43,4 +43,19 @@ fn test_is_file_located_in_directory_file_found_but_not_directory() {
     let file_in_directory_a = directory_a.join("/home/user/a/file.txt");
     std::fs::write(&file_in_directory_a, "Test content").expect("Failed to create test file");
     assert!(!is_file_located_in_directory(&file_in_directory_a, &directory_b).unwrap());
+}
+
+#[test_log::test]
+fn test_upgrade_schema_on_new_database() {
+    let connection =
+        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory database");
+    upgrade_schema(&connection).expect("Failed to upgrade schema on new database");
+}
+
+#[test_log::test]
+fn test_upgrade_schema_on_existing_database() {
+    let connection =
+        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory database");
+    upgrade_schema(&connection).expect("Failed to upgrade schema on new database");
+    upgrade_schema(&connection).expect("Failed to upgrade schema on existing database");
 }
