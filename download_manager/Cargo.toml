@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 astraea = { path ="../astraea" }
-tokio = {version = "1", features = ["rt-multi-thread", "macros", "time"]}
+tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "fs"]}
 tracing = "0"
 tracing-subscriber = "0"
 rusqlite = {version = "0", features = ["bundled"]}

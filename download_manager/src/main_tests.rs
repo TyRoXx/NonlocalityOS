@@ -1,6 +1,5 @@
-use tracing::info;
-
 use crate::{is_file_located_in_directory, start_watching_url_input_file, upgrade_schema};
+use tracing::info;
 
 #[test]
 fn test_is_file_located_in_directory() {
@@ -62,6 +61,35 @@ fn test_upgrade_schema_on_existing_database() {
     upgrade_schema(&connection).expect("Failed to upgrade schema on existing database");
 }
 
+#[test_log::test]
+fn test_store_urls_in_database() {
+    let mut connection =
+        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory database");
+    upgrade_schema(&connection).expect("Failed to upgrade schema on new database");
+    let urls = vec![
+        "http://example.com/file1".to_string(),
+        "http://example.com/file2".to_string(),
+    ];
+    crate::store_urls_in_database(urls.clone(), &mut connection)
+        .expect("Failed to store URLs in database");
+    let mut statement = connection
+        .prepare("SELECT id, url, sha3_512_digest FROM download_job")
+        .expect("Failed to prepare statement");
+    let stored_urls: Vec<(i64, String)> = statement
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let url: String = row.get(1)?;
+            let digest: Option<String> = row.get(2)?;
+            assert_eq!(digest, None);
+            Ok((id, url))
+        })
+        .expect("Failed to query URLs")
+        .map(|result| result.expect("Failed to get URL"))
+        .collect();
+    let expected = vec![(1, urls[0].clone()), (2, urls[1].clone())];
+    assert_eq!(stored_urls, expected);
+}
+
 #[test_log::test(tokio::test)]
 async fn test_start_watching_url_input_file() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
@@ -99,4 +127,23 @@ async fn test_start_watching_url_input_file() {
     drop(url_input_file_watcher);
     info!("Joining watcher thread");
     watcher_thread.join().expect("Watcher thread panicked");
+}
+
+#[test_log::test]
+fn test_parse_url_input_file() {
+    assert_eq!(Vec::<String>::new(), crate::parse_url_input_file(""));
+    assert_eq!(
+        Vec::<String>::new(),
+        crate::parse_url_input_file("\n\n\n\n")
+    );
+    assert_eq!(vec!["a"], crate::parse_url_input_file("a"));
+    assert_eq!(vec!["a"], crate::parse_url_input_file("a\n"));
+    assert_eq!(vec!["a"], crate::parse_url_input_file("a\r\n"));
+    assert_eq!(vec!["a"], crate::parse_url_input_file(" a "));
+    assert_eq!(vec!["a", "b", "c"], crate::parse_url_input_file("a\nb\nc"));
+    assert_eq!(
+        vec!["a", "b", "c"],
+        crate::parse_url_input_file("a\r\nb\r\nc")
+    );
+    assert_eq!(vec!["a"], crate::parse_url_input_file("\n\na\n\n"));
 }

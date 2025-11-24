@@ -1,12 +1,11 @@
-use std::{
-    path::PathBuf,
-    thread::{self, JoinHandle},
-};
-
 use astraea::storage::SQLiteStorage;
 use clap::Parser;
 use notify::{ReadDirectoryChangesWatcher, Watcher};
-use tracing::{error, info};
+use std::{
+    path::{Path, PathBuf},
+    thread::{self, JoinHandle},
+};
+use tracing::{error, info, warn};
 
 #[cfg(test)]
 mod main_tests;
@@ -66,6 +65,22 @@ fn upgrade_schema(
             return Err(Box::from("Unsupported database schema version"));
         }
     }
+}
+
+fn store_urls_in_database(
+    urls: Vec<String>,
+    connection: &mut rusqlite::Connection,
+) -> rusqlite::Result<()> {
+    let transaction = connection.transaction()?;
+    {
+        let mut statement =
+            transaction.prepare("INSERT OR IGNORE INTO download_job (url) VALUES (?1);")?;
+        for url in urls {
+            statement.execute(rusqlite::params![url])?;
+        }
+    }
+    transaction.commit()?;
+    Ok(())
 }
 
 fn prepare_database(
@@ -165,6 +180,84 @@ fn start_watching_url_input_file(
     Ok((watcher, watcher_thread, rx_async))
 }
 
+async fn read_file_tolerantly(url_input_file_path: &Path) -> String {
+    loop {
+        match tokio::fs::read_to_string(url_input_file_path).await {
+            Ok(content) => {
+                return content;
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to read URL input file {}: {e}",
+                    url_input_file_path.display()
+                );
+                info!("Retrying to read URL input file in 1 second");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        }
+    }
+}
+
+async fn read_file_after_next_change(
+    url_input_file_path: &Path,
+    change_event_receiver: &mut tokio::sync::mpsc::Receiver<()>,
+) -> Option<String> {
+    match change_event_receiver.recv().await {
+        Some(_) => {
+            info!(
+                "Detected change to URL input file: {}",
+                url_input_file_path.display()
+            );
+            let content = read_file_tolerantly(url_input_file_path).await;
+            Some(content)
+        }
+        None => {
+            info!("Change event receiver channel closed; stopping URL input file monitoring");
+            None
+        }
+    }
+}
+
+fn parse_url_input_file(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .collect()
+}
+
+async fn keep_reading_url_input_file(
+    url_input_file_path: &Path,
+    mut change_event_receiver: tokio::sync::mpsc::Receiver<()>,
+    connection: &mut rusqlite::Connection,
+) {
+    loop {
+        match read_file_after_next_change(url_input_file_path, &mut change_event_receiver).await {
+            Some(content) => {
+                info!(
+                    "Read URL input file {} content:\n{}",
+                    url_input_file_path.display(),
+                    content
+                );
+                let parsed = parse_url_input_file(&content);
+                info!("Parsed {} URLs", parsed.len());
+                match store_urls_in_database(parsed, connection) {
+                    Ok(_) => {
+                        info!("Stored URLs in database successfully");
+                    }
+                    Err(e) => {
+                        error!("Failed to store URLs in database: {e}");
+                    }
+                }
+            }
+            None => {
+                break;
+            }
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 struct Args {
     #[arg(short, long)]
@@ -210,7 +303,7 @@ async fn main() {
             todo!()
         }
     }
-    let database_connection = match prepare_database(&working_directory) {
+    let mut database_connection = match prepare_database(&working_directory) {
         Ok(conn) => conn,
         Err(e) => {
             error!("Failed to prepare database: {e}");
@@ -243,6 +336,15 @@ async fn main() {
                 return ();
             }
         };
+    tokio::spawn(async move {
+        keep_reading_url_input_file(
+            &url_input_file_path,
+            url_input_file_event_receiver,
+            &mut database_connection,
+        )
+        .await;
+    });
+    drop(url_input_file_watcher);
     url_input_file_watcher_thread
         .join()
         .expect("Joining the file watcher thread shouldn't fail");
