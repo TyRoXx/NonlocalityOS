@@ -108,14 +108,31 @@ fn prepare_database(
     Ok(connection)
 }
 
-fn start_watching_url_input_file(
+fn is_relevant_change_to_url_input_file(
+    event: &notify::Event,
     url_input_file_path: &std::path::Path,
+) -> bool {
+    if event.paths.contains(&url_input_file_path.to_path_buf()) {
+        match &event.kind {
+            notify::EventKind::Modify(modify_kind) => match modify_kind {
+                notify::event::ModifyKind::Any => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    } else {
+        false
+    }
+}
+
+fn start_watching_url_input_file(
+    url_input_file_path: std::path::PathBuf,
 ) -> notify::Result<(
     ReadDirectoryChangesWatcher,
     JoinHandle<()>,
-    tokio::sync::mpsc::Receiver<notify::Result<notify::Event>>,
+    tokio::sync::mpsc::Receiver<()>,
 )> {
-    let (tx_async, rx_async) = tokio::sync::mpsc::channel::<notify::Result<notify::Event>>(1);
+    let (tx_async, rx_async) = tokio::sync::mpsc::channel::<()>(1);
     let (tx_sync, rx_sync) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
     // unfortunately, notify crate does not support async
     let mut watcher = notify::recommended_watcher(tx_sync)?;
@@ -129,12 +146,18 @@ fn start_watching_url_input_file(
         info!("File watcher thread started");
         for res in rx_sync {
             match &res {
-                Ok(event) => info!("Watch event: {:?}", event),
+                Ok(event) => {
+                    info!("Watch event: {:?}", event);
+                    if is_relevant_change_to_url_input_file(event, &url_input_file_path) {
+                        match tx_async.blocking_send(()) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!("Failed to send event or error via async channel: {:?}", e)
+                            }
+                        }
+                    }
+                }
                 Err(e) => error!("Watch error: {:?}", e),
-            }
-            match tx_async.blocking_send(res) {
-                Ok(_) => {}
-                Err(e) => error!("Failed to send event or error via async channel: {:?}", e),
             }
         }
         info!("File watcher thread ending");
@@ -196,7 +219,7 @@ async fn main() {
     };
     let url_input_file_path = working_directory.join("urls.txt");
     let (url_input_file_watcher, url_input_file_watcher_thread, url_input_file_event_receiver) =
-        match start_watching_url_input_file(&url_input_file_path) {
+        match start_watching_url_input_file(url_input_file_path.clone()) {
             Ok((
                 url_input_file_watcher,
                 url_input_file_watcher_thread,
