@@ -181,6 +181,16 @@ pub struct SQLiteStorage {
 
 impl SQLiteStorage {
     pub fn from(connection: rusqlite::Connection) -> rusqlite::Result<Self> {
+        Self::configure_connection(&connection)?;
+        Ok(Self {
+            state: Mutex::new(SQLiteState {
+                connection,
+                transaction: None,
+            }),
+        })
+    }
+
+    pub fn configure_connection(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
         connection.pragma_update(None, "foreign_keys", "on")?;
         // "The default suggested cache size is -2000, which means the cache size is limited to 2048000 bytes of memory."
         // https://www.sqlite.org/pragma.html#pragma_cache_size
@@ -188,12 +198,7 @@ impl SQLiteStorage {
         // "The WAL journaling mode uses a write-ahead log instead of a rollback journal to implement transactions. The WAL journaling mode is persistent; after being set it stays in effect across multiple database connections and after closing and reopening the database. A database in WAL journaling mode can only be accessed by SQLite version 3.7.0 (2010-07-21) or later."
         // https://www.sqlite.org/wal.html
         connection.pragma_update(None, "journal_mode", "WAL")?;
-        Ok(Self {
-            state: Mutex::new(SQLiteState {
-                connection,
-                transaction: None,
-            }),
-        })
+        Ok(())
     }
 
     pub fn create_schema(connection: &rusqlite::Connection) -> rusqlite::Result<()> {

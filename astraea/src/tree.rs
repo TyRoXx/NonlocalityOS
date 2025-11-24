@@ -15,6 +15,13 @@ impl BlobDigest {
         BlobDigest((first.try_into().unwrap(), second.try_into().unwrap()))
     }
 
+    pub fn to_array(&self) -> [u8; 64] {
+        let mut result = [0u8; 64];
+        result[..32].copy_from_slice(&self.0 .0);
+        result[32..].copy_from_slice(&self.0 .1);
+        result
+    }
+
     pub fn parse_hex_string(input: &str) -> Option<BlobDigest> {
         let mut result = [0u8; 64];
         hex::decode_to_slice(input, &mut result).ok()?;

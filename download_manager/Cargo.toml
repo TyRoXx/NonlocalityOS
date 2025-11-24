@@ -1,5 +1,5 @@
 [package]
-name = "nonlocality_host"
+name = "download_manager"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,18 +7,16 @@ edition = "2021"
 
 [dependencies]
 astraea = { path ="../astraea" }
-lambda = { path ="../lambda" }
-dogbox_dav_server = { path ="../dogbox/dogbox_dav_server" }
-tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "process"]}
+tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "process", "io-util"]}
 tracing = "0"
 tracing-subscriber = "0"
-tempfile = "3"
-chrono = "0"
 rusqlite = {version = "0", features = ["bundled"]}
 clap = { version = "4", features = ["derive"] }
+notify = "8"
 async-trait = "0"
+pretty_assertions = "1"
+tempfile = "3"
+sha3 = "0"
 
 [dev-dependencies]
 test-log = {version = "0", features = ["trace", "log", "color"]}
-pretty_assertions = "1"
-tempfile = "3"
