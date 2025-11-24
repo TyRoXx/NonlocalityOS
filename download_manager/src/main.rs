@@ -1,5 +1,11 @@
+use std::{
+    path::PathBuf,
+    thread::{self, JoinHandle},
+};
+
 use astraea::storage::SQLiteStorage;
 use clap::Parser;
+use notify::{ReadDirectoryChangesWatcher, Watcher};
 use tracing::{error, info};
 
 #[cfg(test)]
@@ -62,12 +68,6 @@ fn upgrade_schema(
     }
 }
 
-#[derive(Parser, Debug)]
-struct Args {
-    #[arg(short, long)]
-    output: std::path::PathBuf,
-}
-
 fn prepare_database(
     working_directory: &std::path::Path,
 ) -> std::result::Result<rusqlite::Connection, Box<dyn std::error::Error>> {
@@ -106,6 +106,46 @@ fn prepare_database(
         }
     }
     Ok(connection)
+}
+
+fn start_watching_url_input_file(
+    url_input_file_path: &std::path::Path,
+) -> notify::Result<(
+    ReadDirectoryChangesWatcher,
+    JoinHandle<()>,
+    tokio::sync::mpsc::Receiver<notify::Result<notify::Event>>,
+)> {
+    let (tx_async, rx_async) = tokio::sync::mpsc::channel::<notify::Result<notify::Event>>(1);
+    let (tx_sync, rx_sync) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
+    // unfortunately, notify crate does not support async
+    let mut watcher = notify::recommended_watcher(tx_sync)?;
+    let directory: PathBuf = url_input_file_path
+        .parent()
+        .expect("Failed to get parent directory")
+        .into();
+    watcher.watch(&directory, notify::RecursiveMode::Recursive)?;
+    info!("Watching directory {} for changes", directory.display());
+    let watcher_thread = thread::spawn(move || {
+        info!("File watcher thread started");
+        for res in rx_sync {
+            match &res {
+                Ok(event) => info!("Watch event: {:?}", event),
+                Err(e) => error!("Watch error: {:?}", e),
+            }
+            match tx_async.blocking_send(res) {
+                Ok(_) => {}
+                Err(e) => error!("Failed to send event or error via async channel: {:?}", e),
+            }
+        }
+        info!("File watcher thread ending");
+    });
+    Ok((watcher, watcher_thread, rx_async))
+}
+
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(short, long)]
+    output: std::path::PathBuf,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -154,5 +194,34 @@ async fn main() {
             todo!()
         }
     };
+    let url_input_file_path = working_directory.join("urls.txt");
+    let (url_input_file_watcher, url_input_file_watcher_thread, url_input_file_event_receiver) =
+        match start_watching_url_input_file(&url_input_file_path) {
+            Ok((
+                url_input_file_watcher,
+                url_input_file_watcher_thread,
+                url_input_file_event_receiver,
+            )) => {
+                info!(
+                    "Started watching URL input file: {}",
+                    url_input_file_path.display()
+                );
+                (
+                    url_input_file_watcher,
+                    url_input_file_watcher_thread,
+                    url_input_file_event_receiver,
+                )
+            }
+            Err(e) => {
+                error!(
+                    "Failed to start watching URL input file {}: {e}",
+                    url_input_file_path.display()
+                );
+                return ();
+            }
+        };
+    url_input_file_watcher_thread
+        .join()
+        .expect("Joining the file watcher thread shouldn't fail");
     todo!()
 }
