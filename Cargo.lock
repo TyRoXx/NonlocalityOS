@@ -765,6 +765,7 @@ name = "download_manager"
 version = "0.1.0"
 dependencies = [
  "astraea",
+ "clap",
  "pretty_assertions",
  "rusqlite",
  "tempfile",

@@ -1,4 +1,5 @@
 use astraea::storage::SQLiteStorage;
+use clap::Parser;
 use tracing::{error, info};
 
 #[cfg(test)]
@@ -61,9 +62,67 @@ fn upgrade_schema(
     }
 }
 
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(short, long)]
+    output: std::path::PathBuf,
+}
+
+fn prepare_database(
+    working_directory: &std::path::Path,
+) -> std::result::Result<rusqlite::Connection, Box<dyn std::error::Error>> {
+    let database_path = working_directory.join("download_manager.sqlite");
+    let connection = match rusqlite::Connection::open_with_flags(
+        &database_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+    ) {
+        Ok(conn) => conn,
+        Err(e) => {
+            error!(
+                "Failed to open or create database file {}: {e}",
+                database_path.display()
+            );
+            return Err(Box::from("Failed to open or create database file"));
+        }
+    };
+    match SQLiteStorage::configure_connection(&connection) {
+        Ok(_) => {}
+        Err(e) => {
+            error!(
+                "Failed to configure database connection for file {}: {e}",
+                database_path.display()
+            );
+            return Err(Box::from("Failed to configure database connection"));
+        }
+    }
+    match upgrade_schema(&connection) {
+        Ok(_) => {}
+        Err(e) => {
+            error!(
+                "Failed to upgrade database schema for file {}: {e}",
+                database_path.display()
+            );
+            return Err(Box::from("Failed to upgrade database schema"));
+        }
+    }
+    Ok(connection)
+}
+
 #[tokio::main(flavor = "multi_thread")]
-async fn main() -> std::result::Result<std::process::ExitCode, Box<dyn std::error::Error>> {
+async fn main() {
     tracing_subscriber::fmt::init();
+    let command_line_arguments = Args::parse();
+    let output_directory = command_line_arguments.output;
+    match std::fs::create_dir_all(&output_directory) {
+        Ok(_) => {}
+        Err(e) => {
+            error!(
+                "Failed to create output directory {}: {e}",
+                output_directory.display()
+            );
+            return;
+        }
+    }
     let executable_path = std::env::current_exe().expect("Failed to get current executable path");
     let working_directory =
         std::env::current_dir().expect("Failed to get current working directory");
@@ -72,28 +131,28 @@ async fn main() -> std::result::Result<std::process::ExitCode, Box<dyn std::erro
         executable_path.display(),
         working_directory.display()
     );
-    if !is_file_located_in_directory(&executable_path, &working_directory)? {
-        info!("For simplicity sake, the executable is expected to be located in the current working directory.");
-        error!(
-            "Executable path {} is not located within the working directory {}",
-            executable_path.display(),
-            working_directory.display()
-        );
-        return Ok(std::process::ExitCode::from(1));
+    match is_file_located_in_directory(&executable_path, &working_directory) {
+        Ok(result) => {
+            if !result {
+                info!("For simplicity sake, the executable is expected to be located in the current working directory.");
+                error!(
+                    "Executable path {} is not located within the working directory {}",
+                    executable_path.display(),
+                    working_directory.display()
+                );
+                todo!()
+            }
+        }
+        Err(_e) => {
+            todo!()
+        }
     }
-    let database_path = working_directory.join("download_manager.sqlite");
-    let connection = rusqlite::Connection::open_with_flags(
-        &database_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
-    )
-    .map_err(|e| {
-        error!(
-            "Failed to open or create database file {}: {e}",
-            database_path.display()
-        );
-        e
-    })?;
-    SQLiteStorage::configure_connection(&connection)?;
-    upgrade_schema(&connection)?;
+    let database_connection = match prepare_database(&working_directory) {
+        Ok(conn) => conn,
+        Err(e) => {
+            error!("Failed to prepare database: {e}");
+            todo!()
+        }
+    };
     todo!()
 }
