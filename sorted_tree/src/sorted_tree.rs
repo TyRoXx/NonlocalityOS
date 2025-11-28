@@ -78,7 +78,7 @@ impl NodeValue for TreeReference {
 #[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Debug)]
 pub struct Node<Key: Serialize + Ord, Value: NodeValue> {
     /// sorted by Key
-    entries: Vec<(Key, Value)>,
+    pub entries: Vec<(Key, Value)>,
 }
 
 impl<Key: Serialize + Ord + Clone, Value: NodeValue + Clone> Default for Node<Key, Value> {
