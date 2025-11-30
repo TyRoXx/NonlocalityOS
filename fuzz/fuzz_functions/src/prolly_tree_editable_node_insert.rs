@@ -2,7 +2,10 @@ use arbitrary::{Arbitrary, Unstructured};
 use astraea::tree::BlobDigest;
 use pretty_assertions::assert_eq;
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
-use sorted_tree::prolly_tree_editable_node::{EditableNode, IntegrityCheckResult};
+use sorted_tree::{
+    prolly_tree_editable_node::{EditableNode, IntegrityCheckResult},
+    sorted_tree::TreeReference,
+};
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
 
@@ -76,6 +79,20 @@ async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
     assert!(number_of_trees >= 1);
     // TODO: find a better upper bound
     assert!(number_of_trees <= 1000);
+
+    // test loading from storage
+    editable_node = EditableNode::Reference(TreeReference::new(digest));
+    for (key, value) in oracle.iter() {
+        let found = editable_node.find(key, &storage).await.unwrap();
+        assert_eq!(Some(*value), found);
+    }
+    assert_eq!(
+        oracle.len() as u64,
+        editable_node.size(&storage).await.unwrap()
+    );
+    let saved_again = editable_node.save(&storage).await.unwrap();
+    assert_eq!(saved_again, digest);
+
     digest
 }
 

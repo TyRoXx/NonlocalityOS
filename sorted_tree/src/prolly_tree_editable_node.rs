@@ -47,10 +47,6 @@ impl<
         }))
     }
 
-    pub fn from_reference(reference: TreeReference) -> Self {
-        EditableNode::Reference(reference)
-    }
-
     async fn require_loaded(
         &mut self,
         load_tree: &dyn LoadTree,

@@ -1,4 +1,7 @@
-use crate::prolly_tree_editable_node::{EditableNode, IntegrityCheckResult};
+use crate::{
+    prolly_tree_editable_node::{EditableNode, IntegrityCheckResult},
+    sorted_tree::TreeReference,
+};
 use astraea::{storage::InMemoryTreeStorage, tree::BlobDigest};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
@@ -206,4 +209,15 @@ async fn test_remove_nothing() {
     assert_eq!(Some(20), editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(Some(30), editable_node.find(&3, &storage).await.unwrap());
     assert_eq!(3, editable_node.size(&storage).await.unwrap());
+}
+
+#[test_log::test(tokio::test)]
+async fn test_save_reference() {
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let mut editable_node: EditableNode<u32, u32> = EditableNode::new();
+    let digest = editable_node.save(&storage).await.unwrap();
+    let mut loaded_node: EditableNode<u32, u32> =
+        EditableNode::Reference(TreeReference::new(digest));
+    let saved_again = loaded_node.save(&storage).await.unwrap();
+    assert_eq!(digest, saved_again);
 }
