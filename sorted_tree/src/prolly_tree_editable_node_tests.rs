@@ -1,5 +1,5 @@
 use crate::{
-    prolly_tree_editable_node::{EditableNode, IntegrityCheckResult},
+    prolly_tree_editable_node::{EditableLeafNode, EditableNode, IntegrityCheckResult},
     sorted_tree::TreeReference,
 };
 use astraea::{storage::InMemoryTreeStorage, tree::BlobDigest};
@@ -214,10 +214,16 @@ async fn test_remove_nothing() {
 #[test_log::test(tokio::test)]
 async fn test_save_reference() {
     let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
-    let mut editable_node: EditableNode<u32, u32> = EditableNode::new();
+    let mut editable_node: EditableNode<u32, u32> = EditableNode::default();
     let digest = editable_node.save(&storage).await.unwrap();
     let mut loaded_node: EditableNode<u32, u32> =
         EditableNode::Reference(TreeReference::new(digest));
     let saved_again = loaded_node.save(&storage).await.unwrap();
     assert_eq!(digest, saved_again);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_editable_leaf_node_create() {
+    let result = EditableLeafNode::<i32, u32>::create(BTreeMap::new());
+    assert!(result.is_none());
 }

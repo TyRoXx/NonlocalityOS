@@ -259,12 +259,8 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
             .expect("leaf node is not empty")
     }
 
-    pub async fn find(
-        &mut self,
-        _key: &Key,
-        _load_tree: &dyn LoadTree,
-    ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
-        todo!()
+    pub fn find(&mut self, key: &Key) -> Option<Value> {
+        self.entries.get(key).cloned()
     }
 
     pub fn verify_integrity(
@@ -557,7 +553,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
         load_tree: &dyn LoadTree,
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         match self {
-            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.get(key).cloned()),
+            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.find(key)),
             EditableLoadedNode::Internal(internal_node) => internal_node.find(key, load_tree).await,
         }
     }
