@@ -87,9 +87,10 @@ async fn test_insert_overwrite() {
 
 async fn test_insert_flat_values_one_at_a_time(
     number: usize,
+    seed: u64,
     expected_depth: usize,
     expected_trees_created: usize,
-) {
+) -> BlobDigest {
     let number_of_keys = number;
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut editable_node: EditableNode<String, i64> = EditableNode::new();
@@ -100,7 +101,7 @@ async fn test_insert_flat_values_one_at_a_time(
         all_entries.push((key, value));
     }
     {
-        let mut random = SmallRng::seed_from_u64(123);
+        let mut random = SmallRng::seed_from_u64(seed);
         all_entries.shuffle(&mut random);
     }
     let mut expected_entries: BTreeMap<String, i64> = BTreeMap::new();
@@ -138,7 +139,7 @@ async fn test_insert_flat_values_one_at_a_time(
             .unwrap()
     );
     assert_eq!(0, storage.number_of_trees().await);
-    editable_node.save(&storage).await.unwrap();
+    let digest = editable_node.save(&storage).await.unwrap();
     let trees_in_the_end = storage.number_of_trees().await;
     assert_eq!(expected_trees_created, trees_in_the_end);
     for (key, value) in expected_entries.iter() {
@@ -154,16 +155,21 @@ async fn test_insert_flat_values_one_at_a_time(
             .await
             .unwrap()
     );
+    digest
 }
 
 #[test_log::test(tokio::test)]
 async fn test_insert_flat_values_one_at_a_time_200() {
-    test_insert_flat_values_one_at_a_time(200, 1, 8).await;
+    let first_digest = test_insert_flat_values_one_at_a_time(200, 123, 1, 8).await;
+    let second_digest = test_insert_flat_values_one_at_a_time(200, 124, 1, 8).await;
+    assert_eq!(first_digest, second_digest);
 }
 
 #[test_log::test(tokio::test)]
 async fn test_insert_flat_values_one_at_a_time_1000() {
-    test_insert_flat_values_one_at_a_time(1000, 2, 34).await;
+    let first_digest = test_insert_flat_values_one_at_a_time(1000, 123, 2, 34).await;
+    let second_digest = test_insert_flat_values_one_at_a_time(1000, 124, 2, 34).await;
+    assert_eq!(first_digest, second_digest);
 }
 
 #[test_log::test(tokio::test)]
