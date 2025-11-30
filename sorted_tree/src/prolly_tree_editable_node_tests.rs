@@ -85,10 +85,12 @@ async fn test_insert_overwrite() {
     assert_eq!(1, editable_node.size(&storage).await.unwrap());
 }
 
-#[test_log::test(tokio::test)]
-async fn test_insert_flat_values_one_at_a_time() {
-    let number_of_keys = 200;
-    let expected_trees_created = 8;
+async fn test_insert_flat_values_one_at_a_time(
+    number: usize,
+    expected_depth: usize,
+    expected_trees_created: usize,
+) {
+    let number_of_keys = number;
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut editable_node: EditableNode<String, i64> = EditableNode::new();
     let mut all_entries = Vec::new();
@@ -124,21 +126,12 @@ async fn test_insert_flat_values_one_at_a_time() {
             let found = editable_node.find(key, &storage).await.unwrap();
             assert_eq!(Some(*value), found);
         }
-        let expected_top_key = expected_entries.keys().next_back().unwrap();
-        match editable_node
-            .verify_integrity(expected_top_key, true, &storage)
-            .await
-            .unwrap()
-        {
-            IntegrityCheckResult::Valid { depth } => {
-                assert!(depth < 10);
-            }
-            other => panic!("Expected valid integrity check result, got {:?}", other),
-        }
     }
     let expected_top_key = expected_entries.keys().next_back().unwrap();
     assert_eq!(
-        IntegrityCheckResult::Valid { depth: 1 },
+        IntegrityCheckResult::Valid {
+            depth: expected_depth
+        },
         editable_node
             .verify_integrity(expected_top_key, true, &storage)
             .await
@@ -153,12 +146,24 @@ async fn test_insert_flat_values_one_at_a_time() {
         assert_eq!(Some(*value), found);
     }
     assert_eq!(
-        IntegrityCheckResult::Valid { depth: 1 },
+        IntegrityCheckResult::Valid {
+            depth: expected_depth
+        },
         editable_node
             .verify_integrity(expected_top_key, true, &storage)
             .await
             .unwrap()
     );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_insert_flat_values_one_at_a_time_200() {
+    test_insert_flat_values_one_at_a_time(200, 1, 8).await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_insert_flat_values_one_at_a_time_1000() {
+    test_insert_flat_values_one_at_a_time(1000, 2, 34).await;
 }
 
 #[test_log::test(tokio::test)]
