@@ -214,7 +214,7 @@ async fn test_remove_nothing() {
 #[test_log::test(tokio::test)]
 async fn test_remove_many() {
     let seed = 123;
-    let number_of_keys = 200;
+    let number_of_keys = 1000;
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut editable_node: EditableNode<String, i64> = EditableNode::new();
     let mut all_entries = Vec::new();
