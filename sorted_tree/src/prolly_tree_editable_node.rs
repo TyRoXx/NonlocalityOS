@@ -10,7 +10,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
-pub enum EditableNode<Key, Value> {
+pub enum EditableNode<Key: std::cmp::Ord, Value> {
     Reference(TreeReference),
     Loaded(EditableLoadedNode<Key, Value>),
 }
@@ -95,12 +95,41 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
 }
 
 #[derive(Debug)]
-pub struct EditableLeafNode<Key, Value> {
+pub struct EditableLeafNode<Key: std::cmp::Ord, Value> {
     entries: BTreeMap<Key, Value>,
 }
 
+impl<Key: std::cmp::Ord, Value> EditableLeafNode<Key, Value> {
+    pub fn new() -> Self {
+        EditableLeafNode {
+            entries: BTreeMap::new(),
+        }
+    }
+
+    pub async fn insert(
+        &mut self,
+        key: Key,
+        value: Value,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.entries.insert(key, value);
+        Ok(())
+    }
+
+    pub async fn remove(&mut self, key: &Key) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+        Ok(self.entries.remove(key))
+    }
+
+    pub async fn find(
+        &mut self,
+        key: &Key,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+        todo!()
+    }
+}
+
 #[derive(Debug)]
-pub struct EditableInternalNode<Key, Value> {
+pub struct EditableInternalNode<Key: std::cmp::Ord, Value> {
     entries: BTreeMap<Key, EditableNode<Key, Value>>,
 }
 
@@ -115,6 +144,14 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         todo!()
     }
 
+    pub async fn remove(
+        &mut self,
+        key: &Key,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+        todo!()
+    }
+
     pub async fn find(
         &mut self,
         key: &Key,
@@ -125,7 +162,7 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
 }
 
 #[derive(Debug)]
-pub enum EditableLoadedNode<Key, Value> {
+pub enum EditableLoadedNode<Key: std::cmp::Ord, Value> {
     Leaf(EditableLeafNode<Key, Value>),
     Internal(EditableInternalNode<Key, Value>),
 }
@@ -158,10 +195,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
         value: Value,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match self {
-            EditableLoadedNode::Leaf(leaf_node) => {
-                leaf_node.entries.insert(key, value);
-                Ok(())
-            }
+            EditableLoadedNode::Leaf(leaf_node) => leaf_node.insert(key, value).await,
             EditableLoadedNode::Internal(internal_node) => internal_node.insert(key, value).await,
         }
     }
@@ -172,9 +206,9 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
         load_tree: &dyn LoadTree,
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         match self {
-            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.remove(key)),
+            EditableLoadedNode::Leaf(leaf_node) => leaf_node.remove(key).await,
             EditableLoadedNode::Internal(internal_node) => {
-                todo!()
+                internal_node.remove(key, load_tree).await
             }
         }
     }
