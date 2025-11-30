@@ -79,7 +79,7 @@ impl<
         let mut entries = BTreeMap::new();
         entries.insert(self_top_key, self.clone());
         for node in nodes_split {
-            entries.insert(node.top_key().clone(), EditableNode::Loaded(node));
+            entries.insert(node.top_key().unwrap().clone(), EditableNode::Loaded(node));
         }
         *self = EditableNode::Loaded(EditableLoadedNode::Internal(EditableInternalNode {
             entries,
@@ -95,7 +95,7 @@ impl<
     ) -> Result<(Key, Vec<EditableLoadedNode<Key, Value>>), Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         let nodes_split = Box::pin(loaded.insert(key, value, load_tree)).await?;
-        Ok((loaded.top_key().clone(), nodes_split))
+        Ok((loaded.top_key().unwrap().clone(), nodes_split))
     }
 
     pub async fn remove(
@@ -103,6 +103,20 @@ impl<
         key: &Key,
         load_tree: &dyn LoadTree,
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+        let (maybe_top_key, maybe_removed) = self.remove_impl(key, load_tree).await?;
+        if maybe_top_key.is_none() {
+            *self = EditableNode::Loaded(EditableLoadedNode::Leaf(EditableLeafNode {
+                entries: BTreeMap::new(),
+            }));
+        }
+        Ok(maybe_removed)
+    }
+
+    pub async fn remove_impl(
+        &mut self,
+        key: &Key,
+        load_tree: &dyn LoadTree,
+    ) -> Result<(Option<Key>, Option<Value>), Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         loaded.remove(key, load_tree).await
     }
@@ -136,7 +150,7 @@ impl<
 
     pub async fn verify_integrity(
         &mut self,
-        expected_top_key: &Key,
+        expected_top_key: Option<&Key>,
         is_final_node: bool,
         load_tree: &dyn LoadTree,
     ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
@@ -170,7 +184,7 @@ impl<
                 }
                 let split_nodes = self_leaf.check_split();
                 Ok((
-                    self_leaf.top_key().clone(),
+                    self_leaf.top_key().unwrap().clone(),
                     split_nodes
                         .into_iter()
                         .map(|n| EditableLoadedNode::Leaf(n))
@@ -189,7 +203,7 @@ impl<
                 }
                 let split_nodes = self_internal.check_split();
                 Ok((
-                    self_internal.top_key().clone(),
+                    self_internal.top_key().unwrap().clone(),
                     split_nodes
                         .into_iter()
                         .map(|n| EditableLoadedNode::Internal(n))
@@ -231,8 +245,13 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
         self.check_split()
     }
 
-    pub async fn remove(&mut self, key: &Key) -> Result<Option<Value>, Box<dyn std::error::Error>> {
-        Ok(self.entries.remove(key))
+    pub async fn remove(
+        &mut self,
+        key: &Key,
+    ) -> Result<(Option<Key>, Option<Value>), Box<dyn std::error::Error>> {
+        let removed = self.entries.remove(key);
+        let top_key = self.top_key().cloned();
+        Ok((top_key, removed))
     }
 
     fn check_split(&mut self) -> Vec<EditableLeafNode<Key, Value>> {
@@ -252,11 +271,8 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
         result
     }
 
-    pub fn top_key(&self) -> &Key {
-        self.entries
-            .keys()
-            .next_back()
-            .expect("leaf node is not empty")
+    pub fn top_key(&self) -> Option<&Key> {
+        self.entries.keys().next_back()
     }
 
     pub fn find(&mut self, key: &Key) -> Option<Value> {
@@ -333,7 +349,7 @@ impl<
                 for node in split_nodes {
                     let previous_entry = self
                         .entries
-                        .insert(node.top_key().clone(), EditableNode::Loaded(node));
+                        .insert(node.top_key().unwrap().clone(), EditableNode::Loaded(node));
                     assert!(previous_entry.is_none(), "Split node key collision");
                 }
                 self.update_chunk_boundaries(load_tree).await?;
@@ -345,10 +361,42 @@ impl<
 
     pub async fn remove(
         &mut self,
-        _key: &Key,
-        _load_tree: &dyn LoadTree,
-    ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
-        todo!()
+        key: &Key,
+        load_tree: &dyn LoadTree,
+    ) -> Result<(Option<Key>, Option<Value>), Box<dyn std::error::Error>> {
+        // TODO: optimize search
+        for (entry_key, entry_value) in self.entries.iter_mut() {
+            if key <= entry_key {
+                let (maybe_new_top_key, maybe_removed) =
+                    Box::pin(entry_value.remove_impl(key, load_tree)).await?;
+                match maybe_new_top_key {
+                    Some(new_top_key) => {
+                        if new_top_key != *entry_key {
+                            let entry_key = entry_key.clone();
+                            let entry_value_removed = self.entries.remove(&entry_key).unwrap();
+                            self.entries.insert(new_top_key, entry_value_removed);
+                        }
+                    }
+                    None => {
+                        let entry_key = entry_key.clone();
+                        self.entries.remove(&entry_key);
+                    }
+                }
+                let top_key = self.top_key().cloned();
+                match maybe_removed {
+                    Some(removed) => {
+                        if !self.entries.is_empty() {
+                            self.update_chunk_boundaries(load_tree).await?;
+                        }
+                        return Ok((top_key, Some(removed)));
+                    }
+                    None => {
+                        return Ok((top_key, None));
+                    }
+                }
+            }
+        }
+        Ok((self.top_key().cloned(), None))
     }
 
     async fn update_chunk_boundaries(
@@ -368,7 +416,7 @@ impl<
                     for node in split_nodes {
                         let previous_entry = self
                             .entries
-                            .insert(node.top_key().clone(), EditableNode::Loaded(node));
+                            .insert(node.top_key().unwrap().clone(), EditableNode::Loaded(node));
                         assert!(previous_entry.is_none(), "Merge node key collision");
                     }
                 }
@@ -414,11 +462,8 @@ impl<
         result
     }
 
-    pub fn top_key(&self) -> &Key {
-        self.entries
-            .keys()
-            .next_back()
-            .expect("internal node is not empty")
+    pub fn top_key(&self) -> Option<&Key> {
+        self.entries.keys().next_back()
     }
 
     pub async fn find(
@@ -440,11 +485,16 @@ impl<
         _is_final_node: bool,
         load_tree: &dyn LoadTree,
     ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
+        if self.entries.is_empty() {
+            return Ok(IntegrityCheckResult::Corrupted(
+                "Internal node integrity check failed: Node has no entries".to_string(),
+            ));
+        }
         let last_index = self.entries.len() - 1;
         let mut child_depth = None;
         for (index, (key, value)) in self.entries.iter_mut().enumerate() {
             match value
-                .verify_integrity(key, index == last_index, load_tree)
+                .verify_integrity(Some(key), index == last_index, load_tree)
                 .await?
             {
                 IntegrityCheckResult::Valid { depth } => {
@@ -538,7 +588,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
         &mut self,
         key: &Key,
         load_tree: &dyn LoadTree,
-    ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+    ) -> Result<(Option<Key>, Option<Value>), Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => leaf_node.remove(key).await,
             EditableLoadedNode::Internal(internal_node) => {
@@ -558,7 +608,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
         }
     }
 
-    pub fn top_key(&self) -> &Key {
+    pub fn top_key(&self) -> Option<&Key> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => leaf_node.top_key(),
             EditableLoadedNode::Internal(internal_node) => internal_node.top_key(),

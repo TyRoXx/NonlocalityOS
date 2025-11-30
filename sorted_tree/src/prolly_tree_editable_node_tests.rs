@@ -131,7 +131,7 @@ async fn test_insert_flat_values_one_at_a_time(
             assert_eq!(Some(*value), found);
         }
     }
-    let expected_top_key = expected_entries.keys().next_back().unwrap();
+    let expected_top_key = expected_entries.keys().next_back();
     assert_eq!(
         IntegrityCheckResult::Valid {
             depth: expected_depth
@@ -209,6 +209,98 @@ async fn test_remove_nothing() {
     assert_eq!(Some(20), editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(Some(30), editable_node.find(&3, &storage).await.unwrap());
     assert_eq!(3, editable_node.size(&storage).await.unwrap());
+}
+
+#[test_log::test(tokio::test)]
+async fn test_remove_many() {
+    let seed = 123;
+    let number_of_keys = 200;
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let mut editable_node: EditableNode<String, i64> = EditableNode::new();
+    let mut all_entries = Vec::new();
+    for index in 0..number_of_keys {
+        let key = format!("key-{index}");
+        let value = index as i64;
+        all_entries.push((key, value));
+    }
+    let mut expected_entries: BTreeMap<String, i64> = BTreeMap::new();
+    for (key, value) in all_entries.iter() {
+        {
+            let existing_entry = editable_node.find(key, &storage).await.unwrap();
+            let expected_entry = expected_entries.get(key);
+            assert_eq!(expected_entry.copied(), existing_entry);
+        }
+        let trees_before = storage.number_of_trees().await;
+        editable_node
+            .insert(key.clone(), *value, &storage)
+            .await
+            .expect("inserting key should succeed");
+        let trees_after = storage.number_of_trees().await;
+        assert_eq!(trees_after, trees_before);
+        expected_entries.insert(key.clone(), *value);
+        assert_eq!(
+            expected_entries.len() as u64,
+            editable_node.size(&storage).await.unwrap()
+        );
+        for (key, value) in expected_entries.iter() {
+            let found = editable_node.find(key, &storage).await.unwrap();
+            assert_eq!(Some(*value), found);
+        }
+    }
+    let mut remove_order = all_entries
+        .iter()
+        .map(|(k, _v)| k.clone())
+        .collect::<Vec<String>>();
+    {
+        let mut random = SmallRng::seed_from_u64(seed);
+        remove_order.shuffle(&mut random);
+    }
+    for removed_key in remove_order.iter() {
+        let removed_value = editable_node
+            .remove(removed_key, &storage)
+            .await
+            .expect("removing key should succeed");
+        assert_eq!(removed_value, expected_entries.remove(removed_key));
+        assert_eq!(
+            expected_entries.len() as u64,
+            editable_node.size(&storage).await.unwrap()
+        );
+        let expected_top_key = expected_entries.keys().next_back();
+        match editable_node
+            .verify_integrity(expected_top_key, true, &storage)
+            .await
+            .unwrap()
+        {
+            IntegrityCheckResult::Valid { depth } => {
+                assert!(depth <= 2);
+            }
+            IntegrityCheckResult::Corrupted(reason) => {
+                panic!("Tree integrity check failed: {}", reason);
+            }
+        }
+    }
+    for (key, _value) in expected_entries.iter() {
+        let found = editable_node.find(key, &storage).await.unwrap();
+        assert_eq!(None, found);
+    }
+    assert_eq!(0, storage.number_of_trees().await);
+    let digest = editable_node.save(&storage).await.unwrap();
+    assert_eq!(BlobDigest::parse_hex_string(
+            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
+        ).expect("valid digest"), digest);
+    let trees_in_the_end = storage.number_of_trees().await;
+    assert_eq!(1, trees_in_the_end);
+    for (key, value) in expected_entries.iter() {
+        let found = editable_node.find(key, &storage).await.unwrap();
+        assert_eq!(Some(*value), found);
+    }
+    assert_eq!(
+        IntegrityCheckResult::Valid { depth: 0 },
+        editable_node
+            .verify_integrity(None, true, &storage)
+            .await
+            .unwrap()
+    );
 }
 
 #[test_log::test(tokio::test)]
