@@ -29,7 +29,8 @@ pub enum EditableNode<Key: std::cmp::Ord + Clone, Value: Clone> {
 impl<
         Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone + Debug,
         Value: NodeValue + Clone,
-    > Default for EditableNode<Key, Value> {
+    > Default for EditableNode<Key, Value>
+{
     fn default() -> Self {
         Self::new()
     }
@@ -187,9 +188,7 @@ impl<
                 for (key, child_node) in other_internal.entries {
                     let previous_entry = self_internal.entries.insert(key, child_node);
                     if let Some(_existing_child) = previous_entry {
-                        return Err(Box::new(std::io::Error::other(
-                            "Merge node key collision",
-                        )));
+                        return Err(Box::new(std::io::Error::other("Merge node key collision")));
                     }
                 }
                 let split_nodes = self_internal.check_split();
@@ -280,7 +279,10 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
             let is_split = is_split_after_key(key, index + 1);
             if index == self.entries.len() - 1 {
                 if !is_final_node && !is_split {
-                    return Ok(IntegrityCheckResult::Corrupted("Leaf node integrity check failed: Final key does not indicate split".to_string()));
+                    return Ok(IntegrityCheckResult::Corrupted(
+                        "Leaf node integrity check failed: Final key does not indicate split"
+                            .to_string(),
+                    ));
                 }
             } else if is_split {
                 return Ok(IntegrityCheckResult::Corrupted(format!(
