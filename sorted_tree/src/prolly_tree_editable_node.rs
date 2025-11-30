@@ -29,6 +29,15 @@ pub enum EditableNode<Key: std::cmp::Ord + Clone, Value: Clone> {
 impl<
         Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone + Debug,
         Value: NodeValue + Clone,
+    > Default for EditableNode<Key, Value> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<
+        Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone + Debug,
+        Value: NodeValue + Clone,
     > EditableNode<Key, Value>
 {
     pub fn new() -> Self {
@@ -123,7 +132,7 @@ impl<
         store_tree: &dyn StoreTree,
     ) -> Result<BlobDigest, Box<dyn std::error::Error>> {
         match self {
-            EditableNode::Reference(tree_ref) => Ok(tree_ref.reference().clone()),
+            EditableNode::Reference(tree_ref) => Ok(*tree_ref.reference()),
             EditableNode::Loaded(loaded_node) => loaded_node.save(store_tree).await,
         }
     }
@@ -178,8 +187,7 @@ impl<
                 for (key, child_node) in other_internal.entries {
                     let previous_entry = self_internal.entries.insert(key, child_node);
                     if let Some(_existing_child) = previous_entry {
-                        return Err(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::Other,
+                        return Err(Box::new(std::io::Error::other(
                             "Merge node key collision",
                         )));
                     }
@@ -272,9 +280,7 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
             let is_split = is_split_after_key(key, index + 1);
             if index == self.entries.len() - 1 {
                 if !is_final_node && !is_split {
-                    return Ok(IntegrityCheckResult::Corrupted(format!(
-                        "Leaf node integrity check failed: Final key does not indicate split"
-                    )));
+                    return Ok(IntegrityCheckResult::Corrupted("Leaf node integrity check failed: Final key does not indicate split".to_string()));
                 }
             } else if is_split {
                 return Ok(IntegrityCheckResult::Corrupted(format!(
@@ -386,11 +392,8 @@ impl<
         let mut needs_merge: Option<&Key> = None;
         // TODO: optimize search
         for (index, (entry_key, entry_value)) in self.entries.iter_mut().enumerate() {
-            match needs_merge.take() {
-                Some(merge_value) => {
-                    return Ok(Some((merge_value.clone(), entry_key.clone())));
-                }
-                None => {}
+            if let Some(merge_value) = needs_merge.take() {
+                return Ok(Some((merge_value.clone(), entry_key.clone())));
             }
             let is_split = entry_value.is_naturally_split(load_tree).await?;
             if (index != last_index) && !is_split {
@@ -576,7 +579,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
             EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.len() as u64),
             EditableLoadedNode::Internal(internal_node) => {
                 let mut total_size = 0;
-                for (_key, child_node) in &mut internal_node.entries {
+                for child_node in internal_node.entries.values_mut() {
                     total_size += child_node.size(load_tree).await?;
                 }
                 Ok(total_size)
