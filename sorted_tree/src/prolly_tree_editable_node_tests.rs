@@ -88,7 +88,7 @@ async fn test_insert_overwrite() {
 #[test_log::test(tokio::test)]
 async fn test_insert_flat_values_one_at_a_time() {
     let number_of_keys = 200;
-    let expected_trees_created = 1;
+    let expected_trees_created = 8;
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut editable_node: EditableNode<String, i64> = EditableNode::new();
     let mut all_entries = Vec::new();
@@ -144,6 +144,7 @@ async fn test_insert_flat_values_one_at_a_time() {
             .await
             .unwrap()
     );
+    assert_eq!(0, storage.number_of_trees().await);
     editable_node.save(&storage).await.unwrap();
     let trees_in_the_end = storage.number_of_trees().await;
     assert_eq!(expected_trees_created, trees_in_the_end);

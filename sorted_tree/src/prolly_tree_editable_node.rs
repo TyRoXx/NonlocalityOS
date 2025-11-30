@@ -8,6 +8,7 @@ use astraea::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 
 #[derive(Debug, PartialEq)]
 pub enum IntegrityCheckResult {
@@ -25,8 +26,10 @@ pub enum EditableNode<Key: std::cmp::Ord + Clone, Value: Clone> {
     Loaded(EditableLoadedNode<Key, Value>),
 }
 
-impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeValue + Clone>
-    EditableNode<Key, Value>
+impl<
+        Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone + Debug,
+        Value: NodeValue + Clone,
+    > EditableNode<Key, Value>
 {
     pub fn new() -> Self {
         EditableNode::Loaded(EditableLoadedNode::Leaf(EditableLeafNode {
@@ -139,6 +142,71 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         }
         Box::pin(loaded.verify_integrity(is_final_node, load_tree)).await
     }
+
+    pub async fn merge(
+        &mut self,
+        other: Self,
+        load_tree: &dyn LoadTree,
+    ) -> Result<(Key, Vec<EditableLoadedNode<Key, Value>>), Box<dyn std::error::Error>> {
+        let loaded = self.require_loaded(load_tree).await?;
+        let other_loaded = match other {
+            EditableNode::Reference(tree_ref) => {
+                let loaded: EitherNodeType<Key, Value> =
+                    load_node(load_tree, tree_ref.reference()).await.unwrap(/*TODO */);
+                EditableLoadedNode::new(loaded)
+            }
+            EditableNode::Loaded(loaded_node) => loaded_node,
+        };
+        match (loaded, other_loaded) {
+            (EditableLoadedNode::Leaf(self_leaf), EditableLoadedNode::Leaf(other_leaf)) => {
+                for (key, value) in other_leaf.entries {
+                    self_leaf.entries.insert(key, value);
+                }
+                let split_nodes = self_leaf.check_split();
+                Ok((
+                    self_leaf.top_key().clone(),
+                    split_nodes
+                        .into_iter()
+                        .map(|n| EditableLoadedNode::Leaf(n))
+                        .collect(),
+                ))
+            }
+            (
+                EditableLoadedNode::Internal(self_internal),
+                EditableLoadedNode::Internal(other_internal),
+            ) => {
+                for (key, child_node) in other_internal.entries {
+                    let previous_entry = self_internal.entries.insert(key, child_node);
+                    if let Some(_existing_child) = previous_entry {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Merge node key collision",
+                        )));
+                    }
+                }
+                let split_nodes = self_internal.check_split();
+                Ok((
+                    self_internal.top_key().clone(),
+                    split_nodes
+                        .into_iter()
+                        .map(|n| EditableLoadedNode::Internal(n))
+                        .collect(),
+                ))
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    pub async fn is_naturally_split(
+        &mut self,
+        load_tree: &dyn LoadTree,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let loaded = self.require_loaded(load_tree).await?;
+        match loaded {
+            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.is_naturally_split()),
+            EditableLoadedNode::Internal(internal_node) => internal_node.is_naturally_split(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -217,6 +285,13 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
         }
         Ok(IntegrityCheckResult::Valid { depth: 0 })
     }
+
+    pub fn is_naturally_split(&self) -> bool {
+        is_split_after_key(
+            self.entries.keys().last().expect("leaf node is not empty"),
+            self.entries.len(),
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -224,8 +299,10 @@ pub struct EditableInternalNode<Key: std::cmp::Ord + Clone, Value: Clone> {
     entries: BTreeMap<Key, EditableNode<Key, Value>>,
 }
 
-impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeValue + Clone>
-    EditableInternalNode<Key, Value>
+impl<
+        Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone + Debug,
+        Value: NodeValue + Clone,
+    > EditableInternalNode<Key, Value>
 {
     pub fn create(entries: BTreeMap<Key, EditableNode<Key, Value>>) -> Option<Self> {
         if entries.is_empty() {
@@ -259,6 +336,7 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
                         .insert(node.top_key().clone(), EditableNode::Loaded(node));
                     assert!(previous_entry.is_none(), "Split node key collision");
                 }
+                self.update_chunk_boundaries(load_tree).await?;
                 break;
             }
         }
@@ -271,6 +349,55 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
         _load_tree: &dyn LoadTree,
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         todo!()
+    }
+
+    async fn update_chunk_boundaries(
+        &mut self,
+        load_tree: &dyn LoadTree,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        loop {
+            let merge_candidates = self.find_merge_candidates(load_tree).await?;
+            match merge_candidates {
+                Some((low_key, high_key)) => {
+                    let mut low = self.entries.remove(&low_key).expect("key must exist");
+                    let high = self.entries.remove(&high_key).expect("key must exist");
+                    let (low_top_key, split_nodes) = low.merge(high, load_tree).await?;
+                    assert_ne!(low_key, low_top_key, "Merge did not change low key");
+                    let previous_entry = self.entries.insert(low_top_key, low);
+                    assert!(previous_entry.is_none(), "Merge node key collision");
+                    for node in split_nodes {
+                        let previous_entry = self
+                            .entries
+                            .insert(node.top_key().clone(), EditableNode::Loaded(node));
+                        assert!(previous_entry.is_none(), "Merge node key collision");
+                    }
+                }
+                None => break,
+            }
+        }
+        Ok(())
+    }
+
+    async fn find_merge_candidates(
+        &mut self,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Option<(Key, Key)>, Box<dyn std::error::Error>> {
+        let last_index = self.entries.len() - 1;
+        let mut needs_merge: Option<&Key> = None;
+        // TODO: optimize search
+        for (index, (entry_key, entry_value)) in self.entries.iter_mut().enumerate() {
+            match needs_merge.take() {
+                Some(merge_value) => {
+                    return Ok(Some((merge_value.clone(), entry_key.clone())));
+                }
+                None => {}
+            }
+            let is_split = entry_value.is_naturally_split(load_tree).await?;
+            if (index != last_index) && !is_split {
+                needs_merge = Some(entry_key);
+            }
+        }
+        Ok(None)
     }
 
     fn check_split(&mut self) -> Vec<EditableInternalNode<Key, Value>> {
@@ -347,6 +474,15 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
             depth: child_depth.expect("Internal node has to have at least one child") + 1,
         })
     }
+
+    pub fn is_naturally_split(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        let last_key = self
+            .entries
+            .keys()
+            .last()
+            .expect("internal node is not empty");
+        Ok(is_split_after_key(last_key, self.entries.len()))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -355,7 +491,7 @@ pub enum EditableLoadedNode<Key: std::cmp::Ord + Clone, Value: Clone> {
     Internal(EditableInternalNode<Key, Value>),
 }
 
-impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
+impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue + Clone>
     EditableLoadedNode<Key, Value>
 {
     pub fn new(loaded: EitherNodeType<Key, Value>) -> Self {
