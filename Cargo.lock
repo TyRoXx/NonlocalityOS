@@ -1032,6 +1032,7 @@ dependencies = [
  "lambda_compiler",
  "postcard",
  "pretty_assertions",
+ "rand 0.8.5",
  "sorted_tree",
  "test-case",
  "test-log",
