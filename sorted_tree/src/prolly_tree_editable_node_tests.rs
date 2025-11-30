@@ -1,4 +1,4 @@
-use crate::prolly_tree_editable_node::EditableNode;
+use crate::prolly_tree_editable_node::{EditableNode, IntegrityCheckResult};
 use astraea::{storage::InMemoryTreeStorage, tree::BlobDigest};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
@@ -120,24 +120,30 @@ async fn test_insert_flat_values_one_at_a_time() {
             expected_entries.len() as u64,
             editable_node.size(&storage).await.unwrap()
         );
-        assert_eq!(
-            Some(crate::prolly_tree::IntegrityCheckResult::Valid(
-                if expected_entries.is_empty() {
-                    None
-                } else {
-                    Some((
-                        expected_entries.first_entry().unwrap().key().clone(),
-                        expected_entries.last_entry().unwrap().key().clone(),
-                    ))
-                }
-            )),
-            editable_node.verify_integrity(&storage).await.unwrap()
-        );
         for (key, value) in expected_entries.iter() {
             let found = editable_node.find(key, &storage).await.unwrap();
             assert_eq!(Some(*value), found);
         }
+        let expected_top_key = expected_entries.keys().next_back().unwrap();
+        match editable_node
+            .verify_integrity(expected_top_key, true, &storage)
+            .await
+            .unwrap()
+        {
+            IntegrityCheckResult::Valid { depth } => {
+                assert!(depth < 10);
+            }
+            other => panic!("Expected valid integrity check result, got {:?}", other),
+        }
     }
+    let expected_top_key = expected_entries.keys().next_back().unwrap();
+    assert_eq!(
+        IntegrityCheckResult::Valid { depth: 1 },
+        editable_node
+            .verify_integrity(expected_top_key, true, &storage)
+            .await
+            .unwrap()
+    );
     editable_node.save(&storage).await.unwrap();
     let trees_in_the_end = storage.number_of_trees().await;
     assert_eq!(expected_trees_created, trees_in_the_end);
@@ -145,6 +151,13 @@ async fn test_insert_flat_values_one_at_a_time() {
         let found = editable_node.find(key, &storage).await.unwrap();
         assert_eq!(Some(*value), found);
     }
+    assert_eq!(
+        IntegrityCheckResult::Valid { depth: 1 },
+        editable_node
+            .verify_integrity(expected_top_key, true, &storage)
+            .await
+            .unwrap()
+    );
 }
 
 #[test_log::test(tokio::test)]
