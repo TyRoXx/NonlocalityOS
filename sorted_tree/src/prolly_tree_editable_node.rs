@@ -1,5 +1,5 @@
 use crate::{
-    prolly_tree::{load_node, EitherNodeType},
+    prolly_tree::{load_node, EitherNodeType, IntegrityCheckResult},
     sorted_tree::{NodeValue, TreeReference},
 };
 use astraea::{
@@ -78,7 +78,7 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
     pub async fn size(
         &mut self,
         load_tree: &dyn LoadTree,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
+    ) -> Result<u64, Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         Box::pin(loaded.size(load_tree)).await
     }
@@ -92,6 +92,14 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
             EditableNode::Loaded(loaded_node) => loaded_node.save(store_tree).await,
         }
     }
+
+    pub async fn verify_integrity(
+        &mut self,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Option<IntegrityCheckResult<Key>>, Box<dyn std::error::Error>> {
+        let loaded = self.require_loaded(load_tree).await?;
+        loaded.verify_integrity(load_tree).await
+    }
 }
 
 #[derive(Debug)]
@@ -99,7 +107,7 @@ pub struct EditableLeafNode<Key: std::cmp::Ord, Value> {
     entries: BTreeMap<Key, Value>,
 }
 
-impl<Key: std::cmp::Ord, Value> EditableLeafNode<Key, Value> {
+impl<Key: std::cmp::Ord + Clone, Value> EditableLeafNode<Key, Value> {
     pub fn new() -> Self {
         EditableLeafNode {
             entries: BTreeMap::new(),
@@ -121,10 +129,26 @@ impl<Key: std::cmp::Ord, Value> EditableLeafNode<Key, Value> {
 
     pub async fn find(
         &mut self,
-        key: &Key,
-        load_tree: &dyn LoadTree,
+        _key: &Key,
+        _load_tree: &dyn LoadTree,
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         todo!()
+    }
+
+    pub async fn verify_integrity(
+        &mut self,
+        _load_tree: &dyn LoadTree,
+    ) -> Result<Option<IntegrityCheckResult<Key>>, Box<dyn std::error::Error>> {
+        Ok(Some(IntegrityCheckResult::Valid(
+            if self.entries.is_empty() {
+                None
+            } else {
+                Some((
+                    self.entries.first_key_value().unwrap().0.clone(),
+                    self.entries.last_key_value().unwrap().0.clone(),
+                ))
+            },
+        )))
     }
 }
 
@@ -138,25 +162,32 @@ impl<Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone, Value: NodeVal
 {
     pub async fn insert(
         &mut self,
-        key: Key,
-        value: Value,
+        _key: Key,
+        _value: Value,
     ) -> Result<(), Box<dyn std::error::Error>> {
         todo!()
     }
 
     pub async fn remove(
         &mut self,
-        key: &Key,
-        load_tree: &dyn LoadTree,
+        _key: &Key,
+        _load_tree: &dyn LoadTree,
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         todo!()
     }
 
     pub async fn find(
         &mut self,
-        key: &Key,
-        load_tree: &dyn LoadTree,
+        _key: &Key,
+        _load_tree: &dyn LoadTree,
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+        todo!()
+    }
+
+    pub async fn verify_integrity(
+        &mut self,
+        _load_tree: &dyn LoadTree,
+    ) -> Result<Option<IntegrityCheckResult<Key>>, Box<dyn std::error::Error>> {
         todo!()
     }
 }
@@ -227,9 +258,9 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
     pub async fn size(
         &mut self,
         load_tree: &dyn LoadTree,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
+    ) -> Result<u64, Box<dyn std::error::Error>> {
         match self {
-            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.len()),
+            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.len() as u64),
             EditableLoadedNode::Internal(internal_node) => {
                 let mut total_size = 0;
                 for (_key, child_node) in &mut internal_node.entries {
@@ -277,6 +308,18 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>
                 )
                 .await?;
                 Ok(digest)
+            }
+        }
+    }
+
+    pub async fn verify_integrity(
+        &mut self,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Option<IntegrityCheckResult<Key>>, Box<dyn std::error::Error>> {
+        match self {
+            EditableLoadedNode::Leaf(leaf_node) => leaf_node.verify_integrity(load_tree).await,
+            EditableLoadedNode::Internal(internal_node) => {
+                internal_node.verify_integrity(load_tree).await
             }
         }
     }

@@ -1,5 +1,6 @@
 use crate::prolly_tree_editable_node::EditableNode;
 use astraea::{storage::InMemoryTreeStorage, tree::BlobDigest};
+use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
 
@@ -82,6 +83,68 @@ async fn test_insert_overwrite() {
     assert_eq!(None, editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&3, &storage).await.unwrap());
     assert_eq!(1, editable_node.size(&storage).await.unwrap());
+}
+
+#[test_log::test(tokio::test)]
+async fn test_insert_flat_values_one_at_a_time() {
+    let number_of_keys = 200;
+    let expected_trees_created = 1;
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let mut editable_node: EditableNode<String, i64> = EditableNode::new();
+    let mut all_entries = Vec::new();
+    for index in 0..number_of_keys {
+        let key = format!("key-{index}");
+        let value = index as i64;
+        all_entries.push((key, value));
+    }
+    {
+        let mut random = SmallRng::seed_from_u64(123);
+        all_entries.shuffle(&mut random);
+    }
+    let mut expected_entries: BTreeMap<String, i64> = BTreeMap::new();
+    for (key, value) in all_entries.iter() {
+        {
+            let existing_entry = editable_node.find(key, &storage).await.unwrap();
+            let expected_entry = expected_entries.get(key);
+            assert_eq!(expected_entry.copied(), existing_entry);
+        }
+        let trees_before = storage.number_of_trees().await;
+        editable_node
+            .insert(key.clone(), *value, &storage)
+            .await
+            .expect("inserting key should succeed");
+        let trees_after = storage.number_of_trees().await;
+        assert_eq!(trees_after, trees_before);
+        expected_entries.insert(key.clone(), *value);
+        assert_eq!(
+            expected_entries.len() as u64,
+            editable_node.size(&storage).await.unwrap()
+        );
+        assert_eq!(
+            Some(crate::prolly_tree::IntegrityCheckResult::Valid(
+                if expected_entries.is_empty() {
+                    None
+                } else {
+                    Some((
+                        expected_entries.first_entry().unwrap().key().clone(),
+                        expected_entries.last_entry().unwrap().key().clone(),
+                    ))
+                }
+            )),
+            editable_node.verify_integrity(&storage).await.unwrap()
+        );
+        for (key, value) in expected_entries.iter() {
+            let found = editable_node.find(key, &storage).await.unwrap();
+            assert_eq!(Some(*value), found);
+        }
+    }
+    editable_node.save(&storage).await.unwrap();
+    let trees_in_the_end = storage.number_of_trees().await;
+    assert_eq!(expected_trees_created, trees_in_the_end);
+    for (key, value) in expected_entries.iter() {
+        let found = editable_node.find(key, &storage).await.unwrap();
+        assert_eq!(Some(*value), found);
+    }
 }
 
 #[test_log::test(tokio::test)]
