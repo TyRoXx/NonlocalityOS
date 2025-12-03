@@ -151,7 +151,6 @@ impl<
     pub async fn verify_integrity(
         &mut self,
         expected_top_key: Option<&Key>,
-        is_final_node: bool,
         load_tree: &dyn LoadTree,
     ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
@@ -160,7 +159,7 @@ impl<
                 "Top key mismatch".to_string(),
             ));
         }
-        Box::pin(loaded.verify_integrity(is_final_node, load_tree)).await
+        Box::pin(loaded.verify_integrity(load_tree)).await
     }
 
     pub async fn merge(
@@ -472,7 +471,6 @@ impl<
 
     pub async fn verify_integrity(
         &mut self,
-        _is_final_node: bool,
         load_tree: &dyn LoadTree,
     ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
         if self.entries.is_empty() {
@@ -480,13 +478,9 @@ impl<
                 "Internal node integrity check failed: Node has no entries".to_string(),
             ));
         }
-        let last_index = self.entries.len() - 1;
         let mut child_depth = None;
         for (index, (key, value)) in self.entries.iter_mut().enumerate() {
-            match value
-                .verify_integrity(Some(key), index == last_index, load_tree)
-                .await?
-            {
+            match value.verify_integrity(Some(key), load_tree).await? {
                 IntegrityCheckResult::Valid { depth } => {
                     if let Some(existing_depth) = child_depth {
                         if existing_depth != depth {
@@ -664,15 +658,12 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
 
     pub async fn verify_integrity(
         &mut self,
-        is_final_node: bool,
         load_tree: &dyn LoadTree,
     ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => leaf_node.verify_integrity(),
             EditableLoadedNode::Internal(internal_node) => {
-                internal_node
-                    .verify_integrity(is_final_node, load_tree)
-                    .await
+                internal_node.verify_integrity(load_tree).await
             }
         }
     }

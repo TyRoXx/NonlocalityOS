@@ -55,7 +55,7 @@ async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
         let size = editable_node.size(&storage).await.unwrap();
         assert_eq!(oracle.len() as u64, size);
         match editable_node
-            .verify_integrity(oracle.keys().last(), true, &storage)
+            .verify_integrity(oracle.keys().last(), &storage)
             .await
             .unwrap()
         {

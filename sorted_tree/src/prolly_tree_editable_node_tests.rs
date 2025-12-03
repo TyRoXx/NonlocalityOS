@@ -137,7 +137,7 @@ async fn test_insert_flat_values_one_at_a_time(
             depth: expected_depth
         },
         editable_node
-            .verify_integrity(expected_top_key, true, &storage)
+            .verify_integrity(expected_top_key, &storage)
             .await
             .unwrap()
     );
@@ -154,7 +154,7 @@ async fn test_insert_flat_values_one_at_a_time(
             depth: expected_depth
         },
         editable_node
-            .verify_integrity(expected_top_key, true, &storage)
+            .verify_integrity(expected_top_key, &storage)
             .await
             .unwrap()
     );
@@ -267,7 +267,7 @@ async fn test_remove_many() {
         );
         let expected_top_key = expected_entries.keys().next_back();
         match editable_node
-            .verify_integrity(expected_top_key, true, &storage)
+            .verify_integrity(expected_top_key, &storage)
             .await
             .unwrap()
         {
@@ -297,7 +297,7 @@ async fn test_remove_many() {
     assert_eq!(
         IntegrityCheckResult::Valid { depth: 0 },
         editable_node
-            .verify_integrity(None, true, &storage)
+            .verify_integrity(None, &storage)
             .await
             .unwrap()
     );
