@@ -276,20 +276,10 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
         self.entries.get(key).cloned()
     }
 
-    pub fn verify_integrity(
-        &mut self,
-        is_final_node: bool,
-    ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
+    pub fn verify_integrity(&mut self) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
         for (index, key) in self.entries.keys().enumerate() {
             let is_split = is_split_after_key(key, index + 1);
-            if index == self.entries.len() - 1 {
-                if !is_final_node && !is_split {
-                    return Ok(IntegrityCheckResult::Corrupted(
-                        "Leaf node integrity check failed: Final key does not indicate split"
-                            .to_string(),
-                    ));
-                }
-            } else if is_split {
+            if (index < self.entries.len() - 1) && is_split {
                 return Ok(IntegrityCheckResult::Corrupted(format!(
                     "Leaf node integrity check failed: Key at index {} indicates split but node is not final (number of keys: {})",
                     index, self.entries.len()
@@ -678,7 +668,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
         load_tree: &dyn LoadTree,
     ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
         match self {
-            EditableLoadedNode::Leaf(leaf_node) => leaf_node.verify_integrity(is_final_node),
+            EditableLoadedNode::Leaf(leaf_node) => leaf_node.verify_integrity(),
             EditableLoadedNode::Internal(internal_node) => {
                 internal_node
                     .verify_integrity(is_final_node, load_tree)
