@@ -219,10 +219,7 @@ impl<
         load_tree: &dyn LoadTree,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
-        match loaded {
-            EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.is_naturally_split()),
-            EditableLoadedNode::Internal(internal_node) => internal_node.is_naturally_split(),
-        }
+        Ok(loaded.is_naturally_split())
     }
 }
 
@@ -410,10 +407,13 @@ impl<
                     let mut low = self.entries.remove(&low_key).expect("key must exist");
                     let high = self.entries.remove(&high_key).expect("key must exist");
                     let (low_top_key, split_nodes) = low.merge(high, load_tree).await?;
+                    assert!(split_nodes.is_empty() || low.is_naturally_split(load_tree).await?);
                     assert_ne!(low_key, low_top_key, "Merge did not change low key");
                     let previous_entry = self.entries.insert(low_top_key, low);
                     assert!(previous_entry.is_none(), "Merge node key collision");
-                    for node in split_nodes {
+                    let split_nodes_len = split_nodes.len();
+                    for (index, node) in split_nodes.into_iter().enumerate() {
+                        assert!((index == split_nodes_len - 1) || node.is_naturally_split());
                         let previous_entry = self
                             .entries
                             .insert(node.top_key().unwrap().clone(), EditableNode::Loaded(node));
@@ -522,13 +522,13 @@ impl<
         })
     }
 
-    pub fn is_naturally_split(&self) -> Result<bool, Box<dyn std::error::Error>> {
+    pub fn is_naturally_split(&self) -> bool {
         let last_key = self
             .entries
             .keys()
             .last()
             .expect("internal node is not empty");
-        Ok(is_split_after_key(last_key, self.entries.len()))
+        is_split_after_key(last_key, self.entries.len())
     }
 }
 
@@ -684,6 +684,13 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
                     .verify_integrity(is_final_node, load_tree)
                     .await
             }
+        }
+    }
+
+    pub fn is_naturally_split(&self) -> bool {
+        match self {
+            EditableLoadedNode::Leaf(leaf_node) => leaf_node.is_naturally_split(),
+            EditableLoadedNode::Internal(internal_node) => internal_node.is_naturally_split(),
         }
     }
 }
