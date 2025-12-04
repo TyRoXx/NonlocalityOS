@@ -1,5 +1,8 @@
 use arbitrary::{Arbitrary, Unstructured};
-use astraea::{storage::InMemoryTreeStorage, tree::BlobDigest};
+use astraea::{
+    storage::{InMemoryTreeStorage, LoadTree},
+    tree::BlobDigest,
+};
 use pretty_assertions::assert_eq;
 use sorted_tree::prolly_tree_editable_node::EditableNode;
 use std::collections::BTreeMap;
@@ -94,6 +97,35 @@ async fn verify_prolly_tree_equality_to_map(
     assert_eq!(map.len() as u64, size);
 }
 
+async fn count_tree_node_count(root: &BlobDigest, storage: &InMemoryTreeStorage) -> u64 {
+    let loaded = storage.load_tree(root).await.unwrap();
+    let hashed = loaded.hash().unwrap();
+    let mut sum = 1;
+    for child in hashed.tree().references() {
+        let child_count = Box::pin(count_tree_node_count(child, storage)).await;
+        sum += child_count;
+    }
+    sum
+}
+
+async fn verify_prolly_trees_equal(
+    digest1: &BlobDigest,
+    digest2: &BlobDigest,
+    storage: &InMemoryTreeStorage,
+) {
+    let mut editable_node1: EditableNode<u32, i64> =
+        EditableNode::load(digest1, storage).await.unwrap();
+    let mut editable_node2: EditableNode<u32, i64> =
+        EditableNode::load(digest2, storage).await.unwrap();
+    let size1 = editable_node1.size(storage).await.unwrap();
+    let size2 = editable_node2.size(storage).await.unwrap();
+    assert_eq!(size1, size2);
+    let node_count1 = count_tree_node_count(digest1, storage).await;
+    let node_count2 = count_tree_node_count(digest2, storage).await;
+    assert_eq!(node_count1, node_count2);
+    assert_eq!(digest1, digest2);
+}
+
 async fn btree_map_to_digest(
     map: &BTreeMap<u32, i64>,
     storage: &InMemoryTreeStorage,
@@ -124,12 +156,24 @@ async fn run_test_case(test_case: &TestCase) {
     let before_digest = btree_map_to_digest(&test_case.before, &storage).await;
     let operations_executed =
         execute_operations_on_prolly_tree(&before_digest, &test_case.operations, &storage).await;
+    if test_case.operations.is_empty() {
+        verify_prolly_trees_equal(&before_digest, &operations_executed, &storage).await;
+    }
+    verify_prolly_tree_equality_to_map(&operations_executed, &intermediary_map, &storage).await;
     let additional_operations_executed =
         execute_operations_on_prolly_tree(&operations_executed, &additional_operations, &storage)
             .await;
+    if additional_operations.is_empty() {
+        verify_prolly_trees_equal(
+            &operations_executed,
+            &additional_operations_executed,
+            &storage,
+        )
+        .await;
+    }
     let after_digest = btree_map_to_digest(&test_case.after, &storage).await;
-    assert_eq!(after_digest, additional_operations_executed);
     verify_prolly_tree_equality_to_map(&after_digest, &final_map, &storage).await;
+    verify_prolly_trees_equal(&after_digest, &additional_operations_executed, &storage).await;
 }
 
 pub fn fuzz_function(data: &[u8]) -> bool {
@@ -204,12 +248,12 @@ async fn test_mismatching_operations() {
 #[test_log::test]
 fn test_crash_0() {
     fuzz_function(&[
-        255, 255, 255, 94, 207, 135, 196, 189, 12, 11, 158, 166, 32, 245, 148, 84, 78, 248, 53, 23,
-        23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 184, 35, 156, 16, 137, 172, 105, 203, 119,
-        49, 182, 132, 14, 12, 11, 158, 166, 36, 204, 151, 45, 175, 137, 136, 137, 46, 255, 255,
-        255, 255, 255, 44, 217, 255, 255, 255, 197, 197, 255, 255, 94, 207, 135, 161, 196, 189, 12,
-        11, 172, 171, 171, 171, 148, 84, 23, 23, 23, 23, 23, 23, 23, 184, 35, 156, 16, 137, 78,
-        248, 53, 184, 35, 156, 16, 137, 172, 49, 182, 132, 14, 36, 204, 151, 45, 175, 137, 136,
-        137, 46, 255, 79, 99, 99, 171, 255, 255, 255, 255, 44, 217, 13, 13,
+        201, 255, 255, 219, 89, 89, 67, 75, 73, 89, 75, 240, 67, 243, 102, 0, 219, 170, 67, 75, 89,
+        32, 240, 89, 67, 75, 33, 89, 75, 240, 67, 243, 32, 191, 157, 40, 255, 0, 255, 1, 149, 25,
+        255, 255, 255, 0, 0, 255, 255, 58, 255, 43, 43, 154, 202, 0, 43, 43, 43, 43, 43, 43, 43,
+        43, 43, 43, 43, 43, 43, 43, 43, 43, 255, 255, 239, 32, 75, 219, 89, 89, 241, 241, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 127, 255, 255, 255, 255, 225, 255, 255, 255, 255,
+        46, 255, 93, 255, 254, 59, 253, 88, 255, 255, 46, 255, 93, 241, 241, 241, 241, 241, 243,
+        241, 241, 219, 89, 89, 67, 75, 89, 0, 60, 255,
     ]);
 }
