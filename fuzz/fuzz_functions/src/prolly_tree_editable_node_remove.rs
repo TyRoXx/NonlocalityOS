@@ -1,192 +1,215 @@
 use arbitrary::{Arbitrary, Unstructured};
-use astraea::tree::BlobDigest;
+use astraea::{storage::InMemoryTreeStorage, tree::BlobDigest};
 use pretty_assertions::assert_eq;
-use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
-use sorted_tree::{
-    prolly_tree_editable_node::{EditableNode, IntegrityCheckResult},
-    sorted_tree::TreeReference,
-};
+use sorted_tree::prolly_tree_editable_node::EditableNode;
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
 
-type UniqueInsertions = BTreeMap<u32, i64>;
-type InsertionBatches = Vec<UniqueInsertions>;
-
-fn randomize_insertion_order(seed: u8, insertion_batches: &InsertionBatches) -> Vec<(u32, i64)> {
-    let mut random = SmallRng::seed_from_u64(seed as u64);
-    let mut all_insertions = Vec::new();
-    for batch in insertion_batches.iter() {
-        let mut batch_randomized: Vec<(u32, i64)> = batch.iter().map(|(k, v)| (*k, *v)).collect();
-        batch_randomized.shuffle(&mut random);
-        all_insertions.extend(batch_randomized);
-    }
-    all_insertions
-}
-
-async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
-    let mut editable_node: EditableNode<u32, i64> = EditableNode::new();
-    let mut oracle = BTreeMap::new();
-    for (key, _value) in insertions.iter() {
-        let found = editable_node.find(key, &storage).await.unwrap();
-        assert_eq!(None, found);
-    }
-    for (key, value) in insertions.iter() {
-        {
-            let existing_entry = editable_node.find(key, &storage).await.unwrap();
-            let expected_entry = oracle.get(key);
-            assert_eq!(expected_entry.copied(), existing_entry);
-        }
-        {
-            let number_of_trees_before = storage.number_of_trees().await;
-            editable_node
-                .insert(*key, *value, &storage)
-                .await
-                .expect("inserting key should succeed");
-            let number_of_trees_after = storage.number_of_trees().await;
-            assert!(number_of_trees_after >= number_of_trees_before);
-            let difference = number_of_trees_after - number_of_trees_before;
-            // TODO: find out why so many trees are created in some cases
-            assert!(difference <= 100);
-        }
-        let found = editable_node.find(key, &storage).await.unwrap();
-        assert_eq!(Some(*value), found);
-        oracle.insert(*key, *value);
-        let size = editable_node.size(&storage).await.unwrap();
-        assert_eq!(oracle.len() as u64, size);
-        match editable_node
-            .verify_integrity(oracle.keys().last(), &storage)
-            .await
-            .unwrap()
-        {
-            IntegrityCheckResult::Valid { depth } => {
-                assert!(depth < 10);
-            }
-            IntegrityCheckResult::Corrupted(reason) => {
-                panic!("Tree integrity check failed: {}", reason);
-            }
-        }
-    }
-    for (key, value) in oracle.iter() {
-        let found = editable_node.find(key, &storage).await.unwrap();
-        assert_eq!(Some(*value), found);
-    }
-    let final_size = editable_node.size(&storage).await.unwrap();
-    assert_eq!(oracle.len() as u64, final_size);
-    assert_eq!(0, storage.number_of_trees().await);
-    let digest = editable_node.save(&storage).await.unwrap();
-    let number_of_trees = storage.number_of_trees().await;
-    assert!(number_of_trees >= 1);
-    // TODO: find a better upper bound
-    assert!(number_of_trees <= 1000);
-
-    // test loading from storage
-    editable_node = EditableNode::Reference(TreeReference::new(digest));
-    for (key, value) in oracle.iter() {
-        let found = editable_node.find(key, &storage).await.unwrap();
-        assert_eq!(Some(*value), found);
-    }
-    assert_eq!(
-        oracle.len() as u64,
-        editable_node.size(&storage).await.unwrap()
-    );
-    let saved_again = editable_node.save(&storage).await.unwrap();
-    assert_eq!(saved_again, digest);
-
-    digest
+#[derive(Arbitrary, Debug)]
+enum MapOperation {
+    Insert(u32, i64),
+    Remove(u32),
 }
 
 #[derive(Arbitrary, Debug)]
 struct TestCase {
-    seed_a: u8,
-    seed_b: u8,
-    insertion_batches: InsertionBatches,
+    before: BTreeMap<u32, i64>,
+    after: BTreeMap<u32, i64>,
+    operations: Vec<MapOperation>,
 }
 
-async fn insert_entries(parameters: &TestCase) {
-    println!("Test case: {:?}", parameters);
-    let digest_a = insert_one_at_a_time(&randomize_insertion_order(
-        parameters.seed_a,
-        &parameters.insertion_batches,
-    ))
-    .await;
-    let digest_b = insert_one_at_a_time(&randomize_insertion_order(
-        parameters.seed_b,
-        &parameters.insertion_batches,
-    ))
-    .await;
-    assert_eq!(digest_a, digest_b);
+fn find_operations_to_transform(
+    before: &BTreeMap<u32, i64>,
+    after: &BTreeMap<u32, i64>,
+) -> Vec<MapOperation> {
+    let mut operations = Vec::new();
+    for (key, value) in after.iter() {
+        match before.get(key) {
+            Some(existing_value) => {
+                if existing_value != value {
+                    operations.push(MapOperation::Insert(*key, *value));
+                }
+            }
+            None => {
+                operations.push(MapOperation::Insert(*key, *value));
+            }
+        }
+    }
+    for key in before.keys() {
+        if !after.contains_key(key) {
+            operations.push(MapOperation::Remove(*key));
+        }
+    }
+    operations
+}
+
+async fn execute_operations_on_prolly_tree(
+    digest: &BlobDigest,
+    operations: &[MapOperation],
+    storage: &InMemoryTreeStorage,
+) -> BlobDigest {
+    let mut editable_node: EditableNode<u32, i64> =
+        EditableNode::load(digest, storage).await.unwrap();
+    let mut oracle = BTreeMap::new();
+    for operation in operations {
+        match operation {
+            MapOperation::Insert(key, value) => {
+                editable_node.insert(*key, *value, storage).await.unwrap();
+                oracle.insert(*key, *value);
+            }
+            MapOperation::Remove(key) => {
+                editable_node.remove(key, storage).await.unwrap();
+                oracle.remove(key);
+            }
+        }
+    }
+    editable_node.save(storage).await.unwrap()
+}
+
+fn execute_operations_on_btree_map(map: &mut BTreeMap<u32, i64>, operations: &[MapOperation]) {
+    for operation in operations {
+        match operation {
+            MapOperation::Insert(key, value) => {
+                map.insert(*key, *value);
+            }
+            MapOperation::Remove(key) => {
+                map.remove(key);
+            }
+        }
+    }
+}
+
+async fn verify_prolly_tree_equality_to_map(
+    digest: &BlobDigest,
+    map: &BTreeMap<u32, i64>,
+    storage: &InMemoryTreeStorage,
+) {
+    let mut editable_node: EditableNode<u32, i64> =
+        EditableNode::load(digest, storage).await.unwrap();
+    for (key, value) in map.iter() {
+        let found = editable_node.find(key, storage).await.unwrap();
+        assert_eq!(Some(*value), found);
+    }
+    let size = editable_node.size(storage).await.unwrap();
+    assert_eq!(map.len() as u64, size);
+}
+
+async fn btree_map_to_digest(
+    map: &BTreeMap<u32, i64>,
+    storage: &InMemoryTreeStorage,
+) -> BlobDigest {
+    let mut editable_node: EditableNode<u32, i64> = EditableNode::new();
+    for (key, value) in map.iter() {
+        editable_node.insert(*key, *value, storage).await.unwrap();
+    }
+    let digest = editable_node.save(storage).await.unwrap();
+    verify_prolly_tree_equality_to_map(&digest, map, storage).await;
+    digest
+}
+
+async fn run_test_case(test_case: &TestCase) {
+    let intermediary_map = {
+        let mut map = test_case.before.clone();
+        execute_operations_on_btree_map(&mut map, &test_case.operations);
+        map
+    };
+    let additional_operations = find_operations_to_transform(&intermediary_map, &test_case.after);
+    let final_map = {
+        let mut map = intermediary_map.clone();
+        execute_operations_on_btree_map(&mut map, &additional_operations);
+        map
+    };
+    assert_eq!(final_map, test_case.after);
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let before_digest = btree_map_to_digest(&test_case.before, &storage).await;
+    let operations_executed =
+        execute_operations_on_prolly_tree(&before_digest, &test_case.operations, &storage).await;
+    let additional_operations_executed =
+        execute_operations_on_prolly_tree(&operations_executed, &additional_operations, &storage)
+            .await;
+    let after_digest = btree_map_to_digest(&test_case.after, &storage).await;
+    assert_eq!(after_digest, additional_operations_executed);
+    verify_prolly_tree_equality_to_map(&after_digest, &final_map, &storage).await;
 }
 
 pub fn fuzz_function(data: &[u8]) -> bool {
     let mut unstructured = Unstructured::new(data);
-    let parameters: TestCase = match unstructured.arbitrary() {
+    let test_case: TestCase = match unstructured.arbitrary() {
         Ok(success) => success,
         Err(_) => return false,
     };
+    println!("Test case: {:?}", test_case);
     tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap()
         .block_on(async {
-            insert_entries(&parameters).await;
+            run_test_case(&test_case).await;
         });
     true
 }
 
 #[cfg(test)]
 #[test_log::test(tokio::test)]
-async fn test_insert_many_entries_zero() {
-    insert_entries(&TestCase {
-        seed_a: 0,
-        seed_b: 1,
-        insertion_batches: vec![],
+async fn test_empty() {
+    run_test_case(&TestCase {
+        before: BTreeMap::new(),
+        after: BTreeMap::new(),
+        operations: vec![],
     })
     .await;
 }
 
 #[cfg(test)]
 #[test_log::test(tokio::test)]
-async fn test_insert_many_entries_same_entry() {
-    insert_entries(&TestCase {
-        seed_a: 0,
-        seed_b: 1,
-        insertion_batches: vec![[(10, 100), (10, 100), (10, 100), (10, 100), (10, 100)].into()],
+async fn test_no_operations() {
+    run_test_case(&TestCase {
+        before: BTreeMap::new(),
+        after: BTreeMap::from([(10, 100), (20, 200), (30, 300)]),
+        operations: vec![],
     })
     .await;
 }
 
 #[cfg(test)]
 #[test_log::test(tokio::test)]
-async fn test_insert_many_entries_few() {
-    insert_entries(&TestCase {
-        seed_a: 0,
-        seed_b: 1,
-        insertion_batches: vec![[
-            (10, 100),
-            (20, 200),
-            (15, 150),
-            (25, 250),
-            (5, 50),
-            (30, 300),
-            (12, 120),
-            (10, 200),
-            (15, 250),
-            (12, 220),
-            (18, 180),
-            (22, 220),
-        ]
-        .into()],
+async fn test_matching_operations() {
+    run_test_case(&TestCase {
+        before: BTreeMap::new(),
+        after: BTreeMap::from([(10, 100), (20, 200), (30, 300)]),
+        operations: vec![
+            MapOperation::Insert(10, 100),
+            MapOperation::Insert(20, 200),
+            MapOperation::Insert(30, 300),
+        ],
     })
     .await;
 }
 
 #[cfg(test)]
 #[test_log::test(tokio::test)]
-async fn test_insert_many_entries_lots() {
-    insert_entries(&TestCase {
-        seed_a: 0,
-        seed_b: 1,
-        insertion_batches: vec![(0..200).map(|i| (i, (i as i64) * 10)).collect()],
+async fn test_mismatching_operations() {
+    run_test_case(&TestCase {
+        before: BTreeMap::new(),
+        after: BTreeMap::from([(10, 100), (20, 200), (30, 300)]),
+        operations: vec![
+            MapOperation::Insert(10, 100),
+            MapOperation::Insert(40, 200),
+            MapOperation::Insert(30, 400),
+        ],
     })
     .await;
+}
+
+#[cfg(test)]
+#[test_log::test]
+fn test_crash_0() {
+    fuzz_function(&[
+        255, 255, 255, 94, 207, 135, 196, 189, 12, 11, 158, 166, 32, 245, 148, 84, 78, 248, 53, 23,
+        23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 184, 35, 156, 16, 137, 172, 105, 203, 119,
+        49, 182, 132, 14, 12, 11, 158, 166, 36, 204, 151, 45, 175, 137, 136, 137, 46, 255, 255,
+        255, 255, 255, 44, 217, 255, 255, 255, 197, 197, 255, 255, 94, 207, 135, 161, 196, 189, 12,
+        11, 172, 171, 171, 171, 148, 84, 23, 23, 23, 23, 23, 23, 23, 184, 35, 156, 16, 137, 78,
+        248, 53, 184, 35, 156, 16, 137, 172, 49, 182, 132, 14, 36, 204, 151, 45, 175, 137, 136,
+        137, 46, 255, 79, 99, 99, 171, 255, 255, 255, 255, 44, 217, 13, 13,
+    ]);
 }

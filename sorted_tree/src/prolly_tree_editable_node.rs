@@ -148,6 +148,17 @@ impl<
         }
     }
 
+    pub async fn load(
+        digest: &BlobDigest,
+        load_tree: &dyn LoadTree,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let loaded: EitherNodeType<Key, Value> = match load_node(load_tree, digest).await {
+            Some(loaded) => loaded,
+            None => todo!(),
+        };
+        Ok(EditableNode::Loaded(EditableLoadedNode::new(loaded)))
+    }
+
     pub async fn verify_integrity(
         &mut self,
         expected_top_key: Option<&Key>,
