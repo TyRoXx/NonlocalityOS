@@ -108,6 +108,11 @@ impl<
             *self = EditableNode::Loaded(EditableLoadedNode::Leaf(EditableLeafNode {
                 entries: BTreeMap::new(),
             }));
+        } else {
+            let loaded = self.require_loaded(load_tree).await?;
+            if let Some(simplified) = loaded.simplify() {
+                *self = simplified;
+            }
         }
         Ok(maybe_removed)
     }
@@ -118,7 +123,8 @@ impl<
         load_tree: &dyn LoadTree,
     ) -> Result<(Option<Key>, Option<Value>), Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
-        loaded.remove(key, load_tree).await
+        let result = loaded.remove(key, load_tree).await?;
+        Ok(result)
     }
 
     pub async fn find(
@@ -589,6 +595,24 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
             EditableLoadedNode::Internal(internal_node) => {
                 internal_node.remove(key, load_tree).await
             }
+        }
+    }
+
+    pub fn simplify(&mut self) -> Option<EditableNode<Key, Value>> {
+        match self {
+            EditableLoadedNode::Internal(internal_node) => {
+                if internal_node.entries.len() == 1 {
+                    let (_, only_child) = internal_node
+                        .entries
+                        .iter_mut()
+                        .next()
+                        .expect("internal node has one entry");
+                    Some(only_child.clone())
+                } else {
+                    None
+                }
+            }
+            EditableLoadedNode::Leaf(_) => None,
         }
     }
 
