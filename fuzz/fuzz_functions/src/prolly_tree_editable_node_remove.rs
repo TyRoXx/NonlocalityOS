@@ -4,7 +4,7 @@ use astraea::{
     tree::BlobDigest,
 };
 use pretty_assertions::assert_eq;
-use sorted_tree::prolly_tree_editable_node::EditableNode;
+use sorted_tree::{prolly_tree_editable_node::EditableNode, sorted_tree::TreeReference};
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
 
@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 enum MapOperation {
     Insert(u32, i64),
     Remove(u32),
+    Save,
 }
 
 #[derive(Arbitrary, Debug)]
@@ -64,6 +65,12 @@ async fn execute_operations_on_prolly_tree(
                 editable_node.remove(key, storage).await.unwrap();
                 oracle.remove(key);
             }
+            MapOperation::Save => {
+                let saved_digest = editable_node.save(storage).await.unwrap();
+                let reloaded_node: EditableNode<u32, i64> =
+                    EditableNode::Reference(TreeReference::new(saved_digest));
+                editable_node = reloaded_node;
+            }
         }
     }
     editable_node.save(storage).await.unwrap()
@@ -78,6 +85,7 @@ fn execute_operations_on_btree_map(map: &mut BTreeMap<u32, i64>, operations: &[M
             MapOperation::Remove(key) => {
                 map.remove(key);
             }
+            MapOperation::Save => {}
         }
     }
 }
@@ -239,6 +247,22 @@ async fn test_mismatching_operations() {
             MapOperation::Insert(10, 100),
             MapOperation::Insert(40, 200),
             MapOperation::Insert(30, 400),
+        ],
+    })
+    .await;
+}
+
+#[cfg(test)]
+#[test_log::test(tokio::test)]
+async fn test_save_operation() {
+    run_test_case(&TestCase {
+        before: BTreeMap::new(),
+        after: BTreeMap::from([(10, 100), (20, 200), (30, 300)]),
+        operations: vec![
+            MapOperation::Insert(10, 100),
+            MapOperation::Insert(20, 200),
+            MapOperation::Save,
+            MapOperation::Insert(30, 300),
         ],
     })
     .await;
