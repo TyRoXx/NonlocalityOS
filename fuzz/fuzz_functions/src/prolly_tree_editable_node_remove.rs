@@ -101,7 +101,7 @@ async fn verify_prolly_tree_equality_to_map(
         let found = editable_node.find(key, storage).await.unwrap();
         assert_eq!(Some(*value), found);
     }
-    let size = editable_node.size(storage).await.unwrap();
+    let size = editable_node.count(storage).await.unwrap();
     assert_eq!(map.len() as u64, size);
 }
 
@@ -125,8 +125,8 @@ async fn verify_prolly_trees_equal(
         EditableNode::load(digest1, storage).await.unwrap();
     let mut editable_node2: EditableNode<u32, i64> =
         EditableNode::load(digest2, storage).await.unwrap();
-    let size1 = editable_node1.size(storage).await.unwrap();
-    let size2 = editable_node2.size(storage).await.unwrap();
+    let size1 = editable_node1.count(storage).await.unwrap();
+    let size2 = editable_node2.count(storage).await.unwrap();
     assert_eq!(size1, size2);
     let node_count1 = count_tree_node_count(digest1, storage).await;
     let node_count2 = count_tree_node_count(digest2, storage).await;

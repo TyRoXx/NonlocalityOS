@@ -52,7 +52,7 @@ async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
         let found = editable_node.find(key, &storage).await.unwrap();
         assert_eq!(Some(*value), found);
         oracle.insert(*key, *value);
-        let size = editable_node.size(&storage).await.unwrap();
+        let size = editable_node.count(&storage).await.unwrap();
         assert_eq!(oracle.len() as u64, size);
         match editable_node
             .verify_integrity(oracle.keys().last(), &storage)
@@ -71,7 +71,7 @@ async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
         let found = editable_node.find(key, &storage).await.unwrap();
         assert_eq!(Some(*value), found);
     }
-    let final_size = editable_node.size(&storage).await.unwrap();
+    let final_size = editable_node.count(&storage).await.unwrap();
     assert_eq!(oracle.len() as u64, final_size);
     assert_eq!(0, storage.number_of_trees().await);
     let digest = editable_node.save(&storage).await.unwrap();
@@ -88,7 +88,7 @@ async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
     }
     assert_eq!(
         oracle.len() as u64,
-        editable_node.size(&storage).await.unwrap()
+        editable_node.count(&storage).await.unwrap()
     );
     let saved_again = editable_node.save(&storage).await.unwrap();
     assert_eq!(saved_again, digest);
