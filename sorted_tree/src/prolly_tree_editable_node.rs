@@ -229,12 +229,12 @@ impl<
         loaded.find(key, load_tree).await
     }
 
-    pub async fn size(
+    pub async fn count(
         &mut self,
         load_tree: &dyn LoadTree,
     ) -> Result<u64, Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
-        Box::pin(loaded.size(load_tree)).await
+        Box::pin(loaded.count(load_tree)).await
     }
 
     pub async fn save(
@@ -751,18 +751,18 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
         }
     }
 
-    pub async fn size(
+    pub async fn count(
         &mut self,
         load_tree: &dyn LoadTree,
     ) -> Result<u64, Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.len() as u64),
             EditableLoadedNode::Internal(internal_node) => {
-                let mut total_size = 0;
+                let mut total_count = 0;
                 for child_node in internal_node.entries.values_mut() {
-                    total_size += child_node.size(load_tree).await?;
+                    total_count += child_node.count(load_tree).await?;
                 }
-                Ok(total_size)
+                Ok(total_count)
             }
         }
     }

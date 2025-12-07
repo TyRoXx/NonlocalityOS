@@ -31,7 +31,7 @@ async fn test_insert() {
     assert_eq!(None, editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(0, editable_node.size(&storage).await.unwrap());
+    assert_eq!(0, editable_node.count(&storage).await.unwrap());
 
     editable_node.insert(1, 10, &storage).await.unwrap();
     let digest = editable_node.save(&storage).await.unwrap();
@@ -41,7 +41,7 @@ async fn test_insert() {
     assert_eq!(Some(10), editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(1, editable_node.size(&storage).await.unwrap());
+    assert_eq!(1, editable_node.count(&storage).await.unwrap());
 
     editable_node.insert(3, 30, &storage).await.unwrap();
     let digest = editable_node.save(&storage).await.unwrap();
@@ -51,7 +51,7 @@ async fn test_insert() {
     assert_eq!(Some(10), editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(Some(30), editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(2, editable_node.size(&storage).await.unwrap());
+    assert_eq!(2, editable_node.count(&storage).await.unwrap());
 
     editable_node.insert(2, 20, &storage).await.unwrap();
     let digest = editable_node.save(&storage).await.unwrap();
@@ -61,7 +61,7 @@ async fn test_insert() {
     assert_eq!(Some(10), editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(Some(20), editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(Some(30), editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(3, editable_node.size(&storage).await.unwrap());
+    assert_eq!(3, editable_node.count(&storage).await.unwrap());
 
     editable_node.insert(0, 0, &storage).await.unwrap();
     let digest = editable_node.save(&storage).await.unwrap();
@@ -72,7 +72,7 @@ async fn test_insert() {
     assert_eq!(Some(10), editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(Some(20), editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(Some(30), editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(4, editable_node.size(&storage).await.unwrap());
+    assert_eq!(4, editable_node.count(&storage).await.unwrap());
 
     test_save_load_roundtrip(&mut editable_node, &storage, &digest).await;
 }
@@ -84,7 +84,7 @@ async fn test_insert_overwrite() {
     assert_eq!(None, editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(0, editable_node.size(&storage).await.unwrap());
+    assert_eq!(0, editable_node.count(&storage).await.unwrap());
 
     editable_node.insert(1, 10, &storage).await.unwrap();
     let digest = editable_node.save(&storage).await.unwrap();
@@ -94,7 +94,7 @@ async fn test_insert_overwrite() {
     assert_eq!(Some(10), editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(1, editable_node.size(&storage).await.unwrap());
+    assert_eq!(1, editable_node.count(&storage).await.unwrap());
 
     editable_node.insert(1, 30, &storage).await.unwrap();
     let digest = editable_node.save(&storage).await.unwrap();
@@ -104,7 +104,7 @@ async fn test_insert_overwrite() {
     assert_eq!(Some(30), editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(1, editable_node.size(&storage).await.unwrap());
+    assert_eq!(1, editable_node.count(&storage).await.unwrap());
 
     test_save_load_roundtrip(&mut editable_node, &storage, &digest).await;
 }
@@ -145,7 +145,7 @@ async fn test_insert_flat_values_one_at_a_time(
         expected_entries.insert(key.clone(), *value);
         assert_eq!(
             expected_entries.len() as u64,
-            editable_node.size(&storage).await.unwrap()
+            editable_node.count(&storage).await.unwrap()
         );
         for (key, value) in expected_entries.iter() {
             let found = editable_node.find(key, &storage).await.unwrap();
@@ -208,7 +208,7 @@ async fn test_remove_something() {
     assert_eq!(Some(10), editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(None, editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(Some(30), editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(2, editable_node.size(&storage).await.unwrap());
+    assert_eq!(2, editable_node.count(&storage).await.unwrap());
     let digest = editable_node.save(&storage).await.unwrap();
     assert_eq!(BlobDigest::parse_hex_string(
             "e905a3323cd8e425b4e490641fbfea34cffaa241a18f861d01affe203f721fd46ad7414c3f356d56e716585249c5964876f9d6c51aa76738d008efc8dd4cdeb8"
@@ -233,7 +233,7 @@ async fn test_remove_nothing() {
     assert_eq!(Some(10), editable_node.find(&1, &storage).await.unwrap());
     assert_eq!(Some(20), editable_node.find(&2, &storage).await.unwrap());
     assert_eq!(Some(30), editable_node.find(&3, &storage).await.unwrap());
-    assert_eq!(3, editable_node.size(&storage).await.unwrap());
+    assert_eq!(3, editable_node.count(&storage).await.unwrap());
 
     test_save_load_roundtrip(&mut editable_node, &storage, &digest).await;
 }
@@ -267,7 +267,7 @@ async fn test_remove_many() {
         expected_entries.insert(key.clone(), *value);
         assert_eq!(
             expected_entries.len() as u64,
-            editable_node.size(&storage).await.unwrap()
+            editable_node.count(&storage).await.unwrap()
         );
         for (key, value) in expected_entries.iter() {
             let found = editable_node.find(key, &storage).await.unwrap();
@@ -290,7 +290,7 @@ async fn test_remove_many() {
         assert_eq!(removed_value, expected_entries.remove(removed_key));
         assert_eq!(
             expected_entries.len() as u64,
-            editable_node.size(&storage).await.unwrap()
+            editable_node.count(&storage).await.unwrap()
         );
         let expected_top_key = expected_entries.keys().next_back();
         match editable_node
