@@ -44,8 +44,8 @@ fn print_all_expression_types() {
     apply.print(&mut writer, 0).unwrap();
     assert_eq!(
         concat!(
-            "$env={literal(DeepTree { blob: TreeBlob { content: b\"Hello, world!\" }, references: [] })}($arg) =>\n",
-            "  [$arg, $env, ](literal(DeepTree { blob: TreeBlob { content: b\"2\" }, references: [] }))"),
+            "$env={literal(DeepTree { blob: TreeBlob { content: b\"Hello, world!\" }, children: DeepTreeChildren { references: [] } })}($arg) =>\n",
+            "  [$arg, $env, ](literal(DeepTree { blob: TreeBlob { content: b\"2\" }, children: DeepTreeChildren { references: [] } }))"),
         writer.as_str());
 }
 

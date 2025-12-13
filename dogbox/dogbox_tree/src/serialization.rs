@@ -1,6 +1,6 @@
 use astraea::{
     storage::LoadStoreTree,
-    tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob},
+    tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob, TreeChildren},
 };
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
@@ -181,12 +181,13 @@ pub async fn serialize_directory(
     let maybe_tree_blob = TreeBlob::try_from(Bytes::from(postcard::to_allocvec(&DirectoryTree {
         children: serialization_children,
     })?));
+    let children = match TreeChildren::try_from(serialization_references) {
+        Some(children) => children,
+        None => return Err("Too many directory entries".into()),
+    };
     match maybe_tree_blob {
         Ok(tree_blob) => Ok(storage
-            .store_tree(&HashedTree::from(Arc::new(Tree::new(
-                tree_blob,
-                serialization_references,
-            ))))
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(tree_blob, children))))
             .await?),
         Err(error) => Err(error.into()),
     }
@@ -219,10 +220,10 @@ pub async fn deserialize_directory(
             ReferenceIndexOrInlineContent::Indirect(reference_index) => {
                 let index: usize = usize::try_from(reference_index.0)
                     .map_err(|_error| DeserializationError::ReferenceIndexOutOfRange)?;
-                if index >= loaded.tree().references().len() {
+                if index >= loaded.tree().children().references().len() {
                     return Err(DeserializationError::ReferenceIndexOutOfRange);
                 }
-                let digest = loaded.tree().references()[index];
+                let digest = loaded.tree().children().references()[index];
                 result.insert(child.0.clone().into(), (child.1.kind, digest));
             }
             ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),

@@ -1,5 +1,6 @@
 extern crate test;
 use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH};
+use crate::tree::{TreeChildren, TREE_MAX_CHILDREN};
 use pretty_assertions::assert_eq;
 use rand::rngs::SmallRng;
 use rand::Rng;
@@ -14,7 +15,7 @@ fn make_test_tree() -> Tree {
             (0..TREE_BLOB_MAX_LENGTH).map(|_| small_rng.gen()),
         ))
         .unwrap(),
-        vec![],
+        TreeChildren::empty(),
     )
 }
 
@@ -25,7 +26,7 @@ where
     let referenced = make_test_tree();
     b.iter(|| crate::tree::calculate_digest_fixed::<D>(&referenced));
 
-    assert!(referenced.references().is_empty());
+    assert!(referenced.children().references().is_empty());
     b.bytes = referenced.blob().len() as u64;
 }
 
@@ -36,7 +37,7 @@ where
     let referenced = make_test_tree();
     b.iter(|| crate::tree::calculate_digest_extendable::<D>(&referenced));
 
-    assert!(referenced.references().is_empty());
+    assert!(referenced.children().references().is_empty());
     b.bytes = referenced.blob().len() as u64;
 }
 
@@ -94,27 +95,30 @@ fn hashed_tree_from(
             (0..blob_size).map(|_| small_rng.gen()),
         ))
         .unwrap(),
-        std::iter::repeat_n((), reference_count)
-            .map(|()| {
-                BlobDigest::new(&{
-                    let mut array: [u8; 64] = [0; 64];
-                    small_rng.fill(&mut array);
-                    array
+        TreeChildren::try_from(
+            std::iter::repeat_n((), reference_count)
+                .map(|()| {
+                    BlobDigest::new(&{
+                        let mut array: [u8; 64] = [0; 64];
+                        small_rng.fill(&mut array);
+                        array
+                    })
                 })
-            })
-            .collect(),
+                .collect(),
+        )
+        .expect("We are not benchmarking with too many child references"),
     ));
     b.iter(|| {
         let hashed_tree = HashedTree::from(tree.clone());
         assert_eq!(expected_digest, hashed_tree.digest());
         hashed_tree
     });
-    b.bytes = tree.blob().len() as u64 + tree.references().len() as u64 * 64;
+    b.bytes = tree.blob().len() as u64 + tree.children().references().len() as u64 * 64;
 }
 
 #[bench]
 fn hashed_tree_from_max_blob_max_references(b: &mut Bencher) {
-    hashed_tree_from(b, TREE_BLOB_MAX_LENGTH, 1000, &BlobDigest::parse_hex_string(
+    hashed_tree_from(b, TREE_BLOB_MAX_LENGTH, TREE_MAX_CHILDREN, &BlobDigest::parse_hex_string(
             "e33bdf70688ecf9ba89f83e43e4bb7d494b982fe4da53658caa6ca41f822280fb9b50ecf98b65276efe81bce8db3f474a01156410fc33b6ea1b49ee02d4c0f77").unwrap());
 }
 
@@ -126,7 +130,7 @@ fn hashed_tree_from_max_blob_no_references(b: &mut Bencher) {
 
 #[bench]
 fn hashed_tree_from_min_blob_max_references(b: &mut Bencher) {
-    hashed_tree_from(b, 0, 1000, &BlobDigest::parse_hex_string(
+    hashed_tree_from(b, 0, TREE_MAX_CHILDREN, &BlobDigest::parse_hex_string(
             "42f238ba350c07533609966f5ff913c3ed0e03f7a3fdfe5bb9c2d28933b24089277c3a69812d6c2ded04ea68f7f32d6e76fc3df2f6aca867bfb4273afe0b1097").unwrap());
 }
 

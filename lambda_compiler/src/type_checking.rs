@@ -3,7 +3,7 @@ use crate::{
     compilation::{CompilerError, CompilerOutput, SourceLocation},
 };
 use astraea::{
-    deep_tree::DeepTree,
+    deep_tree::{DeepTree, DeepTreeChildren},
     storage::StoreError,
     tree::{ReferenceIndex, TreeBlob},
 };
@@ -75,10 +75,12 @@ pub fn to_reference_type(deep_type: &DeepType) -> (GenericType<ReferenceIndex>, 
 
 pub fn type_to_deep_tree(deep_type: &DeepType) -> DeepTree {
     let (body, children) = to_reference_type(deep_type);
+    let children =
+        DeepTreeChildren::try_from(children.iter().map(type_to_deep_tree).collect()).expect("TODO");
     let body_serialized = postcard::to_allocvec(&body).unwrap(/*TODO*/);
     DeepTree::new(
         TreeBlob::try_from(bytes::Bytes::from( body_serialized)).unwrap(/*TODO*/),
-        children.iter().map(type_to_deep_tree).collect(),
+        children,
     )
 }
 
@@ -139,6 +141,7 @@ pub fn type_from_deep_tree(deep_tree: &DeepTree) -> DeepType {
     let body: GenericType<ReferenceIndex> =
         postcard::from_bytes(deep_tree.blob().as_slice()).unwrap(/*TODO*/);
     let children: Vec<_> = deep_tree
+        .children()
         .references()
         .iter()
         .map(type_from_deep_tree)
@@ -743,7 +746,7 @@ async fn check_integer_literal(
     let serialized = postcard::to_allocvec(&value).unwrap(/*TODO*/);
     let tree = DeepTree::new(
         TreeBlob::try_from(bytes::Bytes::from(serialized)).expect("an integer will always fit"),
-        vec![],
+        DeepTreeChildren::empty(),
     );
     Ok((
         CompilerOutput::new(
@@ -983,7 +986,7 @@ pub async fn check_types_with_default_globals(
         DeepTree::new(
             TreeBlob::try_from(bytes::Bytes::from_static(&[1u8]))
                 .expect("one byte will always fit"),
-            Vec::new(),
+            DeepTreeChildren::empty(),
         ),
     );
     environment_builder.define_constant(
@@ -992,7 +995,7 @@ pub async fn check_types_with_default_globals(
         DeepTree::new(
             TreeBlob::try_from(bytes::Bytes::from_static(&[0u8]))
                 .expect("one byte will always fit"),
-            Vec::new(),
+            DeepTreeChildren::empty(),
         ),
     );
     environment_builder.define_constant(
