@@ -32,19 +32,18 @@ impl DeepTreeChildren {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DeepTree {
     blob: TreeBlob,
-    // TODO: rename to children
-    references: DeepTreeChildren,
+    children: DeepTreeChildren,
 }
 
 impl DeepTree {
-    pub fn new(blob: TreeBlob, references: DeepTreeChildren) -> DeepTree {
-        DeepTree { blob, references }
+    pub fn new(blob: TreeBlob, children: DeepTreeChildren) -> DeepTree {
+        DeepTree { blob, children }
     }
 
     pub fn empty() -> DeepTree {
         DeepTree {
             blob: TreeBlob::empty(),
-            references: DeepTreeChildren::empty(),
+            children: DeepTreeChildren::empty(),
         }
     }
 
@@ -59,8 +58,8 @@ impl DeepTree {
         &self.blob
     }
 
-    pub fn references(&self) -> &DeepTreeChildren {
-        &self.references
+    pub fn children(&self) -> &DeepTreeChildren {
+        &self.children
     }
 
     pub async fn deserialize(root: &BlobDigest, load_tree: &dyn LoadTree) -> Option<DeepTree> {
@@ -83,7 +82,7 @@ impl DeepTree {
 
     pub async fn serialize(&self, store_tree: &dyn StoreTree) -> Result<BlobDigest, StoreError> {
         let mut references = Vec::new();
-        for reference in self.references().references() {
+        for reference in self.children().references() {
             references.push(Box::pin(reference.serialize(store_tree)).await?);
         }
         let tree = Arc::new(Tree::new(

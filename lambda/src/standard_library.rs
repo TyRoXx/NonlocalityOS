@@ -20,11 +20,11 @@ impl ConsoleOutput {
         if !tree.blob().is_empty() {
             return None;
         }
-        if tree.references().references().len() != 1 {
+        if tree.children().references().len() != 1 {
             return None;
         }
         Some(ConsoleOutput {
-            message: tree.references().references()[0].clone(),
+            message: tree.children().references()[0].clone(),
         })
     }
 }

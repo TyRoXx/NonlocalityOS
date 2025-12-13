@@ -141,7 +141,7 @@ pub fn type_from_deep_tree(deep_tree: &DeepTree) -> DeepType {
     let body: GenericType<ReferenceIndex> =
         postcard::from_bytes(deep_tree.blob().as_slice()).unwrap(/*TODO*/);
     let children: Vec<_> = deep_tree
-        .references()
+        .children()
         .references()
         .iter()
         .map(type_from_deep_tree)
