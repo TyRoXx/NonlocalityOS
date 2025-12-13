@@ -26,7 +26,7 @@ where
     let referenced = make_test_tree();
     b.iter(|| crate::tree::calculate_digest_fixed::<D>(&referenced));
 
-    assert!(referenced.references().references().is_empty());
+    assert!(referenced.children().references().is_empty());
     b.bytes = referenced.blob().len() as u64;
 }
 
@@ -37,7 +37,7 @@ where
     let referenced = make_test_tree();
     b.iter(|| crate::tree::calculate_digest_extendable::<D>(&referenced));
 
-    assert!(referenced.references().references().is_empty());
+    assert!(referenced.children().references().is_empty());
     b.bytes = referenced.blob().len() as u64;
 }
 
@@ -113,7 +113,7 @@ fn hashed_tree_from(
         assert_eq!(expected_digest, hashed_tree.digest());
         hashed_tree
     });
-    b.bytes = tree.blob().len() as u64 + tree.references().references().len() as u64 * 64;
+    b.bytes = tree.blob().len() as u64 + tree.children().references().len() as u64 * 64;
 }
 
 #[bench]

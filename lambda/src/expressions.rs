@@ -253,11 +253,11 @@ pub async fn deserialize_shallow(tree: &Tree) -> Result<ShallowExpression, ()> {
     reference_expression
         .map_child_expressions(
             &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<BlobDigest, ()>>>> {
-                let child = tree.references().references()[child.0 as usize];
+                let child = tree.children().references()[child.0 as usize];
                 Box::pin(async move { Ok(child) })
             },
             &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<BlobDigest, ()>>>> {
-                let child = tree.references().references()[child.0 as usize];
+                let child = tree.children().references()[child.0 as usize];
                 Box::pin(async move { Ok(child) })
             },
         )
@@ -389,8 +389,8 @@ impl Closure {
             Ok(success) => success,
             Err(error) => return Err(TreeDeserializationError::Postcard(error)),
         };
-        let environment_reference = &root_tree.references().references()[0];
-        let body_reference = &root_tree.references().references()[1];
+        let environment_reference = &root_tree.children().references()[0];
+        let body_reference = &root_tree.children().references()[1];
         let body = deserialize_recursively(body_reference, load_tree).await.unwrap(/*TODO*/);
         Ok(Closure::new(*environment_reference, Arc::new(body)))
     }
@@ -556,7 +556,7 @@ pub async fn evaluate(
                 .unwrap(/*TODO*/);
             let child = hashed_tree
                 .tree()
-                .references()
+                .children()
                 .references()
                 .get(*index as usize)
                 .expect("TODO handle out of range error");

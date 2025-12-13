@@ -1314,11 +1314,11 @@ impl OpenFileContentBlock {
             );
             return Err(Error::FileSizeMismatch);
         }
-        if !loaded.tree().references().references().is_empty() {
+        if !loaded.tree().children().references().is_empty() {
             error!(
                 "Loaded blob {:?} of size {}, and its size was correct, but it had unexpected references (number: {}).",
                 blob_digest,
-                size, loaded.tree().references().references().len()
+                size, loaded.tree().children().references().len()
             );
             return Err(Error::TooManyReferences(*blob_digest));
         }
@@ -2041,15 +2041,15 @@ impl OpenFileContentBuffer {
                             directory_entry_size: *size,
                         });
                     }
-                    if hashed_tree.tree().references().references().is_empty() {
+                    if hashed_tree.tree().children().references().is_empty() {
                         todo!()
                     }
                     let full_blocks = hashed_tree
                         .tree()
-                        .references()
+                        .children()
                         .references()
                         .iter()
-                        .take(hashed_tree.tree().references().references().len() - 1)
+                        .take(hashed_tree.tree().children().references().len() - 1)
                         .map(|reference| {
                             OpenFileContentBlock::NotLoaded(*reference, TREE_BLOB_MAX_LENGTH as u16)
                         });
@@ -2063,7 +2063,7 @@ impl OpenFileContentBuffer {
                     }
                     full_blocks
                         .chain(std::iter::once(OpenFileContentBlock::NotLoaded(
-                            *hashed_tree.tree().references().references().last().unwrap(),
+                            *hashed_tree.tree().children().references().last().unwrap(),
                             final_block_size as u16,
                         )))
                         .collect()
@@ -2679,7 +2679,7 @@ impl TreeEditor {
         match storage
             .store_tree(&HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::empty(),
-                    TreeChildren::empty(),
+                TreeChildren::empty(),
             ))))
             .await
         {

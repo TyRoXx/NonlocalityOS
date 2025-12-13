@@ -186,7 +186,7 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
     if !node.entries.is_sorted_by_key(|element| &element.0) {
         todo!("loaded node is not sorted");
     }
-    let mut reference_iter = tree.references().references().iter();
+    let mut reference_iter = tree.children().references().iter();
     let result = Node {
         entries: node
             .entries

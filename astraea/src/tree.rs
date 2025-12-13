@@ -169,27 +169,26 @@ impl TreeChildren {
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct Tree {
     pub blob: TreeBlob,
-    // TODO: rename to children
-    pub references: TreeChildren,
+    pub children: TreeChildren,
 }
 
 impl Tree {
-    pub fn new(blob: TreeBlob, references: TreeChildren) -> Tree {
-        Tree { blob, references }
+    pub fn new(blob: TreeBlob, children: TreeChildren) -> Tree {
+        Tree { blob, children }
     }
 
     pub fn blob(&self) -> &TreeBlob {
         &self.blob
     }
 
-    pub fn references(&self) -> &TreeChildren {
-        &self.references
+    pub fn children(&self) -> &TreeChildren {
+        &self.children
     }
 
     pub fn from_string(value: &str) -> Result<Tree, TreeSerializationError> {
         TreeBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes())).map(|blob| Tree {
             blob,
-            references: TreeChildren::empty(),
+            children: TreeChildren::empty(),
         })
     }
 
@@ -202,14 +201,14 @@ impl Tree {
         .expect("this should always fit");
         Tree {
             blob,
-            references: TreeChildren::empty(),
+            children: TreeChildren::empty(),
         }
     }
 
     pub fn empty() -> Tree {
         Tree {
             blob: TreeBlob::empty(),
-            references: TreeChildren::empty(),
+            children: TreeChildren::empty(),
         }
     }
 }
@@ -248,8 +247,8 @@ where
     let mut hasher = D::new();
     hasher.update((referenced.blob.len() as u64).to_be_bytes());
     hasher.update(referenced.blob.as_slice());
-    hasher.update((referenced.references.references().len() as u64).to_be_bytes());
-    for item in referenced.references.references() {
+    hasher.update((referenced.children.references().len() as u64).to_be_bytes());
+    for item in referenced.children.references() {
         hasher.update(item.0 .0);
         hasher.update(item.0 .1);
     }
@@ -265,8 +264,8 @@ where
     let mut hasher = D::default();
     hasher.update(&(referenced.blob.len() as u64).to_be_bytes());
     hasher.update(referenced.blob.as_slice());
-    hasher.update(&(referenced.references.references().len() as u64).to_be_bytes());
-    for item in referenced.references.references() {
+    hasher.update(&(referenced.children.references().len() as u64).to_be_bytes());
+    for item in referenced.children.references() {
         hasher.update(&item.0 .0);
         hasher.update(&item.0 .1);
     }

@@ -220,10 +220,10 @@ pub async fn deserialize_directory(
             ReferenceIndexOrInlineContent::Indirect(reference_index) => {
                 let index: usize = usize::try_from(reference_index.0)
                     .map_err(|_error| DeserializationError::ReferenceIndexOutOfRange)?;
-                if index >= loaded.tree().references().references().len() {
+                if index >= loaded.tree().children().references().len() {
                     return Err(DeserializationError::ReferenceIndexOutOfRange);
                 }
-                let digest = loaded.tree().references().references()[index];
+                let digest = loaded.tree().children().references()[index];
                 result.insert(child.0.clone().into(), (child.1.kind, digest));
             }
             ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),

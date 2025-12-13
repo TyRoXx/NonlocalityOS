@@ -67,7 +67,7 @@ impl DeepTree {
         let tree = load_tree.load_tree(root).await?.hash()?;
         let blob = tree.tree().blob();
         let mut references = Vec::new();
-        for reference in tree.tree().references().references() {
+        for reference in tree.tree().children().references() {
             if let Some(deep_tree) = Box::pin(DeepTree::deserialize(reference, load_tree)).await {
                 references.push(deep_tree);
             } else {
