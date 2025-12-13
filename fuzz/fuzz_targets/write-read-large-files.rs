@@ -8,7 +8,7 @@ fn main() {
 
 use astraea::{
     storage::{InMemoryTreeStorage, StoreTree},
-    tree::{HashedTree, TREE_BLOB_MAX_LENGTH, Tree, TreeBlob, TreeChildren},
+    tree::{HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 use dogbox_tree_editor::{OpenFileContentBuffer, OptimizedWriteBuffer};
 use libfuzzer_sys::{fuzz_target, Corpus};

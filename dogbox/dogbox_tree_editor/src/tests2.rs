@@ -5,7 +5,7 @@ use crate::{
     StreakDirection, TreeEditor,
 };
 use astraea::storage::{DelayedHashedTree, InMemoryTreeStorage, LoadTree, StoreError, StoreTree};
-use astraea::tree::{TreeChildren, calculate_reference};
+use astraea::tree::{calculate_reference, TreeChildren};
 use astraea::{
     storage::LoadStoreTree,
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
@@ -973,7 +973,7 @@ async fn open_file_content_buffer_overwrite_full_block() {
         blocks: vec![OpenFileContentBlock::Loaded(
             crate::LoadedBlock::KnownDigest(HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::try_from(write_data.clone()).unwrap(),
-                    TreeChildren::empty(),
+                TreeChildren::empty(),
             )))),
         )],
         digest: crate::DigestStatus {
@@ -1032,7 +1032,7 @@ async fn open_file_content_buffer_store() {
     let data = Vec::new();
     let last_known_digest = calculate_reference(&Tree::new(
         TreeBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
-                    TreeChildren::empty(),
+        TreeChildren::empty(),
     ));
     let last_known_digest_file_size = data.len();
     let mut buffer = OpenFileContentBuffer::from_data(
