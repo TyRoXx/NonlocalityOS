@@ -1,6 +1,6 @@
 use astraea::{
     storage::{LoadTree, StoreError, StoreTree},
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TreeSerializationError},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -138,7 +138,7 @@ impl<Key: Serialize + Ord, Value: Serialize> SerializableNodeContent<Key, Value>
 pub fn node_to_tree<Key: Serialize + Ord, Value: NodeValue>(
     node: &Node<Key, Value>,
     metadata: &bytes::Bytes,
-) -> Tree {
+) -> Result<Tree, TreeSerializationError> {
     let serializable_node_content = SerializableNodeContent {
         entries: node
             .entries
@@ -146,19 +146,20 @@ pub fn node_to_tree<Key: Serialize + Ord, Value: NodeValue>(
             .map(|(key, value)| (key, value.to_content()))
             .collect(),
     };
-    // TODO: check number of references
     let references: Vec<_> = node
         .entries
         .iter()
         .filter_map(|(_key, value)| value.get_reference())
         .collect();
+    let children = match TreeChildren::try_from(references) {
+        Some(children) => children,
+        None => return Err(TreeSerializationError::TooManyChildren),
+    };
     let mut buffer = Vec::from_iter(metadata.iter().cloned());
     postcard::to_io(&serializable_node_content, &mut buffer)
         .expect("serializing a node should always work");
-    Tree::new(
-        TreeBlob::try_from(bytes::Bytes::from(buffer)).expect("this should always fit"),
-        references,
-    )
+    let blob = TreeBlob::try_from(bytes::Bytes::from(buffer))?;
+    Ok(Tree::new(blob, children))
 }
 
 pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
@@ -166,7 +167,10 @@ pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
     node: &Node<Key, Value>,
     metadata: &bytes::Bytes,
 ) -> Result<BlobDigest, StoreError> {
-    let tree = node_to_tree(node, metadata);
+    let tree = match node_to_tree(node, metadata) {
+        Ok(tree) => tree,
+        Err(error) => return Err(StoreError::TreeSerializationError(error)),
+    };
     store_tree
         .store_tree(&HashedTree::from(std::sync::Arc::new(tree)))
         .await
@@ -183,7 +187,7 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
     if !node.entries.is_sorted_by_key(|element| &element.0) {
         todo!("loaded node is not sorted");
     }
-    let mut reference_iter = tree.references().iter();
+    let mut reference_iter = tree.children().references().iter();
     let result = Node {
         entries: node
             .entries

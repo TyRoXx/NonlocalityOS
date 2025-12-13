@@ -1,7 +1,7 @@
 use crate::{
-    deep_tree::DeepTree,
+    deep_tree::{DeepTree, DeepTreeChildren},
     storage::{InMemoryTreeStorage, StoreTree},
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
@@ -12,12 +12,15 @@ async fn test_deep_tree_deserialize_simple_tree() {
     let digest = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
-            vec![],
+            TreeChildren::empty(),
         ))))
         .await
         .unwrap();
     let result = DeepTree::deserialize(&digest, &storage).await;
-    assert_eq!(Some(DeepTree::new(TreeBlob::empty(), vec![])), result);
+    assert_eq!(
+        Some(DeepTree::new(TreeBlob::empty(), DeepTreeChildren::empty())),
+        result
+    );
 }
 
 #[test_log::test(tokio::test)]
@@ -26,7 +29,7 @@ async fn test_deep_tree_deserialize_blob() {
     let digest = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::try_from(bytes::Bytes::from("test 123")).unwrap(),
-            vec![],
+            TreeChildren::empty(),
         ))))
         .await
         .unwrap();
@@ -34,7 +37,7 @@ async fn test_deep_tree_deserialize_blob() {
     assert_eq!(
         Some(DeepTree::new(
             TreeBlob::try_from(bytes::Bytes::from("test 123")).unwrap(),
-            vec![]
+            DeepTreeChildren::empty()
         )),
         result
     );
@@ -46,13 +49,14 @@ async fn test_deep_tree_deserialize_reference() {
     let digest = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
-            vec![storage
+            TreeChildren::try_from(vec![storage
                 .store_tree(&HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::try_from(bytes::Bytes::from("test 123")).unwrap(),
-                    vec![],
+                    TreeChildren::empty(),
                 ))))
                 .await
-                .unwrap()],
+                .unwrap()])
+            .unwrap(),
         ))))
         .await
         .unwrap();
@@ -60,10 +64,11 @@ async fn test_deep_tree_deserialize_reference() {
     assert_eq!(
         Some(DeepTree::new(
             TreeBlob::empty(),
-            vec![DeepTree::new(
+            DeepTreeChildren::try_from(vec![DeepTree::new(
                 TreeBlob::try_from(bytes::Bytes::from("test 123")).unwrap(),
-                vec![]
-            )]
+                DeepTreeChildren::empty()
+            )])
+            .unwrap()
         )),
         result
     );

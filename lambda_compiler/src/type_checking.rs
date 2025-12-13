@@ -3,9 +3,9 @@ use crate::{
     compilation::{CompilerError, CompilerOutput, SourceLocation},
 };
 use astraea::{
-    deep_tree::DeepTree,
+    deep_tree::{DeepTree, DeepTreeChildren},
     storage::StoreError,
-    tree::{ReferenceIndex, TreeBlob},
+    tree::{ReferenceIndex, TreeBlob, TreeSerializationError},
 };
 use lambda::{
     expressions::{DeepExpression, Expression},
@@ -73,13 +73,21 @@ pub fn to_reference_type(deep_type: &DeepType) -> (GenericType<ReferenceIndex>, 
     }
 }
 
-pub fn type_to_deep_tree(deep_type: &DeepType) -> DeepTree {
+pub fn type_to_deep_tree(deep_type: &DeepType) -> Result<DeepTree, TreeSerializationError> {
     let (body, children) = to_reference_type(deep_type);
+    let mut children_as_deep_trees = Vec::new();
+    for child in &children {
+        children_as_deep_trees.push(type_to_deep_tree(child)?);
+    }
+    let children = match DeepTreeChildren::try_from(children_as_deep_trees) {
+        Some(success) => success,
+        None => return Err(TreeSerializationError::TooManyChildren),
+    };
     let body_serialized = postcard::to_allocvec(&body).unwrap(/*TODO*/);
-    DeepTree::new(
-        TreeBlob::try_from(bytes::Bytes::from( body_serialized)).unwrap(/*TODO*/),
-        children.iter().map(type_to_deep_tree).collect(),
-    )
+    Ok(DeepTree::new(
+        TreeBlob::try_from(bytes::Bytes::from(body_serialized)).unwrap(/*TODO*/),
+        children,
+    ))
 }
 
 pub fn from_reference_type(body: &GenericType<ReferenceIndex>, children: &[DeepType]) -> DeepType {
@@ -139,6 +147,7 @@ pub fn type_from_deep_tree(deep_tree: &DeepTree) -> DeepType {
     let body: GenericType<ReferenceIndex> =
         postcard::from_bytes(deep_tree.blob().as_slice()).unwrap(/*TODO*/);
     let children: Vec<_> = deep_tree
+        .children()
         .references()
         .iter()
         .map(type_from_deep_tree)
@@ -680,7 +689,17 @@ async fn check_type_of(
         }
     };
     let errors = checked_expression.0.errors;
-    let type_as_tree = type_to_deep_tree(&type_);
+    let type_as_tree = match type_to_deep_tree(&type_) {
+        Ok(tree) => tree,
+        Err(error) => {
+            let mut all_errors = errors;
+            all_errors.push(CompilerError::new(
+                format!("Could not serialize type to tree: {}", error),
+                expression.source_location(),
+            ));
+            return Ok((CompilerOutput::new(None, all_errors), None));
+        }
+    };
     Ok((
         CompilerOutput::new(
             Some(TypedExpression::new(
@@ -743,7 +762,7 @@ async fn check_integer_literal(
     let serialized = postcard::to_allocvec(&value).unwrap(/*TODO*/);
     let tree = DeepTree::new(
         TreeBlob::try_from(bytes::Bytes::from(serialized)).expect("an integer will always fit"),
-        vec![],
+        DeepTreeChildren::empty(),
     );
     Ok((
         CompilerOutput::new(
@@ -961,12 +980,14 @@ pub async fn check_types_with_default_globals(
     environment_builder.define_constant(
         Name::new(default_global_namespace, "Type".to_string()),
         DeepType(GenericType::Type),
-        type_to_deep_tree(&DeepType(GenericType::Type)),
+        type_to_deep_tree(&DeepType(GenericType::Type))
+            .expect("Serializing this constant should always work"),
     );
     environment_builder.define_constant(
         Name::new(default_global_namespace, "String".to_string()),
         DeepType(GenericType::Type),
-        type_to_deep_tree(&DeepType(GenericType::String)),
+        type_to_deep_tree(&DeepType(GenericType::String))
+            .expect("Serializing this constant should always work"),
     );
     let bool_type = DeepType(GenericType::Named(Name::new(
         default_global_namespace,
@@ -975,7 +996,7 @@ pub async fn check_types_with_default_globals(
     environment_builder.define_constant(
         Name::new(default_global_namespace, "Bool".to_string()),
         DeepType(GenericType::Type),
-        type_to_deep_tree(&bool_type),
+        type_to_deep_tree(&bool_type).expect("Serializing this constant should always work"),
     );
     environment_builder.define_constant(
         Name::new(default_global_namespace, "true".to_string()),
@@ -983,7 +1004,7 @@ pub async fn check_types_with_default_globals(
         DeepTree::new(
             TreeBlob::try_from(bytes::Bytes::from_static(&[1u8]))
                 .expect("one byte will always fit"),
-            Vec::new(),
+            DeepTreeChildren::empty(),
         ),
     );
     environment_builder.define_constant(
@@ -992,13 +1013,14 @@ pub async fn check_types_with_default_globals(
         DeepTree::new(
             TreeBlob::try_from(bytes::Bytes::from_static(&[0u8]))
                 .expect("one byte will always fit"),
-            Vec::new(),
+            DeepTreeChildren::empty(),
         ),
     );
     environment_builder.define_constant(
         Name::new(default_global_namespace, "Int".to_string()),
         DeepType(GenericType::Type),
-        type_to_deep_tree(&DeepType(GenericType::Integer)),
+        type_to_deep_tree(&DeepType(GenericType::Integer))
+            .expect("Serializing this constant should always work"),
     );
     let output = check_types(syntax_tree, &mut environment_builder).await;
     environment_builder.undefine_constant();

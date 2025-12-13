@@ -109,7 +109,7 @@ async fn count_tree_node_count(root: &BlobDigest, storage: &InMemoryTreeStorage)
     let loaded = storage.load_tree(root).await.unwrap();
     let hashed = loaded.hash().unwrap();
     let mut sum = 1;
-    for child in hashed.tree().references() {
+    for child in hashed.tree().children().references() {
         let child_count = Box::pin(count_tree_node_count(child, storage)).await;
         sum += child_count;
     }

@@ -115,6 +115,7 @@ impl std::fmt::Debug for TreeBlob {
 pub enum TreeSerializationError {
     Postcard(postcard::Error),
     BlobTooLong,
+    TooManyChildren,
 }
 
 impl std::fmt::Display for TreeSerializationError {
@@ -140,29 +141,55 @@ impl std::fmt::Display for TreeDeserializationError {
 
 impl std::error::Error for TreeDeserializationError {}
 
+pub const TREE_MAX_CHILDREN: usize = 1000;
+
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
+pub struct TreeChildren {
+    references: Vec<BlobDigest>,
+}
+
+impl TreeChildren {
+    pub fn empty() -> TreeChildren {
+        TreeChildren {
+            references: Vec::new(),
+        }
+    }
+
+    pub fn try_from(references: Vec<BlobDigest>) -> Option<TreeChildren> {
+        if references.len() > TREE_MAX_CHILDREN {
+            return None;
+        }
+        Some(TreeChildren { references })
+    }
+
+    pub fn references(&self) -> &[BlobDigest] {
+        &self.references
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct Tree {
     pub blob: TreeBlob,
-    pub references: Vec<BlobDigest>,
+    pub children: TreeChildren,
 }
 
 impl Tree {
-    pub fn new(blob: TreeBlob, references: Vec<BlobDigest>) -> Tree {
-        Tree { blob, references }
+    pub fn new(blob: TreeBlob, children: TreeChildren) -> Tree {
+        Tree { blob, children }
     }
 
     pub fn blob(&self) -> &TreeBlob {
         &self.blob
     }
 
-    pub fn references(&self) -> &[BlobDigest] {
-        &self.references
+    pub fn children(&self) -> &TreeChildren {
+        &self.children
     }
 
     pub fn from_string(value: &str) -> Result<Tree, TreeSerializationError> {
         TreeBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes())).map(|blob| Tree {
             blob,
-            references: Vec::new(),
+            children: TreeChildren::empty(),
         })
     }
 
@@ -175,14 +202,14 @@ impl Tree {
         .expect("this should always fit");
         Tree {
             blob,
-            references: Vec::new(),
+            children: TreeChildren::empty(),
         }
     }
 
     pub fn empty() -> Tree {
         Tree {
             blob: TreeBlob::empty(),
-            references: Vec::new(),
+            children: TreeChildren::empty(),
         }
     }
 }
@@ -221,8 +248,8 @@ where
     let mut hasher = D::new();
     hasher.update((referenced.blob.len() as u64).to_be_bytes());
     hasher.update(referenced.blob.as_slice());
-    hasher.update((referenced.references.len() as u64).to_be_bytes());
-    for item in &referenced.references {
+    hasher.update((referenced.children.references().len() as u64).to_be_bytes());
+    for item in referenced.children.references() {
         hasher.update(item.0 .0);
         hasher.update(item.0 .1);
     }
@@ -238,8 +265,8 @@ where
     let mut hasher = D::default();
     hasher.update(&(referenced.blob.len() as u64).to_be_bytes());
     hasher.update(referenced.blob.as_slice());
-    hasher.update(&(referenced.references.len() as u64).to_be_bytes());
-    for item in &referenced.references {
+    hasher.update(&(referenced.children.references().len() as u64).to_be_bytes());
+    for item in referenced.children.references() {
         hasher.update(&item.0 .0);
         hasher.update(&item.0 .1);
     }

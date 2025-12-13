@@ -1,6 +1,6 @@
 use crate::{
     storage::{CommitChanges, LoadRoot, LoadTree, SQLiteStorage, StoreTree, UpdateRoot},
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
 use bytes::Bytes;
 use pretty_assertions::assert_eq;
@@ -80,7 +80,7 @@ async fn test_store_blob() {
     let storage = SQLiteStorage::from(connection).unwrap();
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
-        vec![],
+        TreeChildren::empty(),
     ));
     let reference = storage
         .store_tree(&HashedTree::from(tree.clone()))
@@ -108,7 +108,7 @@ async fn test_store_reference() {
     let referenced_digest = BlobDigest::hash(b"ref");
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
-        vec![referenced_digest],
+        TreeChildren::try_from(vec![referenced_digest]).unwrap(),
     ));
     let reference = storage
         .store_tree(&HashedTree::from(tree.clone()))
@@ -139,7 +139,7 @@ async fn test_store_two_references() {
         .collect();
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
-        referenced_digests,
+        TreeChildren::try_from(referenced_digests).unwrap(),
     ));
     let reference = storage
         .store_tree(&HashedTree::from(tree.clone()))
@@ -170,7 +170,7 @@ async fn test_store_three_references() {
         .collect();
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
-        referenced_digests,
+        TreeChildren::try_from(referenced_digests).unwrap(),
     ));
     let reference = storage
         .store_tree(&HashedTree::from(tree.clone()))
@@ -212,7 +212,7 @@ async fn test_update_root() {
     let reference_2 = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
-            vec![],
+            TreeChildren::empty(),
         ))))
         .await
         .unwrap();
@@ -260,7 +260,7 @@ async fn test_compression_compressible_data() {
     let compressible_data = "A".repeat(1000);
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from(compressible_data.clone())).unwrap(),
-        vec![],
+        TreeChildren::empty(),
     ));
     let reference = storage
         .store_tree(&HashedTree::from(tree.clone()))
@@ -290,7 +290,7 @@ async fn test_compression_uncompressible_data() {
     let uncompressible_data: Vec<u8> = (0..100).map(|i| (i * 7 + 13) as u8).collect();
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from(uncompressible_data.clone())).unwrap(),
-        vec![],
+        TreeChildren::empty(),
     ));
     let reference = storage
         .store_tree(&HashedTree::from(tree.clone()))
@@ -326,7 +326,7 @@ async fn test_compression_large_blob() {
 
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from(large_data.clone())).unwrap(),
-        vec![],
+        TreeChildren::empty(),
     ));
     let reference = storage
         .store_tree(&HashedTree::from(tree.clone()))

@@ -1,4 +1,7 @@
-use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH};
+use crate::tree::{
+    BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TreeSerializationError,
+    TREE_BLOB_MAX_LENGTH,
+};
 use async_trait::async_trait;
 use cached::Cached;
 use pretty_assertions::assert_eq;
@@ -13,6 +16,7 @@ use tracing::{debug, error, info, instrument};
 pub enum StoreError {
     NoSpace,
     Rusqlite(String),
+    TreeSerializationError(TreeSerializationError),
 }
 
 impl std::fmt::Display for StoreError {
@@ -269,7 +273,7 @@ impl StoreTree for SQLiteStorage {
             }
         }
 
-        state_locked.require_transaction(1 + tree.tree().references().len() as u64).unwrap(/*TODO*/);
+        state_locked.require_transaction(1 + tree.tree().children().references().len() as u64).unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
 
         // Try to compress the blob, but only store compressed if it's beneficial
@@ -292,11 +296,11 @@ impl StoreTree for SQLiteStorage {
         ).unwrap(/*TODO*/);
         assert_eq!(1, rows_inserted);
 
-        if !tree.tree().references().is_empty() {
+        if !tree.tree().children().references().is_empty() {
             let inserted_tree_rowid = connection_locked.last_insert_rowid();
             let mut statement = connection_locked.prepare_cached(
                 "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",).unwrap(/*TODO*/);
-            for (index, reference) in tree.tree().references().iter().enumerate() {
+            for (index, reference) in tree.tree().children().references().iter().enumerate() {
                 let target_digest: [u8; 64] = (*reference).into();
                 let rows_inserted = statement.execute(
                     (&inserted_tree_rowid, &index, &target_digest),
@@ -369,8 +373,9 @@ impl LoadTree for SQLiteStorage {
                 reference
             })
             .collect();
+        let children = TreeChildren::try_from(references)?;
         Some(DelayedHashedTree::delayed(
-            Arc::new(Tree::new(tree_blob, references)),
+            Arc::new(Tree::new(tree_blob, children)),
             *reference,
         ))
     }

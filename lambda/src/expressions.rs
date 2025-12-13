@@ -1,6 +1,9 @@
 use crate::name::Name;
 use astraea::deep_tree::DeepTree;
-use astraea::tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeDeserializationError};
+use astraea::tree::{
+    BlobDigest, HashedTree, ReferenceIndex, Tree, TreeChildren, TreeDeserializationError,
+    TreeSerializationError,
+};
 use astraea::{
     storage::{LoadTree, StoreError, StoreTree},
     tree::TreeBlob,
@@ -251,11 +254,11 @@ pub async fn deserialize_shallow(tree: &Tree) -> Result<ShallowExpression, ()> {
     reference_expression
         .map_child_expressions(
             &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<BlobDigest, ()>>>> {
-                let child = tree.references()[child.0 as usize];
+                let child = tree.children().references()[child.0 as usize];
                 Box::pin(async move { Ok(child) })
             },
             &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<BlobDigest, ()>>>> {
-                let child = tree.references()[child.0 as usize];
+                let child = tree.children().references()[child.0 as usize];
                 Box::pin(async move { Ok(child) })
             },
         )
@@ -285,20 +288,27 @@ pub async fn deserialize_recursively(
     Ok(DeepExpression(deep))
 }
 
-pub fn expression_to_tree(expression: &ShallowExpression) -> Tree {
+pub fn expression_to_tree(expression: &ShallowExpression) -> Result<Tree, TreeSerializationError> {
     let (reference_expression, references) = to_reference_expression(expression);
+    let children = match TreeChildren::try_from(references) {
+        Some(success) => success,
+        None => return Err(TreeSerializationError::TooManyChildren),
+    };
     let blob = postcard::to_allocvec(&reference_expression).unwrap(/*TODO*/);
-    Tree::new(
+    Ok(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_owner(blob)).unwrap(/*TODO*/),
-        references,
-    )
+        children,
+    ))
 }
 
 pub async fn serialize_shallow(
     expression: &ShallowExpression,
     storage: &(dyn StoreTree + Sync),
 ) -> std::result::Result<BlobDigest, StoreError> {
-    let tree = expression_to_tree(expression);
+    let tree = match expression_to_tree(expression) {
+        Ok(success) => success,
+        Err(error) => return Err(StoreError::TreeSerializationError(error)),
+    };
     storage.store_tree(&HashedTree::from(Arc::new(tree))).await
 }
 
@@ -358,16 +368,17 @@ impl Closure {
         &self,
         store_tree: &(dyn StoreTree + Sync),
     ) -> Result<BlobDigest, StoreError> {
-        let references = vec![
+        let children = TreeChildren::try_from(vec![
             self.environment,
             serialize_recursively(&self.body, store_tree).await?,
-        ];
+        ])
+        .expect("Two children always fit");
         let closure_blob = ClosureBlob::new();
         let closure_blob_bytes = postcard::to_allocvec(&closure_blob).unwrap(/*TODO*/);
         store_tree
             .store_tree(&HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::try_from(bytes::Bytes::from_owner(closure_blob_bytes)).unwrap(/*TODO*/),
-                references,
+                children,
             ))))
             .await
     }
@@ -385,8 +396,8 @@ impl Closure {
             Ok(success) => success,
             Err(error) => return Err(TreeDeserializationError::Postcard(error)),
         };
-        let environment_reference = &root_tree.references()[0];
-        let body_reference = &root_tree.references()[1];
+        let environment_reference = &root_tree.children().references()[0];
+        let body_reference = &root_tree.children().references()[1];
         let body = deserialize_recursively(body_reference, load_tree).await.unwrap(/*TODO*/);
         Ok(Closure::new(*environment_reference, Arc::new(body)))
     }
@@ -529,10 +540,18 @@ pub async fn evaluate(
                 .await?;
                 evaluated_arguments.push(evaluated_argument);
             }
+            let children = match TreeChildren::try_from(evaluated_arguments) {
+                Some(success) => success,
+                None => {
+                    return Err(StoreError::TreeSerializationError(
+                        TreeSerializationError::TooManyChildren,
+                    ))
+                }
+            };
             store_tree
                 .store_tree(&HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::empty(),
-                    evaluated_arguments,
+                    children,
                 ))))
                 .await
         }
@@ -551,6 +570,7 @@ pub async fn evaluate(
                 .unwrap(/*TODO*/);
             let child = hashed_tree
                 .tree()
+                .children()
                 .references()
                 .get(*index as usize)
                 .expect("TODO handle out of range error");

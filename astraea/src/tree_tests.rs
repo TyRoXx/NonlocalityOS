@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::tree::{
-    calculate_reference, BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob,
+    calculate_reference, BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob, TreeChildren,
     TreeDeserializationError, TreeSerializationError, TREE_BLOB_MAX_LENGTH,
 };
 use pretty_assertions::assert_eq;
@@ -106,7 +106,7 @@ fn test_calculate_reference_blob_no_references_0() {
 fn test_calculate_reference_blob_yes_references_0() {
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
-        Vec::new(),
+        TreeChildren::empty(),
     ));
     let reference = calculate_reference(&tree);
     assert_eq!(
@@ -119,7 +119,7 @@ fn test_calculate_reference_blob_yes_references_0() {
 fn test_calculate_reference_blob_no_references_1() {
     let tree = Arc::new(Tree::new(
         TreeBlob::empty(),
-        vec![BlobDigest(([0u8; 32], [0u8; 32]))],
+        TreeChildren::try_from(vec![BlobDigest(([0u8; 32], [0u8; 32]))]).unwrap(),
     ));
     let reference = calculate_reference(&tree);
     assert_eq!(
@@ -132,7 +132,7 @@ fn test_calculate_reference_blob_no_references_1() {
 fn test_calculate_reference_blob_yes_references_1() {
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
-        vec![BlobDigest(([0u8; 32], [0u8; 32]))],
+        TreeChildren::try_from(vec![BlobDigest(([0u8; 32], [0u8; 32]))]).unwrap(),
     ));
     let reference = calculate_reference(&tree);
     assert_eq!(
@@ -145,10 +145,11 @@ fn test_calculate_reference_blob_yes_references_1() {
 fn test_calculate_reference_blob_no_references_2() {
     let tree = Arc::new(Tree::new(
         TreeBlob::empty(),
-        vec![
+        TreeChildren::try_from(vec![
             BlobDigest(([0u8; 32], [0u8; 32])),
             BlobDigest(([1u8; 32], [1u8; 32])),
-        ],
+        ])
+        .unwrap(),
     ));
     let reference = calculate_reference(&tree);
     assert_eq!(
@@ -161,10 +162,11 @@ fn test_calculate_reference_blob_no_references_2() {
 fn test_calculate_reference_blob_yes_references_2() {
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
-        vec![
+        TreeChildren::try_from(vec![
             BlobDigest(([0u8; 32], [0u8; 32])),
             BlobDigest(([1u8; 32], [1u8; 32])),
-        ],
+        ])
+        .unwrap(),
     ));
     let reference = calculate_reference(&tree);
     assert_eq!(

@@ -1,7 +1,7 @@
 extern crate test;
 use crate::{
     storage::{LoadTree, SQLiteStorage, StoreTree},
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
@@ -14,7 +14,7 @@ fn sqlite_in_memory_store_tree_redundantly(b: &mut Bencher, tree_blob_size: usiz
     let storage = SQLiteStorage::from(connection).unwrap();
     let stored_tree = HashedTree::from(Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from(random_bytes(tree_blob_size))).unwrap(),
-        vec![],
+        TreeChildren::empty(),
     )));
     let runtime = Runtime::new().unwrap();
     b.iter(|| {
@@ -58,9 +58,12 @@ fn sqlite_in_memory_store_tree_newly(
                     (0..tree_blob_size).map(|_| small_rng.gen()),
                 ))
                 .unwrap(),
-                (0..reference_count)
-                    .map(|_| BlobDigest::new(&small_rng.gen()))
-                    .collect(),
+                TreeChildren::try_from(
+                    (0..reference_count)
+                        .map(|_| BlobDigest::new(&small_rng.gen()))
+                        .collect(),
+                )
+                .expect("We are not benchmarking with too many child references"),
             )))
         })
         .collect();
@@ -97,7 +100,7 @@ async fn generate_random_trees<T: StoreTree>(tree_count_in_database: u64, storag
     for index in 0..tree_count_in_database {
         let stored_tree = HashedTree::from(Arc::new(Tree::new(
             TreeBlob::try_from(bytes::Bytes::copy_from_slice(&index.to_be_bytes())).unwrap(),
-            vec![],
+            TreeChildren::empty(),
         )));
         let _reference = storage.store_tree(&stored_tree).await.unwrap();
     }
@@ -139,7 +142,7 @@ fn sqlite_in_memory_load_and_hash_tree(b: &mut Bencher, tree_count_in_database: 
     );
     let stored_tree = HashedTree::from(Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from(random_bytes(TREE_BLOB_MAX_LENGTH))).unwrap(),
-        vec![],
+        TreeChildren::empty(),
     )));
     let reference = runtime.block_on(storage.store_tree(&stored_tree)).unwrap();
     assert_eq!(

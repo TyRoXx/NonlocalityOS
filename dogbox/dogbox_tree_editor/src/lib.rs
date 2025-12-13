@@ -7,7 +7,10 @@ mod tests2;
 
 use astraea::{
     storage::{LoadStoreTree, StoreError},
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
+    tree::{
+        BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH,
+        TREE_MAX_CHILDREN,
+    },
 };
 use async_stream::stream;
 use bytes::Buf;
@@ -662,7 +665,10 @@ impl OpenDirectory {
         .unwrap();
         debug!("Storing empty directory");
         let empty_directory_digest = match storage
-            .store_tree(&HashedTree::from(Arc::new(Tree::new(tree_blob, vec![]))))
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                tree_blob,
+                TreeChildren::empty(),
+            ))))
             .await
         {
             Ok(success) => success,
@@ -1274,7 +1280,10 @@ impl OpenFileContentBlock {
     ) -> Result<HashedTree> {
         let loaded = if size == 0 {
             // there is nothing to load
-            HashedTree::from(Arc::new(Tree::new(TreeBlob::empty(), Vec::new())))
+            HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::empty(),
+                TreeChildren::empty(),
+            )))
         } else {
             let delayed = match storage.load_tree(blob_digest).await {
                 Some(success) => success,
@@ -1305,11 +1314,11 @@ impl OpenFileContentBlock {
             );
             return Err(Error::FileSizeMismatch);
         }
-        if !loaded.tree().references().is_empty() {
+        if !loaded.tree().children().references().is_empty() {
             error!(
                 "Loaded blob {:?} of size {}, and its size was correct, but it had unexpected references (number: {}).",
                 blob_digest,
-                size, loaded.tree().references().len()
+                size, loaded.tree().children().references().len()
             );
             return Err(Error::TooManyReferences(*blob_digest));
         }
@@ -1418,7 +1427,7 @@ impl OpenFileContentBlock {
 
                         HashedTree::from(Arc::new(Tree::new(
                             TreeBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
-                            vec![],
+                            TreeChildren::empty(),
                         )))
                     }
                 };
@@ -1751,6 +1760,7 @@ impl OpenFileContentBufferLoaded {
 
         let mut blocks_stored = Vec::new();
         self.verify_integrity();
+        assert!(self.blocks.len() <= TREE_MAX_CHILDREN);
         for block in self.blocks.iter_mut() {
             let block_stored = block.try_store(true, storage.clone()).await?;
             blocks_stored.push(block_stored.unwrap());
@@ -1764,9 +1774,11 @@ impl OpenFileContentBufferLoaded {
         let info = SegmentedBlob {
             size_in_bytes: self.size,
         };
+        let children =
+            TreeChildren::try_from(blocks_stored).expect("The child count was asserted above.");
         let tree = Tree::new(
             TreeBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap())).unwrap(),
-            blocks_stored,
+            children,
         );
         let reference = storage
             .store_tree(&HashedTree::from(Arc::new(tree)))
@@ -1868,7 +1880,7 @@ impl OptimizedWriteBuffer {
             let blocking_task = tokio::task::spawn_blocking(|| {
                 HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::try_from(next).unwrap(),
-                    vec![],
+                    TreeChildren::empty(),
                 )))
             });
             full_block_hashing.push(blocking_task);
@@ -2030,14 +2042,15 @@ impl OpenFileContentBuffer {
                             directory_entry_size: *size,
                         });
                     }
-                    if hashed_tree.tree().references().is_empty() {
+                    if hashed_tree.tree().children().references().is_empty() {
                         todo!()
                     }
                     let full_blocks = hashed_tree
                         .tree()
+                        .children()
                         .references()
                         .iter()
-                        .take(hashed_tree.tree().references().len() - 1)
+                        .take(hashed_tree.tree().children().references().len() - 1)
                         .map(|reference| {
                             OpenFileContentBlock::NotLoaded(*reference, TREE_BLOB_MAX_LENGTH as u16)
                         });
@@ -2051,7 +2064,7 @@ impl OpenFileContentBuffer {
                     }
                     full_blocks
                         .chain(std::iter::once(OpenFileContentBlock::NotLoaded(
-                            *hashed_tree.tree().references().last().unwrap(),
+                            *hashed_tree.tree().children().references().last().unwrap(),
                             final_block_size as u16,
                         )))
                         .collect()
@@ -2186,7 +2199,7 @@ impl OpenFileContentBuffer {
                 let filler = HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH]))
                         .unwrap(),
-                    vec![],
+                    TreeChildren::empty(),
                 )));
                 loaded.dirty_blocks.push_back(loaded.blocks.len());
                 loaded
@@ -2667,7 +2680,7 @@ impl TreeEditor {
         match storage
             .store_tree(&HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::empty(),
-                Vec::new(),
+                TreeChildren::empty(),
             ))))
             .await
         {

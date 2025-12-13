@@ -1,5 +1,5 @@
 use crate::sorted_tree::{find, insert, load_node, new_tree, node_to_tree, Node, TreeReference};
-use astraea::tree::{BlobDigest, Tree, TreeBlob};
+use astraea::tree::{BlobDigest, Tree, TreeBlob, TreeChildren};
 use pretty_assertions::{assert_eq, assert_ne};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
@@ -312,10 +312,10 @@ fn node_to_tree_without_child_references() {
     let mut node = Node::<u64, String>::new();
     node.insert(1, "A".to_string());
     node.insert(2, "B".to_string());
-    let tree = node_to_tree(&node, &bytes::Bytes::new());
+    let tree = node_to_tree(&node, &bytes::Bytes::new()).unwrap();
     let expected = Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_static(b"\x02\x01\x01A\x02\x01B")).unwrap(),
-        Vec::new(),
+        TreeChildren::empty(),
     );
     assert_eq!(expected, tree);
 }
@@ -327,10 +327,10 @@ fn node_to_tree_with_child_references() {
     node.insert(1, TreeReference::new(reference_1));
     let reference_2 = BlobDigest::hash(&[32]);
     node.insert(2, TreeReference::new(reference_2));
-    let tree = node_to_tree(&node, &bytes::Bytes::new());
+    let tree = node_to_tree(&node, &bytes::Bytes::new()).unwrap();
     let expected = Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_iter([2, 1, 2])).unwrap(),
-        vec![reference_1, reference_2],
+        TreeChildren::try_from(vec![reference_1, reference_2]).unwrap(),
     );
     assert_eq!(expected, tree);
 }
