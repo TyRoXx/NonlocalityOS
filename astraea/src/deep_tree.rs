@@ -6,27 +6,52 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DeepTree {
-    blob: TreeBlob,
+pub struct DeepTreeChildren {
     references: Vec<DeepTree>,
 }
 
+impl DeepTreeChildren {
+    pub fn empty() -> DeepTreeChildren {
+        DeepTreeChildren {
+            references: Vec::new(),
+        }
+    }
+
+    pub fn try_from(references: Vec<DeepTree>) -> Option<DeepTreeChildren> {
+        if references.len() > crate::tree::TREE_MAX_CHILDREN {
+            return None;
+        }
+        Some(DeepTreeChildren { references })
+    }
+
+    pub fn references(&self) -> &[DeepTree] {
+        &self.references
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DeepTree {
+    blob: TreeBlob,
+    // TODO: rename to children
+    references: DeepTreeChildren,
+}
+
 impl DeepTree {
-    pub fn new(blob: TreeBlob, references: Vec<DeepTree>) -> DeepTree {
+    pub fn new(blob: TreeBlob, references: DeepTreeChildren) -> DeepTree {
         DeepTree { blob, references }
     }
 
     pub fn empty() -> DeepTree {
         DeepTree {
             blob: TreeBlob::empty(),
-            references: Vec::new(),
+            references: DeepTreeChildren::empty(),
         }
     }
 
     pub fn try_from_string(value: &str) -> Result<DeepTree, TreeSerializationError> {
         Ok(DeepTree::new(
             TreeBlob::try_from(bytes::Bytes::copy_from_slice(value.as_bytes()))?,
-            Vec::new(),
+            DeepTreeChildren::empty(),
         ))
     }
 
@@ -34,7 +59,7 @@ impl DeepTree {
         &self.blob
     }
 
-    pub fn references(&self) -> &[DeepTree] {
+    pub fn references(&self) -> &DeepTreeChildren {
         &self.references
     }
 
@@ -42,22 +67,30 @@ impl DeepTree {
         let tree = load_tree.load_tree(root).await?.hash()?;
         let blob = tree.tree().blob();
         let mut references = Vec::new();
-        for reference in tree.tree().references() {
+        for reference in tree.tree().references().references() {
             if let Some(deep_tree) = Box::pin(DeepTree::deserialize(reference, load_tree)).await {
                 references.push(deep_tree);
             } else {
                 return None;
             }
         }
-        Some(DeepTree::new(blob.clone(), references))
+        Some(DeepTree::new(
+            blob.clone(),
+            DeepTreeChildren::try_from(references)
+                .expect("Max child count enforced by TreeChildren"),
+        ))
     }
 
     pub async fn serialize(&self, store_tree: &dyn StoreTree) -> Result<BlobDigest, StoreError> {
         let mut references = Vec::new();
-        for reference in &self.references {
+        for reference in self.references().references() {
             references.push(Box::pin(reference.serialize(store_tree)).await?);
         }
-        let tree = Arc::new(Tree::new(self.blob.clone(), references));
+        let tree = Arc::new(Tree::new(
+            self.blob.clone(),
+            crate::tree::TreeChildren::try_from(references)
+                .expect("Max child count enforced by DeepTreeChildren"),
+        ));
         store_tree.store_tree(&HashedTree::from(tree)).await
     }
 }

@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use astraea::{
-    deep_tree::DeepTree,
+    deep_tree::{DeepTree, DeepTreeChildren},
     tree::{TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
 use lambda::{
@@ -1094,7 +1094,7 @@ async fn test_bool() {
     let output = check_types_with_default_globals(&input, TEST_SOURCE_NAMESPACE).await;
     let true_deep_tree = DeepTree::new(
         TreeBlob::try_from(bytes::Bytes::from_static(&[1u8])).expect("one byte will always fit"),
-        Vec::new(),
+        DeepTreeChildren::empty(),
     );
     let expected = CompilerOutput::new(
         Some(TypedExpression::new(
@@ -1123,7 +1123,7 @@ async fn test_bool() {
                             lambda::expressions::Expression::make_literal(DeepTree::new(
                                 TreeBlob::try_from(bytes::Bytes::from_static(&[0u8]))
                                     .expect("one byte will always fit"),
-                                Vec::new(),
+                                DeepTreeChildren::empty(),
                             )),
                         )),
                     ]),

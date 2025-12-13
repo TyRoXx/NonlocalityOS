@@ -1,5 +1,5 @@
 use crate::sorted_tree::{find, insert, load_node, new_tree, node_to_tree, Node, TreeReference};
-use astraea::tree::{BlobDigest, Tree, TreeBlob};
+use astraea::tree::{BlobDigest, Tree, TreeBlob, TreeChildren};
 use pretty_assertions::{assert_eq, assert_ne};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
@@ -315,9 +315,9 @@ fn node_to_tree_without_child_references() {
     let tree = node_to_tree(&node, &bytes::Bytes::new());
     let expected = Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_static(b"\x02\x01\x01A\x02\x01B")).unwrap(),
-        Vec::new(),
+        TreeChildren::empty(),
     );
-    assert_eq!(expected, tree);
+    assert_eq!(Some(expected), tree);
 }
 
 #[test_log::test]
@@ -330,9 +330,9 @@ fn node_to_tree_with_child_references() {
     let tree = node_to_tree(&node, &bytes::Bytes::new());
     let expected = Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_iter([2, 1, 2])).unwrap(),
-        vec![reference_1, reference_2],
+        TreeChildren::try_from(vec![reference_1, reference_2]).unwrap(),
     );
-    assert_eq!(expected, tree);
+    assert_eq!(Some(expected), tree);
 }
 
 #[test_log::test(tokio::test)]

@@ -5,7 +5,7 @@ use crate::{
 use astraea::{
     deep_tree::DeepTree,
     storage::{InMemoryTreeStorage, StoreTree},
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
 use lambda::{expressions::apply_evaluated_argument, name::NamespaceId};
 use pretty_assertions::assert_eq;
@@ -75,12 +75,13 @@ async fn test_hello_world() {
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
-            vec![storage
+            TreeChildren::try_from(vec![storage
                 .store_tree(&HashedTree::from(Arc::new(
                     Tree::from_string("Hello, world!").unwrap(),
                 )))
                 .await
-                .unwrap()],
+                .unwrap()])
+            .unwrap(),
         ))))
         .await
         .unwrap();
@@ -94,7 +95,7 @@ async fn test_integers() {
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
-            vec![
+            TreeChildren::try_from(vec![
                 storage
                     .store_tree(&HashedTree::from(Arc::new(Tree::from_postcard_integer(1))))
                     .await
@@ -109,7 +110,8 @@ async fn test_integers() {
                     .store_tree(&HashedTree::from(Arc::new(Tree::from_postcard_integer(0))))
                     .await
                     .unwrap(),
-            ],
+            ])
+            .unwrap(),
         ))))
         .await
         .unwrap();
@@ -123,7 +125,7 @@ async fn test_lambda_captures() {
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
-            vec![
+            TreeChildren::try_from(vec![
                 storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("lam").unwrap(),
@@ -136,7 +138,8 @@ async fn test_lambda_captures() {
                     )))
                     .await
                     .unwrap(),
-            ],
+            ])
+            .unwrap(),
         ))))
         .await
         .unwrap();
@@ -150,7 +153,7 @@ async fn test_lambda_parameters() {
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
-            vec![
+            TreeChildren::try_from(vec![
                 storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("lam").unwrap(),
@@ -163,7 +166,8 @@ async fn test_lambda_parameters() {
                     )))
                     .await
                     .unwrap(),
-            ],
+            ])
+            .unwrap(),
         ))))
         .await
         .unwrap();
@@ -177,7 +181,7 @@ async fn test_local_variables() {
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
-            vec![
+            TreeChildren::try_from(vec![
                 storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("lam").unwrap(),
@@ -190,7 +194,8 @@ async fn test_local_variables() {
                     )))
                     .await
                     .unwrap(),
-            ],
+            ])
+            .unwrap(),
         ))))
         .await
         .unwrap();
@@ -204,7 +209,7 @@ async fn test_type_of() {
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
-            vec![
+            TreeChildren::try_from(vec![
                 storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("lam").unwrap(),
@@ -217,7 +222,8 @@ async fn test_type_of() {
                     )))
                     .await
                     .unwrap(),
-            ],
+            ])
+            .unwrap(),
         ))))
         .await
         .unwrap();

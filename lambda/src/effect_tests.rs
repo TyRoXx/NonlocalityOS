@@ -44,8 +44,8 @@ async fn effect() {
             .print(&mut program_as_string, 0)
             .unwrap();
         assert_eq!(concat!(
-            "$env={literal(DeepTree { blob: TreeBlob { content: b\"\" }, references: [] })}($arg) =>\n",
-            "  [literal(DeepTree { blob: TreeBlob { content: b\"\" }, references: [DeepTree { blob: TreeBlob { content: b\"Hello, \" }, references: [] }] }), $env={literal(DeepTree { blob: TreeBlob { content: b\"\" }, references: [] })}($arg) =>\n",
+            "$env={literal(DeepTree { blob: TreeBlob { content: b\"\" }, references: DeepTreeChildren { references: [] } })}($arg) =>\n",
+            "  [literal(DeepTree { blob: TreeBlob { content: b\"\" }, references: DeepTreeChildren { references: [DeepTree { blob: TreeBlob { content: b\"Hello, \" }, references: DeepTreeChildren { references: [] } }] } }), $env={literal(DeepTree { blob: TreeBlob { content: b\"\" }, references: DeepTreeChildren { references: [] } })}($arg) =>\n",
             "    [$env, ], ]"),
             program_as_string.as_str());
     }
