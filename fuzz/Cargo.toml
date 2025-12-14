@@ -63,3 +63,10 @@ path = "fuzz_targets/prolly-tree-editable-node-remove.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "prolly-tree-size-tracker"
+path = "fuzz_targets/prolly-tree-size-tracker.rs"
+test = false
+doc = false
+bench = false

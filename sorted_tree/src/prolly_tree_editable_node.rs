@@ -1,7 +1,7 @@
 use crate::sorted_tree::{self, NodeValue, TreeReference};
 use astraea::{
     storage::{LoadTree, StoreError, StoreTree},
-    tree::BlobDigest,
+    tree::{BlobDigest, TREE_BLOB_MAX_LENGTH},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha3::{Digest, Sha3_512};
@@ -23,11 +23,15 @@ pub fn hash_key<Key: Serialize>(key: &Key) -> u8 {
     result[0]
 }
 
-pub fn is_split_after_key<Key: Serialize>(key: &Key, chunk_size: usize) -> bool {
-    if chunk_size < 10 {
+pub fn is_split_after_key<Key: Serialize>(key: &Key, chunk_size_in_bytes: usize) -> bool {
+    if chunk_size_in_bytes < 1000 {
         // No point in splitting small chunks.
         // TODO: use Tree efficiently
         return false;
+    }
+    if chunk_size_in_bytes >= TREE_BLOB_MAX_LENGTH / 2 {
+        // TODO: try to pack more elements in a chunk before splitting
+        return true;
     }
     let hash = hash_key(key);
     let chunk_boundary_threshold = 10;
@@ -36,6 +40,41 @@ pub fn is_split_after_key<Key: Serialize>(key: &Key, chunk_size: usize) -> bool 
         true
     } else {
         false
+    }
+}
+
+pub struct SizeTracker {
+    element_count: usize,
+    total_element_size: usize,
+}
+
+impl Default for SizeTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SizeTracker {
+    pub fn new() -> Self {
+        SizeTracker {
+            element_count: 0,
+            total_element_size: 0,
+        }
+    }
+
+    pub fn add_entry<Key: Serialize, Value: Serialize>(&mut self, key: &Key, value: &Value) {
+        let entry_serialized: Vec<u8> =
+            postcard::to_stdvec(&(key, value)).expect("serializing entry should succeed");
+        self.element_count += 1;
+        self.total_element_size += entry_serialized.len();
+    }
+
+    pub fn size(&self) -> usize {
+        // TODO: optimize size calculation
+        let metadata_serialized: Vec<u8> =
+            postcard::to_stdvec(&Metadata { is_leaf: true }).unwrap();
+        let element_count_serialized: Vec<u8> = postcard::to_stdvec(&self.element_count).unwrap();
+        metadata_serialized.len() + element_count_serialized.len() + self.total_element_size
     }
 }
 
@@ -340,7 +379,9 @@ pub struct EditableLeafNode<Key, Value> {
     entries: BTreeMap<Key, Value>,
 }
 
-impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key, Value> {
+impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone + NodeValue>
+    EditableLeafNode<Key, Value>
+{
     pub fn create(entries: BTreeMap<Key, Value>) -> Option<Self> {
         if entries.is_empty() {
             None
@@ -366,14 +407,17 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
     fn check_split(&mut self) -> Vec<EditableLeafNode<Key, Value>> {
         let mut result = Vec::new();
         let mut current_node = BTreeMap::new();
+        let mut current_node_size_tracker = SizeTracker::new();
         for entry in self.entries.iter() {
+            current_node_size_tracker.add_entry(entry.0, &entry.1.to_content());
             current_node.insert(entry.0.clone(), entry.1.clone());
-            if is_split_after_key(entry.0, current_node.len()) {
+            if is_split_after_key(entry.0, current_node_size_tracker.size()) {
                 result.push(
                     EditableLeafNode::create(current_node)
                         .expect("Must succeed because list is not empty"),
                 );
                 current_node = BTreeMap::new();
+                current_node_size_tracker = SizeTracker::new();
             }
         }
         if !current_node.is_empty() {
@@ -395,8 +439,10 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
     }
 
     pub fn verify_integrity(&mut self) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
-        for (index, key) in self.entries.keys().enumerate() {
-            let is_split = is_split_after_key(key, index + 1);
+        let mut size_tracker = SizeTracker::new();
+        for (index, (key, value)) in self.entries.iter().enumerate() {
+            size_tracker.add_entry(key, &value.to_content());
+            let is_split = is_split_after_key(key, size_tracker.size());
             if (index < self.entries.len() - 1) && is_split {
                 return Ok(IntegrityCheckResult::Corrupted(format!(
                     "Leaf node integrity check failed: Key at index {} indicates split but node is not final (number of keys: {})",
@@ -408,9 +454,13 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone> EditableLeafNode<Key,
     }
 
     pub fn is_naturally_split(&self) -> bool {
+        let mut size_tracker = SizeTracker::new();
+        for entry in self.entries.iter() {
+            size_tracker.add_entry(entry.0, &entry.1.to_content());
+        }
         is_split_after_key(
             self.entries.keys().last().expect("leaf node is not empty"),
-            self.entries.len(),
+            size_tracker.size(),
         )
     }
 
@@ -565,14 +615,20 @@ impl<
     fn check_split(&mut self) -> Vec<EditableInternalNode<Key, Value>> {
         let mut result = Vec::new();
         let mut current_node = BTreeMap::new();
+        let mut current_node_size_tracker = SizeTracker::new();
         for entry in self.entries.iter() {
+            current_node_size_tracker.add_entry(
+                entry.0,
+                &TreeReference::new(BlobDigest::new(&[0; 64])).to_content(),
+            );
             current_node.insert(entry.0.clone(), entry.1.clone());
-            if is_split_after_key(entry.0, current_node.len()) {
+            if is_split_after_key(entry.0, current_node_size_tracker.size()) {
                 result.push(
                     EditableInternalNode::create(current_node)
                         .expect("Must succeed because list is not empty"),
                 );
                 current_node = BTreeMap::new();
+                current_node_size_tracker = SizeTracker::new();
             }
         }
         if !current_node.is_empty() {
@@ -646,7 +702,14 @@ impl<
             .keys()
             .last()
             .expect("internal node is not empty");
-        is_split_after_key(last_key, self.entries.len())
+        let mut size_tracker = SizeTracker::new();
+        for entry in self.entries.iter() {
+            size_tracker.add_entry(
+                entry.0,
+                &TreeReference::new(BlobDigest::new(&[0; 64])).to_content(),
+            );
+        }
+        is_split_after_key(last_key, size_tracker.size())
     }
 }
 

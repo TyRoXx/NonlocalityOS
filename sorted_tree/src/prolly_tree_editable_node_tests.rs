@@ -2,7 +2,10 @@ use crate::{
     prolly_tree_editable_node::{EditableLeafNode, EditableNode, IntegrityCheckResult, Iterator},
     sorted_tree::TreeReference,
 };
-use astraea::{storage::InMemoryTreeStorage, tree::BlobDigest};
+use astraea::{
+    storage::InMemoryTreeStorage,
+    tree::{BlobDigest, TREE_BLOB_MAX_LENGTH},
+};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::BTreeMap;
@@ -185,16 +188,66 @@ async fn test_insert_flat_values_one_at_a_time(
 
 #[test_log::test(tokio::test)]
 async fn test_insert_flat_values_one_at_a_time_200() {
-    let first_digest = test_insert_flat_values_one_at_a_time(200, 123, 1, 8).await;
-    let second_digest = test_insert_flat_values_one_at_a_time(200, 124, 1, 8).await;
+    let first_digest = test_insert_flat_values_one_at_a_time(200, 123, 1, 3).await;
+    let second_digest = test_insert_flat_values_one_at_a_time(200, 124, 1, 3).await;
     assert_eq!(first_digest, second_digest);
 }
 
 #[test_log::test(tokio::test)]
 async fn test_insert_flat_values_one_at_a_time_1000() {
-    let first_digest = test_insert_flat_values_one_at_a_time(1000, 123, 2, 34).await;
-    let second_digest = test_insert_flat_values_one_at_a_time(1000, 124, 2, 34).await;
+    let first_digest = test_insert_flat_values_one_at_a_time(1000, 123, 1, 9).await;
+    let second_digest = test_insert_flat_values_one_at_a_time(1000, 124, 1, 9).await;
     assert_eq!(first_digest, second_digest);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_insert_large_elements() {
+    // Large enough to cause frequent chunk splitting to avoid going over the TREE_BLOB_MAX_LENGTH.
+    let large_value = vec![0u8; TREE_BLOB_MAX_LENGTH / 4];
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let mut editable_node: EditableNode<u64, Vec<u8>> = EditableNode::new();
+    editable_node
+        .insert(4001, large_value.clone(), &storage)
+        .await
+        .unwrap();
+    editable_node.save(&storage).await.unwrap();
+    assert_eq!(1, storage.number_of_trees().await);
+    editable_node
+        .insert(4002, large_value.clone(), &storage)
+        .await
+        .unwrap();
+    editable_node.save(&storage).await.unwrap();
+    assert_eq!(2, storage.number_of_trees().await);
+    editable_node
+        .insert(4003, large_value.clone(), &storage)
+        .await
+        .unwrap();
+    editable_node.save(&storage).await.unwrap();
+    assert_eq!(4, storage.number_of_trees().await);
+    editable_node
+        .insert(4004, large_value.clone(), &storage)
+        .await
+        .unwrap();
+    editable_node.save(&storage).await.unwrap();
+    assert_eq!(6, storage.number_of_trees().await);
+    editable_node
+        .insert(4005, large_value.clone(), &storage)
+        .await
+        .unwrap();
+    editable_node.save(&storage).await.unwrap();
+    assert_eq!(8, storage.number_of_trees().await);
+    editable_node
+        .insert(4006, large_value.clone(), &storage)
+        .await
+        .unwrap();
+    editable_node.save(&storage).await.unwrap();
+    assert_eq!(10, storage.number_of_trees().await);
+    editable_node
+        .insert(4007, large_value.clone(), &storage)
+        .await
+        .unwrap();
+    editable_node.save(&storage).await.unwrap();
+    assert_eq!(12, storage.number_of_trees().await);
 }
 
 #[test_log::test(tokio::test)]
@@ -413,7 +466,7 @@ async fn test_iterate_large() {
     let digest_after = editable_node.save(&storage).await.unwrap();
     assert_eq!(digest_before, digest_after);
     assert_eq!(BlobDigest::parse_hex_string(
-            "20b0f7d61a3c3a4d917dc832342224567d65440db6a16c90d5616b33eee00cbf4c0134bc477583e6917379fd3997a8da21ff948fcf846a3b3f488d7ec964f8e7"
+            "bfb3e9da5bf15bd5890be7ac5efc47a29c7fdce7d88f88c5adc9f789ca6ddcfa5609bef5dcc7f5241996c597e8472f1a83994532b0974c810d5e526151e58e07"
         ).expect("valid digest"), digest_after);
     test_save_load_roundtrip(&mut editable_node, &storage, &digest_after).await;
 }
