@@ -303,7 +303,7 @@ impl StoreTree for SQLiteStorage {
             for (index, reference) in tree.tree().children().references().iter().enumerate() {
                 let target_digest: [u8; 64] = (*reference).into();
                 let rows_inserted = statement.execute(
-                    (&inserted_tree_rowid, &index, &target_digest),
+                    (&inserted_tree_rowid, u32::try_from(index).expect("A child index won't be too large"), &target_digest),
                 ).unwrap(/*TODO*/);
                 assert_eq!(1, rows_inserted);
             }
@@ -383,16 +383,20 @@ impl LoadTree for SQLiteStorage {
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
-        connection_locked
+        match connection_locked
             .query_row_and_then(
                 "SELECT COUNT(*) FROM tree",
                 (),
                 |row| -> rusqlite::Result<_> {
-                    let count: u64 = row.get(0).unwrap(/*TODO*/);
+                    let count: i64 = row.get(0).unwrap(/*TODO*/);
                     Ok(count)
                 },
             )
             .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))
+        {
+            Ok(count) => Ok(u64::try_from(count).expect("Tree count won't be negative")),
+            Err(err) => Err(err),
+        }
     }
 }
 
