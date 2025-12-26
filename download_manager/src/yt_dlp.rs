@@ -78,8 +78,9 @@ async fn download_with_yt_dlp(
     cmd.arg("firefox");
     cmd.arg(video_url);
     cmd.arg("-o");
+    // We don't use %(uploader) here because %(title) already contains the uploader on some sites like Twitter.
     cmd.arg(format!(
-        "{}/%(uploader)s - %(title).140B %(upload_date)s [%(webpage_url_domain)s %(id)s].%(ext)s",
+        "{}/%(title).120B %(upload_date)s [%(webpage_url_domain)s %(id)s].%(ext)s",
         temp_dir.path().display()
     ));
 

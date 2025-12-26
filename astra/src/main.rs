@@ -16,6 +16,7 @@ use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::info;
+use tracing::warn;
 use tracing_subscriber::fmt::format::FmtSpan;
 
 const NONLOCALITY_HOST_BINARY_NAME: &str = "nonlocality_host";
@@ -172,7 +173,12 @@ async fn main() -> std::process::ExitCode {
     let repository = std::env::current_dir().unwrap();
     info!("Repository: {}", repository.display());
 
-    dotenv::dotenv().ok();
+    match dotenv::dotenv() {
+        Ok(_) => {}
+        Err(e) => {
+            warn!("Failed to load .env file: {e}. Copy .env.template to .env in the working directory and fill in the required values! Will try to load configuration from environment variables.");
+        }
+    }
     let ssh_endpoint = SocketAddr::from_str(
         &std::env::var("ASTRA_DEPLOY_SSH_ENDPOINT")
             .expect("Tried to read env variable ASTRA_DEPLOY_SSH_ENDPOINT"),

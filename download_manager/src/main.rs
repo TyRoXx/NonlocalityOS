@@ -1,9 +1,11 @@
+use crate::telegram_bot::{HandleTelegramBotRequests, TelegramBot, TeloxideTelegramBot};
 use astraea::{storage::SQLiteStorage, tree::BlobDigest};
 use clap::Parser;
 use notify::{RecommendedWatcher, Watcher};
 use pretty_assertions::assert_eq;
 use std::{
     path::{Path, PathBuf},
+    sync::Arc,
     thread::{self, JoinHandle},
 };
 use tracing::{debug, error, info, warn};
@@ -15,6 +17,11 @@ mod yt_dlp;
 
 #[cfg(test)]
 mod yt_dlp_tests;
+
+mod telegram_bot;
+
+#[cfg(test)]
+mod telegram_bot_tests;
 
 fn upgrade_schema(
     connection: &rusqlite::Connection,
@@ -84,7 +91,7 @@ fn load_undownloaded_urls_from_database(
     connection: &mut rusqlite::Connection,
 ) -> rusqlite::Result<Vec<String>> {
     let mut statement = connection
-        .prepare("SELECT url FROM download_job WHERE NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id) ORDER BY url ASC;")?;
+        .prepare("SELECT url FROM download_job WHERE NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id) ORDER BY url ASC")?;
     let url_iter = statement.query_map([], |row| row.get::<_, String>(0))?;
     let mut urls = Vec::new();
     for url_result in url_iter {
@@ -97,7 +104,7 @@ fn load_downloaded_urls_from_database(
     connection: &mut rusqlite::Connection,
 ) -> rusqlite::Result<Vec<(String, BlobDigest)>> {
     let mut statement = connection.prepare(
-        "SELECT download_job.url, result_file.sha3_512_digest FROM download_job, result_file WHERE download_job.id = result_file.download_job_id;",
+        "SELECT download_job.url AS url, result_file.sha3_512_digest AS digest FROM download_job, result_file WHERE download_job.id = result_file.download_job_id ORDER BY url, digest ASC",
     )?;
     let url_iter = statement.query_map([], |row| {
         let url = row.get::<_, String>(0)?;
@@ -122,7 +129,7 @@ fn find_download_job_id(
     transaction: &mut rusqlite::Transaction,
     url: &str,
 ) -> rusqlite::Result<Option<i64>> {
-    let mut statement = transaction.prepare("SELECT id FROM download_job WHERE url = ?1;")?;
+    let mut statement = transaction.prepare("SELECT id FROM download_job WHERE url = ?1")?;
     let mut iter = statement.query_map(rusqlite::params![url], |row| row.get::<_, i64>(0))?;
     if let Some(id_result) = iter.next() {
         Ok(Some(id_result?))
@@ -396,6 +403,33 @@ async fn keep_reading_url_input_file(
     }
 }
 
+pub async fn keep_adding_download_job_urls_from_telegram_bot(
+    mut download_job_url_receiver: tokio::sync::mpsc::Receiver<String>,
+    database_change_event_sender: tokio::sync::watch::Sender<()>,
+    connection: &mut rusqlite::Connection,
+) {
+    while let Some(url) = download_job_url_receiver.recv().await {
+        info!("Received URL from Telegram bot: {}", url);
+        match store_urls_in_database(vec![url], connection) {
+            Ok(_) => {
+                info!("Stored URL from Telegram bot in database");
+                match database_change_event_sender.send(()) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("Failed to send database change event: {e}");
+                        // A broken channel is not recoverable.
+                        break;
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to store URL from Telegram bot in database: {e}");
+                // A database write error is potentially recoverable, so we don't break here.
+            }
+        }
+    }
+}
+
 #[async_trait::async_trait]
 trait Download {
     async fn download(&self, url: &str) -> Result<Vec<BlobDigest>, Box<dyn std::error::Error>>;
@@ -488,6 +522,7 @@ async fn run_main_loop(
     config_directory: &std::path::Path,
     url_input_file_path: &std::path::Path,
     url_input_file_event_receiver: tokio::sync::watch::Receiver<()>,
+    telegram_bot_download_job_url_receiver: tokio::sync::mpsc::Receiver<String>,
     download: &dyn Download,
     retry_delay: &std::time::Duration,
 ) {
@@ -505,18 +540,30 @@ async fn run_main_loop(
             std::process::exit(1);
         }
     };
+    let mut database_connection3 = match prepare_database(config_directory) {
+        Ok(conn) => conn,
+        Err(e) => {
+            error!("Failed to prepare database: {e}");
+            std::process::exit(1);
+        }
+    };
     let (database_change_sender, database_change_receiver) = tokio::sync::watch::channel::<()>(());
     tokio::join!(
         keep_reading_url_input_file(
             url_input_file_path,
             url_input_file_event_receiver,
-            database_change_sender,
+            database_change_sender.clone(),
             &mut database_connection1,
             retry_delay
         ),
+        keep_adding_download_job_urls_from_telegram_bot(
+            telegram_bot_download_job_url_receiver,
+            database_change_sender,
+            &mut database_connection2,
+        ),
         keep_downloading_urls_from_database(
             database_change_receiver,
-            &mut database_connection2,
+            &mut database_connection3,
             download
         )
     );
@@ -526,10 +573,28 @@ fn make_url_input_file_path(config_directory: &std::path::Path) -> std::path::Pa
     config_directory.join("urls.txt")
 }
 
+struct TelegramBotRequestHandler {
+    download_job_url_sender: tokio::sync::mpsc::Sender<String>,
+}
+
+#[async_trait::async_trait]
+impl HandleTelegramBotRequests for TelegramBotRequestHandler {
+    async fn add_download_job(&self, url: &str) -> Option<String> {
+        if let Err(e) = self.download_job_url_sender.send(url.to_string()).await {
+            let message = format!("Failed to send download job URL to mpsc queue: {e}");
+            error!("{}", message);
+            Some(message)
+        } else {
+            None
+        }
+    }
+}
+
 async fn run_application(
     config_directory: &std::path::Path,
     download: &dyn Download,
     retry_delay: &std::time::Duration,
+    telegram_bot: &dyn TelegramBot,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "Download Manager started. Config directory: {}",
@@ -561,14 +626,33 @@ async fn run_application(
                 return Err(e.into());
             }
         };
-    run_main_loop(
-        config_directory,
-        &url_input_file_path,
-        url_input_file_event_receiver,
-        download,
-        retry_delay,
-    )
-    .await;
+    let (telegram_bot_download_job_url_sender, telegram_bot_download_job_url_receiver) =
+        tokio::sync::mpsc::channel(
+            /*too much queueing would obscure valuable performance feedback to the user*/ 1,
+        );
+    let telegram_bot_request_handler = Arc::new(TelegramBotRequestHandler {
+        download_job_url_sender: telegram_bot_download_job_url_sender,
+    });
+    tokio::select! {
+        _ = async move {
+            tokio::join!(
+                run_main_loop(
+                    config_directory,
+                    &url_input_file_path,
+                    url_input_file_event_receiver,
+                    telegram_bot_download_job_url_receiver,
+                    download,
+                    retry_delay,
+                ),
+                telegram_bot.run(telegram_bot_request_handler),
+            );
+        } => {
+            error!("Main loop has exited unexpectedly");
+        }
+        _ = tokio::signal::ctrl_c() => {
+            info!("Received Ctrl-C, shutting down...");
+        }
+    };
     drop(url_input_file_watcher);
     url_input_file_watcher_thread
         .join()
@@ -588,6 +672,37 @@ struct Args {
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     tracing_subscriber::fmt::init();
+    match dotenv::dotenv() {
+        Ok(_) => {}
+        Err(e) => {
+            error!("Failed to load .env file: {e}. Copy download_manager/.env.template to .env in the working directory and fill in the required values!");
+            std::process::exit(1);
+        }
+    }
+    let telegram_api_token = match std::env::var("TELOXIDE_TOKEN") {
+        Ok(token) => token,
+        Err(e) => {
+            error!("Failed to read TELOXIDE_TOKEN from env: {e}");
+            std::process::exit(1);
+        }
+    };
+    let download_manager_allowed_telegram_user_var =
+        match std::env::var("DOWNLOAD_MANAGER_ALLOWED_TELEGRAM_USER_ID") {
+            Ok(variable) => variable,
+            Err(e) => {
+                error!("Failed to read DOWNLOAD_MANAGER_ALLOWED_TELEGRAM_USER_ID from env: {e}");
+                std::process::exit(1);
+            }
+        };
+    let download_manager_allowed_telegram_user = teloxide::types::UserId(
+        match download_manager_allowed_telegram_user_var.parse::<u64>() {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Failed to parse DOWNLOAD_MANAGER_ALLOWED_TELEGRAM_USER_ID as u64: {e}");
+                std::process::exit(1);
+            }
+        },
+    );
     let command_line_arguments = Args::parse();
     let output_directory = command_line_arguments.output;
     info!("Output directory: {}", output_directory.display());
@@ -621,7 +736,11 @@ async fn main() {
         output_directory,
     };
     let retry_delay = std::time::Duration::from_millis(100);
-    match run_application(&config_directory, &download, &retry_delay).await {
+    let telegram_bot = TeloxideTelegramBot {
+        telegram_api_token,
+        allowed_user: download_manager_allowed_telegram_user,
+    };
+    match run_application(&config_directory, &download, &retry_delay, &telegram_bot).await {
         Ok(_) => {}
         Err(e) => {
             error!("Failed to run application: {e}");

@@ -1,9 +1,13 @@
+use std::sync::Arc;
+
 use crate::{
-    is_relevant_change_to_url_input_file, keep_reading_url_input_file,
-    load_downloaded_urls_from_database, load_undownloaded_urls_from_database,
-    make_database_file_name, make_url_input_file_path, prepare_database, run_application,
-    run_download_job, run_main_loop, set_download_job_digests, start_watching_url_input_file,
-    store_urls_in_database, upgrade_schema, Download, SetDownloadJobDigestOutcome,
+    is_relevant_change_to_url_input_file, keep_adding_download_job_urls_from_telegram_bot,
+    keep_reading_url_input_file, load_downloaded_urls_from_database,
+    load_undownloaded_urls_from_database, make_database_file_name, make_url_input_file_path,
+    prepare_database, run_application, run_download_job, run_main_loop, set_download_job_digests,
+    start_watching_url_input_file, store_urls_in_database,
+    telegram_bot::{HandleTelegramBotRequests, TelegramBot},
+    upgrade_schema, Download, SetDownloadJobDigestOutcome,
 };
 use astraea::tree::BlobDigest;
 use pretty_assertions::assert_eq;
@@ -554,6 +558,44 @@ async fn test_keep_reading_url_input_file() {
     database_change_receiver.changed().await.unwrap();
 }
 
+#[test_log::test(tokio::test)]
+async fn test_keep_adding_download_job_urls_from_telegram_bot() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+    let database_dir = temp_dir.path().join("database");
+    std::fs::create_dir_all(&database_dir).expect("Failed to create database directory");
+    let mut connection1 = prepare_database(&database_dir).expect("Failed to prepare database");
+    let (telegram_bot_download_job_url_sender, telegram_bot_download_job_url_receiver) =
+        tokio::sync::mpsc::channel(1);
+    let (database_change_sender, mut database_change_receiver) = tokio::sync::watch::channel(());
+    let url_to_add = "http://example.com";
+    let telegram_bot_simulator = async {
+        telegram_bot_download_job_url_sender
+            .send(url_to_add.to_string())
+            .await
+            .expect("Failed to send download job URL from telegram bot simulator");
+        // there must a database change event now
+        database_change_receiver.changed().await.unwrap();
+    };
+    tokio::select! {
+        _ = keep_adding_download_job_urls_from_telegram_bot(
+            telegram_bot_download_job_url_receiver,
+            database_change_sender,
+            &mut connection1
+        ) => {
+            panic!("keep_adding_download_job_urls_from_telegram_bot should not return");
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+            panic!("Timeout");
+        }
+        _ = telegram_bot_simulator => {
+            // success
+        }
+    }
+    let mut connection2 = prepare_database(&database_dir).expect("Failed to prepare database");
+    let undownloaded_urls = load_undownloaded_urls_from_database(&mut connection2).unwrap();
+    assert_eq!(vec![url_to_add.to_string()], undownloaded_urls);
+}
+
 struct FakeDownload {
     result_digests: Vec<BlobDigest>,
 }
@@ -593,6 +635,8 @@ async fn test_run_main_loop() {
     let url_input_file_path = working_directory.join("urls.txt");
     let (url_input_file_event_sender, url_input_file_event_receiver) =
         tokio::sync::watch::channel(());
+    let (_telegram_bot_download_job_url_sender, telegram_bot_download_job_url_receiver) =
+        tokio::sync::mpsc::channel(1);
     let digest = BlobDigest::hash(b"test data");
     let download = FakeDownload {
         result_digests: vec![digest],
@@ -622,6 +666,7 @@ async fn test_run_main_loop() {
             &working_directory,
             &url_input_file_path,
             url_input_file_event_receiver,
+            telegram_bot_download_job_url_receiver,
             &download,
             &retry_delay
         ) => {
@@ -630,6 +675,15 @@ async fn test_run_main_loop() {
         _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
             panic!("Timeout");
         }
+    }
+}
+
+struct FakeTelegramBot {}
+
+#[async_trait::async_trait]
+impl TelegramBot for FakeTelegramBot {
+    async fn run(&self, _handle_requests: Arc<dyn HandleTelegramBotRequests + Send + Sync>) {
+        info!("FakeTelegramBot run called");
     }
 }
 
@@ -661,8 +715,9 @@ async fn test_run_application() {
             }
         }
     };
+    let telegram_bot = FakeTelegramBot {};
     tokio::select! {
-        _ = run_application(&working_directory, &download, &retry_delay) => {
+        _ = run_application(&working_directory, &download, &retry_delay, &telegram_bot) => {
             panic!("run_application should not return");
         }
         _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
