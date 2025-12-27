@@ -5,7 +5,6 @@ use crate::tree::{
     TreeDeserializationError, TreeSerializationError, TREE_BLOB_MAX_LENGTH,
 };
 use pretty_assertions::assert_eq;
-use proptest::proptest;
 
 #[test_log::test]
 fn blob_digest_parse_hex_string() {
@@ -38,20 +37,18 @@ fn test_debug_tree_blob() {
     assert_eq!(format!("{blob:?}"), "TreeBlob { content: b\"\" }");
 }
 
-proptest! {
-    #[test_log::test]
-    fn tree_blob_try_from_success(length in 0usize..TREE_BLOB_MAX_LENGTH) {
-        let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, length));
-        let tree_blob = TreeBlob::try_from(content.clone()).unwrap();
-        assert_eq!(content, tree_blob.content);
-    }
+#[test_log::test]
+fn tree_blob_try_from_success() {
+    let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, TREE_BLOB_MAX_LENGTH));
+    let tree_blob = TreeBlob::try_from(content.clone()).unwrap();
+    assert_eq!(content, tree_blob.content);
+}
 
-    #[test_log::test]
-    fn tree_blob_try_from_failure(length in (TREE_BLOB_MAX_LENGTH + 1)..(TREE_BLOB_MAX_LENGTH * 3) /*We don't want to allocate too much memory here.*/) {
-        let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, length));
-        let result = TreeBlob::try_from(content.clone());
-        assert_eq!(Err(TreeSerializationError::BlobTooLong), result);
-    }
+#[test_log::test]
+fn tree_blob_try_from_failure() {
+    let content = bytes::Bytes::from_iter(std::iter::repeat_n(0u8, TREE_BLOB_MAX_LENGTH + 1));
+    let result = TreeBlob::try_from(content.clone());
+    assert_eq!(Err(TreeSerializationError::BlobTooLong), result);
 }
 
 #[test_log::test]

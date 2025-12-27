@@ -28,6 +28,5 @@ pretty_assertions = "1"
 lz4_flex = "0"
 
 [dev-dependencies]
-proptest = "1"
 rand = { version = "0", features = [ "small_rng", "min_const_gen" ]}
 test-log = {version = "0", features = ["trace", "log", "color"]}
