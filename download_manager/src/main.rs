@@ -66,17 +66,18 @@ fn upgrade_schema(
 fn store_urls_in_database(
     urls: Vec<String>,
     connection: &mut rusqlite::Connection,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<usize> {
+    let mut inserted_rows = 0;
     let transaction = connection.transaction()?;
     {
         let mut statement =
             transaction.prepare("INSERT OR IGNORE INTO download_job (url) VALUES (?1);")?;
         for url in urls {
-            statement.execute(rusqlite::params![url])?;
+            inserted_rows += statement.execute(rusqlite::params![url])?;
         }
     }
     transaction.commit()?;
-    Ok(())
+    Ok(inserted_rows)
 }
 
 fn load_undownloaded_urls_from_database(
@@ -372,15 +373,19 @@ async fn keep_reading_url_input_file(
         let parsed = parse_url_input_file(&content);
         info!("Parsed {} URLs", parsed.len());
         match store_urls_in_database(parsed, connection) {
-            Ok(_) => {
-                info!("Stored URLs in database successfully");
-                match database_change_event_sender.send(()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Failed to send database change event: {e}");
-                        // A broken channel is not recoverable.
-                        break;
+            Ok(rows_inserted) => {
+                if rows_inserted > 0 {
+                    info!("Stored {} URLs in database successfully", rows_inserted);
+                    match database_change_event_sender.send(()) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!("Failed to send database change event: {e}");
+                            // A broken channel is not recoverable.
+                            break;
+                        }
                     }
+                } else {
+                    info!("No new URLs to store in database");
                 }
             }
             Err(e) => {

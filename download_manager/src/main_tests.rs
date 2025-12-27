@@ -59,8 +59,11 @@ fn test_store_urls_in_database() {
         "http://example.com/file1".to_string(),
         "http://example.com/file2".to_string(),
     ];
-    crate::store_urls_in_database(urls.clone(), &mut connection)
-        .expect("Failed to store URLs in database");
+    assert_eq!(
+        2,
+        crate::store_urls_in_database(urls.clone(), &mut connection)
+            .expect("Failed to store URLs in database")
+    );
     let stored_urls = load_undownloaded_urls_from_database(&mut connection).unwrap();
     assert_eq!(stored_urls, urls);
 }
@@ -74,7 +77,10 @@ fn test_load_undownloaded_urls_from_database() {
         load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     let url = "http://example.com/file1";
-    store_urls_in_database(vec![url.to_string()], &mut connection).unwrap();
+    assert_eq!(
+        1,
+        store_urls_in_database(vec![url.to_string()], &mut connection).unwrap()
+    );
     assert_eq!(
         vec![url.to_string()],
         load_undownloaded_urls_from_database(&mut connection).unwrap()
@@ -91,7 +97,10 @@ fn test_set_download_job_digests_1() {
         SetDownloadJobDigestOutcome::UrlNotFound,
         set_download_job_digests(&mut connection, url, &[digest]).unwrap()
     );
-    store_urls_in_database(vec![url.to_string()], &mut connection).unwrap();
+    assert_eq!(
+        1,
+        store_urls_in_database(vec![url.to_string()], &mut connection).unwrap()
+    );
     assert_eq!(
         vec![url.to_string()],
         load_undownloaded_urls_from_database(&mut connection).unwrap()
@@ -119,7 +128,10 @@ fn test_set_download_job_digests_2() {
         SetDownloadJobDigestOutcome::UrlNotFound,
         set_download_job_digests(&mut connection, url, &digests).unwrap()
     );
-    store_urls_in_database(vec![url.to_string()], &mut connection).unwrap();
+    assert_eq!(
+        1,
+        store_urls_in_database(vec![url.to_string()], &mut connection).unwrap()
+    );
     assert_eq!(
         vec![url.to_string()],
         load_undownloaded_urls_from_database(&mut connection).unwrap()
@@ -140,7 +152,10 @@ fn test_set_download_job_digests_repeat() {
     let mut connection = prepare_database(temp_dir.path()).expect("Failed to prepare database");
     let url = "http://example.com/file1";
     let digest = BlobDigest::hash(b"test data");
-    store_urls_in_database(vec![url.to_string()], &mut connection).unwrap();
+    assert_eq!(
+        1,
+        store_urls_in_database(vec![url.to_string()], &mut connection).unwrap()
+    );
     assert_eq!(
         vec![url.to_string()],
         load_undownloaded_urls_from_database(&mut connection).unwrap()
@@ -167,7 +182,10 @@ fn test_set_download_job_digests_repeat() {
 fn test_prepare_database() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
     let mut connection = prepare_database(temp_dir.path()).expect("Failed to prepare database");
-    store_urls_in_database(vec!["http://example.com".into()], &mut connection).unwrap();
+    assert_eq!(
+        1,
+        store_urls_in_database(vec!["http://example.com".into()], &mut connection).unwrap()
+    );
 }
 
 #[test_log::test]
