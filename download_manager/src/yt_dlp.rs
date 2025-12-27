@@ -73,6 +73,10 @@ async fn download_with_yt_dlp(
     cmd.arg("--no-overwrites");
     cmd.arg("--no-mtime");
     cmd.arg("--windows-filenames");
+    cmd.arg("--progress");
+    cmd.arg("--progress-delta");
+    cmd.arg("1" /*second*/);
+    cmd.arg("--newline");
     cmd.arg("--cookies-from-browser");
     cmd.arg("firefox");
     cmd.arg(video_url);
