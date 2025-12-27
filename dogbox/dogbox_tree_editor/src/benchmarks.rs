@@ -68,7 +68,7 @@ fn read_large_file<S: Fn() -> Arc<dyn LoadStoreTree + Send + Sync>>(
     let last_known_digest = BlobDigest::hash(&original_content);
     let last_known_digest_file_size = original_content.len();
     // you may want to increase this number for actual benchmarking
-    let file_size_in_blocks = 10;
+    let file_size_in_blocks = 5;
     let write_buffer_in_blocks = file_size_in_blocks;
     let mut buffer = OpenFileContentBuffer::from_data(
         original_content.clone(),

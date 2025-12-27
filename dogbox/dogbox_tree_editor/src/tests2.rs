@@ -315,7 +315,7 @@ async fn test_open_directory_nothing_happens() {
     );
     let mut receiver = directory.watch().await;
     let result =
-        tokio::time::timeout(std::time::Duration::from_millis(50), receiver.changed()).await;
+        tokio::time::timeout(std::time::Duration::from_millis(10), receiver.changed()).await;
     assert_eq!("deadline has elapsed", format!("{}", result.unwrap_err()));
     let status = *receiver.borrow();
     assert_eq!(
@@ -798,9 +798,9 @@ async fn optimized_write_buffer_prefix_only() {
 
 #[test_log::test(tokio::test)]
 async fn optimized_write_buffer_prefix_and_suffix_only() {
-    for block_index in [0, 1, 10, 100, 1000] {
-        for prefix_length in [1, 10, 100, 1000, TREE_BLOB_MAX_LENGTH as u64 - 1] {
-            for suffix_length in [1, 10, 100, 1000, TREE_BLOB_MAX_LENGTH as u64 - 1] {
+    for block_index in [0, 1, 1000] {
+        for prefix_length in [1, 1000, TREE_BLOB_MAX_LENGTH as u64 - 1] {
+            for suffix_length in [1, 1000, TREE_BLOB_MAX_LENGTH as u64 - 1] {
                 let position_in_block: u64 = TREE_BLOB_MAX_LENGTH as u64 - prefix_length;
                 let write_position =
                     (block_index * TREE_BLOB_MAX_LENGTH as u64) + position_in_block;

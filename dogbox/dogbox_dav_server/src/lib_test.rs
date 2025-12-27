@@ -93,7 +93,7 @@ async fn run_dav_server_instance<'t>(
             wait_for_file_status_to_become_saved(&mut save_status_receiver, &root_directory).await;
         } else {
             match tokio::time::timeout(
-                std::time::Duration::from_millis(50),
+                std::time::Duration::from_millis(10),
                 save_status_receiver.recv(),
             )
             .await

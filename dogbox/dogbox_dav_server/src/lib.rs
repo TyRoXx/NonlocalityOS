@@ -297,9 +297,18 @@ pub async fn run_dav_server(
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
+    debug!(
+        "Checking if database file exists: {}",
+        database_file_name.display()
+    );
     let database_existed = std::fs::exists(database_file_name).unwrap();
     let sqlite_connection = rusqlite::Connection::open(database_file_name)?;
+    info!("Opened database at {}", database_file_name.display());
     if !database_existed {
+        info!(
+            "Database file {} did not exist, creating schema.",
+            &database_file_name.display()
+        );
         match SQLiteStorage::create_schema(&sqlite_connection) {
             Ok(_) => {}
             Err(error) => {
@@ -313,6 +322,7 @@ pub async fn run_dav_server(
                 panic!();
             }
         }
+        debug!("Created SQL schema in {}", &database_file_name.display());
     }
     let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);
     let root_name = "latest";
