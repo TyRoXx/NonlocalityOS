@@ -1,6 +1,6 @@
 use crate::run_dav_server;
 use astraea::tree::TREE_BLOB_MAX_LENGTH;
-use dogbox_tree_editor::WallClock;
+use dogbox_tree_editor::{OpenDirectory, WallClock};
 use pretty_assertions::assert_eq;
 use reqwest_dav::{list_cmd::ListEntity, Auth, Client, ClientBuilder, Depth};
 use std::{future::Future, net::SocketAddr, pin::Pin};
@@ -9,6 +9,54 @@ use tracing::info;
 
 type UnitFuture<'t> = Pin<Box<dyn Future<Output = ()> + 't>>;
 type ChangeFilesFunction<'t> = Box<dyn FnOnce(Client) -> UnitFuture<'t>>;
+
+async fn wait_for_file_status_to_become_saved(
+    save_status_receiver: &mut tokio::sync::mpsc::Receiver<crate::SaveStatus>,
+    root_directory: &OpenDirectory,
+) {
+    info!("Waiting for the save status to become saved.");
+    let mut has_received_saved = false;
+    loop {
+        let mut events = Vec::new();
+        tokio::select! {
+            // There is a race condition here, but it's acceptable for these tests.
+            _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {
+                if has_received_saved {
+                    info!("No further event received after Saved status, assuming saving is complete.");
+                    break;
+                }
+            }
+            _ = save_status_receiver.recv_many(&mut events, 100) => {
+                info!("Receive save status: {:?}", &events);
+                match events.last().unwrap() {
+                    crate::SaveStatus::Saved {
+                        files_open_for_writing_count,
+                    } => {
+                        info!(
+                            "The save status became saved with {} files open for writing.",
+                            *files_open_for_writing_count
+                        );
+                        if *files_open_for_writing_count == 0 {
+                            let root_status = root_directory.latest_status();
+                            assert!(root_status.digest.is_digest_up_to_date);
+                            assert_eq!(0, root_status.open_files.bytes_unflushed_count);
+                            assert_eq!(0, root_status.open_files.files_unflushed_count);
+                            assert!(root_status.directories_open_count >= 1);
+                            assert_eq!(0, root_status.directories_unsaved_count);
+                            //TODO: can we somehow wait for files to be closed?
+                            //assert_eq!(0, root_status.files_open_count);
+                            assert_eq!(0, root_status.open_files.files_open_for_writing_count);
+                            has_received_saved = true;
+                        } else {
+                            info!("Waiting for remaining files to be closed.");
+                        }
+                    }
+                    crate::SaveStatus::Saving => info!("Still saving"),
+                }
+            }
+        }
+    }
+}
 
 async fn run_dav_server_instance<'t>(
     database_file_name: &std::path::Path,
@@ -42,36 +90,7 @@ async fn run_dav_server_instance<'t>(
     };
     let waiting_for_saved_status = async {
         if is_saving_expected {
-            info!("Waiting for the save status to become saved.");
-            loop {
-                let mut events = Vec::new();
-                save_status_receiver.recv_many(&mut events, 100).await;
-                info!("Receive save status: {:?}", &events);
-                match events.last().unwrap() {
-                    crate::SaveStatus::Saved {
-                        files_open_for_writing_count,
-                    } => {
-                        info!(
-                            "The save status became saved with {} files open for writing.",
-                            *files_open_for_writing_count
-                        );
-                        if *files_open_for_writing_count == 0 {
-                            let root_status = root_directory.latest_status();
-                            assert!(root_status.digest.is_digest_up_to_date);
-                            assert_eq!(0, root_status.open_files.bytes_unflushed_count);
-                            assert_eq!(0, root_status.open_files.files_unflushed_count);
-                            assert!(root_status.directories_open_count >= 1);
-                            assert_eq!(0, root_status.directories_unsaved_count);
-                            //TODO: can we somehow wait for files to be closed?
-                            //assert_eq!(0, root_status.files_open_count);
-                            assert_eq!(0, root_status.open_files.files_open_for_writing_count);
-                            break;
-                        }
-                        info!("Waiting for remaining files to be closed.");
-                    }
-                    crate::SaveStatus::Saving => info!("Still saving"),
-                }
-            }
+            wait_for_file_status_to_become_saved(&mut save_status_receiver, &root_directory).await;
         } else {
             match tokio::time::timeout(
                 std::time::Duration::from_millis(50),
