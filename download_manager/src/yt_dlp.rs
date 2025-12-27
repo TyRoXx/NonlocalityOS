@@ -63,12 +63,9 @@ async fn download_with_yt_dlp(
     output_directory: &std::path::Path,
     video_url: &str,
 ) -> Result<Vec<BlobDigest>, Box<dyn std::error::Error>> {
-    // We put the temp folder here for two reasons:
-    // 1. it's the same filesystem, so renaming will work
-    // 2. Dropbox (or similar) can start uploading the files before the download is complete
-    let temp_root = output_directory.join("temp");
-    std::fs::create_dir_all(&temp_root)?;
-    let temp_dir = tempfile::tempdir_in(temp_root)?;
+    // Let's hope the temp is on the same file system for renaming to work.
+    // We can't put temp under output_directory because yt-dlp.exe does not work in Dropbox on Windows (access denied errors).
+    let temp_dir = tempfile::tempdir()?;
     let mut cmd = Command::new(executable_path);
     cmd.arg("--no-overwrites");
     cmd.arg("--no-mtime");
