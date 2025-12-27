@@ -554,7 +554,7 @@ async fn test_keep_reading_url_input_file() {
             // success
         }
     }
-    // there must a database change event now
+    // there must be a database change event now
     database_change_receiver.changed().await.unwrap();
 }
 
@@ -573,7 +573,7 @@ async fn test_keep_adding_download_job_urls_from_telegram_bot() {
             .send(url_to_add.to_string())
             .await
             .expect("Failed to send download job URL from telegram bot simulator");
-        // there must a database change event now
+        // there must be a database change event now
         database_change_receiver.changed().await.unwrap();
     };
     tokio::select! {
