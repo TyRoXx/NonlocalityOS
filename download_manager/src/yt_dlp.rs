@@ -185,35 +185,38 @@ pub async fn prepare_yt_dlp(
         "yt-dlp executable found at {}",
         yt_dlp_executable_path.display()
     );
-    let file = match std::fs::File::open(yt_dlp_executable_path) {
-        Ok(file) => file,
-        Err(e) => {
-            return Err(Box::from(format!(
-                "Failed to open yt-dlp executable at {}: {e}",
-                yt_dlp_executable_path.display()
-            )));
-        }
-    };
-    use std::os::unix::fs::PermissionsExt;
-    let metadata = match file.metadata() {
-        Ok(metadata) => metadata,
-        Err(e) => {
-            return Err(Box::from(format!(
-                "Failed to get metadata for yt-dlp executable at {}: {e}",
-                yt_dlp_executable_path.display()
-            )));
-        }
-    };
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(permissions.mode() | 0o111);
-    match file.set_permissions(permissions) {
-        Ok(_) => {}
-        Err(e) => {
-            return Err(Box::from(format!(
-                "Failed to set permissions for yt-dlp executable at {}: {e}",
-                yt_dlp_executable_path.display()
-            )));
-        }
-    };
+    #[cfg(unix)]
+    {
+        let file = match std::fs::File::open(yt_dlp_executable_path) {
+            Ok(file) => file,
+            Err(e) => {
+                return Err(Box::from(format!(
+                    "Failed to open yt-dlp executable at {}: {e}",
+                    yt_dlp_executable_path.display()
+                )));
+            }
+        };
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = match file.metadata() {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                return Err(Box::from(format!(
+                    "Failed to get metadata for yt-dlp executable at {}: {e}",
+                    yt_dlp_executable_path.display()
+                )));
+            }
+        };
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(permissions.mode() | 0o111);
+        match file.set_permissions(permissions) {
+            Ok(_) => {}
+            Err(e) => {
+                return Err(Box::from(format!(
+                    "Failed to set permissions for yt-dlp executable at {}: {e}",
+                    yt_dlp_executable_path.display()
+                )));
+            }
+        };
+    }
     update_yt_dlp(yt_dlp_executable_path).await
 }

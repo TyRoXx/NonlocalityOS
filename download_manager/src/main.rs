@@ -598,7 +598,11 @@ async fn main() {
     }
     let config_directory = command_line_arguments.config;
     info!("Config directory: {}", config_directory.display());
-    let yt_dlp_executable_path = config_directory.join("yt-dlp_linux");
+    #[cfg(target_os = "linux")]
+    let exe_name = "yt-dlp_linux";
+    #[cfg(windows)]
+    let exe_name = "yt-dlp.exe";
+    let yt_dlp_executable_path = config_directory.join(exe_name);
     match yt_dlp::prepare_yt_dlp(&yt_dlp_executable_path).await {
         Ok(_) => {}
         Err(e) => {
