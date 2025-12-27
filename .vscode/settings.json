@@ -1,5 +1,8 @@
 {
     "rust-analyzer.checkOnSave": true,
+    "rust-analyzer.runnables.extraEnv": {
+        "RUST_LOG": "info"
+    },
     "coverage-gutters.showRulerCoverage": false,
     "coverage-gutters.showGutterCoverage": true,
     "coverage-gutters.showLineCoverage": false,
