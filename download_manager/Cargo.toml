@@ -7,11 +7,10 @@ edition = "2021"
 
 [dependencies]
 astraea = { path ="../astraea" }
-tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "process", "io-util", "signal"]}
+tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "process", "io-util", "signal", "io-std"]}
 tracing = "0"
 tracing-subscriber = "0"
 rusqlite = {version = "0", features = ["bundled"]}
-clap = { version = "4", features = ["derive"] }
 notify = "8"
 async-trait = "0"
 pretty_assertions = "1"
@@ -19,6 +18,7 @@ tempfile = "3"
 sha3 = "0"
 teloxide = { version = "0", features = ["macros"] }
 dotenv = "0"
+dropbox-sdk = {version = "0", features = ["async_routes", "default_async_client"]}
 
 [dev-dependencies]
 test-log = {version = "0", features = ["trace", "log", "color"]}

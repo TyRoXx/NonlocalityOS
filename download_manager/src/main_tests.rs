@@ -1,16 +1,17 @@
-use std::sync::Arc;
-
 use crate::{
-    is_relevant_change_to_url_input_file, keep_adding_download_job_urls_from_telegram_bot,
-    keep_reading_url_input_file, load_downloaded_urls_from_database,
-    load_undownloaded_urls_from_database, make_database_file_name, make_url_input_file_path,
-    prepare_database, run_application, run_download_job, run_main_loop, set_download_job_digests,
-    start_watching_url_input_file, store_urls_in_database,
+    dropbox::Dropbox,
+    find_config_directory_in_dropbox, is_relevant_change_to_url_input_file,
+    keep_adding_download_job_urls_from_telegram_bot, keep_reading_url_input_file,
+    load_downloaded_urls_from_database, load_undownloaded_urls_from_database,
+    make_database_file_name, make_url_input_file_path, prepare_database, run_application,
+    run_download_job, run_main_loop, set_download_job_digests, start_watching_url_input_file,
+    store_urls_in_database,
     telegram_bot::{HandleTelegramBotRequests, TelegramBot},
     upgrade_schema, Download, SetDownloadJobDigestOutcome,
 };
 use astraea::tree::BlobDigest;
 use pretty_assertions::assert_eq;
+use std::sync::Arc;
 use tracing::info;
 
 #[test_log::test]
@@ -684,6 +685,19 @@ struct FakeTelegramBot {}
 impl TelegramBot for FakeTelegramBot {
     async fn run(&self, _handle_requests: Arc<dyn HandleTelegramBotRequests + Send + Sync>) {
         info!("FakeTelegramBot run called");
+        // block effectively forever
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
+}
+
+struct FakeDropbox {}
+
+#[async_trait::async_trait]
+impl Dropbox for FakeDropbox {
+    async fn keep_moving_files(&self) {
+        info!("FakeDropbox keep_moving_files called");
+        // block effectively forever
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
 }
 
@@ -716,8 +730,9 @@ async fn test_run_application() {
         }
     };
     let telegram_bot = FakeTelegramBot {};
+    let dropbox = FakeDropbox {};
     tokio::select! {
-        _ = run_application(&working_directory, &download, &retry_delay, &telegram_bot) => {
+        _ = run_application(&working_directory, &download, &retry_delay, &telegram_bot, &dropbox) => {
             panic!("run_application should not return");
         }
         _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
@@ -727,4 +742,48 @@ async fn test_run_application() {
             // success
         }
     }
+}
+
+#[test_log::test]
+fn test_find_config_directory_in_dropbox() {
+    assert_eq!(
+        Some("/vdm"),
+        find_config_directory_in_dropbox(
+            std::path::Path::new("/home/user/Dropbox/vdm"),
+            std::path::Path::new("/home/user/Dropbox"),
+        )
+        .as_deref()
+    );
+    assert_eq!(
+        Some("/vdm"),
+        find_config_directory_in_dropbox(
+            std::path::Path::new("/home/user/Dropbox/vdm/"),
+            std::path::Path::new("/home/user/Dropbox"),
+        )
+        .as_deref()
+    );
+    assert_eq!(
+        Some("/vdm"),
+        find_config_directory_in_dropbox(
+            std::path::Path::new("/home/user/Dropbox/vdm"),
+            std::path::Path::new("/home/user/Dropbox/"),
+        )
+        .as_deref()
+    );
+    assert_eq!(
+        Some("/vdm"),
+        find_config_directory_in_dropbox(
+            std::path::Path::new("/home/user/Dropbox/vdm/"),
+            std::path::Path::new("/home/user/Dropbox/"),
+        )
+        .as_deref()
+    );
+    assert_eq!(
+        None,
+        find_config_directory_in_dropbox(
+            std::path::Path::new("/home/user/vdm/"),
+            std::path::Path::new("/home/user/Dropbox/"),
+        )
+        .as_deref()
+    );
 }

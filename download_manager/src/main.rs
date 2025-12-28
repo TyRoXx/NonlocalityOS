@@ -1,6 +1,8 @@
-use crate::telegram_bot::{HandleTelegramBotRequests, TelegramBot, TeloxideTelegramBot};
+use crate::{
+    dropbox::{join_dropbox_paths, RealDropbox},
+    telegram_bot::{HandleTelegramBotRequests, TelegramBot, TeloxideTelegramBot},
+};
 use astraea::{storage::SQLiteStorage, tree::BlobDigest};
-use clap::Parser;
 use notify::{RecommendedWatcher, Watcher};
 use pretty_assertions::assert_eq;
 use std::{
@@ -22,6 +24,11 @@ mod telegram_bot;
 
 #[cfg(test)]
 mod telegram_bot_tests;
+
+mod dropbox;
+
+#[cfg(test)]
+mod dropbox_tests;
 
 fn upgrade_schema(
     connection: &rusqlite::Connection,
@@ -595,6 +602,7 @@ async fn run_application(
     download: &dyn Download,
     retry_delay: &std::time::Duration,
     telegram_bot: &dyn TelegramBot,
+    dropbox: &dyn dropbox::Dropbox,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "Download Manager started. Config directory: {}",
@@ -634,20 +642,21 @@ async fn run_application(
         download_job_url_sender: telegram_bot_download_job_url_sender,
     });
     tokio::select! {
-        _ = async move {
-            tokio::join!(
-                run_main_loop(
-                    config_directory,
-                    &url_input_file_path,
-                    url_input_file_event_receiver,
-                    telegram_bot_download_job_url_receiver,
-                    download,
-                    retry_delay,
-                ),
-                telegram_bot.run(telegram_bot_request_handler),
-            );
-        } => {
+        _ =  run_main_loop(
+                config_directory,
+                &url_input_file_path,
+                url_input_file_event_receiver,
+                telegram_bot_download_job_url_receiver,
+                download,
+                retry_delay,
+            ) => {
             error!("Main loop has exited unexpectedly");
+        }
+        _ = telegram_bot.run(telegram_bot_request_handler) => {
+            error!("Telegram bot has exited unexpectedly");
+        }
+        _ = dropbox.keep_moving_files() => {
+            error!("Dropbox file mover has exited unexpectedly");
         }
         _ = tokio::signal::ctrl_c() => {
             info!("Received Ctrl-C, shutting down...");
@@ -660,13 +669,19 @@ async fn run_application(
     Ok(())
 }
 
-#[derive(Parser, Debug)]
-struct Args {
-    #[arg(short, long)]
-    config: std::path::PathBuf,
-
-    #[arg(short, long)]
-    output: std::path::PathBuf,
+// If working_directory is under dropbox_root, returns the relative path. Otherwise, None.
+pub fn find_config_directory_in_dropbox(
+    working_directory: &std::path::Path,
+    dropbox_root: &std::path::Path,
+) -> Option<String> {
+    if working_directory.starts_with(dropbox_root) {
+        working_directory
+            .strip_prefix(dropbox_root)
+            .ok()
+            .map(|p| format!("/{}", p.to_string_lossy()))
+    } else {
+        None
+    }
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -703,9 +718,57 @@ async fn main() {
             }
         },
     );
-    let command_line_arguments = Args::parse();
-    let output_directory = command_line_arguments.output;
+    let dropbox_api_app_key = match std::env::var("DOWNLOAD_MANAGER_DROPBOX_API_APP_KEY") {
+        Ok(key) => key,
+        Err(e) => {
+            error!("Failed to read DOWNLOAD_MANAGER_DROPBOX_API_APP_KEY from env: {e}");
+            std::process::exit(1);
+        }
+    };
+    let dropbox_oauth = match std::env::var("DOWNLOAD_MANAGER_DROPBOX_OAUTH") {
+        Ok(oauth) => oauth,
+        Err(e) => {
+            error!("Failed to read DOWNLOAD_MANAGER_DROPBOX_OAUTH from env: {e}");
+            std::process::exit(1);
+        }
+    };
+    let dropbox_root =
+        std::path::PathBuf::from(match std::env::var("DOWNLOAD_MANAGER_DROPBOX_ROOT") {
+            Ok(root) => root,
+            Err(e) => {
+                error!("Failed to read DOWNLOAD_MANAGER_DROPBOX_ROOT from env: {e}");
+                std::process::exit(1);
+            }
+        });
+    let dropbox_destination = match std::env::var("DOWNLOAD_MANAGER_DROPBOX_DESTINATION") {
+        Ok(destination) => destination,
+        Err(e) => {
+            error!("Failed to read DOWNLOAD_MANAGER_DROPBOX_DESTINATION from env: {e}");
+            std::process::exit(1);
+        }
+    };
+    let config_directory =
+        std::env::current_dir().expect("Failed to get current working directory");
+    info!("Config directory: {}", config_directory.display());
+    let config_directory_in_dropbox =
+        match find_config_directory_in_dropbox(&config_directory, &dropbox_root) {
+            Some(path) => path,
+            None => {
+                error!("Failed to find config directory in Dropbox");
+                std::process::exit(1);
+            }
+        };
+    info!(
+        "Config directory in Dropbox: {}",
+        config_directory_in_dropbox
+    );
+    let output_directory = config_directory.join("output");
     info!("Output directory: {}", output_directory.display());
+    let output_directory_in_dropbox = join_dropbox_paths(&config_directory_in_dropbox, "output");
+    info!(
+        "Output directory in Dropbox: {}",
+        output_directory_in_dropbox
+    );
     match std::fs::create_dir_all(&output_directory) {
         Ok(_) => {}
         Err(e) => {
@@ -716,8 +779,6 @@ async fn main() {
             std::process::exit(1);
         }
     }
-    let config_directory = command_line_arguments.config;
-    info!("Config directory: {}", config_directory.display());
     #[cfg(target_os = "linux")]
     let exe_name = "yt-dlp_linux";
     #[cfg(windows)]
@@ -740,7 +801,25 @@ async fn main() {
         telegram_api_token,
         allowed_user: download_manager_allowed_telegram_user,
     };
-    match run_application(&config_directory, &download, &retry_delay, &telegram_bot).await {
+    let dropbox = RealDropbox {
+        dropbox_api_app_key,
+        dropbox_oauth: if dropbox_oauth.is_empty() {
+            None
+        } else {
+            Some(dropbox_oauth)
+        },
+        from_directory: output_directory_in_dropbox,
+        into_directory: dropbox_destination,
+    };
+    match run_application(
+        &config_directory,
+        &download,
+        &retry_delay,
+        &telegram_bot,
+        &dropbox,
+    )
+    .await
+    {
         Ok(_) => {}
         Err(e) => {
             error!("Failed to run application: {e}");
