@@ -45,7 +45,7 @@ async fn test_process_message_impl() {
     assert_eq!(
         action,
         ProcessMessageResultingAction::SendMessage(
-            "Successfully added download job for http://example.com\n".into()
+            "Queued download job for http://example.com\n\nSummary: 1 succeeded, 0 failed".into()
         )
     );
 }

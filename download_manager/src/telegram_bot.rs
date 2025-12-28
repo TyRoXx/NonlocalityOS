@@ -36,13 +36,25 @@ pub async fn process_message_impl(
 ) -> Result<ProcessMessageResultingAction, Box<dyn std::error::Error + Send + Sync>> {
     let urls = split_message_into_urls(message);
     let mut response = String::new();
+    let mut success_count = 0;
+    let mut failure_count = 0;
     for url in urls {
         let error = handle_requests.add_download_job(url).await;
         response.push_str(&match &error {
-            Some(message) => format!("Failed to add download job for {}: {}\n", url, message),
-            None => format!("Successfully added download job for {}\n", url),
+            Some(message) => {
+                failure_count += 1;
+                format!("Failed to queue download job for {}: {}\n", url, message)
+            }
+            None => {
+                success_count += 1;
+                format!("Queued download job for {}\n", url)
+            }
         });
     }
+    response.push_str(&format!(
+        "\nSummary: {} succeeded, {} failed",
+        success_count, failure_count
+    ));
     Ok(ProcessMessageResultingAction::SendMessage(response))
 }
 
