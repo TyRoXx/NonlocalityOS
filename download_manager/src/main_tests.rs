@@ -81,13 +81,39 @@ fn test_load_undownloaded_urls_from_database() {
         Vec::<String>::new(),
         load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
-    let url = "http://example.com/file1";
     assert_eq!(
         1,
-        store_urls_in_database(vec![url.to_string()], &mut connection).unwrap()
+        store_urls_in_database(
+            vec!["http://example.com/file1".to_string()],
+            &mut connection
+        )
+        .unwrap()
     );
     assert_eq!(
-        vec![url.to_string()],
+        vec!["http://example.com/file1".to_string()],
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
+    );
+    assert_eq!(
+        3,
+        store_urls_in_database(
+            // inserted out of order
+            vec![
+                "http://example.com/file4".to_string(),
+                "http://example.com/file2".to_string(),
+                "http://example.com/file3".to_string(),
+            ],
+            &mut connection
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        // loaded in order
+        vec![
+            "http://example.com/file1".to_string(),
+            "http://example.com/file2".to_string(),
+            "http://example.com/file3".to_string(),
+            "http://example.com/file4".to_string(),
+        ],
         load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
 }
