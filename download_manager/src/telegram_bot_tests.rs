@@ -79,9 +79,7 @@ async fn test_process_message_impl_1() {
         .unwrap();
     assert_eq!(
         action,
-        ProcessMessageResultingAction::SendMessage(
-            "Queued download job for http://example.com\n\nSummary: 1 succeeded, 0 failed".into()
-        )
+        ProcessMessageResultingAction::SendMessage("Summary: 1 queued, 0 failed to queue".into())
     );
     handle_requests.assert_complete().await;
 }
@@ -105,9 +103,7 @@ async fn test_process_message_impl_2() {
     .unwrap();
     assert_eq!(
         action,
-        ProcessMessageResultingAction::SendMessage(
-            "Queued download job for http://example.com/file1\nQueued download job for http://example.com/file2\n\nSummary: 2 succeeded, 0 failed".into()
-        )
+        ProcessMessageResultingAction::SendMessage("Summary: 2 queued, 0 failed to queue".into())
     );
     handle_requests.assert_complete().await;
 }
@@ -116,15 +112,18 @@ async fn test_process_message_impl_2() {
 async fn test_process_message_impl_failure() {
     let handle_requests = FakeHandleRequests {
         expected_download_jobs: vec![
+            // the bot sorts URLs before queuing them
             ("http://example.com/file1", None),
-            ("http://example.com/file2", Some("Test error")),
+            ("http://example.com/file2", Some("Test error 2")),
+            ("http://example.com/file3", Some("Test error 3")),
         ],
         mutable_state: Arc::new(Mutex::new(FakeHandleRequestsMutableState {
             download_jobs_added: 0,
         })),
     };
     let action = process_message_impl(
-        "http://example.com/file1\nhttp://example.com/file2",
+        // queue out of order
+        "http://example.com/file1\nhttp://example.com/file3\nhttp://example.com/file2",
         &handle_requests,
     )
     .await
@@ -132,7 +131,8 @@ async fn test_process_message_impl_failure() {
     assert_eq!(
         action,
         ProcessMessageResultingAction::SendMessage(
-            "Queued download job for http://example.com/file1\nFailed to queue download job for http://example.com/file2: Test error\n\nSummary: 1 succeeded, 1 failed".into()
+            // errors are reported sorted by the URL
+            "Failed to queue download job for http://example.com/file2: Test error 2\nFailed to queue download job for http://example.com/file3: Test error 3\nSummary: 1 queued, 2 failed to queue".into()
         )
     );
     handle_requests.assert_complete().await;

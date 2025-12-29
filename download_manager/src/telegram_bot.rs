@@ -34,25 +34,29 @@ pub async fn process_message_impl(
     message: &str,
     handle_requests: &(dyn HandleTelegramBotRequests + Send + Sync),
 ) -> Result<ProcessMessageResultingAction, Box<dyn std::error::Error + Send + Sync>> {
-    let urls = split_message_into_urls(message);
+    let mut urls = split_message_into_urls(message);
+    // Queue the oldest videos first.
+    urls.sort();
     let mut response = String::new();
     let mut success_count = 0;
     let mut failure_count = 0;
     for url in urls {
         let error = handle_requests.add_download_job(url).await;
-        response.push_str(&match &error {
+        match &error {
             Some(message) => {
                 failure_count += 1;
-                format!("Failed to queue download job for {}: {}\n", url, message)
+                response.push_str(&format!(
+                    "Failed to queue download job for {}: {}\n",
+                    url, message
+                ));
             }
             None => {
                 success_count += 1;
-                format!("Queued download job for {}\n", url)
             }
-        });
+        }
     }
     response.push_str(&format!(
-        "\nSummary: {} succeeded, {} failed",
+        "Summary: {} queued, {} failed to queue",
         success_count, failure_count
     ));
     Ok(ProcessMessageResultingAction::SendMessage(response))
