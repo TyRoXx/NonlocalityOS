@@ -141,14 +141,17 @@ fn sqlite_in_memory_load_and_hash_tree(b: &mut Bencher, tree_count_in_database: 
         runtime.block_on(storage.approximate_tree_count())
     );
     let stored_tree = HashedTree::from(Arc::new(Tree::new(
-        TreeBlob::try_from(bytes::Bytes::from(random_bytes(TREE_BLOB_MAX_LENGTH))).unwrap(),
+        TreeBlob::try_from(bytes::Bytes::from(random_bytes(
+            /*not too long because we don't just want to benchmark the digest function*/ 100,
+        )))
+        .unwrap(),
         TreeChildren::empty(),
     )));
     let reference = runtime.block_on(storage.store_tree(&stored_tree)).unwrap();
     assert_eq!(
         BlobDigest::parse_hex_string(concat!(
-            "d15454a6735a0bb995b758a221381c539eb16e7653fb6b1b4975377187cfd4f0",
-            "26495f5d6ad44b93d4738210700d88da92e876049aaffac298f9b3547479818a"
+            "f4f60b9678a11ac75b4c28944111e29657976c7cc46050eb8c2b422f77a3cc99",
+            "043054027fb3c041ed5c2195002bd24ca0d93e08d20e5ce9b54a9a16d9fd5beb"
         ))
         .unwrap(),
         reference
