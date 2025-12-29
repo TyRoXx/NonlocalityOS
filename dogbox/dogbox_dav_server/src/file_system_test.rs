@@ -252,65 +252,63 @@ async fn test_seek_beyond_the_end() {
     let last_known_digest = BlobDigest::hash(&data);
     let last_known_digest_file_size = data.len() as u64;
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    {
-        let handle = Arc::new(OpenFile::new(
-            dogbox_tree_editor::OpenFileContentBuffer::from_data(
-                data,
-                last_known_digest,
-                last_known_digest_file_size,
-                1,
-            )
-            .unwrap(),
-            storage.clone(),
-            test_clock(),
-        ));
-        let mut file = DogBoxOpenFile::new(
-            relative_path::RelativePathBuf::from_path("test").unwrap(),
-            handle.clone(),
-            None,
-            Some(handle.get_write_permission()),
-            0,
-        );
-        assert_eq!(
-            1_000_000,
-            file.seek(SeekFrom::Start(1_000_000)).await.unwrap()
-        );
-        let write_data = "test";
-        file.write_bytes(bytes::Bytes::from(write_data))
-            .await
-            .unwrap();
-        let new_size = 1_000_000 + write_data.len() as u64;
-        assert_eq!(new_size, file.seek(SeekFrom::Current(0)).await.unwrap());
-        assert_eq!(new_size, handle.size().await);
+    let handle = Arc::new(OpenFile::new(
+        dogbox_tree_editor::OpenFileContentBuffer::from_data(
+            data,
+            last_known_digest,
+            last_known_digest_file_size,
+            1,
+        )
+        .unwrap(),
+        storage.clone(),
+        test_clock(),
+    ));
+    let mut file = DogBoxOpenFile::new(
+        relative_path::RelativePathBuf::from_path("test").unwrap(),
+        handle.clone(),
+        None,
+        Some(handle.get_write_permission()),
+        0,
+    );
+    assert_eq!(
+        1_000_000,
+        file.seek(SeekFrom::Start(1_000_000)).await.unwrap()
+    );
+    let write_data = "test";
+    file.write_bytes(bytes::Bytes::from(write_data))
+        .await
+        .unwrap();
+    let new_size = 1_000_000 + write_data.len() as u64;
+    assert_eq!(new_size, file.seek(SeekFrom::Current(0)).await.unwrap());
+    assert_eq!(new_size, handle.size().await);
 
-        file.flush().await.unwrap();
-        let expected_digests = BTreeSet::from_iter(
-            [
-                concat!(
-                    "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
-                    "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
-                ),
-                concat!(
-                    "33cb1f71a103e2bf443c27930a2fb9871b028a614de0c3acb3cc486074ef9dbd",
-                    "d1b4b776727729f4708548185682be845d1b081243105fff5bd4e11bea5fed6f"
-                ),
-                concat!(
-                    "708d4258f26a6d99a6cc10532bd66134f46fd537d51db057c5a083cf8994f07e",
-                    "740534b6f795c49aa35513a65e3da7a5518fe163da200e24af0701088b290daa"
-                ),
-                concat!(
-                    "053449bd3fcab54840b5d0ca72dceaa77446d6980d52a54f21ac8f6157e3f8f",
-                    "3748f87fbccb5d5071a6d95098468a1c50db64767963066803dca6a8083eb32a8"
-                ),
-            ]
-            .map(BlobDigest::parse_hex_string)
-            .map(Option::unwrap),
-        );
-        assert_eq!(expected_digests, storage.digests().await);
+    file.flush().await.unwrap();
+    let expected_digests = BTreeSet::from_iter(
+        [
+            concat!(
+                "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+                "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+            ),
+            concat!(
+                "33cb1f71a103e2bf443c27930a2fb9871b028a614de0c3acb3cc486074ef9dbd",
+                "d1b4b776727729f4708548185682be845d1b081243105fff5bd4e11bea5fed6f"
+            ),
+            concat!(
+                "708d4258f26a6d99a6cc10532bd66134f46fd537d51db057c5a083cf8994f07e",
+                "740534b6f795c49aa35513a65e3da7a5518fe163da200e24af0701088b290daa"
+            ),
+            concat!(
+                "053449bd3fcab54840b5d0ca72dceaa77446d6980d52a54f21ac8f6157e3f8f",
+                "3748f87fbccb5d5071a6d95098468a1c50db64767963066803dca6a8083eb32a8"
+            ),
+        ]
+        .map(BlobDigest::parse_hex_string)
+        .map(Option::unwrap),
+    );
+    assert_eq!(expected_digests, storage.digests().await);
 
-        file.flush().await.unwrap();
-        assert_eq!(expected_digests, storage.digests().await);
-    }
+    file.flush().await.unwrap();
+    assert_eq!(expected_digests, storage.digests().await);
 }
 
 #[test_log::test(tokio::test)]
