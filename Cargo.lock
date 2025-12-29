@@ -2743,6 +2743,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rapidhash"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2988730ee014541157f48ce4dcc603940e00915edc3c7f9a8d78092256bb2493"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "rc-box"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3300,8 +3309,8 @@ dependencies = [
  "postcard",
  "pretty_assertions",
  "rand 0.8.5",
+ "rapidhash",
  "serde",
- "sha3",
  "test-case",
  "test-log",
  "tokio",

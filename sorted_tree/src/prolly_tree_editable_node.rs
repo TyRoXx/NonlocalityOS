@@ -4,9 +4,9 @@ use astraea::{
     tree::{BlobDigest, TREE_BLOB_MAX_LENGTH},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sha3::{Digest, Sha3_512};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::hash::{BuildHasher, Hash};
 
 #[derive(Debug, PartialEq)]
 pub enum IntegrityCheckResult {
@@ -17,9 +17,8 @@ pub enum IntegrityCheckResult {
 pub fn hash_key<Key: Serialize>(key: &Key) -> u8 {
     // TODO: use a better hash function (https://docs.dolthub.com/architecture/storage-engine/prolly-tree#controlling-chunk-size)
     let key_serialized = postcard::to_stdvec(key).expect("serializing key should succeed");
-    let mut hasher = Sha3_512::new();
-    hasher.update(&key_serialized);
-    let result: [u8; 64] = hasher.finalize().into();
+    let hasher = rapidhash::quality::SeedableState::fixed();
+    let result: [u8; 8] = hasher.hash_one(&key_serialized).to_le_bytes();
     result[0]
 }
 
