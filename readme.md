@@ -116,3 +116,4 @@ Example:
 
 * `echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid`
 * `./profile_benchmark.sh [benchmark name]`
+* or `./profile_test.sh [test name]`
