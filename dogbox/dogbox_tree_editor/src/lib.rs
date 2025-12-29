@@ -2194,19 +2194,21 @@ impl OpenFileContentBuffer {
                 assert!(write_result.remaining.is_empty());
                 loaded.dirty_blocks.push_back(loaded.blocks.len() - 1);
             }
-            while first_block_index > (loaded.blocks.len() as u64) {
-                // TODO: make this a static constant
+            if first_block_index > (loaded.blocks.len() as u64) {
+                // We only need to calculate this block once and can use it many times in the loop below.
                 let filler = HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH]))
                         .unwrap(),
                     TreeChildren::empty(),
                 )));
-                loaded.dirty_blocks.push_back(loaded.blocks.len());
-                loaded
-                    .blocks
-                    .push(OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
-                        filler,
-                    )));
+                while first_block_index > (loaded.blocks.len() as u64) {
+                    loaded.dirty_blocks.push_back(loaded.blocks.len());
+                    loaded
+                        .blocks
+                        .push(OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
+                            filler.clone(),
+                        )));
+                }
             }
         }
 
