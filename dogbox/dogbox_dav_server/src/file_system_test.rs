@@ -298,8 +298,8 @@ async fn test_seek_beyond_the_end() {
                 "740534b6f795c49aa35513a65e3da7a5518fe163da200e24af0701088b290daa"
             ),
             concat!(
-                "053449bd3fcab54840b5d0ca72dceaa77446d6980d52a54f21ac8f6157e3f8f",
-                "3748f87fbccb5d5071a6d95098468a1c50db64767963066803dca6a8083eb32a8"
+                "053449bd3fcab54840b5d0ca72dceaa77446d6980d52a54f21ac8f6157e3f8f3",
+                "748f87fbccb5d5071a6d95098468a1c50db64767963066803dca6a8083eb32a8"
             ),
         ]
         .map(BlobDigest::parse_hex_string)
