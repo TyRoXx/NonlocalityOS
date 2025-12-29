@@ -115,5 +115,4 @@ Example:
 # Profiling (Linux only)
 
 * `echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid`
-* edit the env variables in `bench.sh`
-* `./bench.sh`
+* `./profile_benchmark.sh [benchmark name]`
