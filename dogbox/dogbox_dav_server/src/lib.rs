@@ -3,7 +3,9 @@ use astraea::{
     tree::TREE_BLOB_MAX_LENGTH,
 };
 use dav_server::{fakels::FakeLs, DavHandler};
-use dogbox_tree_editor::{OpenDirectory, OpenDirectoryStatus, OpenFileStats, WallClock};
+use dogbox_tree_editor::{
+    DigestStatus, OpenDirectory, OpenDirectoryStatus, OpenFileStats, WallClock,
+};
 use file_system::DogBoxFileSystem;
 use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
@@ -125,13 +127,21 @@ async fn drop_all_read_caches_regularly(
     }
 }
 
-fn log_differences(old: &OpenDirectoryStatus, new: &OpenDirectoryStatus) {
-    if old.digest != new.digest {
+fn log_differences_between_digest_status(old: &DigestStatus, new: &DigestStatus) {
+    if old.is_digest_up_to_date != new.is_digest_up_to_date {
         info!(
-            "Root digest changed from {:?} to {:?}",
-            &old.digest, &new.digest
+            "Root is_digest_up_to_date changed from {:?} to {:?}",
+            &old.is_digest_up_to_date, &new.is_digest_up_to_date
         );
     }
+    if old.last_known_digest != new.last_known_digest {
+        // the value is long and unreadable
+        info!("Root last_known_digest changed");
+    }
+}
+
+fn log_differences(old: &OpenDirectoryStatus, new: &OpenDirectoryStatus) {
+    log_differences_between_digest_status(&old.digest, &new.digest);
     if old.directories_open_count != new.directories_open_count {
         info!(
             "Root directories_open_count changed from {:?} to {:?}",
