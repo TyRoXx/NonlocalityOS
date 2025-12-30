@@ -256,12 +256,12 @@ async fn persist_root_on_change(
                                         .files_open_for_writing_count,
                                 }
                             } else {
-                                info!("It turned out the status digest has changed in the meantime. Before: {:?}, after: {:?}",
-                                &root_status.digest, &double_checked_status.digest);
+                                info!("Saved again after persisting and the root digest has changed in the meantime. Before: {:?}, after: {:?}",
+                                    &root_status.digest, &double_checked_status.digest);
                                 SaveStatus::Saving
                             }
                         } else {
-                            info!("It turned out we are in fact saving again.");
+                            info!("Requested save again after persisting. Saving..");
                             SaveStatus::Saving
                         }
                     }
