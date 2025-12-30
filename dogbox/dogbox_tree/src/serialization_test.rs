@@ -1,7 +1,8 @@
 use crate::serialization::{
-    deserialize_directory, serialize_directory, FileNameContent, FileNameError,
+    deserialize_directory, serialize_directory, DirectoryEntryKind, FileName, FileNameContent,
+    FileNameError,
 };
-use astraea::tree::BlobDigest;
+use astraea::tree::{BlobDigest, TREE_MAX_CHILDREN};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
@@ -95,12 +96,26 @@ async fn test_serialize_directory_empty() {
 #[test_log::test(tokio::test)]
 async fn test_deserialize_directory() {
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
-    let original = BTreeMap::from([]);
+    // Directories can have more than TREE_MAX_CHILDREN entries now.
+    let number_of_entries = TREE_MAX_CHILDREN as u32 + 10;
+    let original = (0..number_of_entries)
+        .map(|i: u32| {
+            (FileName::try_from(format!("{}", i)).unwrap(), {
+                let content = i.to_be_bytes();
+                let digest = BlobDigest::hash(&content);
+                if i.is_multiple_of(3) {
+                    (DirectoryEntryKind::Directory, digest)
+                } else {
+                    (DirectoryEntryKind::File(content.len() as u64), digest)
+                }
+            })
+        })
+        .collect();
     let digest = serialize_directory(&original, &storage).await.unwrap();
-    assert_eq!(1, storage.number_of_trees().await);
+    assert_eq!(6, storage.number_of_trees().await);
     assert_eq!(
         BlobDigest::parse_hex_string(
-            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
+            "77e712cf05e19dcd622c502a3167027f9ce838094c82cef0fbf853c9b5fe2e22ce1af698fb306feb586019ddadc923f5b8f70a8c004b9f84b451be453930be14"
         )
         .unwrap(),
         digest
