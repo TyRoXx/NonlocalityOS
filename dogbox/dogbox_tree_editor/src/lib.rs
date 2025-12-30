@@ -192,7 +192,9 @@ impl NamedEntry {
                             Ok(_) => {
                                 let current_status = *cloned_receiver.borrow();
                                 if previous_status == current_status {
-                                    warn!(
+                                    // This can happen when the status changes multiple times before we get to process it.
+                                    // The watch::Receiver only keeps the latest value.
+                                    debug!(
                                         "Open file status received, but it is the same as before: {:?}",
                                         &previous_status
                                     );
