@@ -78,6 +78,12 @@ pub struct FileName {
     content: FileNameContent,
 }
 
+impl FileName {
+    pub fn as_str(&self) -> &str {
+        self.content.as_str()
+    }
+}
+
 impl TryFrom<String> for FileName {
     type Error = FileNameError;
 
@@ -97,6 +103,12 @@ impl TryFrom<&str> for FileName {
 impl From<FileName> for String {
     fn from(val: FileName) -> Self {
         val.content.0
+    }
+}
+
+impl std::fmt::Display for FileName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.content.as_str())
     }
 }
 
@@ -192,12 +204,12 @@ type ProllyTree = prolly_tree_editable_node::EditableNode<FileName, DirectoryEnt
 pub async fn deserialize_directory(
     storage: &(dyn LoadStoreTree + Send + Sync),
     digest: &BlobDigest,
-) -> Result<BTreeMap<String, (DirectoryEntryKind, BlobDigest)>, Box<dyn std::error::Error>> {
+) -> Result<BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)>, Box<dyn std::error::Error>> {
     let mut prolly_tree = ProllyTree::load(digest, storage).await?;
     let mut result = BTreeMap::new();
     let mut iterator = Iterator::new(&mut prolly_tree, storage);
     while let Some((name, entry)) = iterator.next().await? {
-        result.insert(name.into(), (entry.kind, *entry.child.reference()));
+        result.insert(name, (entry.kind, *entry.child.reference()));
     }
     Ok(result)
 }

@@ -156,7 +156,7 @@ struct DogBoxDirEntry {
 
 impl dav_server::fs::DavDirEntry for DogBoxDirEntry {
     fn name(&self) -> Vec<u8> {
-        self.info.name.as_bytes().into()
+        self.info.name.as_str().as_bytes().into()
     }
 
     fn metadata(&self) -> dav_server::fs::FsFuture<'_, Box<dyn dav_server::fs::DavMetaData>> {
@@ -323,6 +323,17 @@ fn convert_path(
     }
 }
 
+fn normalize_path(path: &dav_server::davpath::DavPath) -> dav_server::fs::FsResult<NormalizedPath> {
+    let converted_path = convert_path(path)?;
+    match NormalizedPath::try_from(converted_path) {
+        Ok(success) => Ok(success),
+        Err(error) => {
+            error!("Could not normalize path {}: {}", path, error);
+            Err(dav_server::fs::FsError::GeneralFailure)
+        }
+    }
+}
+
 impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     fn open<'a>(
         &'a self,
@@ -346,11 +357,8 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         }
         Box::pin(async move {
             let converted_path = convert_path(path)?;
-            let open_file = match self
-                .editor
-                .open_file(NormalizedPath::new(converted_path))
-                .await
-            {
+            let normalized_path = normalize_path(path)?;
+            let open_file = match self.editor.open_file(normalized_path).await {
                 Ok(success) => success,
                 Err(_error) => todo!(),
             };
@@ -387,12 +395,8 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     {
         debug!("Read dir {}", path);
         Box::pin(async move {
-            let converted_path = convert_path(path)?;
-            let mut directory = match self
-                .editor
-                .read_directory(NormalizedPath::new(converted_path))
-                .await
-            {
+            let normalized_path = normalize_path(path)?;
+            let mut directory = match self.editor.read_directory(normalized_path).await {
                 Ok(success) => success,
                 Err(error) => return Err(handle_error(error)),
             };
@@ -413,12 +417,8 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, Box<dyn dav_server::fs::DavMetaData>> {
         Box::pin(async move {
-            let converted_path = convert_path(path)?;
-            match self
-                .editor
-                .get_meta_data(NormalizedPath::new(converted_path))
-                .await
-            {
+            let normalized_path = normalize_path(path)?;
+            match self.editor.get_meta_data(normalized_path).await {
                 Ok(success) => {
                     debug!("Metadata {}: {:?}", path, &success);
                     Ok(Box::new(DogBoxMetaData { entry: success })
@@ -442,12 +442,8 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     ) -> dav_server::fs::FsFuture<'a, ()> {
         info!("Create directory {}", path);
         Box::pin(async move {
-            let converted_path = convert_path(path)?;
-            match self
-                .editor
-                .create_directory(NormalizedPath::new(converted_path))
-                .await
-            {
+            let normalized_path = normalize_path(path)?;
+            match self.editor.create_directory(normalized_path).await {
                 Ok(success) => Ok(success),
                 Err(error) => Err(handle_error(error)),
             }
@@ -456,16 +452,12 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
 
     fn remove_dir<'a>(
         &'a self,
-        _path: &'a dav_server::davpath::DavPath,
+        path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, ()> {
-        info!("Removing directory {}", _path);
+        info!("Removing directory {}", path);
         Box::pin(async move {
-            let converted_path = convert_path(_path)?;
-            match self
-                .editor
-                .remove(NormalizedPath::new(converted_path))
-                .await
-            {
+            let normalized_path = normalize_path(path)?;
+            match self.editor.remove(normalized_path).await {
                 Ok(_) => Ok(()),
                 Err(error) => Err(handle_error(error)),
             }
@@ -474,16 +466,12 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
 
     fn remove_file<'a>(
         &'a self,
-        _path: &'a dav_server::davpath::DavPath,
+        path: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, ()> {
-        info!("Removing file {}", _path);
+        info!("Removing file {}", path);
         Box::pin(async move {
-            let converted_path = convert_path(_path)?;
-            match self
-                .editor
-                .remove(NormalizedPath::new(converted_path))
-                .await
-            {
+            let normalized_path = normalize_path(path)?;
+            match self.editor.remove(normalized_path).await {
                 Ok(_) => Ok(()),
                 Err(error) => Err(handle_error(error)),
             }
@@ -492,19 +480,16 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
 
     fn rename<'a>(
         &'a self,
-        _from: &'a dav_server::davpath::DavPath,
-        _to: &'a dav_server::davpath::DavPath,
+        from: &'a dav_server::davpath::DavPath,
+        to: &'a dav_server::davpath::DavPath,
     ) -> dav_server::fs::FsFuture<'a, ()> {
-        debug!("Rename {} to {}", _from, _to);
+        debug!("Rename {} to {}", from, to);
         Box::pin(async move {
-            let from_converted_path = convert_path(_from)?;
-            let to_converted_path = convert_path(_to)?;
+            let from_normalized_path = normalize_path(from)?;
+            let to_normalized_path = normalize_path(to)?;
             match self
                 .editor
-                .rename(
-                    NormalizedPath::new(from_converted_path),
-                    NormalizedPath::new(to_converted_path),
-                )
+                .rename(from_normalized_path, to_normalized_path)
                 .await
             {
                 Ok(_) => Ok(()),
@@ -521,14 +506,11 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
     ) -> dav_server::fs::FsFuture<'a, ()> {
         info!("Copy {} to {}", from, to);
         Box::pin(async move {
-            let from_converted_path = convert_path(from)?;
-            let to_converted_path = convert_path(to)?;
+            let from_normalized_path = normalize_path(from)?;
+            let to_normalized_path = normalize_path(to)?;
             match self
                 .editor
-                .copy(
-                    NormalizedPath::new(from_converted_path),
-                    NormalizedPath::new(to_converted_path),
-                )
+                .copy(from_normalized_path, to_normalized_path)
                 .await
             {
                 Ok(_) => Ok(()),

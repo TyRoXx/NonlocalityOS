@@ -17,7 +17,7 @@ use bytes::Buf;
 use cached::Cached;
 use dogbox_tree::serialization::{
     self, deserialize_directory, serialize_directory, DeserializationError, DirectoryEntryKind,
-    FileName, SegmentedBlob,
+    FileName, FileNameError, SegmentedBlob,
 };
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
@@ -31,8 +31,8 @@ use tracing::{debug, error, info, warn};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
-    NotFound(String),
-    CannotOpenRegularFileAsDirectory(String),
+    NotFound(FileName),
+    CannotOpenRegularFileAsDirectory(FileName),
     CannotOpenDirectoryAsRegularFile,
     FileSizeMismatch,
     SegmentedBlobSizeMismatch {
@@ -75,13 +75,13 @@ impl DirectoryEntryMetaData {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MutableDirectoryEntry {
-    pub name: String,
+    pub name: FileName,
     pub kind: DirectoryEntryKind,
     pub modified: std::time::SystemTime,
 }
 
 impl MutableDirectoryEntry {
-    pub fn new(name: String, kind: DirectoryEntryKind, modified: std::time::SystemTime) -> Self {
+    pub fn new(name: FileName, kind: DirectoryEntryKind, modified: std::time::SystemTime) -> Self {
         Self {
             name,
             kind,
@@ -374,14 +374,14 @@ impl OpenDirectoryStatus {
 #[derive(Debug)]
 struct OpenDirectoryMutableState {
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
-    names: BTreeMap<String, NamedEntry>,
+    names: BTreeMap<FileName, NamedEntry>,
     has_unsaved_changes: bool,
     last_accessed_at: std::time::SystemTime,
 }
 
 impl OpenDirectoryMutableState {
     fn new(
-        names: BTreeMap<String, NamedEntry>,
+        names: BTreeMap<FileName, NamedEntry>,
         has_unsaved_changes: bool,
         last_accessed_at: std::time::SystemTime,
     ) -> Self {
@@ -413,7 +413,7 @@ impl OpenDirectory {
     pub fn new(
         original_path: std::path::PathBuf,
         digest: DigestStatus,
-        names: BTreeMap<String, NamedEntry>,
+        names: BTreeMap<FileName, NamedEntry>,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
         modified: std::time::SystemTime,
         clock: WallClock,
@@ -469,7 +469,7 @@ impl OpenDirectory {
         })
     }
 
-    pub async fn get_meta_data(&self, name: &str) -> Result<DirectoryEntryMetaData> {
+    pub async fn get_meta_data(&self, name: &FileName) -> Result<DirectoryEntryMetaData> {
         let mut state_locked = self.state.lock().await;
         state_locked.record_access((self.clock)());
         match state_locked.names.get(name) {
@@ -477,13 +477,13 @@ impl OpenDirectory {
                 let found_clone = (*found).clone();
                 Ok(found_clone.get_meta_data().await)
             }
-            None => Err(Error::NotFound(name.to_string())),
+            None => Err(Error::NotFound(name.clone())),
         }
     }
 
     pub async fn open_file(
         self: Arc<OpenDirectory>,
-        name: &str,
+        name: &FileName,
         empty_file_digest: &BlobDigest,
     ) -> Result<Arc<OpenFile>> {
         let mut state_locked = self.state.lock().await;
@@ -531,7 +531,7 @@ impl OpenDirectory {
                 let receiver = open_file.watch().await;
                 self.clone().insert_entry(
                     &mut state_locked,
-                    name.to_string(),
+                    name.clone(),
                     NamedEntry::OpenRegularFile(open_file.clone(), receiver),
                 );
                 Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
@@ -556,7 +556,7 @@ impl OpenDirectory {
     fn insert_entry(
         self: Arc<OpenDirectory>,
         state: &mut OpenDirectoryMutableState,
-        name: String,
+        name: FileName,
         mut entry: NamedEntry,
     ) {
         state.record_access((self.clock)());
@@ -602,7 +602,7 @@ impl OpenDirectory {
 
     async fn open_subdirectory(
         self: Arc<OpenDirectory>,
-        name: String,
+        name: FileName,
     ) -> Result<Arc<OpenDirectory>> {
         let mut state_locked = self.state.lock().await;
         state_locked.record_access((self.clock)());
@@ -611,7 +611,7 @@ impl OpenDirectory {
                 NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
                     DirectoryEntryKind::Directory => {
                         let subdirectory = Self::load_directory(
-                            self.original_path.join(&name),
+                            self.original_path.join(name.to_string()),
                             self.storage.clone(),
                             digest,
                             self.modified,
@@ -627,15 +627,15 @@ impl OpenDirectory {
                         Ok(subdirectory)
                     }
                     DirectoryEntryKind::File(_) => {
-                        Err(Error::CannotOpenRegularFileAsDirectory(name.to_string()))
+                        Err(Error::CannotOpenRegularFileAsDirectory(name))
                     }
                 },
                 NamedEntry::OpenRegularFile(_, _) => {
-                    Err(Error::CannotOpenRegularFileAsDirectory(name.to_string()))
+                    Err(Error::CannotOpenRegularFileAsDirectory(name))
                 }
                 NamedEntry::OpenSubdirectory(subdirectory, _) => Ok(subdirectory.clone()),
             },
-            None => Err(Error::NotFound(name.to_string())),
+            None => Err(Error::NotFound(name)),
         }
     }
 
@@ -682,7 +682,7 @@ impl OpenDirectory {
 
     pub async fn create_subdirectory(
         self: Arc<OpenDirectory>,
-        name: String,
+        name: FileName,
         empty_directory_digest: BlobDigest,
     ) -> Result<()> {
         let mut state_locked = self.state.lock().await;
@@ -695,7 +695,7 @@ impl OpenDirectory {
                     &name
                 );
                 let directory = Self::load_directory(
-                    self.original_path.join(&name),
+                    self.original_path.join(name.to_string()),
                     self.storage.clone(),
                     &empty_directory_digest,
                     (self.clock)(),
@@ -715,11 +715,11 @@ impl OpenDirectory {
         }
     }
 
-    pub async fn remove(&self, name_here: &str) -> Result<()> {
+    pub async fn remove(&self, name_here: &FileName) -> Result<()> {
         let mut state_locked = self.state.lock().await;
         state_locked.record_access((self.clock)());
         if !state_locked.names.contains_key(name_here) {
-            return Err(Error::NotFound(name_here.to_string()));
+            return Err(Error::NotFound(name_here.clone()));
         }
 
         state_locked.names.remove(name_here);
@@ -729,9 +729,9 @@ impl OpenDirectory {
 
     pub async fn copy(
         self: Arc<OpenDirectory>,
-        name_here: &str,
+        name_here: &FileName,
         there: &OpenDirectory,
-        name_there: &str,
+        name_there: &FileName,
     ) -> Result<()> {
         let mut state_locked: MutexGuard<'_, _>;
         let mut state_there_locked: Option<MutexGuard<'_, _>>;
@@ -759,7 +759,7 @@ impl OpenDirectory {
 
         match state_locked.names.get(name_here) {
             Some(_) => {}
-            None => return Err(Error::NotFound(name_here.to_string())),
+            None => return Err(Error::NotFound(name_here.clone())),
         }
 
         debug!(
@@ -814,9 +814,9 @@ impl OpenDirectory {
 
     pub async fn rename(
         self: Arc<OpenDirectory>,
-        name_here: &str,
+        name_here: &FileName,
         there: &OpenDirectory,
-        name_there: &str,
+        name_there: &FileName,
     ) -> Result<()> {
         let mut state_locked: MutexGuard<'_, _>;
         let mut state_there_locked: Option<MutexGuard<'_, _>>;
@@ -844,7 +844,7 @@ impl OpenDirectory {
 
         match state_locked.names.get(name_here) {
             Some(_) => {}
-            None => return Err(Error::NotFound(name_here.to_string())),
+            None => return Err(Error::NotFound(name_here.clone())),
         }
 
         debug!(
@@ -870,13 +870,13 @@ impl OpenDirectory {
     fn write_into_directory(
         self: Arc<OpenDirectory>,
         state: &mut MutexGuard<'_, OpenDirectoryMutableState>,
-        name_there: &str,
+        name_there: &FileName,
         entry: NamedEntry,
     ) {
         match state.names.get_mut(name_there) {
             Some(existing_name) => *existing_name = entry,
             None => {
-                self.insert_entry(state, name_there.to_string(), entry);
+                self.insert_entry(state, name_there.clone(), entry);
             }
         };
     }
@@ -1043,7 +1043,7 @@ impl OpenDirectory {
     ) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
         let mut entries: BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)> = BTreeMap::new();
         for entry in state_locked.names.iter_mut() {
-            let name = FileName::try_from(entry.0.as_str()).unwrap();
+            let name = entry.0;
             let named_entry_status = entry.1.get_status();
             let (kind, digest) = match named_entry_status {
                 NamedEntryStatus::Closed(directory_entry_kind, blob_digest) => {
@@ -1062,7 +1062,7 @@ impl OpenDirectory {
                     ),
                 },
             };
-            entries.insert(name, (kind, digest));
+            entries.insert(name.clone(), (kind, digest));
         }
         serialize_directory(&entries, storage).await
     }
@@ -1097,33 +1097,35 @@ impl OpenDirectory {
 
 pub enum PathSplitLeftResult {
     Root,
-    Leaf(String),
-    Directory(String, NormalizedPath),
+    Leaf(FileName),
+    Directory(FileName, NormalizedPath),
 }
 
 pub enum PathSplitRightResult {
     Root,
-    Entry(NormalizedPath, String),
+    Entry(NormalizedPath, FileName),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NormalizedPath {
-    components: VecDeque<String>,
+    components: VecDeque<FileName>,
 }
 
 impl NormalizedPath {
-    pub fn new(input: &relative_path::RelativePath) -> NormalizedPath {
-        NormalizedPath {
-            components: input
-                .normalize()
-                .components()
-                .map(|component| match component {
-                    relative_path::Component::CurDir => todo!(),
-                    relative_path::Component::ParentDir => todo!(),
-                    relative_path::Component::Normal(name) => name.to_string(),
-                })
-                .collect(),
+    pub fn try_from(
+        input: &relative_path::RelativePath,
+    ) -> std::result::Result<NormalizedPath, FileNameError> {
+        let mut components = VecDeque::new();
+        for component in input.normalize().components() {
+            match component {
+                relative_path::Component::CurDir => todo!(),
+                relative_path::Component::ParentDir => todo!(),
+                relative_path::Component::Normal(name) => {
+                    components.push_back(FileName::try_from(name.to_string())?)
+                }
+            }
         }
+        Ok(NormalizedPath { components })
     }
 
     pub fn root() -> NormalizedPath {

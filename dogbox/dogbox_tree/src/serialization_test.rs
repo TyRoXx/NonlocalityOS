@@ -1,4 +1,6 @@
-use crate::serialization::{serialize_directory, FileNameContent, FileNameError};
+use crate::serialization::{
+    deserialize_directory, serialize_directory, FileNameContent, FileNameError,
+};
 use astraea::tree::BlobDigest;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -77,7 +79,7 @@ fn test_file_name_content_from() {
 #[test_log::test(tokio::test)]
 async fn test_serialize_directory_empty() {
     let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
-    let result = serialize_directory(&BTreeMap::from([]), &storage)
+    let digest = serialize_directory(&BTreeMap::from([]), &storage)
         .await
         .unwrap();
     assert_eq!(1, storage.number_of_trees().await);
@@ -86,6 +88,23 @@ async fn test_serialize_directory_empty() {
             "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
         )
         .unwrap(),
-        result
+        digest
     );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_deserialize_directory() {
+    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let original = BTreeMap::from([]);
+    let digest = serialize_directory(&original, &storage).await.unwrap();
+    assert_eq!(1, storage.number_of_trees().await);
+    assert_eq!(
+        BlobDigest::parse_hex_string(
+            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
+        )
+        .unwrap(),
+        digest
+    );
+    let deserialized = deserialize_directory(&storage, &digest).await.unwrap();
+    assert_eq!(original, deserialized);
 }

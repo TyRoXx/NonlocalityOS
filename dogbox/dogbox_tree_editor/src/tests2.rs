@@ -11,6 +11,7 @@ use astraea::{
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
+use dogbox_tree::serialization::FileName;
 use lazy_static::lazy_static;
 use pretty_assertions::assert_eq;
 use pretty_assertions::assert_ne;
@@ -23,10 +24,10 @@ use test_case::{test_case, test_matrix};
 use tokio::runtime::Runtime;
 
 #[test_log::test(test)]
-fn test_normalized_path_new() {
+fn test_normalized_path_from() {
     assert_eq!(
         NormalizedPath::root(),
-        NormalizedPath::new(relative_path::RelativePath::new(""))
+        NormalizedPath::try_from(relative_path::RelativePath::new("")).unwrap()
     );
 }
 
@@ -284,7 +285,7 @@ async fn test_open_directory_get_meta_data() {
         std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::from([(
-            "test.txt".to_string(),
+            FileName::try_from("test.txt".to_string()).unwrap(),
             NamedEntry::NotOpen(expected, BlobDigest::hash(&[])),
         )]),
         Arc::new(NeverUsedStorage {}),
@@ -292,7 +293,10 @@ async fn test_open_directory_get_meta_data() {
         test_clock,
         1,
     );
-    let meta_data = directory.get_meta_data("test.txt").await.unwrap();
+    let meta_data = directory
+        .get_meta_data(&FileName::try_from("test.txt".to_string()).unwrap())
+        .await
+        .unwrap();
     assert_eq!(expected, meta_data);
 }
 
@@ -305,7 +309,7 @@ async fn test_open_directory_nothing_happens() {
         std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::from([(
-            "test.txt".to_string(),
+            FileName::try_from("test.txt".to_string()).unwrap(),
             NamedEntry::NotOpen(expected, BlobDigest::hash(&[])),
         )]),
         storage.clone(),
@@ -351,23 +355,23 @@ async fn test_open_directory_open_file() {
         test_clock,
         1,
     ));
-    let file_name = "test.txt";
+    let file_name = FileName::try_from("test.txt".to_string()).unwrap();
     let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let opened = directory
         .clone()
-        .open_file(file_name, &empty_file_digest)
+        .open_file(&file_name, &empty_file_digest)
         .await
         .unwrap();
     opened.flush().await.unwrap();
     assert_eq!(
         DirectoryEntryMetaData::new(DirectoryEntryKind::File(0), modified),
-        directory.get_meta_data(file_name).await.unwrap()
+        directory.get_meta_data(&file_name).await.unwrap()
     );
     use futures::StreamExt;
     let directory_entries: Vec<MutableDirectoryEntry> = directory.read().await.collect().await;
     assert_eq!(
         &[MutableDirectoryEntry {
-            name: file_name.to_string(),
+            name: file_name,
             kind: DirectoryEntryKind::File(0),
             modified,
         }][..],
@@ -388,11 +392,11 @@ async fn test_read_directory_after_file_write() {
         test_clock,
         1,
     ));
-    let file_name = "test.txt";
+    let file_name = FileName::try_from("test.txt".to_string()).unwrap();
     let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let opened = directory
         .clone()
-        .open_file(file_name, &empty_file_digest)
+        .open_file(&file_name, &empty_file_digest)
         .await
         .unwrap();
     let write_permission = opened.get_write_permission();
@@ -405,7 +409,7 @@ async fn test_read_directory_after_file_write() {
     let directory_entries: Vec<MutableDirectoryEntry> = directory.read().await.collect().await;
     assert_eq!(
         &[MutableDirectoryEntry {
-            name: file_name.to_string(),
+            name: file_name,
             kind: DirectoryEntryKind::File(file_content.len() as u64),
             modified,
         }][..],
@@ -426,11 +430,11 @@ async fn test_get_meta_data_after_file_write() {
         test_clock,
         1,
     ));
-    let file_name = "test.txt";
+    let file_name = FileName::try_from("test.txt".to_string()).unwrap();
     let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let opened = directory
         .clone()
-        .open_file(file_name, &empty_file_digest)
+        .open_file(&file_name, &empty_file_digest)
         .await
         .unwrap();
     let write_permission = opened.get_write_permission();
@@ -444,13 +448,13 @@ async fn test_get_meta_data_after_file_write() {
             DirectoryEntryKind::File(file_content.len() as u64),
             modified
         ),
-        directory.get_meta_data(file_name).await.unwrap()
+        directory.get_meta_data(&file_name).await.unwrap()
     );
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DirectoryEntry {
-    pub name: String,
+    pub name: FileName,
     pub kind: DirectoryEntryKind,
     pub digest: BlobDigest,
 }
@@ -492,7 +496,7 @@ async fn test_read_empty_root() {
         None,
     );
     let mut directory = editor
-        .read_directory(NormalizedPath::new(relative_path::RelativePath::new("/")))
+        .read_directory(NormalizedPath::try_from(relative_path::RelativePath::new("/")).unwrap())
         .await
         .unwrap();
     let end = directory.next().await;
@@ -536,7 +540,7 @@ async fn test_get_meta_data_of_root() {
         None,
     );
     let meta_data = editor
-        .get_meta_data(NormalizedPath::new(relative_path::RelativePath::new("/")))
+        .get_meta_data(NormalizedPath::try_from(relative_path::RelativePath::new("/")).unwrap())
         .await
         .unwrap();
     assert_eq!(
@@ -555,12 +559,15 @@ async fn test_get_meta_data_of_non_normalized_path() {
         None,
     );
     let error = editor
-        .get_meta_data(NormalizedPath::new(relative_path::RelativePath::new(
-            "unknown.txt",
-        )))
+        .get_meta_data(
+            NormalizedPath::try_from(relative_path::RelativePath::new("unknown.txt")).unwrap(),
+        )
         .await
         .unwrap_err();
-    assert_eq!(Error::NotFound("unknown.txt".to_string()), error);
+    assert_eq!(
+        Error::NotFound(FileName::try_from("unknown.txt".to_string()).unwrap()),
+        error
+    );
 }
 
 #[test_log::test(tokio::test)]
@@ -573,12 +580,15 @@ async fn test_get_meta_data_of_unknown_path() {
         None,
     );
     let error = editor
-        .get_meta_data(NormalizedPath::new(relative_path::RelativePath::new(
-            "/unknown.txt",
-        )))
+        .get_meta_data(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/unknown.txt")).unwrap(),
+        )
         .await
         .unwrap_err();
-    assert_eq!(Error::NotFound("unknown.txt".to_string()), error);
+    assert_eq!(
+        Error::NotFound(FileName::try_from("unknown.txt".to_string()).unwrap()),
+        error
+    );
 }
 
 #[test_log::test(tokio::test)]
@@ -591,12 +601,16 @@ async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
         None,
     );
     let error = editor
-        .get_meta_data(NormalizedPath::new(relative_path::RelativePath::new(
-            "/unknown/file.txt",
-        )))
+        .get_meta_data(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/unknown/file.txt"))
+                .unwrap(),
+        )
         .await
         .unwrap_err();
-    assert_eq!(Error::NotFound("unknown".to_string()), error);
+    assert_eq!(
+        Error::NotFound(FileName::try_from("unknown".to_string()).unwrap()),
+        error
+    );
 }
 
 #[test_log::test(tokio::test)]
@@ -604,7 +618,7 @@ async fn test_read_directory_on_closed_regular_file() {
     let editor = TreeEditor::new(
         Arc::new(open_directory_from_entries(
             vec![DirectoryEntry {
-                name: "test.txt".to_string(),
+                name: FileName::try_from("test.txt".to_string()).unwrap(),
                 kind: DirectoryEntryKind::File(4),
                 digest: BlobDigest::hash(b"TEST"),
             }],
@@ -613,13 +627,13 @@ async fn test_read_directory_on_closed_regular_file() {
         None,
     );
     let result = editor
-        .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
-            "/test.txt",
-        )))
+        .read_directory(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test.txt")).unwrap(),
+        )
         .await;
     assert_eq!(
         Some(Error::CannotOpenRegularFileAsDirectory(
-            "test.txt".to_string()
+            FileName::try_from("test.txt".to_string()).unwrap()
         )),
         result.err()
     );
@@ -627,12 +641,11 @@ async fn test_read_directory_on_closed_regular_file() {
 
 #[test_log::test(tokio::test)]
 async fn test_read_directory_on_open_regular_file() {
-    use relative_path::RelativePath;
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
         Arc::new(open_directory_from_entries(
             vec![DirectoryEntry {
-                name: "test.txt".to_string(),
+                name: FileName::try_from("test.txt".to_string()).unwrap(),
                 kind: DirectoryEntryKind::File(0),
                 digest: BlobDigest::hash(b""),
             }],
@@ -641,15 +654,17 @@ async fn test_read_directory_on_open_regular_file() {
         None,
     );
     let _open_file = editor
-        .open_file(NormalizedPath::new(RelativePath::new("/test.txt")))
+        .open_file(NormalizedPath::try_from(relative_path::RelativePath::new("/test.txt")).unwrap())
         .await
         .unwrap();
     let result = editor
-        .read_directory(NormalizedPath::new(RelativePath::new("/test.txt")))
+        .read_directory(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test.txt")).unwrap(),
+        )
         .await;
     assert_eq!(
         Some(Error::CannotOpenRegularFileAsDirectory(
-            "test.txt".to_string()
+            FileName::try_from("test.txt".to_string()).unwrap()
         )),
         result.err()
     );
@@ -658,22 +673,23 @@ async fn test_read_directory_on_open_regular_file() {
 #[test_log::test(tokio::test)]
 async fn test_create_directory() {
     use futures::StreamExt;
-    use relative_path::RelativePath;
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
     editor
-        .create_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .create_directory(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
+        )
         .await
         .unwrap();
     let mut reading = editor
-        .read_directory(NormalizedPath::new(RelativePath::new("/")))
+        .read_directory(NormalizedPath::try_from(relative_path::RelativePath::new("/")).unwrap())
         .await
         .unwrap();
     let entry: MutableDirectoryEntry = reading.next().await.unwrap();
     assert_eq!(
         MutableDirectoryEntry {
-            name: "test".to_string(),
+            name: FileName::try_from("test".to_string()).unwrap(),
             kind: DirectoryEntryKind::Directory,
             modified,
         },
@@ -686,15 +702,18 @@ async fn test_create_directory() {
 #[test_log::test(tokio::test)]
 async fn test_read_created_directory() {
     use futures::StreamExt;
-    use relative_path::RelativePath;
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
     editor
-        .create_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .create_directory(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
+        )
         .await
         .unwrap();
     let mut reading = editor
-        .read_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .read_directory(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
+        )
         .await
         .unwrap();
     let end = reading.next().await;
@@ -704,23 +723,26 @@ async fn test_read_created_directory() {
 #[test_log::test(tokio::test)]
 async fn test_nested_create_directory() {
     use futures::StreamExt;
-    use relative_path::RelativePath;
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
     editor
-        .create_directory(NormalizedPath::new(RelativePath::new("/test")))
+        .create_directory(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
+        )
         .await
         .unwrap();
     editor
-        .create_directory(NormalizedPath::new(RelativePath::new("/test/subdir")))
+        .create_directory(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test/subdir")).unwrap(),
+        )
         .await
         .unwrap();
     {
         let mut reading = editor
-            .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
-                "/test/subdir",
-            )))
+            .read_directory(
+                NormalizedPath::try_from(relative_path::RelativePath::new("/test/subdir")).unwrap(),
+            )
             .await
             .unwrap();
         let end = reading.next().await;
@@ -728,15 +750,15 @@ async fn test_nested_create_directory() {
     }
     {
         let mut reading = editor
-            .read_directory(NormalizedPath::new(relative_path::RelativePath::new(
-                "/test",
-            )))
+            .read_directory(
+                NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
+            )
             .await
             .unwrap();
         let entry: MutableDirectoryEntry = reading.next().await.unwrap();
         assert_eq!(
             MutableDirectoryEntry {
-                name: "subdir".to_string(),
+                name: FileName::try_from("subdir".to_string()).unwrap(),
                 kind: DirectoryEntryKind::Directory,
                 modified,
             },
@@ -747,13 +769,15 @@ async fn test_nested_create_directory() {
     }
     {
         let mut reading = editor
-            .read_directory(NormalizedPath::new(relative_path::RelativePath::new("/")))
+            .read_directory(
+                NormalizedPath::try_from(relative_path::RelativePath::new("/")).unwrap(),
+            )
             .await
             .unwrap();
         let entry: MutableDirectoryEntry = reading.next().await.unwrap();
         assert_eq!(
             MutableDirectoryEntry {
-                name: "test".to_string(),
+                name: FileName::try_from("test".to_string()).unwrap(),
                 kind: DirectoryEntryKind::Directory,
                 modified,
             },
