@@ -90,6 +90,10 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
             error!("Serialization failed: {}", message);
             dav_server::fs::FsError::GeneralFailure
         }
+        dogbox_tree_editor::Error::FileRemoved => {
+            error!("File was removed");
+            dav_server::fs::FsError::NotFound
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 use astraea::{
-    storage::{CommitChanges, LoadRoot, SQLiteStorage, UpdateRoot},
+    storage::{CollectGarbage, CommitChanges, LoadRoot, SQLiteStorage, UpdateRoot},
     tree::TREE_BLOB_MAX_LENGTH,
 };
 use dav_server::{fakels::FakeLs, DavHandler};
@@ -195,6 +195,7 @@ async fn persist_root_on_change(
     root_name: &str,
     blob_storage_update: &(dyn UpdateRoot + Sync),
     blob_storage_commit: Arc<dyn CommitChanges + Sync + Send>,
+    blob_storage_collect_garbage: Arc<dyn CollectGarbage + Sync + Send>,
     save_status_sender: tokio::sync::mpsc::Sender<SaveStatus>,
 ) {
     let mut number_of_no_changes_in_a_row: u64 = 0;
@@ -229,10 +230,21 @@ async fn persist_root_on_change(
                     .update_root(root_name, &root_status.digest.last_known_digest)
                     .await;
                 tokio::task::spawn_blocking({
-                     let blob_storage_commit = blob_storage_commit.clone();
-                     move || {
-                         Handle::current().block_on(  blob_storage_commit.commit_changes()).unwrap(/*TODO*/);
-                }})
+                    let blob_storage_commit = blob_storage_commit.clone();
+                    let blob_storage_collect_garbage = blob_storage_collect_garbage.clone();
+                    move || {
+                        Handle::current().block_on(async move {
+                            blob_storage_commit.commit_changes().await.expect("TODO");
+                            let gc_stats = blob_storage_collect_garbage
+                                .collect_some_garbage()
+                                .await
+                                .expect("TODO");
+                            if gc_stats.trees_collected > 0 {
+                                info!("Garbage collected {} trees", gc_stats.trees_collected);
+                            }
+                        });
+                    }
+                })
                 .await
                 .unwrap();
             }
@@ -399,6 +411,7 @@ pub async fn run_dav_server(
                             root,
                             root_name,
                             &*blob_storage_database,
+                            blob_storage_database.clone(),
                             blob_storage_database.clone(),
                             save_status_sender,
                         )

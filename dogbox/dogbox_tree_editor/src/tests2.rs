@@ -4,7 +4,10 @@ use crate::{
     OpenFileContentBlock, OpenFileContentBuffer, OpenFileStats, OptimizedWriteBuffer, Prefetcher,
     StoreChanges, StreakDirection, TreeEditor,
 };
-use astraea::storage::{DelayedHashedTree, InMemoryTreeStorage, LoadTree, StoreError, StoreTree};
+use astraea::storage::{
+    CollectGarbage, DelayedHashedTree, GarbageCollectionStats, InMemoryTreeStorage, LoadTree,
+    SQLiteStorage, StoreError, StoreTree, UpdateRoot,
+};
 use astraea::tree::{calculate_reference, TreeChildren, TREE_MAX_CHILDREN};
 use astraea::{
     storage::LoadStoreTree,
@@ -415,6 +418,115 @@ async fn test_read_directory_after_file_write() {
         }][..],
         &directory_entries[..]
     );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_read_file_after_garbage_collection() {
+    let modified = test_clock();
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = Arc::new(SQLiteStorage::from(connection).unwrap());
+    let directory = Arc::new(OpenDirectory::new(
+        std::path::PathBuf::from("/"),
+        DigestStatus::new(*DUMMY_DIGEST, false),
+        BTreeMap::new(),
+        storage.clone(),
+        modified,
+        test_clock,
+        1,
+    ));
+    let empty_file_digest = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
+    let file_name = FileName::try_from("test.txt".to_string()).unwrap();
+    let file_content = random_bytes(32, 123);
+    {
+        let created_file = directory
+            .clone()
+            .open_file(&file_name, &empty_file_digest)
+            .await
+            .unwrap();
+        let write_permission = created_file.get_write_permission();
+        created_file
+            .write_bytes(
+                &write_permission,
+                0,
+                bytes::Bytes::copy_from_slice(&file_content[..]),
+            )
+            .await
+            .unwrap();
+        created_file.flush().await.unwrap();
+        // Close the file handle to drop the write buffers so that we will have to load the trees from storage again later.
+    }
+    // Reopen the file to load the content digests, but not the actual content trees.
+    let opened_file = directory
+        .clone()
+        .open_file(&file_name, &empty_file_digest)
+        .await
+        .unwrap();
+    let read_permission = opened_file.get_read_permission();
+    let write_permission = opened_file.get_write_permission();
+    // We remove the file and save the directory so that the open file is not reachable by name anymore.
+    directory.remove(&file_name).await.unwrap();
+    let directory_status = directory.request_save().await.unwrap();
+    assert_eq!(
+        &OpenDirectoryStatus::new(
+            DigestStatus::new(
+                BlobDigest::parse_hex_string(concat!(
+                    "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a27",
+                    "01a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
+                ))
+                .unwrap(),
+                true
+            ),
+            1,
+            0,
+            OpenFileStats::new(0, 0, 0, 0, 0),
+        ),
+        &directory_status
+    );
+    // Update the root so that the garbage collector won't collect the current version of the directory:
+    storage
+        .update_root("test", &directory_status.digest.last_known_digest)
+        .await;
+    // Trigger garbage collection:
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 2 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    match opened_file.flush().await {
+        Ok(_) => {
+            panic!("Flush succeeded expectedly");
+        }
+        // The garbage collector has collected the content of the removed file.
+        Err(err) => assert_eq!(err, Error::FileRemoved),
+    }
+    match opened_file
+        .read_bytes(&read_permission, 0, file_content.len())
+        .await
+    {
+        Ok(bytes) => {
+            panic!("Unexpectedly read file content: {:?}", bytes);
+        }
+        // The garbage collector has collected the content of the removed file.
+        Err(err) => assert_eq!(err, Error::FileRemoved),
+    }
+    match opened_file
+        .write_bytes(&write_permission, 0, bytes::Bytes::from_static(b"new data"))
+        .await
+    {
+        Ok(()) => {
+            panic!("Write succeeded expectedly");
+        }
+        // The garbage collector has collected the content of the removed file.
+        Err(err) => assert_eq!(err, Error::FileRemoved),
+    }
 }
 
 #[test_log::test(tokio::test)]

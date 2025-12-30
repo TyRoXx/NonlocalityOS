@@ -91,6 +91,17 @@ pub trait LoadRoot {
     async fn load_root(&self, name: &str) -> Option<BlobDigest>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GarbageCollectionStats {
+    pub trees_collected: u64,
+}
+
+#[async_trait]
+pub trait CollectGarbage {
+    async fn collect_some_garbage(&self)
+        -> std::result::Result<GarbageCollectionStats, StoreError>;
+}
+
 #[derive(Debug)]
 pub struct InMemoryTreeStorage {
     reference_to_tree: Mutex<BTreeMap<BlobDigest, HashedTree>>,
@@ -156,6 +167,7 @@ struct TransactionStats {
 struct SQLiteState {
     connection: rusqlite::Connection,
     transaction: Option<TransactionStats>,
+    has_gc_new_tree_table: bool,
 }
 
 impl SQLiteState {
@@ -173,6 +185,23 @@ impl SQLiteState {
             }
         }
     }
+
+    fn require_gc_new_tree_table(&mut self) -> std::result::Result<(), rusqlite::Error> {
+        if self.has_gc_new_tree_table {
+            Ok(())
+        } else {
+            self.connection.execute(
+                // unfortunately, we cannot have a foreign key in a temp table
+                "CREATE TEMP TABLE gc_new_tree (
+                    id INTEGER PRIMARY KEY NOT NULL,
+                    tree_id INTEGER UNIQUE NOT NULL
+                ) STRICT",
+                (),
+            )?;
+            self.has_gc_new_tree_table = true;
+            Ok(())
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -187,6 +216,7 @@ impl SQLiteStorage {
             state: Mutex::new(SQLiteState {
                 connection,
                 transaction: None,
+                has_gc_new_tree_table: false,
             }),
         })
     }
@@ -199,6 +229,8 @@ impl SQLiteStorage {
         // "The WAL journaling mode uses a write-ahead log instead of a rollback journal to implement transactions. The WAL journaling mode is persistent; after being set it stays in effect across multiple database connections and after closing and reopening the database. A database in WAL journaling mode can only be accessed by SQLite version 3.7.0 (2010-07-21) or later."
         // https://www.sqlite.org/wal.html
         connection.pragma_update(None, "journal_mode", "WAL")?;
+        // CREATE TEMP TABLE shall not create a file (https://sqlite.org/tempfiles.html)
+        connection.pragma_update(None, "temp_store", "MEMORY")?;
         Ok(())
     }
 
@@ -208,14 +240,14 @@ impl SQLiteStorage {
             // Answer is the SQLite error: "parameters prohibited in CHECK constraints" (because why should anything ever work)
             let query = format!(
                 "CREATE TABLE tree (
-                id INTEGER PRIMARY KEY NOT NULL,
-                digest BLOB UNIQUE NOT NULL,
-                tree_blob BLOB NOT NULL,
-                is_compressed INTEGER NOT NULL,
-                CONSTRAINT digest_length_matches_sha3_512 CHECK (LENGTH(digest) == 64),
-                CONSTRAINT tree_blob_max_length CHECK (LENGTH(tree_blob) <= {TREE_BLOB_MAX_LENGTH}),
-                CONSTRAINT is_compressed_boolean CHECK (is_compressed IN (0, 1))
-            ) STRICT"
+                    id INTEGER PRIMARY KEY NOT NULL,
+                    digest BLOB UNIQUE NOT NULL,
+                    tree_blob BLOB NOT NULL,
+                    is_compressed INTEGER NOT NULL,
+                    CONSTRAINT digest_length_matches_sha3_512 CHECK (LENGTH(digest) == 64),
+                    CONSTRAINT tree_blob_max_length CHECK (LENGTH(tree_blob) <= {TREE_BLOB_MAX_LENGTH}),
+                    CONSTRAINT is_compressed_boolean CHECK (is_compressed IN (0, 1))
+                ) STRICT"
             );
             connection
                 .execute(&query, ())
@@ -224,13 +256,13 @@ impl SQLiteStorage {
         connection
             .execute(
                 "CREATE TABLE reference (
-                id INTEGER PRIMARY KEY NOT NULL,
-                origin INTEGER NOT NULL REFERENCES tree,
-                zero_based_index INTEGER NOT NULL,
-                target BLOB NOT NULL,
-                UNIQUE (origin, zero_based_index),
-                CONSTRAINT digest_length_matches_sha3_512 CHECK (LENGTH(target) == 64)
-            ) STRICT",
+                    id INTEGER PRIMARY KEY NOT NULL,
+                    origin INTEGER NOT NULL REFERENCES tree ON DELETE CASCADE,
+                    zero_based_index INTEGER NOT NULL,
+                    target BLOB NOT NULL,
+                    UNIQUE (origin, zero_based_index),
+                    CONSTRAINT digest_length_matches_sha3_512 CHECK (LENGTH(target) == 64)
+                ) STRICT",
                 (),
             )
             .map(|size| assert_eq!(0, size))?;
@@ -243,11 +275,11 @@ impl SQLiteStorage {
         connection
             .execute(
                 "CREATE TABLE root (
-                id INTEGER PRIMARY KEY NOT NULL,
-                name TEXT UNIQUE NOT NULL,
-                target BLOB NOT NULL,
-                CONSTRAINT target_length_matches_sha3_512 CHECK (LENGTH(target) == 64)
-            ) STRICT",
+                    id INTEGER PRIMARY KEY NOT NULL,
+                    name TEXT UNIQUE NOT NULL,
+                    target BLOB NOT NULL,
+                    CONSTRAINT target_length_matches_sha3_512 CHECK (LENGTH(target) == 64)
+                ) STRICT",
                 (),
             )
             .map(|size| assert_eq!(0, size))?;
@@ -279,6 +311,8 @@ impl StoreTree for SQLiteStorage {
             }
         }
 
+        state_locked.require_gc_new_tree_table().expect("TODO");
+
         state_locked.require_transaction(1 + tree.tree().children().references().len() as u64).unwrap(/*TODO*/);
         let connection_locked = &state_locked.connection;
 
@@ -295,12 +329,26 @@ impl StoreTree for SQLiteStorage {
             (original_blob, 0)
         };
 
-        let mut statement = connection_locked.prepare_cached(
-            "INSERT INTO tree (digest, tree_blob, is_compressed) VALUES (?1, ?2, ?3)").unwrap(/*TODO*/);
-        let rows_inserted = statement.execute(
-            (&origin_digest, blob_to_store, &is_compressed),
-        ).unwrap(/*TODO*/);
-        assert_eq!(1, rows_inserted);
+        {
+            let mut statement = connection_locked.prepare_cached(
+                "INSERT INTO tree (digest, tree_blob, is_compressed) VALUES (?1, ?2, ?3)").unwrap(/*TODO*/);
+            let rows_inserted = statement.execute(
+                (&origin_digest, blob_to_store, &is_compressed),
+            ).unwrap(/*TODO*/);
+            assert_eq!(1, rows_inserted);
+        }
+
+        let tree_id: i64 = {
+            let mut statement = connection_locked
+                .prepare_cached("SELECT id FROM tree WHERE digest = ?1")
+                .expect("TODO");
+            statement
+                .query_row(
+                    (&origin_digest,),
+                    |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
+                )
+                .expect("TODO")
+        };
 
         if !tree.tree().children().references().is_empty() {
             let inserted_tree_rowid = connection_locked.last_insert_rowid();
@@ -314,6 +362,12 @@ impl StoreTree for SQLiteStorage {
                 assert_eq!(1, rows_inserted);
             }
         }
+
+        let mut statement = connection_locked
+            .prepare_cached("INSERT OR IGNORE INTO gc_new_tree (tree_id) VALUES (?1)")
+            .expect("TODO");
+        let rows_inserted = statement.execute((&tree_id,)).expect("TODO");
+        assert!(rows_inserted <= 1);
 
         Ok(reference)
     }
@@ -421,6 +475,63 @@ impl UpdateRoot for SQLiteStorage {
             "INSERT INTO root (name, target) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET target = ?2;",
             (&name, &target_array),
         ).unwrap(/*TODO*/);
+    }
+}
+
+#[instrument(skip_all)]
+fn collect_garbage(connection: &rusqlite::Connection) -> rusqlite::Result<GarbageCollectionStats> {
+    let deleted_trees = connection.execute(
+        "DELETE FROM tree
+        WHERE NOT EXISTS (
+            SELECT 1 FROM reference
+            WHERE reference.target = tree.digest
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM gc_new_tree
+            WHERE gc_new_tree.tree_id = tree.id
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM root
+            WHERE root.target = tree.digest
+        );",
+        (),
+    )?;
+    let deleted_new_trees = connection.execute("DELETE FROM gc_new_tree;", ())?;
+    debug!(
+        "Garbage collection deleted {} unreferenced trees (using {} new tree entries)",
+        deleted_trees, deleted_new_trees
+    );
+    Ok(GarbageCollectionStats {
+        trees_collected: deleted_trees as u64,
+    })
+}
+
+#[async_trait]
+impl CollectGarbage for SQLiteStorage {
+    async fn collect_some_garbage(
+        &self,
+    ) -> std::result::Result<GarbageCollectionStats, StoreError> {
+        let mut state_locked = self.state.lock().await;
+        match state_locked.require_gc_new_tree_table() {
+            Ok(()) => {}
+            Err(err) => {
+                error!("Failed to require gc_new_tree table: {}", err);
+                return Err(StoreError::Rusqlite(format!("{:?}", &err)));
+            }
+        }
+        let connection_locked = &state_locked.connection;
+        match collect_garbage(connection_locked) {
+            Ok(stats) => {
+                state_locked
+                    .require_transaction(stats.trees_collected)
+                    .expect("TODO");
+                Ok(stats)
+            }
+            Err(err) => {
+                error!("Failed to collect garbage: {}", err);
+                Err(StoreError::Rusqlite(format!("{:?}", &err)))
+            }
+        }
     }
 }
 

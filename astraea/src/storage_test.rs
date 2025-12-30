@@ -1,5 +1,8 @@
 use crate::{
-    storage::{CommitChanges, LoadRoot, LoadTree, SQLiteStorage, StoreTree, UpdateRoot},
+    storage::{
+        CollectGarbage, CommitChanges, GarbageCollectionStats, LoadRoot, LoadTree, SQLiteStorage,
+        StoreTree, UpdateRoot,
+    },
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
 use bytes::Bytes;
@@ -391,4 +394,40 @@ async fn test_compression_load_corrupted_blob() {
     let storage = SQLiteStorage::from(connection).unwrap();
     let loaded_back = storage.load_tree(&reference).await;
     assert!(loaded_back.is_none());
+}
+
+#[test_log::test(tokio::test)]
+async fn test_collect_garbage() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+        .await
+        .unwrap();
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 1 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    let digest = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+        .await
+        .unwrap();
+    storage.update_root("test", &digest).await;
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
 }

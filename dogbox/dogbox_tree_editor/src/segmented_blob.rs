@@ -7,7 +7,6 @@ use astraea::{
 };
 use dogbox_tree::serialization::{DeserializationError, SegmentedBlob};
 use std::sync::Arc;
-use tracing::info;
 
 pub async fn save_segmented_blob(
     segments: &[BlobDigest],
@@ -91,7 +90,6 @@ pub async fn load_segmented_blob(
     digest: &BlobDigest,
     storage: &(dyn LoadTree + Send + Sync),
 ) -> std::result::Result<(Vec<BlobDigest>, u64), DeserializationError> {
-    info!("load_segmented_blob: {}", digest);
     let delayed_tree = match storage.load_tree(digest).await {
         Some(loaded) => loaded,
         None => return Err(DeserializationError::MissingTree(*digest)),
@@ -106,9 +104,7 @@ pub async fn load_segmented_blob(
     } else {
         let info: SegmentedBlob =
             postcard::from_bytes(tree.blob().as_slice()).map_err(DeserializationError::Postcard)?;
-        info!("Info size_in_bytes: {}", info.size_in_bytes);
         let capacity = (tree.children().references().len() as u64) * (TREE_BLOB_MAX_LENGTH as u64);
-        info!("Capacity: {}", capacity);
         if info.size_in_bytes <= capacity {
             let segments = tree.children().references().to_vec();
             return Ok((segments, info.size_in_bytes));
@@ -116,22 +112,18 @@ pub async fn load_segmented_blob(
         let mut remaining_size = info.size_in_bytes;
         let mut all_segments = Vec::new();
         for segment_digest in tree.children().references().iter() {
-            info!("Remaining size: {}", remaining_size);
             if remaining_size == 0 {
                 return Err(DeserializationError::Inconsistency(
                     "Segmented blob has more segments than needed for the total size.".to_string(),
                 ));
             }
             if remaining_size <= TREE_BLOB_MAX_LENGTH as u64 {
-                info!("Short segment");
                 all_segments.push(*segment_digest);
                 remaining_size = 0;
             } else {
-                info!("Recursive segment");
                 let (mut loaded_segments, segment_size) =
                     Box::pin(load_segmented_blob(segment_digest, storage)).await?;
                 all_segments.append(&mut loaded_segments);
-                info!("Subtracting segment size: {}", segment_size);
                 remaining_size = match remaining_size.checked_sub(segment_size) {
                     Some(size) => size,
                     None => {

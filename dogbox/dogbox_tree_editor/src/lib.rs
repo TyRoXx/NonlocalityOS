@@ -50,6 +50,7 @@ pub enum Error {
     Deserialization(DeserializationError),
     OtherDeserializationError(String),
     OtherSerializationError(String),
+    FileRemoved,
 }
 
 impl std::fmt::Display for Error {
@@ -265,7 +266,7 @@ impl NamedEntry {
                 ))
             }
             NamedEntry::OpenRegularFile(arc, _receiver) => Ok(NamedEntryStatus::Open(
-                OpenNamedEntryStatus::File(arc.request_save().await.map_err(Error::Storage)?),
+                OpenNamedEntryStatus::File(arc.request_save().await?),
             )),
             NamedEntry::OpenSubdirectory(arc, _receiver) => Ok(NamedEntryStatus::Open(
                 OpenNamedEntryStatus::Directory(arc.request_save().await?),
@@ -310,6 +311,20 @@ impl NamedEntry {
                     }
                 }
                 stats
+            }
+        }
+    }
+
+    async fn close_after_removal(self) {
+        match self {
+            NamedEntry::NotOpen(_, _) => {
+                // nothing to do because `self` will be dropped anyway
+            }
+            NamedEntry::OpenRegularFile(arc, _receiver) => {
+                arc.close_after_removal().await;
+            }
+            NamedEntry::OpenSubdirectory(arc, _receiver) => {
+                arc.close_after_removal().await;
             }
         }
     }
@@ -695,7 +710,7 @@ impl OpenDirectory {
         match state_locked.names.get(&name) {
             Some(_found) => todo!(),
             None => {
-                info!(
+                debug!(
                     "Creating directory {} sends a change event for its parent directory.",
                     &name
                 );
@@ -723,13 +738,24 @@ impl OpenDirectory {
     pub async fn remove(&self, name_here: &FileName) -> Result<()> {
         let mut state_locked = self.state.lock().await;
         state_locked.record_access((self.clock)());
-        if !state_locked.names.contains_key(name_here) {
-            return Err(Error::NotFound(name_here.clone()));
+        match state_locked.names.remove(name_here) {
+            Some(removed_entry) => {
+                removed_entry.close_after_removal().await;
+            }
+            None => {
+                return Err(Error::NotFound(name_here.clone()));
+            }
         }
-
-        state_locked.names.remove(name_here);
         Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
         Ok(())
+    }
+
+    async fn close_after_removal(&self) {
+        let mut state_locked = self.state.lock().await;
+        let names = std::mem::take(&mut state_locked.names);
+        for (_name, entry) in names.into_iter() {
+            Box::pin(entry.close_after_removal()).await;
+        }
     }
 
     pub async fn copy(
@@ -773,9 +799,7 @@ impl OpenDirectory {
         );
 
         let old_entry = state_locked.names.get(name_here).unwrap();
-        let new_entry = Self::copy_named_entry(old_entry, self.clock)
-            .await
-            .map_err(Error::Storage)?;
+        let new_entry = Self::copy_named_entry(old_entry, self.clock).await?;
         match state_there_locked {
             Some(ref mut value) => {
                 Self::write_into_directory(self.clone(), value, name_there, new_entry)
@@ -796,7 +820,7 @@ impl OpenDirectory {
     async fn copy_named_entry(
         original: &NamedEntry,
         clock: WallClock,
-    ) -> std::result::Result<NamedEntry, StoreError> {
+    ) -> std::result::Result<NamedEntry, Error> {
         match original {
             NamedEntry::NotOpen(directory_entry_meta_data, blob_digest) => Ok(NamedEntry::NotOpen(
                 *directory_entry_meta_data,
@@ -1087,7 +1111,7 @@ impl OpenDirectory {
                 .as_secs()
                 >= 60
             {
-                info!(
+                debug!(
                     "{}: Dropping directory read cache as it has been unused for at least 60 seconds.",
                     self.original_path.display()
                 );
@@ -2285,6 +2309,12 @@ impl OpenFileContentBuffer {
 }
 
 #[derive(Debug)]
+struct OpenFileMutableState {
+    content: OpenFileContentBuffer,
+    storage: Option<Arc<dyn LoadStoreTree + Send + Sync>>,
+}
+
+#[derive(Debug)]
 pub struct OpenFileReadPermission {}
 
 #[derive(Debug)]
@@ -2292,8 +2322,7 @@ pub struct OpenFileWritePermission {}
 
 #[derive(Debug)]
 pub struct OpenFile {
-    content: tokio::sync::Mutex<OpenFileContentBuffer>,
-    storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    state: tokio::sync::Mutex<OpenFileMutableState>,
     change_event_sender: tokio::sync::watch::Sender<OpenFileStatus>,
     _change_event_receiver: tokio::sync::watch::Receiver<OpenFileStatus>,
     modified: std::time::SystemTime,
@@ -2317,8 +2346,10 @@ impl OpenFile {
             0,
         ));
         OpenFile {
-            content: tokio::sync::Mutex::new(content),
-            storage,
+            state: tokio::sync::Mutex::new(OpenFileMutableState {
+                content,
+                storage: Some(storage),
+            }),
             change_event_sender: sender,
             _change_event_receiver: receiver,
             modified,
@@ -2332,21 +2363,21 @@ impl OpenFile {
     }
 
     pub async fn size(&self) -> u64 {
-        self.content.lock().await.size()
+        self.state.lock().await.content.size()
     }
 
     pub async fn get_meta_data(&self) -> DirectoryEntryMetaData {
         DirectoryEntryMetaData::new(DirectoryEntryKind::File(self.size().await), self.modified)
     }
 
-    pub async fn request_save(&self) -> std::result::Result<OpenFileStatus, StoreError> {
+    pub async fn request_save(&self) -> std::result::Result<OpenFileStatus, Error> {
         debug!("Requesting save on an open file. Will try to flush it.");
         self.flush().await
     }
 
     pub async fn last_known_digest(&self) -> (DigestStatus, u64) {
-        let content_locked = self.content.lock().await;
-        content_locked.last_known_digest()
+        let state_locked = self.state.lock().await;
+        state_locked.content.last_known_digest()
     }
 
     fn is_open_for_reading(read_permission: &Arc<OpenFileReadPermission>) -> bool {
@@ -2453,14 +2484,22 @@ impl OpenFile {
         debug!("Write at {}: {} bytes", position, buf.len());
         Box::pin(async move {
             let write_buffer = OptimizedWriteBuffer::from_bytes(position, buf).await;
-            let mut content_locked = self.content.lock().await;
-            let write_result = content_locked
-                .write(position, write_buffer, self.storage.clone())
+            let mut state_locked = self.state.lock().await;
+            let storage = match state_locked.storage.as_ref() {
+                Some(storage) => storage.clone(),
+                None => {
+                    warn!("Cannot write to a removed file");
+                    return Err(Error::FileRemoved);
+                }
+            };
+            let write_result = state_locked
+                .content
+                .write(position, write_buffer, storage)
                 .await;
             debug!("Writing to file sends a change event for this file.");
             let update_result = Self::update_status(
                 &self.change_event_sender,
-                &content_locked,
+                &state_locked.content,
                 &self.read_permission,
                 &self.write_permission,
             )
@@ -2482,9 +2521,17 @@ impl OpenFile {
         self.assert_read_permission(read_permission);
         debug!("Read at {}: Up to {} bytes", position, count);
         Box::pin(async move {
-            let mut content_locked = self.content.lock().await;
-            let read_result = content_locked
-                .read(position, count, self.storage.clone())
+            let mut state_locked = self.state.lock().await;
+            let storage = match state_locked.storage.as_ref() {
+                Some(storage) => storage.clone(),
+                None => {
+                    warn!("Cannot read from a removed file");
+                    return Err(Error::FileRemoved);
+                }
+            };
+            let read_result = state_locked
+                .content
+                .read(position, count, storage)
                 .await
                 .inspect(|bytes_read| debug!("Read {} bytes", bytes_read.len()))?;
             assert!(read_result.len() <= count);
@@ -2493,18 +2540,34 @@ impl OpenFile {
     }
 
     //#[instrument(skip(self))]
-    pub async fn flush(&self) -> std::result::Result<OpenFileStatus, StoreError> {
+    pub async fn flush(&self) -> std::result::Result<OpenFileStatus, Error> {
         debug!("Flushing open file");
-        let mut content_locked = self.content.lock().await;
-        match content_locked.store_all(self.storage.clone()).await? {
+        let mut state_locked = self.state.lock().await;
+        let storage = match state_locked.storage.as_ref() {
+            Some(storage) => storage.clone(),
+            None => {
+                warn!("Cannot flush a removed file");
+                return Err(Error::FileRemoved);
+            }
+        };
+        match state_locked
+            .content
+            .store_all(storage)
+            .await
+            .map_err(Error::Storage)?
+        {
             StoreChanges::SomeChanges => {
-                Self::update_status(
+                match Self::update_status(
                     &self.change_event_sender,
-                    &content_locked,
+                    &state_locked.content,
                     &self.read_permission,
                     &self.write_permission,
                 )
                 .await
+                {
+                    Ok(status) => Ok(status),
+                    Err(error) => Err(Error::Storage(error)),
+                }
             }
             StoreChanges::NoChanges => Ok(*self.change_event_sender.borrow()),
         }
@@ -2520,8 +2583,8 @@ impl OpenFile {
     ) -> std::result::Result<(), Error> {
         self.assert_write_permission(write_permission);
         debug!("Truncating a file sends a change event for this file.");
-        let mut content_locked = self.content.lock().await;
-        let write_buffer_in_blocks = match &*content_locked {
+        let mut state_locked = self.state.lock().await;
+        let write_buffer_in_blocks = match &state_locked.content {
             OpenFileContentBuffer::NotLoaded {
                 digest: _,
                 size: _,
@@ -2531,8 +2594,9 @@ impl OpenFile {
                 open_file_content_buffer_loaded.write_buffer_in_blocks
             }
         };
-        let (last_known_digest, last_known_digest_file_size) = content_locked.last_known_digest();
-        *content_locked = OpenFileContentBuffer::from_data(
+        let (last_known_digest, last_known_digest_file_size) =
+            state_locked.content.last_known_digest();
+        state_locked.content = OpenFileContentBuffer::from_data(
             Vec::new(),
             last_known_digest.last_known_digest,
             last_known_digest_file_size,
@@ -2541,7 +2605,7 @@ impl OpenFile {
         .unwrap();
         let _update_result = Self::update_status(
             &self.change_event_sender,
-            &content_locked,
+            &state_locked.content,
             &self.read_permission,
             &self.write_permission,
         )
@@ -2551,13 +2615,18 @@ impl OpenFile {
     }
 
     async fn drop_all_read_caches(&self) -> CacheDropStats {
-        let mut content_locked = self.content.lock().await;
-        let mut stats = content_locked.drop_all_read_caches().await;
+        let mut state_locked = self.state.lock().await;
+        let mut stats = state_locked.content.drop_all_read_caches().await;
         assert_eq!(0, stats.open_files_closed);
         assert_eq!(0, stats.open_directories_closed);
         assert_eq!(0, stats.files_and_directories_remaining_open);
         stats.files_and_directories_remaining_open += 1;
         stats
+    }
+
+    async fn close_after_removal(&self) {
+        let mut state_locked = self.state.lock().await;
+        state_locked.storage = None;
     }
 }
 
