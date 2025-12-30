@@ -75,6 +75,14 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
                 }
             }
         }
+        dogbox_tree_editor::Error::OtherDeserializationError(message) => {
+            error!("Deserialization failed: {}", message);
+            dav_server::fs::FsError::GeneralFailure
+        }
+        dogbox_tree_editor::Error::OtherSerializationError(message) => {
+            error!("Serialization failed: {}", message);
+            dav_server::fs::FsError::GeneralFailure
+        }
     }
 }
 

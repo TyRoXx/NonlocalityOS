@@ -83,7 +83,7 @@ async fn test_serialize_directory_empty() {
     assert_eq!(1, storage.number_of_trees().await);
     assert_eq!(
         BlobDigest::parse_hex_string(
-            "735a02ee9ca2990d0e4a464e2512dbc35f3d4d15addb0faa60813203b5dd5b01e22f13ba911e23f629267dd39a1622c45288c3ff5d627cb85e7fb2519f0fd0c3"
+            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
         )
         .unwrap(),
         result

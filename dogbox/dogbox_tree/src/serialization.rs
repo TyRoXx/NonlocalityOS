@@ -1,11 +1,8 @@
-use astraea::{
-    storage::LoadStoreTree,
-    tree::{BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob, TreeChildren},
-};
-use bytes::Bytes;
+use astraea::{storage::LoadStoreTree, tree::BlobDigest};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, sync::Arc};
-use tracing::debug;
+use sorted_tree::prolly_tree_editable_node::{self, Iterator};
+use std::collections::BTreeMap;
+use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 #[serde(try_from = "String")]
@@ -110,32 +107,48 @@ pub enum DirectoryEntryKind {
     File(u64),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum ReferenceIndexOrInlineContent {
-    Indirect(ReferenceIndex),
-    Direct(Vec<u8>),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone)]
 pub struct DirectoryEntry {
     pub kind: DirectoryEntryKind,
-    pub content: ReferenceIndexOrInlineContent,
+    pub child: sorted_tree::sorted_tree::TreeReference,
 }
 
-impl DirectoryEntry {
-    pub fn new(kind: DirectoryEntryKind, content: ReferenceIndexOrInlineContent) -> DirectoryEntry {
-        DirectoryEntry { kind, content }
+impl sorted_tree::sorted_tree::NodeValue for DirectoryEntry {
+    type Content = DirectoryEntryKind;
+
+    fn has_child(_content: &Self::Content) -> bool {
+        // Each directory entry points to either a file or a subdirectory. Both are represented by a child reference.
+        true
+    }
+
+    fn from_content(content: Self::Content, child: &Option<BlobDigest>) -> Self {
+        match child {
+            Some(reference) => DirectoryEntry {
+                kind: content,
+                child: sorted_tree::sorted_tree::TreeReference::new(*reference),
+            },
+            None => unreachable!("DirectoryEntry must have a child reference"),
+        }
+    }
+
+    fn to_content(&self) -> Self::Content {
+        self.kind
+    }
+
+    fn get_reference(&self) -> Option<BlobDigest> {
+        Some(*self.child.reference())
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DirectoryTree {
-    pub children: std::collections::BTreeMap<FileName, DirectoryEntry>,
-}
-
-impl DirectoryTree {
-    pub fn new(children: std::collections::BTreeMap<FileName, DirectoryEntry>) -> DirectoryTree {
-        DirectoryTree { children }
+impl DirectoryEntry {
+    pub fn new(
+        kind: DirectoryEntryKind,
+        content: sorted_tree::sorted_tree::TreeReference,
+    ) -> DirectoryEntry {
+        DirectoryEntry {
+            kind,
+            child: content,
+        }
     }
 }
 
@@ -152,82 +165,39 @@ impl std::fmt::Display for DeserializationError {
     }
 }
 
+impl std::error::Error for DeserializationError {}
+
 pub async fn serialize_directory(
     entries: &BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)>,
     storage: &(dyn LoadStoreTree + Send + Sync),
 ) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
-    let mut serialization_children = std::collections::BTreeMap::new();
-    let mut serialization_references = Vec::new();
+    let mut prolly_tree = ProllyTree::new();
     for (name, (kind, digest)) in entries.iter() {
-        let reference_index = ReferenceIndex(serialization_references.len() as u64);
-        serialization_references.push(*digest);
-        serialization_children.insert(
-            name.clone(),
-            DirectoryEntry {
-                kind: *kind,
-                content: ReferenceIndexOrInlineContent::Indirect(reference_index),
-            },
-        );
+        prolly_tree
+            .insert(
+                name.clone(),
+                DirectoryEntry::new(*kind, sorted_tree::sorted_tree::TreeReference::new(*digest)),
+                storage,
+            )
+            .await?;
     }
-    if serialization_children.len() > 5 {
-        debug!(
-            "Saving directory with {} entries",
-            serialization_children.len()
-        );
-        debug!("Saving directory: {:?}", &serialization_children);
-    } else {
-        debug!("Saving directory: {:?}", &serialization_children);
+    if entries.len() > 5 {
+        info!("Saving directory with {} entries", entries.len());
     }
-    let maybe_tree_blob = TreeBlob::try_from(Bytes::from(postcard::to_allocvec(&DirectoryTree {
-        children: serialization_children,
-    })?));
-    let children = match TreeChildren::try_from(serialization_references) {
-        Some(children) => children,
-        None => return Err("Too many directory entries".into()),
-    };
-    match maybe_tree_blob {
-        Ok(tree_blob) => Ok(storage
-            .store_tree(&HashedTree::from(Arc::new(Tree::new(tree_blob, children))))
-            .await?),
-        Err(error) => Err(error.into()),
-    }
+    prolly_tree.save(storage).await
 }
+
+type ProllyTree = prolly_tree_editable_node::EditableNode<FileName, DirectoryEntry>;
 
 pub async fn deserialize_directory(
     storage: &(dyn LoadStoreTree + Send + Sync),
     digest: &BlobDigest,
-) -> Result<BTreeMap<String, (DirectoryEntryKind, BlobDigest)>, DeserializationError> {
-    let delayed_loaded = match storage.load_tree(digest).await {
-        Some(delayed_loaded) => delayed_loaded,
-        None => return Err(DeserializationError::MissingTree(*digest)),
-    };
-    let loaded = match delayed_loaded.hash() {
-        Some(hashed) => hashed,
-        None => return Err(DeserializationError::MissingTree(*digest)),
-    };
-    let parsed_directory: DirectoryTree =
-        match postcard::from_bytes(loaded.tree().blob().as_slice()) {
-            Ok(success) => success,
-            Err(error) => return Err(DeserializationError::Postcard(error)),
-        };
-    debug!(
-        "Loading directory with {} entries",
-        parsed_directory.children.len()
-    );
+) -> Result<BTreeMap<String, (DirectoryEntryKind, BlobDigest)>, Box<dyn std::error::Error>> {
+    let mut prolly_tree = ProllyTree::load(digest, storage).await?;
     let mut result = BTreeMap::new();
-    for child in parsed_directory.children {
-        match &child.1.content {
-            ReferenceIndexOrInlineContent::Indirect(reference_index) => {
-                let index: usize = usize::try_from(reference_index.0)
-                    .map_err(|_error| DeserializationError::ReferenceIndexOutOfRange)?;
-                if index >= loaded.tree().children().references().len() {
-                    return Err(DeserializationError::ReferenceIndexOutOfRange);
-                }
-                let digest = loaded.tree().children().references()[index];
-                result.insert(child.0.clone().into(), (child.1.kind, digest));
-            }
-            ReferenceIndexOrInlineContent::Direct(_vec) => todo!(),
-        }
+    let mut iterator = Iterator::new(&mut prolly_tree, storage);
+    while let Some((name, entry)) = iterator.next().await? {
+        result.insert(name.into(), (entry.kind, *entry.child.reference()));
     }
     Ok(result)
 }

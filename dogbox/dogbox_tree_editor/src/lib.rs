@@ -17,7 +17,7 @@ use bytes::Buf;
 use cached::Cached;
 use dogbox_tree::serialization::{
     self, deserialize_directory, serialize_directory, DeserializationError, DirectoryEntryKind,
-    DirectoryTree, FileName, SegmentedBlob,
+    FileName, SegmentedBlob,
 };
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
@@ -45,6 +45,8 @@ pub enum Error {
     TooManyReferences(BlobDigest),
     SaveFailed,
     Deserialization(DeserializationError),
+    OtherDeserializationError(String),
+    OtherSerializationError(String),
 }
 
 impl std::fmt::Display for Error {
@@ -574,8 +576,9 @@ impl OpenDirectory {
         let deserialized_directory = match deserialize_directory(storage.as_ref(), digest).await {
             Ok(deserialized_directory) => deserialized_directory,
             Err(error) => {
-                error!("Failed to deserialize directory: {}", error);
-                return Err(Error::Deserialization(error));
+                let message = format!("Failed to deserialize directory: {}", error);
+                error!("{}", &message);
+                return Err(Error::OtherDeserializationError(message));
             }
         };
         let mut entries = BTreeMap::new();
@@ -656,24 +659,16 @@ impl OpenDirectory {
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<OpenDirectory> {
-        let tree_blob = TreeBlob::try_from(bytes::Bytes::from(
-            postcard::to_allocvec(&DirectoryTree {
-                children: BTreeMap::new(),
-            })
-            .unwrap(),
-        ))
-        .unwrap();
         debug!("Storing empty directory");
-        let empty_directory_digest = match storage
-            .store_tree(&HashedTree::from(Arc::new(Tree::new(
-                tree_blob,
-                TreeChildren::empty(),
-            ))))
-            .await
-        {
-            Ok(success) => success,
-            Err(error) => return Err(Error::Storage(error)),
-        };
+        let empty_directory_digest =
+            match serialize_directory(&BTreeMap::new(), storage.as_ref()).await {
+                Ok(success) => success,
+                Err(error) => {
+                    let message = format!("Failed to serialize empty directory: {}", error);
+                    error!("{}", &message);
+                    return Err(Error::OtherSerializationError(message));
+                }
+            };
         Ok(OpenDirectory::new(
             original_path,
             DigestStatus::new(empty_directory_digest, true),

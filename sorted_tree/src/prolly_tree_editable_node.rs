@@ -83,7 +83,7 @@ pub struct Metadata {
 }
 
 pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
-    store_tree: &dyn StoreTree,
+    store_tree: &(dyn StoreTree + Send + Sync),
     node: &sorted_tree::Node<Key, Value>,
     metadata: &Metadata,
 ) -> Result<BlobDigest, StoreError> {
@@ -116,7 +116,7 @@ pub async fn load_node<
     Key: Serialize + DeserializeOwned + PartialEq + Ord,
     Value: NodeValue + Clone,
 >(
-    load_tree: &dyn LoadTree,
+    load_tree: &(dyn LoadTree + Send + Sync),
     root: &BlobDigest,
 ) -> Result<EitherNodeType<Key, Value>, Box<dyn std::error::Error>> {
     let loaded = match load_tree.load_tree(root).await {
@@ -174,7 +174,7 @@ impl<
 
     pub async fn require_loaded(
         &mut self,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<&mut EditableLoadedNode<Key, Value>, Box<dyn std::error::Error>> {
         match self {
             EditableNode::Reference(tree_ref) => {
@@ -195,7 +195,7 @@ impl<
         &mut self,
         key: Key,
         value: Value,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (self_top_key, nodes_split) = self.insert_impl(key, value, load_tree).await?;
         if nodes_split.is_empty() {
@@ -219,7 +219,7 @@ impl<
         &mut self,
         key: Key,
         value: Value,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<(Key, Vec<EditableLoadedNode<Key, Value>>), Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         let nodes_split = Box::pin(loaded.insert(key, value, load_tree)).await?;
@@ -232,7 +232,7 @@ impl<
     pub async fn remove(
         &mut self,
         key: &Key,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         let (maybe_top_key, maybe_removed) = self.remove_impl(key, load_tree).await?;
         if maybe_top_key.is_none() {
@@ -251,7 +251,7 @@ impl<
     pub async fn remove_impl(
         &mut self,
         key: &Key,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<(Option<Key>, Option<Value>), Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         let result = loaded.remove(key, load_tree).await?;
@@ -261,7 +261,7 @@ impl<
     pub async fn find(
         &mut self,
         key: &Key,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         loaded.find(key, load_tree).await
@@ -269,7 +269,7 @@ impl<
 
     pub async fn count(
         &mut self,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<u64, Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         Box::pin(loaded.count(load_tree)).await
@@ -277,7 +277,7 @@ impl<
 
     pub async fn save(
         &mut self,
-        store_tree: &dyn StoreTree,
+        store_tree: &(dyn StoreTree + Send + Sync),
     ) -> Result<BlobDigest, Box<dyn std::error::Error>> {
         match self {
             EditableNode::Reference(tree_ref) => Ok(*tree_ref.reference()),
@@ -287,7 +287,7 @@ impl<
 
     pub async fn load(
         digest: &BlobDigest,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let loaded: EitherNodeType<Key, Value> = load_node(load_tree, digest).await?;
         Ok(EditableNode::Loaded(EditableLoadedNode::new(loaded)))
@@ -296,7 +296,7 @@ impl<
     pub async fn verify_integrity(
         &mut self,
         expected_top_key: Option<&Key>,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         if loaded.top_key() != expected_top_key {
@@ -310,7 +310,7 @@ impl<
     pub async fn merge(
         &mut self,
         other: Self,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<(Key, Vec<EditableLoadedNode<Key, Value>>), Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         let other_loaded = match other {
@@ -366,7 +366,7 @@ impl<
 
     pub async fn is_naturally_split(
         &mut self,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let loaded = self.require_loaded(load_tree).await?;
         Ok(loaded.is_naturally_split())
@@ -490,7 +490,7 @@ impl<
         &mut self,
         key: Key,
         value: Value,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<Vec<EditableInternalNode<Key, Value>>, Box<dyn std::error::Error>> {
         let last_index = self.entries.len() - 1;
         // TODO: optimize search
@@ -521,7 +521,7 @@ impl<
     pub async fn remove(
         &mut self,
         key: &Key,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<(Option<Key>, Option<Value>), Box<dyn std::error::Error>> {
         // TODO: optimize search
         for (entry_key, entry_value) in self.entries.iter_mut() {
@@ -563,7 +563,7 @@ impl<
 
     async fn update_chunk_boundaries(
         &mut self,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<(), Box<dyn std::error::Error>> {
         loop {
             let merge_candidates = self.find_merge_candidates(load_tree).await?;
@@ -594,7 +594,7 @@ impl<
 
     async fn find_merge_candidates(
         &mut self,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<Option<(Key, Key)>, Box<dyn std::error::Error>> {
         let last_index = self.entries.len() - 1;
         let mut needs_merge: Option<&Key> = None;
@@ -647,12 +647,12 @@ impl<
     pub async fn find(
         &mut self,
         key: &Key,
-        _load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         // TODO: optimize search
         for (entry_key, entry_value) in self.entries.iter_mut() {
             if key <= entry_key {
-                return Box::pin(entry_value.find(key, _load_tree)).await;
+                return Box::pin(entry_value.find(key, load_tree)).await;
             }
         }
         Ok(None)
@@ -660,7 +660,7 @@ impl<
 
     pub async fn verify_integrity(
         &mut self,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
         if self.entries.is_empty() {
             return Ok(IntegrityCheckResult::Corrupted(
@@ -744,7 +744,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
         &mut self,
         key: Key,
         value: Value,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<Vec<EditableLoadedNode<Key, Value>>, Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => {
@@ -767,7 +767,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
     pub async fn remove(
         &mut self,
         key: &Key,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<(Option<Key>, Option<Value>), Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => leaf_node.remove(key).await,
@@ -798,7 +798,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
     pub async fn find(
         &mut self,
         key: &Key,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.find(key)),
@@ -815,7 +815,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
 
     pub async fn count(
         &mut self,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<u64, Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => Ok(leaf_node.entries.len() as u64),
@@ -831,7 +831,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
 
     pub async fn save(
         &mut self,
-        store_tree: &dyn StoreTree,
+        store_tree: &(dyn StoreTree + Send + Sync),
     ) -> Result<BlobDigest, Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => {
@@ -863,7 +863,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
 
     pub async fn verify_integrity(
         &mut self,
-        load_tree: &dyn LoadTree,
+        load_tree: &(dyn LoadTree + Send + Sync),
     ) -> Result<IntegrityCheckResult, Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => leaf_node.verify_integrity(),
@@ -888,7 +888,7 @@ pub struct Iterator<
 > {
     next: Vec<&'t mut EditableNode<Key, Value>>,
     leaf_iterator: Option<std::collections::btree_map::Iter<'t, Key, Value>>,
-    load_tree: &'t dyn LoadTree,
+    load_tree: &'t (dyn LoadTree + Send + Sync),
 }
 
 impl<'t, Key, Value> Iterator<'t, Key, Value>
@@ -896,7 +896,10 @@ where
     Key: Serialize + DeserializeOwned + Ord + Clone + Debug,
     Value: NodeValue + Clone,
 {
-    pub fn new(node: &'t mut EditableNode<Key, Value>, load_tree: &'t dyn LoadTree) -> Self {
+    pub fn new(
+        node: &'t mut EditableNode<Key, Value>,
+        load_tree: &'t (dyn LoadTree + Send + Sync),
+    ) -> Self {
         Iterator {
             next: vec![node],
             leaf_iterator: None,

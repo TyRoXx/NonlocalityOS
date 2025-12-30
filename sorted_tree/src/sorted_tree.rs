@@ -163,7 +163,7 @@ pub fn node_to_tree<Key: Serialize + Ord, Value: NodeValue>(
 }
 
 pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
-    store_tree: &dyn StoreTree,
+    store_tree: &(dyn StoreTree + Send + Sync),
     node: &Node<Key, Value>,
     metadata: &bytes::Bytes,
 ) -> Result<BlobDigest, StoreError> {
@@ -227,7 +227,7 @@ pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue
 }
 
 pub async fn new_tree<Key: Serialize + Ord, Value: NodeValue>(
-    store_tree: &dyn StoreTree,
+    store_tree: &(dyn StoreTree + Send + Sync),
 ) -> Result<BlobDigest, StoreError> {
     let root = Node::<Key, Value> {
         entries: Vec::new(),
@@ -236,8 +236,8 @@ pub async fn new_tree<Key: Serialize + Ord, Value: NodeValue>(
 }
 
 pub async fn insert<Key: Serialize + DeserializeOwned + Ord + Clone, Value: NodeValue + Clone>(
-    load_tree: &dyn LoadTree,
-    store_tree: &dyn StoreTree,
+    load_tree: &(dyn LoadTree + Send + Sync),
+    store_tree: &(dyn StoreTree + Send + Sync),
     root: &BlobDigest,
     key: Key,
     value: Value,
