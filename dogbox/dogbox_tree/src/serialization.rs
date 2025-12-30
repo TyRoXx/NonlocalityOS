@@ -2,7 +2,7 @@ use astraea::{storage::LoadStoreTree, tree::BlobDigest};
 use serde::{Deserialize, Serialize};
 use sorted_tree::prolly_tree_editable_node::{self, Iterator};
 use std::collections::BTreeMap;
-use tracing::info;
+use tracing::{info, instrument};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 #[serde(try_from = "String")]
@@ -179,6 +179,9 @@ impl std::fmt::Display for DeserializationError {
 
 impl std::error::Error for DeserializationError {}
 
+type ProllyTree = prolly_tree_editable_node::EditableNode<FileName, DirectoryEntry>;
+
+#[instrument(skip_all)]
 pub async fn serialize_directory(
     entries: &BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)>,
     storage: &(dyn LoadStoreTree + Send + Sync),
@@ -193,14 +196,11 @@ pub async fn serialize_directory(
             )
             .await?;
     }
-    if entries.len() > 5 {
-        info!("Saving directory with {} entries", entries.len());
-    }
+    info!("Serializing directory with {} entries", entries.len());
     prolly_tree.save(storage).await
 }
 
-type ProllyTree = prolly_tree_editable_node::EditableNode<FileName, DirectoryEntry>;
-
+#[instrument(skip_all)]
 pub async fn deserialize_directory(
     storage: &(dyn LoadStoreTree + Send + Sync),
     digest: &BlobDigest,
@@ -211,6 +211,7 @@ pub async fn deserialize_directory(
     while let Some((name, entry)) = iterator.next().await? {
         result.insert(name, (entry.kind, *entry.child.reference()));
     }
+    info!("Deserialized directory with {} entries", result.len());
     Ok(result)
 }
 
