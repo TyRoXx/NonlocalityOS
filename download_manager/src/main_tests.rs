@@ -1,11 +1,10 @@
 use crate::{
     dropbox::Dropbox,
-    find_config_directory_in_dropbox, is_relevant_change_to_url_input_file,
-    keep_adding_download_job_urls_from_telegram_bot, keep_reading_url_input_file,
-    load_downloaded_urls_from_database, load_undownloaded_urls_from_database,
-    make_database_file_name, make_url_input_file_path, prepare_database, run_application,
-    run_download_job, run_main_loop, set_download_job_digests, start_watching_url_input_file,
-    store_urls_in_database,
+    is_relevant_change_to_url_input_file, keep_adding_download_job_urls_from_telegram_bot,
+    keep_reading_url_input_file, load_downloaded_urls_from_database,
+    load_undownloaded_urls_from_database, make_database_file_name, make_url_input_file_path,
+    prepare_database, run_application, run_download_job, run_main_loop, set_download_job_digests,
+    split_config_directory_path_in_dropbox, start_watching_url_input_file, store_urls_in_database,
     telegram_bot::{HandleTelegramBotRequests, TelegramBot},
     upgrade_schema, Download, SetDownloadJobDigestOutcome,
 };
@@ -771,45 +770,72 @@ async fn test_run_application() {
 }
 
 #[test_log::test]
-fn test_find_config_directory_in_dropbox() {
+fn test_split_config_directory_path_in_dropbox_linux() {
     assert_eq!(
-        Some("/vdm"),
-        find_config_directory_in_dropbox(
-            std::path::Path::new("/home/user/Dropbox/vdm"),
-            std::path::Path::new("/home/user/Dropbox"),
-        )
-        .as_deref()
+        Some((
+            std::path::PathBuf::from("/home/user/Dropbox"),
+            "/vdm".to_string()
+        )),
+        split_config_directory_path_in_dropbox(std::path::Path::new("/home/user/Dropbox/vdm"))
     );
     assert_eq!(
-        Some("/vdm"),
-        find_config_directory_in_dropbox(
-            std::path::Path::new("/home/user/Dropbox/vdm/"),
-            std::path::Path::new("/home/user/Dropbox"),
-        )
-        .as_deref()
+        Some((
+            std::path::PathBuf::from("/home/user/Dropbox"),
+            "/vdm".to_string()
+        )),
+        split_config_directory_path_in_dropbox(std::path::Path::new("/home/user/Dropbox/vdm/"))
     );
     assert_eq!(
-        Some("/vdm"),
-        find_config_directory_in_dropbox(
-            std::path::Path::new("/home/user/Dropbox/vdm"),
-            std::path::Path::new("/home/user/Dropbox/"),
-        )
-        .as_deref()
-    );
-    assert_eq!(
-        Some("/vdm"),
-        find_config_directory_in_dropbox(
-            std::path::Path::new("/home/user/Dropbox/vdm/"),
-            std::path::Path::new("/home/user/Dropbox/"),
-        )
-        .as_deref()
+        Some((
+            std::path::PathBuf::from("/home/user/Dropbox"),
+            "/subdir/vdm".to_string()
+        )),
+        split_config_directory_path_in_dropbox(std::path::Path::new(
+            "/home/user/Dropbox/subdir/vdm"
+        ))
     );
     assert_eq!(
         None,
-        find_config_directory_in_dropbox(
-            std::path::Path::new("/home/user/vdm/"),
-            std::path::Path::new("/home/user/Dropbox/"),
-        )
-        .as_deref()
+        split_config_directory_path_in_dropbox(std::path::Path::new("/home/user/Dropbox"))
+    );
+    assert_eq!(
+        None,
+        split_config_directory_path_in_dropbox(std::path::Path::new("/home/user/Dropbox"))
+    );
+    assert_eq!(
+        None,
+        split_config_directory_path_in_dropbox(std::path::Path::new("/home/user/vdm"))
+    );
+}
+
+// std::path::Path doesn't support backslashes on non-Windows platforms.
+#[cfg(windows)]
+#[test_log::test]
+fn test_split_config_directory_path_in_dropbox_windows() {
+    assert_eq!(
+        Some((
+            std::path::PathBuf::from("C:\\Users\\user\\Dropbox"),
+            "/vdm".to_string()
+        )),
+        split_config_directory_path_in_dropbox(std::path::Path::new(
+            "C:\\Users\\user\\Dropbox\\vdm"
+        ))
+    );
+    assert_eq!(
+        Some((
+            std::path::PathBuf::from("C:\\Users\\user\\Dropbox"),
+            "/vdm".to_string()
+        )),
+        split_config_directory_path_in_dropbox(std::path::Path::new(
+            "C:\\Users\\user\\Dropbox\\vdm\\"
+        ))
+    );
+    assert_eq!(
+        None,
+        split_config_directory_path_in_dropbox(std::path::Path::new("C:\\Users\\user\\Dropbox"))
+    );
+    assert_eq!(
+        None,
+        split_config_directory_path_in_dropbox(std::path::Path::new("C:\\Users\\user\\Dropbox\\"))
     );
 }

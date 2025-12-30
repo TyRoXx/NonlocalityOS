@@ -669,19 +669,34 @@ async fn run_application(
     Ok(())
 }
 
-// If working_directory is under dropbox_root, returns the relative path. Otherwise, None.
-pub fn find_config_directory_in_dropbox(
-    working_directory: &std::path::Path,
-    dropbox_root: &std::path::Path,
-) -> Option<String> {
-    if working_directory.starts_with(dropbox_root) {
-        working_directory
-            .strip_prefix(dropbox_root)
-            .ok()
-            .map(|p| format!("/{}", p.to_string_lossy()))
-    } else {
-        None
+/// Example input: "C:\Users\user\Dropbox\vdm"
+/// Returns: Some((PathBuf("C:\Users\user\Dropbox"), "/vdm"))
+/// config_directory must be a subdirectory of a Dropbox folder. It cannot be the Dropbox folder itself.
+pub fn split_config_directory_path_in_dropbox(
+    config_directory: &std::path::Path,
+) -> Option<(std::path::PathBuf, String)> {
+    let mut current_path = config_directory;
+    let mut components = Vec::new();
+    while let Some(parent) = current_path.parent() {
+        components.push(
+            current_path
+                .file_name()
+                .and_then(|os_str| os_str.to_str())
+                .map(|s| s.to_string())?,
+        );
+        current_path = parent;
+        // to keep things simple, we only support a Dropbox folder named "Dropbox"
+        let dropbox_folder_name = "Dropbox";
+        if parent.file_name().and_then(|os_str| os_str.to_str()) != Some(dropbox_folder_name) {
+            continue;
+        }
+        components.push(dropbox_folder_name.to_string());
+        components.reverse();
+        let dropbox_root = current_path.to_path_buf();
+        let config_directory_in_dropbox = components[1..].join("/");
+        return Some((dropbox_root, format!("/{}", config_directory_in_dropbox)));
     }
+    None
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -732,14 +747,6 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let dropbox_root =
-        std::path::PathBuf::from(match std::env::var("DOWNLOAD_MANAGER_DROPBOX_ROOT") {
-            Ok(root) => root,
-            Err(e) => {
-                error!("Failed to read DOWNLOAD_MANAGER_DROPBOX_ROOT from env: {e}");
-                std::process::exit(1);
-            }
-        });
     let dropbox_destination = match std::env::var("DOWNLOAD_MANAGER_DROPBOX_DESTINATION") {
         Ok(destination) => destination,
         Err(e) => {
@@ -749,15 +756,20 @@ async fn main() {
     };
     let config_directory =
         std::env::current_dir().expect("Failed to get current working directory");
-    info!("Config directory: {}", config_directory.display());
-    let config_directory_in_dropbox =
-        match find_config_directory_in_dropbox(&config_directory, &dropbox_root) {
-            Some(path) => path,
-            None => {
-                error!("Failed to find config directory in Dropbox");
-                std::process::exit(1);
-            }
-        };
+    info!(
+        "Config directory (working directory): {}",
+        config_directory.display()
+    );
+    let (dropbox_root, config_directory_in_dropbox) = match split_config_directory_path_in_dropbox(
+        &config_directory,
+    ) {
+        Some(paths) => paths,
+        None => {
+            error!("The working directory must be inside a 'Dropbox' folder. Failed to find the config directory in Dropbox");
+            std::process::exit(1);
+        }
+    };
+    info!("Dropbox root: {}", dropbox_root.display());
     info!(
         "Config directory in Dropbox: {}",
         config_directory_in_dropbox
