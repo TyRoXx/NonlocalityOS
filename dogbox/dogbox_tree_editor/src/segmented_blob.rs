@@ -1,0 +1,153 @@
+use astraea::{
+    storage::{LoadTree, StoreError, StoreTree},
+    tree::{
+        BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH,
+        TREE_MAX_CHILDREN,
+    },
+};
+use dogbox_tree::serialization::{DeserializationError, SegmentedBlob};
+use std::sync::Arc;
+use tracing::info;
+
+pub async fn save_segmented_blob(
+    segments: &[BlobDigest],
+    total_size_in_bytes: u64,
+    max_children_per_tree: usize,
+    storage: &(dyn StoreTree + Send + Sync),
+) -> std::result::Result<BlobDigest, StoreError> {
+    save_segmented_blob_impl(
+        segments,
+        TREE_BLOB_MAX_LENGTH as u64,
+        total_size_in_bytes,
+        max_children_per_tree,
+        storage,
+    )
+    .await
+}
+
+async fn save_segmented_blob_impl(
+    segments: &[BlobDigest],
+    segment_capacity: u64,
+    total_size_in_bytes: u64,
+    max_children_per_tree: usize,
+    storage: &(dyn StoreTree + Send + Sync),
+) -> std::result::Result<BlobDigest, StoreError> {
+    assert!(max_children_per_tree >= 2);
+    assert!(max_children_per_tree <= TREE_MAX_CHILDREN);
+    match segments.len() {
+        0 => Err(StoreError::Unrepresentable),
+        1 => Ok(segments[0]),
+        _ => {
+            if segments.len() > max_children_per_tree {
+                let mut chunks = Vec::new();
+                let mut remaining_size = total_size_in_bytes;
+                for chunk in segments.chunks(max_children_per_tree) {
+                    let capacity = (chunk.len() as u64) * segment_capacity;
+                    let chunk_size = if remaining_size <= capacity {
+                        remaining_size
+                    } else {
+                        capacity
+                    };
+                    remaining_size -= chunk_size;
+                    chunks.push(
+                        Box::pin(save_segmented_blob_impl(
+                            chunk,
+                            segment_capacity,
+                            chunk_size,
+                            max_children_per_tree,
+                            storage,
+                        ))
+                        .await?,
+                    );
+                }
+                return Box::pin(save_segmented_blob_impl(
+                    &chunks,
+                    segment_capacity * max_children_per_tree as u64,
+                    total_size_in_bytes,
+                    max_children_per_tree,
+                    storage,
+                ))
+                .await;
+            }
+            let info = SegmentedBlob {
+                size_in_bytes: total_size_in_bytes,
+            };
+            let children = TreeChildren::try_from(segments.to_vec())
+                .expect("The child count was checked above.");
+            let tree = Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap()))
+                    .unwrap(),
+                children,
+            );
+            let digest = storage
+                .store_tree(&HashedTree::from(Arc::new(tree)))
+                .await?;
+            Ok(digest)
+        }
+    }
+}
+
+pub async fn load_segmented_blob(
+    digest: &BlobDigest,
+    storage: &(dyn LoadTree + Send + Sync),
+) -> std::result::Result<(Vec<BlobDigest>, u64), DeserializationError> {
+    info!("load_segmented_blob: {}", digest);
+    let delayed_tree = match storage.load_tree(digest).await {
+        Some(loaded) => loaded,
+        None => return Err(DeserializationError::MissingTree(*digest)),
+    };
+    let hashed_tree = match delayed_tree.hash() {
+        Some(hashed) => hashed,
+        None => return Err(DeserializationError::MissingTree(*digest)),
+    };
+    let tree = hashed_tree.tree().as_ref();
+    if tree.children().references().is_empty() {
+        Ok((vec![*digest], tree.blob().as_slice().len() as u64))
+    } else {
+        let info: SegmentedBlob =
+            postcard::from_bytes(tree.blob().as_slice()).map_err(DeserializationError::Postcard)?;
+        info!("Info size_in_bytes: {}", info.size_in_bytes);
+        let capacity = (tree.children().references().len() as u64) * (TREE_BLOB_MAX_LENGTH as u64);
+        info!("Capacity: {}", capacity);
+        if info.size_in_bytes <= capacity {
+            let segments = tree.children().references().to_vec();
+            return Ok((segments, info.size_in_bytes));
+        }
+        let mut remaining_size = info.size_in_bytes;
+        let mut all_segments = Vec::new();
+        for segment_digest in tree.children().references().iter() {
+            info!("Remaining size: {}", remaining_size);
+            if remaining_size == 0 {
+                return Err(DeserializationError::Inconsistency(
+                    "Segmented blob has more segments than needed for the total size.".to_string(),
+                ));
+            }
+            if remaining_size <= TREE_BLOB_MAX_LENGTH as u64 {
+                info!("Short segment");
+                all_segments.push(*segment_digest);
+                remaining_size = 0;
+            } else {
+                info!("Recursive segment");
+                let (mut loaded_segments, segment_size) =
+                    Box::pin(load_segmented_blob(segment_digest, storage)).await?;
+                all_segments.append(&mut loaded_segments);
+                info!("Subtracting segment size: {}", segment_size);
+                remaining_size = match remaining_size.checked_sub(segment_size) {
+                    Some(size) => size,
+                    None => {
+                        return Err(DeserializationError::Inconsistency(
+                            "Segmented blob segment sizes don't add up to the total size."
+                                .to_string(),
+                        ))
+                    }
+                };
+            }
+        }
+        if remaining_size > 0 {
+            return Err(DeserializationError::Inconsistency(
+                "Segmented blob has fewer segments than needed for the total size.".to_string(),
+            ));
+        }
+        Ok((all_segments, info.size_in_bytes))
+    }
+}

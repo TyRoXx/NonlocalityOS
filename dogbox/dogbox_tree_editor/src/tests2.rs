@@ -2,10 +2,10 @@ use crate::{
     AccessOrderLowerIsMoreRecent, DigestStatus, DirectoryEntryKind, DirectoryEntryMetaData, Error,
     MutableDirectoryEntry, NamedEntry, NormalizedPath, OpenDirectory, OpenDirectoryStatus,
     OpenFileContentBlock, OpenFileContentBuffer, OpenFileStats, OptimizedWriteBuffer, Prefetcher,
-    StreakDirection, TreeEditor,
+    StoreChanges, StreakDirection, TreeEditor,
 };
 use astraea::storage::{DelayedHashedTree, InMemoryTreeStorage, LoadTree, StoreError, StoreTree};
-use astraea::tree::{calculate_reference, TreeChildren};
+use astraea::tree::{calculate_reference, TreeChildren, TREE_MAX_CHILDREN};
 use astraea::{
     storage::LoadStoreTree,
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
@@ -890,37 +890,35 @@ async fn optimized_write_buffer_full_blocks(
 
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_write_fill_zero_block() {
-    let data = Vec::new();
+    let empty_data = Vec::new();
     let last_known_digest = calculate_reference(&Tree::new(
-        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
+        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&empty_data[..])).unwrap(),
         TreeChildren::empty(),
     ));
-    let last_known_digest_file_size = data.len();
+    let last_known_digest_file_size = empty_data.len();
     let mut buffer = OpenFileContentBuffer::from_data(
-        data,
+        empty_data,
         last_known_digest,
         last_known_digest_file_size as u64,
         1,
     )
     .unwrap();
-    let write_position = TREE_BLOB_MAX_LENGTH as u64;
-    let write_data = "a";
-    let write_buffer =
-        OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::from(write_data)).await;
+    let write_data = bytes::Bytes::from("a");
+    let file_size = TREE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64;
+    let write_position = file_size - write_data.len() as u64;
+    let write_buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let _write_result: () = buffer
+    buffer
         .write(write_position, write_buffer, storage.clone())
         .await
         .unwrap();
     let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
-        size: TREE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
+        size: file_size,
         blocks: vec![
             OpenFileContentBlock::Loaded(crate::LoadedBlock::UnknownDigest(
                 vec![0; TREE_BLOB_MAX_LENGTH],
             )),
-            OpenFileContentBlock::Loaded(crate::LoadedBlock::UnknownDigest(
-                write_data.as_bytes().to_vec(),
-            )),
+            OpenFileContentBlock::Loaded(crate::LoadedBlock::UnknownDigest(write_data.to_vec())),
         ],
         digest: crate::DigestStatus {
             last_known_digest,
@@ -941,6 +939,66 @@ async fn open_file_content_buffer_write_fill_zero_block() {
         .map(Option::unwrap),
     );
     assert_eq!(expected_digests, storage.digests().await);
+    let changes = buffer.store_all(storage).await.unwrap();
+    assert_eq!(StoreChanges::SomeChanges, changes);
+    assert_eq!(
+        (
+            DigestStatus::new(
+                BlobDigest::parse_hex_string(concat!(
+                    "f770468c4e5b38323c05f83229aadcb680a0c3fed112fffdbb7650bc92f26a7e",
+                    "e15e77fca5371b75463401b3bc2893c5aa667ff54d2aa4332ea445352697df99"
+                ))
+                .unwrap(),
+                true
+            ),
+            file_size
+        ),
+        buffer.last_known_digest()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn open_file_content_buffer_store_large_file() {
+    let large_file_size = (TREE_BLOB_MAX_LENGTH as u64) * (TREE_MAX_CHILDREN as u64 + 1);
+    let empty_data = Vec::new();
+    let last_known_digest = calculate_reference(&Tree::new(
+        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&empty_data[..])).unwrap(),
+        TreeChildren::empty(),
+    ));
+    let last_known_digest_file_size = empty_data.len();
+    let mut buffer = OpenFileContentBuffer::from_data(
+        empty_data,
+        last_known_digest,
+        last_known_digest_file_size as u64,
+        1,
+    )
+    .unwrap();
+    let write_data = bytes::Bytes::from("a");
+    let write_position = large_file_size - write_data.len() as u64;
+    let write_buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    buffer
+        .write(write_position, write_buffer, storage.clone())
+        .await
+        .unwrap();
+    assert_eq!(large_file_size, buffer.size());
+    assert_eq!(1, storage.number_of_trees().await);
+    let changes = buffer.store_all(storage).await.unwrap();
+    assert_eq!(StoreChanges::SomeChanges, changes);
+    assert_eq!(
+        (
+            DigestStatus::new(
+                BlobDigest::parse_hex_string(concat!(
+                    "d596e30061e719e97823ba69e5037747aaf2353d110a0dfc496407c658b828a4",
+                    "6d3f0cca0b80d8b46a20dbb7c956f9da11c2a9038c20e6dcae7bbd74b9bcc5c9"
+                ))
+                .unwrap(),
+                true
+            ),
+            large_file_size
+        ),
+        buffer.last_known_digest()
+    );
 }
 
 fn random_bytes(len: usize, seed: u64) -> Vec<u8> {

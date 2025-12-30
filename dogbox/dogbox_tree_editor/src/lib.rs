@@ -5,19 +5,22 @@ mod benchmarks;
 #[cfg(test)]
 mod tests2;
 
+mod segmented_blob;
+
+#[cfg(test)]
+mod segmented_blob_tests;
+
+use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use astraea::{
     storage::{LoadStoreTree, StoreError},
-    tree::{
-        BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH,
-        TREE_MAX_CHILDREN,
-    },
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 use async_stream::stream;
 use bytes::Buf;
 use cached::Cached;
 use dogbox_tree::serialization::{
     self, deserialize_directory, serialize_directory, DeserializationError, DirectoryEntryKind,
-    FileName, FileNameError, SegmentedBlob,
+    FileName, FileNameError,
 };
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
@@ -1759,29 +1762,23 @@ impl OpenFileContentBufferLoaded {
 
         let mut blocks_stored = Vec::new();
         self.verify_integrity();
-        assert!(self.blocks.len() <= TREE_MAX_CHILDREN);
+        let mut total_size_in_bytes = 0;
         for block in self.blocks.iter_mut() {
             let block_stored = block.try_store(true, storage.clone()).await?;
             blocks_stored.push(block_stored.unwrap());
+            total_size_in_bytes += block.size() as u64;
         }
         self.verify_integrity();
         self.dirty_blocks.clear();
         assert!(!blocks_stored.is_empty());
-        if blocks_stored.len() == 1 {
-            return Ok(self.update_digest(blocks_stored[0]));
-        }
-        let info = SegmentedBlob {
-            size_in_bytes: self.size,
-        };
-        let children =
-            TreeChildren::try_from(blocks_stored).expect("The child count was asserted above.");
-        let tree = Tree::new(
-            TreeBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap())).unwrap(),
-            children,
-        );
-        let reference = storage
-            .store_tree(&HashedTree::from(Arc::new(tree)))
-            .await?;
+        let max_children_per_tree = 20;
+        let reference = save_segmented_blob(
+            &blocks_stored,
+            total_size_in_bytes,
+            max_children_per_tree,
+            storage.as_ref(),
+        )
+        .await?;
         Ok(self.update_digest(reference))
     }
 
@@ -2009,50 +2006,21 @@ impl OpenFileContentBuffer {
                 let blocks = if *size <= TREE_BLOB_MAX_LENGTH as u64 {
                     vec![OpenFileContentBlock::NotLoaded(*digest, *size as u16)]
                 } else {
-                    let delayed_hashed_tree = match storage.load_tree(digest).await {
-                        Some(success) => success,
-                        None => {
-                            return Err(Error::Deserialization(DeserializationError::MissingTree(
-                                *digest,
-                            )))
-                        }
-                    };
-                    let hashed_tree = match delayed_hashed_tree.hash() {
-                        Some(success) => success,
-                        None => {
-                            return Err(Error::Deserialization(DeserializationError::MissingTree(
-                                *digest,
-                            )))
-                        }
-                    };
-                    let info: SegmentedBlob =
-                        match postcard::from_bytes(hashed_tree.tree().blob().as_slice()) {
+                    let (segments, size_in_bytes) =
+                        match load_segmented_blob(digest, storage.as_ref()).await {
                             Ok(success) => success,
-                            Err(error) => {
-                                return Err(Error::Deserialization(DeserializationError::Postcard(
-                                    error,
-                                )))
-                            }
+                            Err(error) => return Err(Error::Deserialization(error)),
                         };
-                    if info.size_in_bytes != *size {
+                    if size_in_bytes != *size {
                         return Err(Error::SegmentedBlobSizeMismatch {
                             digest: *digest,
-                            segmented_blob_internal_size: info.size_in_bytes,
+                            segmented_blob_internal_size: size_in_bytes,
                             directory_entry_size: *size,
                         });
                     }
-                    if hashed_tree.tree().children().references().is_empty() {
-                        todo!()
-                    }
-                    let full_blocks = hashed_tree
-                        .tree()
-                        .children()
-                        .references()
-                        .iter()
-                        .take(hashed_tree.tree().children().references().len() - 1)
-                        .map(|reference| {
-                            OpenFileContentBlock::NotLoaded(*reference, TREE_BLOB_MAX_LENGTH as u16)
-                        });
+                    let full_blocks = segments.iter().take(segments.len() - 1).map(|reference| {
+                        OpenFileContentBlock::NotLoaded(*reference, TREE_BLOB_MAX_LENGTH as u16)
+                    });
                     let full_blocks_size = full_blocks.len() as u64 * TREE_BLOB_MAX_LENGTH as u64;
                     if full_blocks_size > *size {
                         todo!()
@@ -2063,7 +2031,7 @@ impl OpenFileContentBuffer {
                     }
                     full_blocks
                         .chain(std::iter::once(OpenFileContentBlock::NotLoaded(
-                            *hashed_tree.tree().children().references().last().unwrap(),
+                            *segments.last().unwrap(),
                             final_block_size as u16,
                         )))
                         .collect()

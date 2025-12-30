@@ -73,6 +73,13 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
                     error!("Deserialization failed due to reference index out of range");
                     dav_server::fs::FsError::GeneralFailure
                 }
+                dogbox_tree::serialization::DeserializationError::Inconsistency(message) => {
+                    error!(
+                        "Deserialization failed due to an inconsistency: {}",
+                        message
+                    );
+                    dav_server::fs::FsError::GeneralFailure
+                }
             }
         }
         dogbox_tree_editor::Error::OtherDeserializationError(message) => {

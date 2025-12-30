@@ -17,6 +17,7 @@ pub enum StoreError {
     NoSpace,
     Rusqlite(String),
     TreeSerializationError(TreeSerializationError),
+    Unrepresentable,
 }
 
 impl std::fmt::Display for StoreError {

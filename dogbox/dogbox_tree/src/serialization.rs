@@ -169,6 +169,7 @@ pub enum DeserializationError {
     MissingTree(BlobDigest),
     Postcard(postcard::Error),
     ReferenceIndexOutOfRange,
+    Inconsistency(String),
 }
 
 impl std::fmt::Display for DeserializationError {
