@@ -11,7 +11,7 @@ set TARGET_BINARY=%cd%\target\release\download_manager.exe
 if exist "%TARGET_BINARY%" del "%TARGET_BINARY%"
 
 echo Building download_manager...
-cargo build --release --bin download_manager
+cargo build --release --bin download_manager --timings
 if errorlevel 1 exit /b 1
 
 echo Copying binary to %CONFIG_DIRECTORY%...

@@ -8,7 +8,7 @@ fi
 
 TARGET_BINARY=`pwd`/target/release/download_manager
 rm -rf "$TARGET_BINARY"
-time cargo build --release --bin download_manager || exit 1
+time cargo build --release --bin download_manager --timings || exit 1
 cp "$TARGET_BINARY" "$CONFIG_DIRECTORY/" || exit 1
 
 echo "Download manager installed successfully to $CONFIG_DIRECTORY"
