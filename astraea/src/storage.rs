@@ -300,8 +300,9 @@ impl StoreTree for SQLiteStorage {
         let origin_digest: [u8; 64] = reference.into();
         {
             let connection_locked = &state_locked.connection;
-            let mut statement = connection_locked.prepare_cached(
-                "SELECT COUNT(*) FROM tree WHERE digest = ?").unwrap(/*TODO*/);
+            let mut statement = connection_locked
+                .prepare_cached("SELECT COUNT(*) FROM tree WHERE digest = ?")
+                .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))?;
             let existing_count: i64 = statement
                 .query_row(
                     (&origin_digest,),
@@ -315,9 +316,14 @@ impl StoreTree for SQLiteStorage {
             }
         }
 
-        state_locked.require_gc_new_tree_table().expect("TODO");
+        state_locked
+            .require_gc_new_tree_table()
+            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
 
-        state_locked.require_transaction(1 + tree.tree().children().references().len() as u64).unwrap(/*TODO*/);
+        state_locked
+            .require_transaction(1 + tree.tree().children().references().len() as u64)
+            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+
         let connection_locked = &state_locked.connection;
 
         // Try to compress the blob, but only store compressed if it's beneficial
@@ -334,43 +340,55 @@ impl StoreTree for SQLiteStorage {
         };
 
         {
-            let mut statement = connection_locked.prepare_cached(
-                "INSERT INTO tree (digest, tree_blob, is_compressed) VALUES (?1, ?2, ?3)").unwrap(/*TODO*/);
-            let rows_inserted = statement.execute(
-                (&origin_digest, blob_to_store, &is_compressed),
-            ).unwrap(/*TODO*/);
+            let mut statement = connection_locked
+                .prepare_cached(
+                    "INSERT INTO tree (digest, tree_blob, is_compressed) VALUES (?1, ?2, ?3)",
+                )
+                .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))?;
+            let rows_inserted = statement
+                .execute((&origin_digest, blob_to_store, &is_compressed))
+                .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
             assert_eq!(1, rows_inserted);
         }
 
         let tree_id: i64 = {
             let mut statement = connection_locked
                 .prepare_cached("SELECT id FROM tree WHERE digest = ?1")
-                .expect("TODO");
+                .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
             statement
                 .query_row(
                     (&origin_digest,),
                     |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
                 )
-                .expect("TODO")
+                .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?
         };
 
         if !tree.tree().children().references().is_empty() {
             let inserted_tree_rowid = connection_locked.last_insert_rowid();
-            let mut statement = connection_locked.prepare_cached(
-                "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",).unwrap(/*TODO*/);
+            let mut statement = connection_locked
+                .prepare_cached(
+                    "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",
+                )
+                .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
             for (index, reference) in tree.tree().children().references().iter().enumerate() {
                 let target_digest: [u8; 64] = (*reference).into();
-                let rows_inserted = statement.execute(
-                    (&inserted_tree_rowid, u32::try_from(index).expect("A child index won't be too large"), &target_digest),
-                ).unwrap(/*TODO*/);
+                let rows_inserted = statement
+                    .execute((
+                        &inserted_tree_rowid,
+                        u32::try_from(index).expect("A child index won't be too large"),
+                        &target_digest,
+                    ))
+                    .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
                 assert_eq!(1, rows_inserted);
             }
         }
 
         let mut statement = connection_locked
             .prepare_cached("INSERT OR IGNORE INTO gc_new_tree (tree_id) VALUES (?1)")
-            .expect("TODO");
-        let rows_inserted = statement.execute((&tree_id,)).expect("TODO");
+            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+        let rows_inserted = statement
+            .execute((&tree_id,))
+            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
         assert!(rows_inserted <= 1);
 
         Ok(reference)
@@ -384,7 +402,8 @@ impl LoadTree for SQLiteStorage {
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = (*reference).into();
-        let mut statement = connection_locked.prepare_cached("SELECT id, tree_blob, is_compressed FROM tree WHERE digest = ?1").unwrap(/*TODO*/);
+        let mut statement = connection_locked.prepare_cached(
+            "SELECT id, tree_blob, is_compressed FROM tree WHERE digest = ?1").unwrap(/*TODO*/);
         let (id, tree_blob) = match statement.query_row((&digest,), |row| -> rusqlite::Result<_> {
             let id: i64 = row.get(0).unwrap(/*TODO*/);
             let tree_blob_raw: Vec<u8> = row.get(1).unwrap(/*TODO*/);
