@@ -83,7 +83,11 @@ pub trait LoadStoreTree: LoadTree + StoreTree {}
 
 #[async_trait]
 pub trait UpdateRoot {
-    async fn update_root(&self, name: &str, target: &BlobDigest);
+    async fn update_root(
+        &self,
+        name: &str,
+        target: &BlobDigest,
+    ) -> std::result::Result<(), StoreError>;
 }
 
 #[async_trait]
@@ -465,16 +469,24 @@ impl LoadStoreTree for SQLiteStorage {}
 #[async_trait]
 impl UpdateRoot for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn update_root(&self, name: &str, target: &BlobDigest) {
+    async fn update_root(
+        &self,
+        name: &str,
+        target: &BlobDigest,
+    ) -> std::result::Result<(), StoreError> {
         info!("Update root {} to {}", name, target);
         let mut state_locked = self.state.lock().await;
-        state_locked.require_transaction(1).unwrap(/*TODO*/);
+        state_locked
+            .require_transaction(1)
+            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
         let connection_locked = &state_locked.connection;
         let target_array: [u8; 64] = (*target).into();
         connection_locked.execute(
             "INSERT INTO root (name, target) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET target = ?2;",
             (&name, &target_array),
-        ).unwrap(/*TODO*/);
+        )
+        .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+        Ok(())
     }
 }
 

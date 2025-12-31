@@ -226,9 +226,17 @@ async fn persist_root_on_change(
             {
                 debug!("Root status changed, but the last known digest stays the same.");
             } else {
-                blob_storage_update
+                match blob_storage_update
                     .update_root(root_name, &root_status.digest.last_known_digest)
-                    .await;
+                    .await
+                {
+                    Ok(()) => {
+                        debug!("Successfully updated root");
+                    }
+                    Err(err) => {
+                        error!("Failed to update root in storage: {:?}", err);
+                    }
+                }
                 tokio::task::spawn_blocking({
                     let blob_storage_commit = blob_storage_commit.clone();
                     let blob_storage_collect_garbage = blob_storage_collect_garbage.clone();
@@ -367,7 +375,7 @@ pub async fn run_dav_server(
             assert!(status.digest.is_digest_up_to_date);
             blob_storage_database
                 .update_root(root_name, &status.digest.last_known_digest)
-                .await;
+                .await?;
             blob_storage_database.commit_changes().await.unwrap();
             dir
         }

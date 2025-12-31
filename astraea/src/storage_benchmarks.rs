@@ -203,7 +203,10 @@ fn collect_garbage_nothing_to_collect(b: &mut Bencher, tree_count_in_database: u
             let digest = storage.store_tree(&stored_tree).await.unwrap();
             previous_tree = Some(digest);
         }
-        storage.update_root("bench", &previous_tree.unwrap()).await;
+        storage
+            .update_root("bench", &previous_tree.unwrap())
+            .await
+            .unwrap();
     });
     b.iter(|| {
         let storage = storage.clone();

@@ -486,7 +486,8 @@ async fn test_read_file_after_garbage_collection() {
     // Update the root so that the garbage collector won't collect the current version of the directory:
     storage
         .update_root("test", &directory_status.digest.last_known_digest)
-        .await;
+        .await
+        .unwrap();
     // Trigger garbage collection:
     assert_eq!(
         GarbageCollectionStats { trees_collected: 0 },
