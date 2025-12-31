@@ -201,9 +201,11 @@ fn expect_directory(entity: &ListEntity, name: &str) {
             assert_eq!(name, folder.href);
             assert_eq!(None, folder.quota_used_bytes);
             assert_eq!(None, folder.quota_available_bytes);
-            //TODO: check tag value
-            assert!(folder.tag.is_some());
-            //TODO: check last modified
+            assert_eq!(
+                "1970-01-01T00:00:13+00:00",
+                folder.last_modified.to_rfc3339()
+            );
+            assert_eq!(Some(generate_file_tag(&[])), folder.tag);
         }
     }
 }
@@ -214,13 +216,22 @@ async fn expect_directory_empty(client: &Client, directory: &str) {
     expect_directory(&subdir_listed[0], directory)
 }
 
+// Generate a tag for files or folders, if it's a folder content should be an empty slice
+fn generate_file_tag(content: &[u8]) -> String {
+    let magic_suffix = "c65d40";
+    if content.is_empty() {
+        return magic_suffix.to_string();
+    }
+
+    format!("{:x}-{}", content.len(), magic_suffix)
+}
+
 async fn expect_file(
     client: &Client,
     entity: &ListEntity,
     name: &str,
     content: &[u8],
     content_type: &str,
-    tag: Option<String>,
 ) {
     match entity {
         reqwest_dav::list_cmd::ListEntity::File(file) => {
@@ -231,9 +242,12 @@ async fn expect_file(
                 "File content length does not match"
             );
             assert_eq!(content_type, file.content_type, "File type does not match");
-            assert_eq!(tag, file.tag, "File tag does not match");
-
-            //TODO: check last modified
+            assert_eq!(
+                Some(generate_file_tag(content)),
+                file.tag,
+                "File tag does not match"
+            );
+            assert_eq!("1970-01-01T00:00:13+00:00", file.last_modified.to_rfc3339());
 
             let response = client.get(name).await.unwrap();
             let response_content = response.bytes().await.unwrap().to_vec();
@@ -274,7 +288,7 @@ async fn test_file_not_found() {
     test_fresh_dav_server(None, &verify_changes).await
 }
 
-async fn test_create_file(content: Vec<u8>, tag: Option<String>) {
+async fn test_create_file(content: Vec<u8>) {
     let file_name = "test.txt";
     let content_cloned = content.clone();
     let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
@@ -284,7 +298,6 @@ async fn test_create_file(content: Vec<u8>, tag: Option<String>) {
     };
     let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         let content_cloned = content.clone();
-        let tag_cloned = tag.clone();
         Box::pin(async move {
             let listed = list_directory(&client, "/").await;
             assert_eq!(2, listed.len());
@@ -295,7 +308,6 @@ async fn test_create_file(content: Vec<u8>, tag: Option<String>) {
                 &format!("/{file_name}"),
                 &content_cloned,
                 "text/plain",
-                tag_cloned,
             )
             .await;
         })
@@ -305,12 +317,12 @@ async fn test_create_file(content: Vec<u8>, tag: Option<String>) {
 
 #[test_log::test(tokio::test)]
 async fn test_create_file_empty() {
-    test_create_file(vec![], Some("c65d40".to_string())).await
+    test_create_file(vec![]).await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_create_file_with_small_content() {
-    test_create_file(vec![b'a'], Some("1-c65d40".to_string())).await
+    test_create_file(vec![b'a']).await
 }
 
 fn random_bytes(len: usize) -> Vec<u8> {
@@ -323,30 +335,22 @@ fn random_bytes(len: usize) -> Vec<u8> {
 
 #[test_log::test(tokio::test)]
 async fn test_create_file_random_tiny() {
-    test_create_file(random_bytes(42), Some("2a-c65d40".to_string())).await
+    test_create_file(random_bytes(42)).await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_create_file_tree_blob_max_length_minus_one() {
-    test_create_file(
-        random_bytes(TREE_BLOB_MAX_LENGTH - 1),
-        Some("f9ff-c65d40".to_string()),
-    )
-    .await
+    test_create_file(random_bytes(TREE_BLOB_MAX_LENGTH - 1)).await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_create_file_tree_blob_max_length_plus_one() {
-    test_create_file(
-        random_bytes(TREE_BLOB_MAX_LENGTH + 1),
-        Some("fa01-c65d40".to_string()),
-    )
-    .await
+    test_create_file(random_bytes(TREE_BLOB_MAX_LENGTH + 1)).await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_create_file_random_100k() {
-    test_create_file(random_bytes(100_000), Some("186a0-c65d40".to_string())).await
+    test_create_file(random_bytes(100_000)).await
 }
 
 #[test_log::test(tokio::test)]
@@ -375,7 +379,6 @@ async fn test_create_file_truncate() {
                 &format!("/{file_name}"),
                 short_content.as_bytes(),
                 "text/plain",
-                Some("5-c65d40".to_string()),
             )
             .await;
         })
@@ -536,7 +539,6 @@ async fn test_rename_file_to_already_existing_path() {
                 "/B",
                 content_a.as_bytes(),
                 "application/octet-stream",
-                Some("4-c65d40".to_string()),
             )
             .await;
         })
@@ -564,7 +566,6 @@ async fn test_rename_file() {
                 "/B",
                 content.as_bytes(),
                 "application/octet-stream",
-                Some("4-c65d40".to_string()),
             )
             .await;
         })
@@ -613,7 +614,6 @@ async fn test_rename_with_different_directories() {
                 "/B.txt",
                 content.as_bytes(),
                 "text/plain",
-                Some("4-c65d40".to_string()),
             )
             .await;
 
@@ -650,7 +650,6 @@ async fn test_rename_with_different_directories_locking() {
                 "/A/foo.txt",
                 content.as_bytes(),
                 "text/plain",
-                Some("4-c65d40".to_string()),
             )
             .await;
         })
@@ -729,15 +728,7 @@ async fn test_remove_file() {
             let listed = list_directory(&client, "/").await;
             assert_eq!(2, listed.len());
             expect_directory(&listed[0], "/");
-            expect_file(
-                &client,
-                &listed[1],
-                "/B.txt",
-                "".as_bytes(),
-                "text/plain",
-                Some("c65d40".to_string()),
-            )
-            .await;
+            expect_file(&client, &listed[1], "/B.txt", "".as_bytes(), "text/plain").await;
         })
     };
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
@@ -759,15 +750,7 @@ async fn test_remove_directory() {
             let listed = list_directory(&client, "/").await;
             assert_eq!(2, listed.len());
             expect_directory(&listed[0], "/");
-            expect_file(
-                &client,
-                &listed[1],
-                "/B.txt",
-                "".as_bytes(),
-                "text/plain",
-                Some("c65d40".to_string()),
-            )
-            .await;
+            expect_file(&client, &listed[1], "/B.txt", "".as_bytes(), "text/plain").await;
         })
     };
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
@@ -793,7 +776,6 @@ async fn test_copy_file() {
                 "/A.txt",
                 content.as_bytes(),
                 "text/plain",
-                Some("7-c65d40".to_string()),
             )
             .await;
             expect_file(
@@ -802,7 +784,6 @@ async fn test_copy_file() {
                 "/B.txt",
                 content.as_bytes(),
                 "text/plain",
-                Some("7-c65d40".to_string()),
             )
             .await;
         })
@@ -832,7 +813,6 @@ async fn test_copy_file_independent_content() {
                 "/A.txt",
                 content_2.as_bytes(),
                 "text/plain",
-                Some("1-c65d40".to_string()),
             )
             .await;
             expect_file(
@@ -841,7 +821,6 @@ async fn test_copy_file_independent_content() {
                 "/B.txt",
                 content_1.as_bytes(),
                 "text/plain",
-                Some("1-c65d40".to_string()),
             )
             .await;
         })
@@ -870,7 +849,6 @@ async fn test_copy_file_into_different_folder() {
                 "/A.txt",
                 content.as_bytes(),
                 "text/plain",
-                Some("7-c65d40".to_string()),
             )
             .await;
 
@@ -882,7 +860,6 @@ async fn test_copy_file_into_different_folder() {
                 "/foo/B.txt",
                 content.as_bytes(),
                 "text/plain",
-                Some("7-c65d40".to_string()),
             )
             .await;
         })
@@ -914,7 +891,6 @@ async fn test_copy_file_to_already_existing_target() {
                 "/A.txt",
                 content.as_bytes(),
                 "text/plain",
-                Some("7-c65d40".to_string()),
             )
             .await;
 
@@ -926,7 +902,6 @@ async fn test_copy_file_to_already_existing_target() {
                 "/foo/B.txt",
                 content.as_bytes(),
                 "text/plain",
-                Some("7-c65d40".to_string()),
             )
             .await;
         })
@@ -992,7 +967,6 @@ async fn test_copy_file_to_itself() {
                 "/A.txt",
                 content.as_bytes(),
                 "text/plain",
-                Some("7-c65d40".to_string()),
             )
             .await;
         })
