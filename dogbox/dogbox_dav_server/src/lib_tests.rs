@@ -659,6 +659,61 @@ async fn test_rename_with_different_directories_locking() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_remove_non_existing_file() {
+    let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        Box::pin(async move {
+            match client.delete("A").await {
+                Ok(_) => {
+                    panic!("The request should have failed");
+                }
+                Err(err) => match err {
+                    reqwest_dav::Error::Reqwest(_error) => {
+                        panic!("Expecting a different error")
+                    }
+                    reqwest_dav::Error::ReqwestDecode(_reqwest_decode_error) => {
+                        panic!("The request failed decoding")
+                    }
+                    reqwest_dav::Error::Decode(decode_error) => {
+                        match decode_error {
+                            reqwest_dav::DecodeError::DigestAuth(_error) => {
+                                panic!("DigestAuth error")
+                            }
+                            reqwest_dav::DecodeError::NoAuthHeaderInResponse => {
+                                panic!("No auth header in response")
+                            }
+                            reqwest_dav::DecodeError::SerdeXml(_error) => {
+                                panic!("XML decoding error")
+                            }
+                            reqwest_dav::DecodeError::FieldNotSupported(field_error) => {
+                                panic!("{field_error:?}")
+                            }
+                            reqwest_dav::DecodeError::FieldNotFound(field_error) => {
+                                panic!("{field_error:?}")
+                            }
+                            reqwest_dav::DecodeError::StatusMismatched(status_mismatched_error) => {
+                                panic!("{status_mismatched_error:?}")
+                            }
+                            reqwest_dav::DecodeError::Server(server_error) => {
+                                assert_eq!(404, server_error.response_code);
+                            }
+                        };
+                    }
+                    reqwest_dav::Error::MissingAuthContext => {
+                        panic!("The request failed decoding")
+                    }
+                },
+            }
+
+            // We need this extra file so that the state of the directory actually changes.
+            client.put("B.txt", "").await.unwrap();
+        })
+    };
+    let verify_changes =
+        move |_client: Client| -> Pin<Box<dyn Future<Output = ()>>> { Box::pin(async move {}) };
+    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+}
+
+#[test_log::test(tokio::test)]
 async fn test_remove_file() {
     let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
