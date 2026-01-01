@@ -388,8 +388,8 @@ impl Closure {
         load_tree: &(dyn LoadTree + Sync),
     ) -> Result<Closure, TreeDeserializationError> {
         let loaded_root = match load_tree.load_tree(root).await {
-            Some(success) => success,
-            None => return Err(TreeDeserializationError::BlobUnavailable(*root)),
+            Ok(success) => success,
+            Err(error) => return Err(TreeDeserializationError::Load(error)),
         };
         let root_tree = loaded_root.hash().unwrap(/*TODO*/).tree().clone();
         let _closure_blob: ClosureBlob = match postcard::from_bytes(root_tree.blob().as_slice()) {

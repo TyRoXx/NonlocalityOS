@@ -216,8 +216,8 @@ pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue
     root: &BlobDigest,
 ) -> Node<Key, Value> {
     let delayed_hashed_tree = match load_tree.load_tree(root).await {
-        Some(tree) => tree,
-        None => todo!(),
+        Ok(tree) => tree,
+        Err(_) => todo!(),
     };
     let hashed_tree = match delayed_hashed_tree.hash() {
         Some(tree) => tree,

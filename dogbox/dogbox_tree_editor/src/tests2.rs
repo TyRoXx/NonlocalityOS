@@ -5,8 +5,8 @@ use crate::{
     StoreChanges, StreakDirection, TreeEditor,
 };
 use astraea::storage::{
-    CollectGarbage, DelayedHashedTree, GarbageCollectionStats, InMemoryTreeStorage, LoadTree,
-    SQLiteStorage, StoreError, StoreTree, UpdateRoot,
+    CollectGarbage, DelayedHashedTree, GarbageCollectionStats, InMemoryTreeStorage, LoadError,
+    LoadTree, SQLiteStorage, StoreError, StoreTree, UpdateRoot,
 };
 use astraea::tree::{calculate_reference, TreeChildren, TREE_MAX_CHILDREN};
 use astraea::{
@@ -621,7 +621,10 @@ struct NeverUsedStorage {}
 
 #[async_trait]
 impl LoadTree for NeverUsedStorage {
-    async fn load_tree(&self, _reference: &astraea::tree::BlobDigest) -> Option<DelayedHashedTree> {
+    async fn load_tree(
+        &self,
+        _reference: &astraea::tree::BlobDigest,
+    ) -> std::result::Result<DelayedHashedTree, LoadError> {
         panic!()
     }
 

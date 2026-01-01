@@ -58,8 +58,15 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
         }
         dogbox_tree_editor::Error::Deserialization(deserialization_error) => {
             match deserialization_error {
-                dogbox_tree::serialization::DeserializationError::MissingTree(digest) => {
-                    error!("Deserialization failed due to missing tree: {}", digest);
+                dogbox_tree::serialization::DeserializationError::Load(error) => {
+                    error!("Deserialization failed due to tree load error: {}", &error);
+                    dav_server::fs::FsError::GeneralFailure
+                }
+                dogbox_tree::serialization::DeserializationError::TreeHashMismatch(digest) => {
+                    error!(
+                        "Deserialization failed due to hash mismatch for tree {}",
+                        &digest
+                    );
                     dav_server::fs::FsError::GeneralFailure
                 }
                 dogbox_tree::serialization::DeserializationError::Postcard(postcard_error) => {

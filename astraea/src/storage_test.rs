@@ -1,7 +1,7 @@
 use crate::{
     storage::{
-        CollectGarbage, CommitChanges, GarbageCollectionStats, LoadRoot, LoadTree, SQLiteStorage,
-        StoreTree, UpdateRoot,
+        CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadRoot, LoadTree,
+        SQLiteStorage, StoreTree, UpdateRoot,
     },
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
@@ -200,7 +200,7 @@ async fn test_load_tree_not_found() {
     let storage = SQLiteStorage::from(connection).unwrap();
     let reference = BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap();
     let result = storage.load_tree(&reference).await;
-    assert!(result.is_none());
+    assert_eq!(Err(LoadError::TreeNotFound(reference)), result);
 }
 
 #[test_log::test(tokio::test)]
@@ -390,10 +390,12 @@ async fn test_compression_load_corrupted_blob() {
             ],
         )
         .unwrap();
-
     let storage = SQLiteStorage::from(connection).unwrap();
     let loaded_back = storage.load_tree(&reference).await;
-    assert!(loaded_back.is_none());
+    assert_eq!(
+        Err(LoadError::Rusqlite("InvalidQuery".to_string())),
+        loaded_back
+    );
 }
 
 #[test_log::test(tokio::test)]

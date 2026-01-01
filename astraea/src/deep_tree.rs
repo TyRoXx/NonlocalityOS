@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    storage::{LoadTree, StoreError, StoreTree},
+    storage::{LoadError, LoadTree, StoreError, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeSerializationError},
 };
 
@@ -62,18 +62,23 @@ impl DeepTree {
         &self.children
     }
 
-    pub async fn deserialize(root: &BlobDigest, load_tree: &dyn LoadTree) -> Option<DeepTree> {
-        let tree = load_tree.load_tree(root).await?.hash()?;
+    pub async fn deserialize(
+        root: &BlobDigest,
+        load_tree: &dyn LoadTree,
+    ) -> std::result::Result<DeepTree, LoadError> {
+        let tree = match load_tree.load_tree(root).await?.hash() {
+            Some(hashed_tree) => hashed_tree,
+            None => {
+                return Err(LoadError::TreeNotFound(*root));
+            }
+        };
         let blob = tree.tree().blob();
         let mut references = Vec::new();
         for reference in tree.tree().children().references() {
-            if let Some(deep_tree) = Box::pin(DeepTree::deserialize(reference, load_tree)).await {
-                references.push(deep_tree);
-            } else {
-                return None;
-            }
+            let deep_tree = Box::pin(DeepTree::deserialize(reference, load_tree)).await?;
+            references.push(deep_tree);
         }
-        Some(DeepTree::new(
+        Ok(DeepTree::new(
             blob.clone(),
             DeepTreeChildren::try_from(references)
                 .expect("Max child count enforced by TreeChildren"),

@@ -91,12 +91,12 @@ pub async fn load_segmented_blob(
     storage: &(dyn LoadTree + Send + Sync),
 ) -> std::result::Result<(Vec<BlobDigest>, u64), DeserializationError> {
     let delayed_tree = match storage.load_tree(digest).await {
-        Some(loaded) => loaded,
-        None => return Err(DeserializationError::MissingTree(*digest)),
+        Ok(loaded) => loaded,
+        Err(error) => return Err(DeserializationError::Load(error)),
     };
     let hashed_tree = match delayed_tree.hash() {
         Some(hashed) => hashed,
-        None => return Err(DeserializationError::MissingTree(*digest)),
+        None => return Err(DeserializationError::TreeHashMismatch(*digest)),
     };
     let tree = hashed_tree.tree().as_ref();
     if tree.children().references().is_empty() {

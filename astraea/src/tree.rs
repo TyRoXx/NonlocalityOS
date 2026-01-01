@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_512};
 use std::{fmt::Display, sync::Arc};
 
+use crate::storage::LoadError;
+
 /// SHA3-512 hash. Supports Serde because we will need this type a lot in network protocols and file formats.
 #[derive(Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Clone, Copy, Hash)]
 pub struct BlobDigest(
@@ -137,7 +139,7 @@ impl std::error::Error for TreeSerializationError {}
 pub enum TreeDeserializationError {
     ReferencesNotAllowed,
     Postcard(postcard::Error),
-    BlobUnavailable(BlobDigest),
+    Load(LoadError),
 }
 
 impl std::fmt::Display for TreeDeserializationError {

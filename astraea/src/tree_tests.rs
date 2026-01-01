@@ -73,9 +73,9 @@ fn test_display_tree_deserialization_error() {
     assert_eq!(
         format!(
             "{}",
-            TreeDeserializationError::BlobUnavailable(BlobDigest::new(&[0u8; 64]),)
+            TreeDeserializationError::Load(crate::storage::LoadError::TreeNotFound(BlobDigest::new(&[0u8; 64])))
         ),
-        "BlobUnavailable(BlobDigest(\"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\"))"
+        "Load(TreeNotFound(BlobDigest(\"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\")))"
     );
 }
 

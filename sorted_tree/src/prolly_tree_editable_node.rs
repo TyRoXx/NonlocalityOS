@@ -1,6 +1,6 @@
 use crate::sorted_tree::{self, NodeValue, TreeReference};
 use astraea::{
-    storage::{LoadTree, StoreError, StoreTree},
+    storage::{LoadError, LoadTree, StoreError, StoreTree},
     tree::{BlobDigest, TREE_BLOB_MAX_LENGTH},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -100,7 +100,7 @@ pub enum EitherNodeType<Key: Serialize + Ord, Value: NodeValue> {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum DeserializationError {
-    MissingTree(BlobDigest),
+    Load(LoadError),
     TreeHashMismatch(BlobDigest),
 }
 
@@ -120,8 +120,8 @@ pub async fn load_node<
     root: &BlobDigest,
 ) -> Result<EitherNodeType<Key, Value>, Box<dyn std::error::Error>> {
     let loaded = match load_tree.load_tree(root).await {
-        Some(loaded) => loaded,
-        None => return Err(DeserializationError::MissingTree(*root).into()),
+        Ok(loaded) => loaded,
+        Err(error) => return Err(DeserializationError::Load(error).into()),
     };
     let hashed = match loaded.hash() {
         Some(hashed) => hashed,

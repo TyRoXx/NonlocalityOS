@@ -1,4 +1,7 @@
-use astraea::{storage::LoadStoreTree, tree::BlobDigest};
+use astraea::{
+    storage::{LoadError, LoadStoreTree},
+    tree::BlobDigest,
+};
 use serde::{Deserialize, Serialize};
 use sorted_tree::prolly_tree_editable_node::{self, Iterator};
 use std::collections::BTreeMap;
@@ -166,7 +169,8 @@ impl DirectoryEntry {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum DeserializationError {
-    MissingTree(BlobDigest),
+    Load(LoadError),
+    TreeHashMismatch(BlobDigest),
     Postcard(postcard::Error),
     ReferenceIndexOutOfRange,
     Inconsistency(String),

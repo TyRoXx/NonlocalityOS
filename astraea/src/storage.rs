@@ -28,18 +28,32 @@ impl std::fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum LoadError {
+    Rusqlite(String),
+    TreeNotFound(BlobDigest),
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for LoadError {}
+
 #[async_trait::async_trait]
 pub trait StoreTree {
     async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum DelayedHashedTreeAlternatives {
     Delayed(Arc<Tree>, BlobDigest),
     Immediate(HashedTree),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DelayedHashedTree {
     alternatives: DelayedHashedTreeAlternatives,
 }
@@ -75,7 +89,10 @@ impl DelayedHashedTree {
 
 #[async_trait::async_trait]
 pub trait LoadTree: std::fmt::Debug {
-    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree>;
+    async fn load_tree(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<DelayedHashedTree, LoadError>;
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError>;
 }
 
@@ -148,10 +165,15 @@ impl StoreTree for InMemoryTreeStorage {
 
 #[async_trait]
 impl LoadTree for InMemoryTreeStorage {
-    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree> {
+    async fn load_tree(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<DelayedHashedTree, LoadError> {
         let lock = self.reference_to_tree.lock().await;
-        lock.get(reference)
-            .map(|found| DelayedHashedTree::immediate(found.clone()))
+        match lock.get(reference) {
+            Some(found) => Ok(DelayedHashedTree::immediate(found.clone())),
+            None => return Err(LoadError::TreeNotFound(*reference)),
+        }
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
@@ -398,7 +420,10 @@ impl StoreTree for SQLiteStorage {
 #[async_trait]
 impl LoadTree for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree> {
+    async fn load_tree(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<DelayedHashedTree, LoadError> {
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = (*reference).into();
@@ -431,11 +456,11 @@ impl LoadTree for SQLiteStorage {
             Ok(tuple) => tuple,
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 error!("No tree found for digest {reference} in the database.");
-                return None;
+                return Err(LoadError::TreeNotFound(*reference));
             }
             Err(error) => {
                 error!("Error loading tree from the database: {error:?}");
-                return None;
+                return Err(LoadError::Rusqlite(format!("{:?}", &error)));
             }
         };
         let mut statement = connection_locked.prepare_cached(concat!("SELECT zero_based_index, target FROM reference",
@@ -456,8 +481,14 @@ impl LoadTree for SQLiteStorage {
                 reference
             })
             .collect();
-        let children = TreeChildren::try_from(references)?;
-        Some(DelayedHashedTree::delayed(
+        let children = match TreeChildren::try_from(references) {
+            Some(children) => children,
+            None => {
+                error!("Failed to reconstruct TreeChildren for tree with digest {reference}");
+                return Err(LoadError::TreeNotFound(*reference));
+            }
+        };
+        Ok(DelayedHashedTree::delayed(
             Arc::new(Tree::new(tree_blob, children)),
             *reference,
         ))
@@ -627,25 +658,28 @@ impl LoadCache {
 
 #[async_trait]
 impl LoadTree for LoadCache {
-    async fn load_tree(&self, reference: &BlobDigest) -> Option<DelayedHashedTree> {
+    async fn load_tree(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<DelayedHashedTree, LoadError> {
         {
             let mut entries_locked = self.entries.lock().await;
             if let Some(found) = entries_locked.cache_get(reference) {
-                return Some(DelayedHashedTree::immediate(found.clone()));
+                return Ok(DelayedHashedTree::immediate(found.clone()));
             }
         }
         let loaded = match self.next.load_tree(reference).await {
-            Some(loaded) => loaded,
-            None => return None,
+            Ok(loaded) => loaded,
+            Err(err) => return Err(err),
         };
         let maybe_hashed_tree = loaded.hash();
         match maybe_hashed_tree {
             Some(success) => {
                 let mut entries_locked = self.entries.lock().await;
                 entries_locked.cache_set(*reference, success.clone());
-                Some(DelayedHashedTree::immediate(success))
+                Ok(DelayedHashedTree::immediate(success))
             }
-            None => None,
+            None => Err(LoadError::TreeNotFound(*reference)),
         }
     }
 

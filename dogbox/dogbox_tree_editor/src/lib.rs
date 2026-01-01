@@ -1312,11 +1312,9 @@ impl OpenFileContentBlock {
             )))
         } else {
             let delayed = match storage.load_tree(blob_digest).await {
-                Some(success) => success,
-                None => {
-                    return Err(Error::Deserialization(DeserializationError::MissingTree(
-                        *blob_digest,
-                    )))
+                Ok(success) => success,
+                Err(error) => {
+                    return Err(Error::Deserialization(DeserializationError::Load(error)))
                 }
             };
             let hashed = tokio::task::spawn_blocking(move || delayed.hash())
@@ -1325,9 +1323,9 @@ impl OpenFileContentBlock {
             match hashed {
                 Some(success) => success,
                 None => {
-                    return Err(Error::Deserialization(DeserializationError::MissingTree(
-                        *blob_digest,
-                    )))
+                    return Err(Error::Deserialization(
+                        DeserializationError::TreeHashMismatch(*blob_digest),
+                    ))
                 }
             }
         };

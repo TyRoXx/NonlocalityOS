@@ -1,6 +1,6 @@
 use crate::{
     deep_tree::{DeepTree, DeepTreeChildren},
-    storage::{InMemoryTreeStorage, StoreTree},
+    storage::{InMemoryTreeStorage, LoadError, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
 use pretty_assertions::assert_eq;
@@ -18,7 +18,7 @@ async fn test_deep_tree_deserialize_simple_tree() {
         .unwrap();
     let result = DeepTree::deserialize(&digest, &storage).await;
     assert_eq!(
-        Some(DeepTree::new(TreeBlob::empty(), DeepTreeChildren::empty())),
+        Ok(DeepTree::new(TreeBlob::empty(), DeepTreeChildren::empty())),
         result
     );
 }
@@ -35,7 +35,7 @@ async fn test_deep_tree_deserialize_blob() {
         .unwrap();
     let result = DeepTree::deserialize(&digest, &storage).await;
     assert_eq!(
-        Some(DeepTree::new(
+        Ok(DeepTree::new(
             TreeBlob::try_from(bytes::Bytes::from("test 123")).unwrap(),
             DeepTreeChildren::empty()
         )),
@@ -62,7 +62,7 @@ async fn test_deep_tree_deserialize_reference() {
         .unwrap();
     let result = DeepTree::deserialize(&digest, &storage).await;
     assert_eq!(
-        Some(DeepTree::new(
+        Ok(DeepTree::new(
             TreeBlob::empty(),
             DeepTreeChildren::try_from(vec![DeepTree::new(
                 TreeBlob::try_from(bytes::Bytes::from("test 123")).unwrap(),
@@ -76,10 +76,8 @@ async fn test_deep_tree_deserialize_reference() {
 
 #[test_log::test(tokio::test)]
 async fn test_deep_tree_deserialize_not_found() {
+    let digest = BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap();
     let storage = InMemoryTreeStorage::empty();
-    let result =  DeepTree::deserialize(
-        &BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap(),
-        &storage,
-    ).await;
-    assert_eq!(None, result);
+    let result = DeepTree::deserialize(&digest, &storage).await;
+    assert_eq!(Err(LoadError::TreeNotFound(digest)), result);
 }
