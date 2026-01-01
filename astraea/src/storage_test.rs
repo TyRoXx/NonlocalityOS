@@ -1,7 +1,7 @@
 use crate::{
     storage::{
         CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadRoot, LoadTree,
-        SQLiteStorage, StoreTree, UpdateRoot,
+        SQLiteStorage, StoreError, StoreTree, UpdateRoot,
     },
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
@@ -391,7 +391,7 @@ async fn test_compression_load_corrupted_blob() {
     let storage = SQLiteStorage::from(connection).unwrap();
     let loaded_back = storage.load_tree(&reference).await;
     assert_eq!(
-        Err(LoadError::Rusqlite("InvalidQuery".to_string())),
+        Err(LoadError::Rusqlite("Query is not read-only".to_string())),
         loaded_back
     );
 }
@@ -429,5 +429,35 @@ async fn test_collect_garbage() {
     assert_eq!(
         GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_sql_errors() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    // We have not created the schema, so any operation should fail.
+    let digest = BlobDigest::hash(b"ref1");
+    assert_eq!(
+        Err(LoadError::Rusqlite("no such table: tree".to_string())),
+        storage.load_tree(&digest).await
+    );
+    assert_eq!(
+        Err(StoreError::Rusqlite("no such table: tree".to_string())),
+        storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+            .await
+    );
+    assert_eq!(
+        Err(LoadError::Rusqlite("no such table: root".to_string())),
+        storage.load_root("test").await
+    );
+    assert_eq!(
+        Err(StoreError::Rusqlite("no such table: root".to_string())),
+        storage.update_root("test", &digest).await
+    );
+    assert_eq!(
+        Err(StoreError::Rusqlite("no such table: tree".to_string())),
+        storage.collect_some_garbage().await
     );
 }

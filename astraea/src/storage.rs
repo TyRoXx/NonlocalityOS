@@ -327,13 +327,13 @@ impl StoreTree for SQLiteStorage {
             let connection_locked = &state_locked.connection;
             let mut statement = connection_locked
                 .prepare_cached("SELECT COUNT(*) FROM tree WHERE digest = ?")
-                .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))?;
+                .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
             let existing_count: i64 = statement
                 .query_row(
                     (&origin_digest,),
                     |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
                 )
-                .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))?;
+                .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
             match existing_count {
                 0 => {}
                 1 => return Ok(reference),
@@ -343,11 +343,11 @@ impl StoreTree for SQLiteStorage {
 
         state_locked
             .require_gc_new_tree_table()
-            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
 
         state_locked
             .require_transaction(1 + tree.tree().children().references().len() as u64)
-            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
 
         let connection_locked = &state_locked.connection;
 
@@ -369,23 +369,23 @@ impl StoreTree for SQLiteStorage {
                 .prepare_cached(
                     "INSERT INTO tree (digest, tree_blob, is_compressed) VALUES (?1, ?2, ?3)",
                 )
-                .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))?;
+                .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
             let rows_inserted = statement
                 .execute((&origin_digest, blob_to_store, &is_compressed))
-                .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
             assert_eq!(1, rows_inserted);
         }
 
         let tree_id: i64 = {
             let mut statement = connection_locked
                 .prepare_cached("SELECT id FROM tree WHERE digest = ?1")
-                .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
             statement
                 .query_row(
                     (&origin_digest,),
                     |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
                 )
-                .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?
+                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?
         };
 
         if !tree.tree().children().references().is_empty() {
@@ -394,7 +394,7 @@ impl StoreTree for SQLiteStorage {
                 .prepare_cached(
                     "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",
                 )
-                .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
             for (index, reference) in tree.tree().children().references().iter().enumerate() {
                 let target_digest: [u8; 64] = (*reference).into();
                 let rows_inserted = statement
@@ -403,17 +403,17 @@ impl StoreTree for SQLiteStorage {
                         u32::try_from(index).expect("A child index won't be too large"),
                         &target_digest,
                     ))
-                    .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+                    .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
                 assert_eq!(1, rows_inserted);
             }
         }
 
         let mut statement = connection_locked
             .prepare_cached("INSERT OR IGNORE INTO gc_new_tree (tree_id) VALUES (?1)")
-            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         let rows_inserted = statement
             .execute((&tree_id,))
-            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         assert!(rows_inserted <= 1);
 
         Ok(reference)
@@ -432,7 +432,7 @@ impl LoadTree for SQLiteStorage {
         let digest: [u8; 64] = (*reference).into();
         let mut statement = connection_locked
             .prepare_cached("SELECT id, tree_blob, is_compressed FROM tree WHERE digest = ?1")
-            .map_err(|error| LoadError::Rusqlite(format!("{:?}", &error)))?;
+            .map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
         let (id, decompressed_data) =
             match statement.query_row((&digest,), |row| -> rusqlite::Result<_> {
                 let id: i64 = row.get(0)?;
@@ -462,7 +462,7 @@ impl LoadTree for SQLiteStorage {
                 }
                 Err(error) => {
                     error!("Error loading tree from the database: {error:?}");
-                    return Err(LoadError::Rusqlite(format!("{:?}", &error)));
+                    return Err(LoadError::Rusqlite(format!("{}", &error)));
                 }
             };
         let tree_blob = TreeBlob::try_from(decompressed_data.into())
@@ -472,19 +472,19 @@ impl LoadTree for SQLiteStorage {
                 "SELECT zero_based_index, target FROM reference",
                 " WHERE origin = ? ORDER BY zero_based_index ASC"
             ))
-            .map_err(|error| LoadError::Rusqlite(format!("{:?}", &error)))?;
+            .map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
         let results = statement
             .query_map([&id], |row| {
                 let index: i64 = row.get(0)?;
                 let target: [u8; 64] = row.get(1)?;
                 Ok((index, BlobDigest::new(&target)))
             })
-            .map_err(|error| LoadError::Rusqlite(format!("{:?}", &error)))?;
+            .map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
         let references: Vec<crate::tree::BlobDigest> = results
             .enumerate()
             .map(|(expected_index, maybe_tuple)| {
                 let tuple =
-                    maybe_tuple.map_err(|error| LoadError::Rusqlite(format!("{:?}", &error)))?;
+                    maybe_tuple.map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
                 let target = tuple.1;
                 let actual_index = tuple.0;
                 if expected_index as i64 != actual_index {
@@ -524,7 +524,7 @@ impl LoadTree for SQLiteStorage {
                     Ok(count)
                 },
             )
-            .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))
+            .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))
         {
             Ok(count) => Ok(u64::try_from(count).expect("COUNT(*) won't be negative")),
             Err(err) => Err(err),
@@ -546,14 +546,14 @@ impl UpdateRoot for SQLiteStorage {
         let mut state_locked = self.state.lock().await;
         state_locked
             .require_transaction(1)
-            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         let connection_locked = &state_locked.connection;
         let target_array: [u8; 64] = (*target).into();
         connection_locked.execute(
             "INSERT INTO root (name, target) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET target = ?2;",
             (&name, &target_array),
         )
-        .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+        .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         Ok(())
     }
 }
@@ -594,13 +594,13 @@ impl CollectGarbage for SQLiteStorage {
         let mut state_locked = self.state.lock().await;
         state_locked
             .require_gc_new_tree_table()
-            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         let connection_locked = &state_locked.connection;
         let stats = collect_garbage(connection_locked)
-            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         state_locked
             .require_transaction(stats.trees_collected)
-            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         Ok(stats)
     }
 }
@@ -621,7 +621,7 @@ impl LoadRoot for SQLiteStorage {
                 },
             )
             .optional()
-            .map_err(|err| LoadError::Rusqlite(format!("{:?}", &err)))?;
+            .map_err(|err| LoadError::Rusqlite(format!("{}", &err)))?;
         Ok(target)
     }
 }
