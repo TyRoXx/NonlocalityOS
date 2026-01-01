@@ -32,6 +32,8 @@ impl std::error::Error for StoreError {}
 pub enum LoadError {
     Rusqlite(String),
     TreeNotFound(BlobDigest),
+    Deserialization(BlobDigest, TreeSerializationError),
+    Inconsistency(BlobDigest, String),
 }
 
 impl std::fmt::Display for LoadError {
@@ -427,60 +429,75 @@ impl LoadTree for SQLiteStorage {
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
         let digest: [u8; 64] = (*reference).into();
-        let mut statement = connection_locked.prepare_cached(
-            "SELECT id, tree_blob, is_compressed FROM tree WHERE digest = ?1").unwrap(/*TODO*/);
-        let (id, tree_blob) = match statement.query_row((&digest,), |row| -> rusqlite::Result<_> {
-            let id: i64 = row.get(0).unwrap(/*TODO*/);
-            let tree_blob_raw: Vec<u8> = row.get(1).unwrap(/*TODO*/);
-            let is_compressed: i32 = row.get(2).unwrap(/*TODO*/);
-
-            // Decompress if needed
-            let decompressed_data = match is_compressed {
-                1 => match lz4_flex::decompress_size_prepended(&tree_blob_raw) {
-                    Ok(data) => data,
-                    Err(error) => {
-                        error!("Failed to decompress tree blob: {error:?}");
+        let mut statement = connection_locked
+            .prepare_cached("SELECT id, tree_blob, is_compressed FROM tree WHERE digest = ?1")
+            .map_err(|error| LoadError::Rusqlite(format!("{:?}", &error)))?;
+        let (id, decompressed_data) =
+            match statement.query_row((&digest,), |row| -> rusqlite::Result<_> {
+                let id: i64 = row.get(0)?;
+                let tree_blob_raw: Vec<u8> = row.get(1)?;
+                let is_compressed: i32 = row.get(2)?;
+                // Decompress if needed
+                let decompressed_data = match is_compressed {
+                    1 => match lz4_flex::decompress_size_prepended(&tree_blob_raw) {
+                        Ok(data) => data,
+                        Err(error) => {
+                            error!("Failed to decompress tree blob: {error:?}");
+                            return Err(rusqlite::Error::InvalidQuery);
+                        }
+                    },
+                    0 => tree_blob_raw,
+                    _ => {
+                        error!("Invalid is_compressed value: {is_compressed}, expected 0 or 1");
                         return Err(rusqlite::Error::InvalidQuery);
                     }
-                },
-                0 => tree_blob_raw,
-                _ => {
-                    error!("Invalid is_compressed value: {is_compressed}, expected 0 or 1");
-                    return Err(rusqlite::Error::InvalidQuery);
+                };
+                Ok((id, decompressed_data))
+            }) {
+                Ok(tuple) => tuple,
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    error!("No tree found for digest {reference} in the database.");
+                    return Err(LoadError::TreeNotFound(*reference));
+                }
+                Err(error) => {
+                    error!("Error loading tree from the database: {error:?}");
+                    return Err(LoadError::Rusqlite(format!("{:?}", &error)));
                 }
             };
-
-            let tree_blob = TreeBlob::try_from(decompressed_data.into()).unwrap(/*TODO*/);
-            Ok((id, tree_blob))
-        }) {
-            Ok(tuple) => tuple,
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                error!("No tree found for digest {reference} in the database.");
-                return Err(LoadError::TreeNotFound(*reference));
-            }
-            Err(error) => {
-                error!("Error loading tree from the database: {error:?}");
-                return Err(LoadError::Rusqlite(format!("{:?}", &error)));
-            }
-        };
-        let mut statement = connection_locked.prepare_cached(concat!("SELECT zero_based_index, target FROM reference",
-            " WHERE origin = ? ORDER BY zero_based_index ASC")).unwrap(/*TODO*/);
-        let results = statement.query_map([&id], |row| {
-            let index: i64 = row.get(0)?;
-            let target: [u8; 64] = row.get(1)?;
-            Ok((index, BlobDigest::new(&target)))
-            }).unwrap(/*TODO*/);
+        let tree_blob = TreeBlob::try_from(decompressed_data.into())
+            .map_err(|error| LoadError::Deserialization(*reference, error))?;
+        let mut statement = connection_locked
+            .prepare_cached(concat!(
+                "SELECT zero_based_index, target FROM reference",
+                " WHERE origin = ? ORDER BY zero_based_index ASC"
+            ))
+            .map_err(|error| LoadError::Rusqlite(format!("{:?}", &error)))?;
+        let results = statement
+            .query_map([&id], |row| {
+                let index: i64 = row.get(0)?;
+                let target: [u8; 64] = row.get(1)?;
+                Ok((index, BlobDigest::new(&target)))
+            })
+            .map_err(|error| LoadError::Rusqlite(format!("{:?}", &error)))?;
         let references: Vec<crate::tree::BlobDigest> = results
             .enumerate()
             .map(|(expected_index, maybe_tuple)| {
-                let tuple = maybe_tuple.unwrap(/*YOLO*/);
-                let reference = tuple.1;
+                let tuple =
+                    maybe_tuple.map_err(|error| LoadError::Rusqlite(format!("{:?}", &error)))?;
+                let target = tuple.1;
                 let actual_index = tuple.0;
-                // TODO: handle mismatch properly
-                assert_eq!(expected_index as i64, actual_index);
-                reference
+                if expected_index as i64 != actual_index {
+                    return Err(LoadError::Inconsistency(
+                        *reference,
+                        format!(
+                            "Expected index {}, but got {}",
+                            expected_index, actual_index
+                        ),
+                    ));
+                }
+                Ok(target)
             })
-            .collect();
+            .try_collect()?;
         let children = match TreeChildren::try_from(references) {
             Some(children) => children,
             None => {
@@ -502,13 +519,13 @@ impl LoadTree for SQLiteStorage {
                 "SELECT COUNT(*) FROM tree",
                 (),
                 |row| -> rusqlite::Result<_> {
-                    let count: i64 = row.get(0).unwrap(/*TODO*/);
+                    let count: i64 = row.get(0)?;
                     Ok(count)
                 },
             )
             .map_err(|error| StoreError::Rusqlite(format!("{:?}", &error)))
         {
-            Ok(count) => Ok(u64::try_from(count).expect("Tree count won't be negative")),
+            Ok(count) => Ok(u64::try_from(count).expect("COUNT(*) won't be negative")),
             Err(err) => Err(err),
         }
     }

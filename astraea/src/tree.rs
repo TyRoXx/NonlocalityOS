@@ -120,7 +120,7 @@ impl std::fmt::Debug for TreeBlob {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TreeSerializationError {
     Postcard(postcard::Error),
     BlobTooLong,
