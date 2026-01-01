@@ -840,6 +840,70 @@ async fn test_create_directory() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_create_directory_again() {
+    use futures::StreamExt;
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let root = Arc::new(open_directory_from_entries(vec![], storage));
+    let editor = TreeEditor::new(root.clone(), None);
+    let path = NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap();
+    editor.create_directory(path.clone()).await.unwrap();
+    // create existing directory again:
+    editor.create_directory(path.clone()).await.unwrap();
+    let mut reading = editor
+        .read_directory(NormalizedPath::try_from(relative_path::RelativePath::new("/")).unwrap())
+        .await
+        .unwrap();
+    let entry: MutableDirectoryEntry = reading.next().await.unwrap();
+    assert_eq!(
+        MutableDirectoryEntry {
+            name: FileName::try_from("test".to_string()).unwrap(),
+            kind: DirectoryEntryKind::Directory,
+            modified,
+        },
+        entry
+    );
+    let end = reading.next().await;
+    assert!(end.is_none());
+}
+
+#[test_log::test(tokio::test)]
+async fn test_create_directory_over_existing_file() {
+    use futures::StreamExt;
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let root = Arc::new(open_directory_from_entries(vec![], storage));
+    let editor = TreeEditor::new(root.clone(), None);
+    let path = NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap();
+    editor.open_file(path.clone()).await.unwrap();
+    // create directory over existing file:
+    match editor.create_directory(path.clone()).await {
+        Ok(_) => panic!("Unexpectedly created directory over existing file"),
+        Err(err) => assert_eq!(
+            Error::CannotOpenRegularFileAsDirectory(
+                FileName::try_from("test".to_string()).unwrap()
+            ),
+            err
+        ),
+    }
+    let mut reading = editor
+        .read_directory(NormalizedPath::try_from(relative_path::RelativePath::new("/")).unwrap())
+        .await
+        .unwrap();
+    let entry: MutableDirectoryEntry = reading.next().await.unwrap();
+    assert_eq!(
+        MutableDirectoryEntry {
+            name: FileName::try_from("test".to_string()).unwrap(),
+            kind: DirectoryEntryKind::File(0),
+            modified,
+        },
+        entry
+    );
+    let end = reading.next().await;
+    assert!(end.is_none());
+}
+
+#[test_log::test(tokio::test)]
 async fn test_read_created_directory() {
     use futures::StreamExt;
     let storage = Arc::new(InMemoryTreeStorage::empty());

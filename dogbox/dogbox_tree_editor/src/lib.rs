@@ -720,7 +720,38 @@ impl OpenDirectory {
         let mut state_locked = self.state.lock().await;
         state_locked.record_access((self.clock)());
         match state_locked.names.get(&name) {
-            Some(_found) => todo!(),
+            Some(found) => match found {
+                NamedEntry::NotOpen(meta_data, _) => match meta_data.kind {
+                    DirectoryEntryKind::File(_) => {
+                        warn!(
+                            "Cannot create directory {} because a regular file (currently not open) with that name already exists.",
+                            &name
+                        );
+                        Err(Error::CannotOpenRegularFileAsDirectory(name))
+                    }
+                    DirectoryEntryKind::Directory => {
+                        info!(
+                            "Cannot create directory {} because it already exists (currently not open). Returning success.",
+                            &name
+                        );
+                        Ok(())
+                    }
+                },
+                NamedEntry::OpenRegularFile(_, _) => {
+                    warn!(
+                        "Cannot create directory {} because a regular file (currently open) with that name already exists.",
+                        &name
+                    );
+                    Err(Error::CannotOpenRegularFileAsDirectory(name))
+                }
+                NamedEntry::OpenSubdirectory(_, _) => {
+                    info!(
+                        "Cannot create directory {} because it already exists (currently open). Returning success.",
+                        &name
+                    );
+                    Ok(())
+                }
+            },
             None => {
                 debug!(
                     "Creating directory {} sends a change event for its parent directory.",
