@@ -3,7 +3,7 @@
 mod benchmarks;
 
 #[cfg(test)]
-mod tests2;
+mod lib_tests;
 
 mod segmented_blob;
 
