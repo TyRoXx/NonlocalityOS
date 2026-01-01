@@ -28,15 +28,18 @@ impl DogBoxFileSystem {
 
 fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
     match err {
-        dogbox_tree_editor::Error::NotFound(path) => {
-            debug!("File or directory not found: {}", path);
+        dogbox_tree_editor::Error::NotFound(name) => {
+            debug!("File or directory not found: {}", name);
             dav_server::fs::FsError::NotFound
         }
-        dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(path) => {
-            info!("Cannot read regular file as a directory: {}", path);
+        dogbox_tree_editor::Error::CannotOpenRegularFileAsDirectory(name) => {
+            info!("Cannot read regular file as a directory: {}", name);
             dav_server::fs::FsError::NotImplemented
         }
-        dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile => todo!(),
+        dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile(name) => {
+            info!("Cannot open directory {} as a regular file", name);
+            dav_server::fs::FsError::Forbidden
+        },
         dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
         dogbox_tree_editor::Error::SegmentedBlobSizeMismatch {
             digest,

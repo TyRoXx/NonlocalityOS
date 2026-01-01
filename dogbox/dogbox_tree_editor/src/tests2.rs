@@ -787,6 +787,30 @@ async fn test_read_directory_on_open_regular_file() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_open_file_on_directory() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let name = FileName::try_from("test".to_string()).unwrap();
+    let editor = TreeEditor::new(
+        Arc::new(open_directory_from_entries(
+            vec![DirectoryEntry {
+                name: name.clone(),
+                kind: DirectoryEntryKind::Directory,
+                digest: BlobDigest::hash(b""),
+            }],
+            storage,
+        )),
+        None,
+    );
+    match editor
+        .open_file(NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap())
+        .await
+    {
+        Ok(_) => panic!("Unexpectedly opened directory as file"),
+        Err(err) => assert_eq!(Error::CannotOpenDirectoryAsRegularFile(name), err),
+    }
+}
+
+#[test_log::test(tokio::test)]
 async fn test_create_directory() {
     use futures::StreamExt;
     let modified = test_clock();

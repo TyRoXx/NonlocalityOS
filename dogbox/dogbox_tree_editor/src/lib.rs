@@ -36,7 +36,7 @@ use tracing::{debug, error, info, warn};
 pub enum Error {
     NotFound(FileName),
     CannotOpenRegularFileAsDirectory(FileName),
-    CannotOpenDirectoryAsRegularFile,
+    CannotOpenDirectoryAsRegularFile(FileName),
     FileSizeMismatch,
     SegmentedBlobSizeMismatch {
         digest: BlobDigest,
@@ -511,7 +511,13 @@ impl OpenDirectory {
         match state_locked.names.get_mut(name) {
             Some(found) => match found {
                 NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
-                    DirectoryEntryKind::Directory => todo!(),
+                    DirectoryEntryKind::Directory => {
+                        warn!(
+                            "Cannot open directory {} (currently not open) as a regular file.",
+                            &name
+                        );
+                        Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
+                    }
                     DirectoryEntryKind::File(length) => {
                         debug!(
                             "Opening file of size {} and content {} for reading.",
@@ -535,7 +541,13 @@ impl OpenDirectory {
                     }
                 },
                 NamedEntry::OpenRegularFile(open_file, _) => Ok(open_file.clone()),
-                NamedEntry::OpenSubdirectory(_, _) => Err(Error::CannotOpenDirectoryAsRegularFile),
+                NamedEntry::OpenSubdirectory(_, _) => {
+                    warn!(
+                        "Cannot open directory {} (currently open) as a regular file.",
+                        &name
+                    );
+                    Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
+                }
             },
             None => {
                 let open_file = Arc::new(OpenFile::new(
