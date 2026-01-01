@@ -39,7 +39,7 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
         dogbox_tree_editor::Error::CannotOpenDirectoryAsRegularFile(name) => {
             info!("Cannot open directory {} as a regular file", name);
             dav_server::fs::FsError::Forbidden
-        },
+        }
         dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
         dogbox_tree_editor::Error::SegmentedBlobSizeMismatch {
             digest,
@@ -381,7 +381,10 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
             let normalized_path = normalize_path(path)?;
             let open_file = match self.editor.open_file(normalized_path).await {
                 Ok(success) => success,
-                Err(_error) => todo!(),
+                Err(error) => {
+                    info!("Could not open file {}: {}", path, error);
+                    return Err(handle_error(error));
+                }
             };
             let read_permission = match options.read {
                 true => Some(open_file.get_read_permission()),

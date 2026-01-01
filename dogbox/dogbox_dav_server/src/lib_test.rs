@@ -238,8 +238,8 @@ async fn expect_file(
             let response_content = response.bytes().await.unwrap().to_vec();
             assert_eq!(*content, response_content, "File content is wrong");
         }
-        reqwest_dav::list_cmd::ListEntity::Folder(_folder) => {
-            panic!("Asserting that a folder is a file")
+        reqwest_dav::list_cmd::ListEntity::Folder(folder) => {
+            panic!("Asserting that a folder is a file: {:?}", folder);
         }
     }
 }
@@ -932,5 +932,40 @@ async fn test_copy_non_existing_file() {
     };
     let verify_changes =
         move |_client: Client| -> Pin<Box<dyn Future<Output = ()>>> { Box::pin(async move {}) };
+    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_copy_directory() {
+    let content = "content";
+    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        Box::pin(async move {
+            client.mkcol("dir").await.unwrap();
+            client.put("dir/A.txt", content).await.unwrap();
+            client.cp("dir", "dir2").await.unwrap();
+        })
+    };
+    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        Box::pin(async move {
+            let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+            assert_eq!(3, root_listed.len());
+            expect_directory(&root_listed[0], "/");
+            expect_directory(&root_listed[1], "/dir/");
+            expect_directory(&root_listed[2], "/dir2/");
+            for dir in ["/dir/", "/dir2/"] {
+                let dir_listed = client.list(dir, Depth::Number(1)).await.unwrap();
+                assert_eq!(2, dir_listed.len());
+                expect_directory(&dir_listed[0], dir);
+                expect_file(
+                    &client,
+                    &dir_listed[1],
+                    &format!("{}A.txt", dir),
+                    content.as_bytes(),
+                    "text/plain",
+                )
+                .await;
+            }
+        })
+    };
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
