@@ -591,26 +591,16 @@ impl CollectGarbage for SQLiteStorage {
         &self,
     ) -> std::result::Result<GarbageCollectionStats, StoreError> {
         let mut state_locked = self.state.lock().await;
-        match state_locked.require_gc_new_tree_table() {
-            Ok(()) => {}
-            Err(err) => {
-                error!("Failed to require gc_new_tree table: {}", err);
-                return Err(StoreError::Rusqlite(format!("{:?}", &err)));
-            }
-        }
+        state_locked
+            .require_gc_new_tree_table()
+            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
         let connection_locked = &state_locked.connection;
-        match collect_garbage(connection_locked) {
-            Ok(stats) => {
-                state_locked
-                    .require_transaction(stats.trees_collected)
-                    .expect("TODO");
-                Ok(stats)
-            }
-            Err(err) => {
-                error!("Failed to collect garbage: {}", err);
-                Err(StoreError::Rusqlite(format!("{:?}", &err)))
-            }
-        }
+        let stats = collect_garbage(connection_locked)
+            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+        state_locked
+            .require_transaction(stats.trees_collected)
+            .map_err(|err| StoreError::Rusqlite(format!("{:?}", &err)))?;
+        Ok(stats)
     }
 }
 
