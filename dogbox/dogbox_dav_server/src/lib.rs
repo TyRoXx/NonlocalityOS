@@ -21,10 +21,10 @@ use tracing::{debug, error, info, warn};
 mod file_system;
 
 #[cfg(test)]
-mod file_system_test;
+mod file_system_tests;
 
 #[cfg(test)]
-mod lib_test;
+mod lib_tests;
 
 async fn serve_connection(
     stream: TcpStream,

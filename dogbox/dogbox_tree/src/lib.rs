@@ -1,4 +1,4 @@
 pub mod serialization;
 
 #[cfg(test)]
-mod serialization_test;
+mod serialization_tests;

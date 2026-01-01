@@ -1,12 +1,12 @@
 pub mod downloads;
 
 #[cfg(test)]
-mod downloads_test;
+mod downloads_tests;
 
 pub mod host;
 
 #[cfg(test)]
-mod host_test;
+mod host_tests;
 
 pub mod install;
 

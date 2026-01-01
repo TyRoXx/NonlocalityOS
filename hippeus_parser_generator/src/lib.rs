@@ -2,7 +2,7 @@ use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, VecDeque};
 
 #[cfg(test)]
-mod test;
+mod lib_tests;
 
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
 pub struct RegisterId(pub u16);

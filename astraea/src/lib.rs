@@ -4,7 +4,7 @@
 pub mod storage;
 
 #[cfg(test)]
-pub mod storage_test;
+pub mod storage_tests;
 
 #[cfg(test)]
 mod storage_benchmarks;
