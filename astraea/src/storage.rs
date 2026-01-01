@@ -5,6 +5,7 @@ use crate::tree::{
 use async_trait::async_trait;
 use cached::Cached;
 use pretty_assertions::assert_eq;
+use rusqlite::OptionalExtension;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -111,7 +112,7 @@ pub trait UpdateRoot {
 
 #[async_trait]
 pub trait LoadRoot {
-    async fn load_root(&self, name: &str) -> Option<BlobDigest>;
+    async fn load_root(&self, name: &str) -> std::result::Result<Option<BlobDigest>, LoadError>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -607,22 +608,21 @@ impl CollectGarbage for SQLiteStorage {
 #[async_trait]
 impl LoadRoot for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn load_root(&self, name: &str) -> Option<BlobDigest> {
-        use rusqlite::OptionalExtension;
+    async fn load_root(&self, name: &str) -> std::result::Result<Option<BlobDigest>, LoadError> {
         let state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
-        let maybe_target: Option<[u8; 64]> = connection_locked.query_row("SELECT target FROM root WHERE name = ?1", 
-        (&name, ),
-         |row| -> rusqlite::Result<_> {
-            let target = row.get(0).unwrap(/*TODO*/);
-            Ok(target)
-         } ).optional().unwrap(/*TODO*/);
-        let result = maybe_target.map(|target| BlobDigest::new(&target));
-        match &result {
-            Some(found) => info!("Loaded root {} as {}", name, found),
-            None => info!("Could not find root {}", name),
-        }
-        result
+        let target: Option<BlobDigest> = connection_locked
+            .query_row(
+                "SELECT target FROM root WHERE name = ?1",
+                (&name,),
+                |row| -> rusqlite::Result<_> {
+                    let target = row.get(0)?;
+                    Ok(BlobDigest::new(&target))
+                },
+            )
+            .optional()
+            .map_err(|err| LoadError::Rusqlite(format!("{:?}", &err)))?;
+        Ok(target)
     }
 }
 

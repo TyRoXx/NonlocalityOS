@@ -220,14 +220,13 @@ async fn test_update_root() {
         .await
         .unwrap();
     let name = "test";
-    assert_eq!(None, storage.load_root(name).await);
+    assert_eq!(Ok(None), storage.load_root(name).await);
     storage.update_root(name, &reference_1).await.unwrap();
-    assert_eq!(Some(reference_1), storage.load_root(name).await);
+    assert_eq!(Ok(Some(reference_1)), storage.load_root(name).await);
     storage.update_root(name, &reference_2).await.unwrap();
-    assert_eq!(Some(reference_2), storage.load_root(name).await);
-
+    assert_eq!(Ok(Some(reference_2)), storage.load_root(name).await);
     storage.commit_changes().await.unwrap();
-    assert_eq!(Some(reference_2), storage.load_root(name).await);
+    assert_eq!(Ok(Some(reference_2)), storage.load_root(name).await);
 }
 
 #[test_log::test(tokio::test)]
@@ -241,15 +240,14 @@ async fn test_roots_may_be_equal() {
         .unwrap();
     let name_1 = "testA";
     let name_2 = "testB";
-    assert_eq!(None, storage.load_root(name_1).await);
+    assert_eq!(Ok(None), storage.load_root(name_1).await);
     storage.update_root(name_1, &reference_1).await.unwrap();
-    assert_eq!(Some(reference_1), storage.load_root(name_1).await);
+    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
     storage.update_root(name_2, &reference_1).await.unwrap();
-    assert_eq!(Some(reference_1), storage.load_root(name_1).await);
-
+    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
     storage.commit_changes().await.unwrap();
-    assert_eq!(Some(reference_1), storage.load_root(name_1).await);
-    assert_eq!(Some(reference_1), storage.load_root(name_1).await);
+    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
+    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
 }
 
 #[test_log::test(tokio::test)]

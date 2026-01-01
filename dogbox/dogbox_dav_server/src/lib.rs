@@ -358,7 +358,7 @@ pub async fn run_dav_server(
     let root_name = "latest";
     let open_file_write_buffer_in_blocks = 200;
     let root_path = std::path::PathBuf::from("/");
-    let root: Arc<OpenDirectory> = match blob_storage_database.load_root(root_name).await {
+    let root: Arc<OpenDirectory> = match blob_storage_database.load_root(root_name).await? {
         Some(found) => {
             OpenDirectory::load_directory(
                 root_path,
