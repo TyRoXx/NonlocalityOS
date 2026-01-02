@@ -60,7 +60,7 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
             let open_file = self.editor.open_file(path).await.map_err(|err| {
                 let message = format!("Failed to open database file `{db}`: {err}");
                 error!("{}", message);
-                io::Error::new(ErrorKind::Other, message)
+                io::Error::other(message)
             })?;
             let read_permission = open_file.get_read_permission();
             let write_permission = match opts.access {
@@ -90,7 +90,7 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
             self.editor.remove(path).await.map_err(|err| {
                 let message = format!("Failed to delete database file `{db}`: {err}");
                 error!("{}", message);
-                io::Error::new(ErrorKind::Other, message)
+                io::Error::other(message)
             })
         })
     }
@@ -112,7 +112,7 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
                         let message =
                             format!("Failed to check existence of database file `{db}`: {err}");
                         error!("{}", message);
-                        Err(io::Error::new(ErrorKind::Other, message))
+                        Err(io::Error::other(message))
                     }
                 })
         })
@@ -144,8 +144,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
         self.runtime.block_on(async move {
             let meta_data = self.open_file.get_meta_data().await;
             match &meta_data.kind {
-                dogbox_tree::serialization::DirectoryEntryKind::Directory => Err(io::Error::new(
-                    ErrorKind::Other,
+                dogbox_tree::serialization::DirectoryEntryKind::Directory => Err(io::Error::other(
                     "This should not be possible, but the database file is a directory now.",
                 )),
                 dogbox_tree::serialization::DirectoryEntryKind::File(size) => Ok(*size),
@@ -171,7 +170,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
                             err
                         );
                         error!("{}", message);
-                        io::Error::new(io::ErrorKind::Other, message)
+                        io::Error::other(message)
                     })?;
                 if bytes_read.is_empty() {
                     return Err(io::Error::new(
@@ -212,7 +211,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
                         err
                     );
                     error!("{}", message);
-                    io::Error::new(io::ErrorKind::Other, message)
+                    io::Error::other(message)
                 })
         })
     }
@@ -222,7 +221,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
             let _status: OpenFileStatus = self.open_file.request_save().await.map_err(|err| {
                 let message = format!("Failed to request_save() database file: {}", err);
                 error!("{}", message);
-                io::Error::new(io::ErrorKind::Other, message)
+                io::Error::other(message)
             })?;
             // TODO: save directory
             Ok(())
@@ -246,7 +245,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
                     let message =
                         format!("Failed to resize database file to size {}: {}", size, err);
                     error!("{}", message);
-                    io::Error::new(io::ErrorKind::Other, message)
+                    io::Error::other(message)
                 })
         })
     }
@@ -266,14 +265,13 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
     }
 
     fn wal_index(&self, _readonly: bool) -> Result<Self::WalIndex, io::Error> {
-        Ok(sqlite_vfs::WalDisabled::default())
+        Ok(sqlite_vfs::WalDisabled)
     }
 
     fn set_chunk_size(&self, chunk_size: usize) -> Result<(), io::Error> {
         if chunk_size != PAGE_SIZE {
             eprintln!("set_chunk_size={chunk_size} (rejected)");
-            Err(io::Error::new(
-                ErrorKind::Other,
+            Err(io::Error::other(
                 "changing chunk size is not allowed",
             ))
         } else {
