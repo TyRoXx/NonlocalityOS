@@ -1,8 +1,11 @@
-use crate::OpenDirectory;
-use sqlite_vfs::{LockKind, OpenKind, OpenOptions, RegisterError, Vfs};
+use crate::{NormalizedPath, OpenFile, TreeEditor};
+use relative_path::RelativePath;
+use sqlite_vfs::{LockKind, OpenOptions, RegisterError, Vfs};
 use std::io::{self, ErrorKind};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::runtime::Handle;
+use tracing::error;
 
 struct LockState {
     read: usize,
@@ -11,64 +14,92 @@ struct LockState {
 
 pub struct PagesVfs<const PAGE_SIZE: usize> {
     lock_state: Arc<Mutex<LockState>>,
-    directory: Arc<OpenDirectory>,
+    runtime: Handle,
+    editor: TreeEditor,
 }
 
 impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
-    pub fn new(directory: Arc<OpenDirectory>) -> Self {
+    pub fn new(editor: TreeEditor, runtime: Handle) -> Self {
         PagesVfs {
             lock_state: Arc::new(Mutex::new(LockState {
                 read: 0,
                 write: None,
             })),
-            directory,
+            runtime,
+            editor,
         }
     }
 }
 
-pub struct Connection<const PAGE_SIZE: usize> {
+pub struct DatabaseFile<const PAGE_SIZE: usize> {
     lock_state: Arc<Mutex<LockState>>,
     lock: LockKind,
+    open_file: Arc<OpenFile>,
 }
 
 impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
-    type Handle = Connection<PAGE_SIZE>;
+    type Handle = DatabaseFile<PAGE_SIZE>;
 
     fn open(&self, db: &str, opts: OpenOptions) -> Result<Self::Handle, std::io::Error> {
-        // Always open the same database for now.
-        if db != "main.db" {
-            return Err(io::Error::new(
-                ErrorKind::NotFound,
-                format!("unexpected database name `{db}`; expected `main.db3`"),
-            ));
-        }
-
-        // Only main databases supported right now (no journal, wal, temporary, ...)
-        if opts.kind != OpenKind::MainDb {
-            return Err(io::Error::new(
-                ErrorKind::PermissionDenied,
-                "only main database supported right now (no journal, wal, ...)",
-            ));
-        }
-
-        Ok(Connection {
-            lock_state: self.lock_state.clone(),
-            lock: LockKind::None,
+        let path = NormalizedPath::try_from(RelativePath::new(db)).map_err(|err| {
+            let message = format!("Invalid database file path `{db}`: {err}");
+            error!("{}", message);
+            io::Error::new(ErrorKind::InvalidInput, message)
+        })?;
+        self.runtime.block_on(async move {
+            let open_file = self.editor.open_file(path).await.map_err(|err| {
+                let message = format!("Failed to open database file `{db}`: {err}");
+                error!("{}", message);
+                io::Error::new(ErrorKind::Other, message)
+            })?;
+            Ok(DatabaseFile {
+                lock_state: self.lock_state.clone(),
+                lock: LockKind::None,
+                open_file,
+            })
         })
     }
 
-    fn delete(&self, _db: &str) -> Result<(), std::io::Error> {
-        // Only used to delete journal or wal files, which both are not implemented yet, thus simply
-        // ignored for now.
-        Ok(())
+    fn delete(&self, db: &str) -> Result<(), std::io::Error> {
+        let path = NormalizedPath::try_from(RelativePath::new(db)).map_err(|err| {
+            let message = format!("Invalid database file path `{db}`: {err}");
+            error!("{}", message);
+            io::Error::new(ErrorKind::InvalidInput, message)
+        })?;
+        self.runtime.block_on(async move {
+            self.editor.remove(path).await.map_err(|err| {
+                let message = format!("Failed to delete database file `{db}`: {err}");
+                error!("{}", message);
+                io::Error::new(ErrorKind::Other, message)
+            })
+        })
     }
 
     fn exists(&self, db: &str) -> Result<bool, std::io::Error> {
-        Ok(db == "main.db" && Connection::<PAGE_SIZE>::page_count() > 0)
+        let path = NormalizedPath::try_from(RelativePath::new(db)).map_err(|err| {
+            let message = format!("Invalid database file path `{db}`: {err}");
+            error!("{}", message);
+            io::Error::new(ErrorKind::InvalidInput, message)
+        })?;
+        self.runtime.block_on(async move {
+            self.editor
+                .get_meta_data(path)
+                .await
+                .map(|_| true)
+                .or_else(|err| match err {
+                    crate::Error::NotFound(_name) => Ok(false),
+                    _ => {
+                        let message =
+                            format!("Failed to check existence of database file `{db}`: {err}");
+                        error!("{}", message);
+                        Err(io::Error::new(ErrorKind::Other, message))
+                    }
+                })
+        })
     }
 
     fn temporary_name(&self) -> String {
-        String::from("main.db")
+        todo!()
     }
 
     fn random(&self, buffer: &mut [i8]) {
@@ -82,7 +113,7 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
     }
 }
 
-impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for Connection<PAGE_SIZE> {
+impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SIZE> {
     type WalIndex = sqlite_vfs::WalDisabled;
 
     fn size(&self) -> Result<u64, io::Error> {
@@ -191,7 +222,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for Connection<PAGE_SIZE
     }
 }
 
-impl<const PAGE_SIZE: usize> Connection<PAGE_SIZE> {
+impl<const PAGE_SIZE: usize> DatabaseFile<PAGE_SIZE> {
     fn get_page(ix: u32) -> [u8; PAGE_SIZE] {
         todo!()
     }
@@ -296,7 +327,7 @@ impl<const PAGE_SIZE: usize> Connection<PAGE_SIZE> {
     }
 }
 
-impl<const PAGE_SIZE: usize> Drop for Connection<PAGE_SIZE> {
+impl<const PAGE_SIZE: usize> Drop for DatabaseFile<PAGE_SIZE> {
     fn drop(&mut self) {
         if self.lock != LockKind::None {
             self.lock(LockKind::None);
@@ -304,6 +335,6 @@ impl<const PAGE_SIZE: usize> Drop for Connection<PAGE_SIZE> {
     }
 }
 
-pub fn register_vfs(name: &str, directory: Arc<OpenDirectory>) -> Result<(), RegisterError> {
-    sqlite_vfs::register(name, PagesVfs::<4096>::new(directory), true)
+pub fn register_vfs(name: &str, editor: TreeEditor, runtime: Handle) -> Result<(), RegisterError> {
+    sqlite_vfs::register(name, PagesVfs::<4096>::new(editor, runtime), true)
 }

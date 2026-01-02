@@ -10,7 +10,7 @@ mod segmented_blob;
 #[cfg(test)]
 mod segmented_blob_tests;
 
-mod sqlite;
+pub mod sqlite;
 
 #[cfg(test)]
 mod sqlite_tests;
