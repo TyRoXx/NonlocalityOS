@@ -375,5 +375,5 @@ impl<const PAGE_SIZE: usize> Drop for DatabaseFile<PAGE_SIZE> {
 }
 
 pub fn register_vfs(name: &str, editor: TreeEditor, runtime: Handle) -> Result<(), RegisterError> {
-    sqlite_vfs::register(name, PagesVfs::<4096>::new(editor, runtime), true)
+    sqlite_vfs::register(name, PagesVfs::<4096>::new(editor, runtime), false)
 }

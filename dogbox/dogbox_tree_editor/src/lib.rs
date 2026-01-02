@@ -2418,7 +2418,7 @@ impl OpenFile {
         new_size: u64,
     ) -> Future<'_, ()> {
         self.assert_write_permission(write_permission);
-        info!("Resize to {} bytes", new_size);
+        debug!("Resize to {} bytes", new_size);
         Box::pin(async move {
             let mut state_locked = self.state.lock().await;
             let old_size = state_locked.content.size();
