@@ -1,17 +1,29 @@
+use crate::OpenDirectory;
 use sqlite_vfs::{LockKind, OpenKind, OpenOptions, RegisterError, Vfs};
 use std::io::{self, ErrorKind};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-#[derive(Default)]
-pub struct PagesVfs<const PAGE_SIZE: usize> {
-    lock_state: Arc<Mutex<LockState>>,
-}
-
-#[derive(Debug, Default)]
 struct LockState {
     read: usize,
     write: Option<bool>,
+}
+
+pub struct PagesVfs<const PAGE_SIZE: usize> {
+    lock_state: Arc<Mutex<LockState>>,
+    directory: Arc<OpenDirectory>,
+}
+
+impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
+    pub fn new(directory: Arc<OpenDirectory>) -> Self {
+        PagesVfs {
+            lock_state: Arc::new(Mutex::new(LockState {
+                read: 0,
+                write: None,
+            })),
+            directory,
+        }
+    }
 }
 
 pub struct Connection<const PAGE_SIZE: usize> {
@@ -292,6 +304,6 @@ impl<const PAGE_SIZE: usize> Drop for Connection<PAGE_SIZE> {
     }
 }
 
-pub fn register_vfs(name: &str) -> Result<(), RegisterError> {
-    sqlite_vfs::register(name, PagesVfs::<4096>::default(), true)
+pub fn register_vfs(name: &str, directory: Arc<OpenDirectory>) -> Result<(), RegisterError> {
+    sqlite_vfs::register(name, PagesVfs::<4096>::new(directory), true)
 }
