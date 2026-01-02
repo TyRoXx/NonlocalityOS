@@ -859,6 +859,7 @@ dependencies = [
  "rand 0.9.2",
  "relative-path",
  "rusqlite",
+ "sqlite-vfs",
  "test-case",
  "test-log",
  "tokio",
@@ -3323,6 +3324,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 dependencies = [
  "lock_api",
+]
+
+[[package]]
+name = "sqlite-vfs"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0258972cbfaa18f42f8be285c4d237c719a6844d48471c9461cc8556fc9df38"
+dependencies = [
+ "log",
+ "time",
 ]
 
 [[package]]

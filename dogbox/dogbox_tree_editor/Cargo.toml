@@ -21,6 +21,7 @@ async-trait = "0"
 cached = "0"
 rusqlite = {version = "0", features = ["bundled"]}
 pretty_assertions = "1"
+sqlite-vfs = "0"
 
 [dev-dependencies]
 rand = { version = "0", features = [ "small_rng" ]}

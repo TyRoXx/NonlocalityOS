@@ -10,6 +10,11 @@ mod segmented_blob;
 #[cfg(test)]
 mod segmented_blob_tests;
 
+mod sqlite;
+
+#[cfg(test)]
+mod sqlite_tests;
+
 use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use astraea::{
     storage::{LoadStoreTree, StoreError},
