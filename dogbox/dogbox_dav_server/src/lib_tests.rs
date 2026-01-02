@@ -205,7 +205,11 @@ fn expect_directory(entity: &ListEntity, name: &str) {
                 "1970-01-01T00:00:13+00:00",
                 folder.last_modified.to_rfc3339()
             );
-            assert_eq!(Some(generate_file_tag(&[])), folder.tag);
+            assert_eq!(
+                generate_file_tag(&[]),
+                folder.tag.as_deref().expect("Directory should have a tag"),
+                "Directory tag does not match",
+            );
         }
     }
 }
@@ -242,9 +246,10 @@ async fn expect_file(
                 "File content length does not match"
             );
             assert_eq!(content_type, file.content_type, "File type does not match");
+
             assert_eq!(
-                Some(generate_file_tag(content)),
-                file.tag,
+                generate_file_tag(content),
+                file.tag.as_deref().expect("File should have a tag"),
                 "File tag does not match"
             );
             assert_eq!("1970-01-01T00:00:13+00:00", file.last_modified.to_rfc3339());
