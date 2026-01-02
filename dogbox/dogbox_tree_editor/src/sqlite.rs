@@ -1,4 +1,9 @@
-use crate::{NormalizedPath, OpenFile, TreeEditor};
+use crate::{
+    NormalizedPath, OpenFile, OpenFileReadPermission, OpenFileStatus, OpenFileWritePermission,
+    TreeEditor,
+};
+use rand::rngs::SmallRng;
+use rand::{RngCore, SeedableRng};
 use relative_path::RelativePath;
 use sqlite_vfs::{LockKind, OpenOptions, RegisterError, Vfs};
 use std::io::{self, ErrorKind};
@@ -16,6 +21,7 @@ pub struct PagesVfs<const PAGE_SIZE: usize> {
     lock_state: Arc<Mutex<LockState>>,
     runtime: Handle,
     editor: TreeEditor,
+    random_number_generator: Mutex<SmallRng>,
 }
 
 impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
@@ -27,6 +33,7 @@ impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
             })),
             runtime,
             editor,
+            random_number_generator: Mutex::new(SmallRng::seed_from_u64(123)),
         }
     }
 }
@@ -35,6 +42,9 @@ pub struct DatabaseFile<const PAGE_SIZE: usize> {
     lock_state: Arc<Mutex<LockState>>,
     lock: LockKind,
     open_file: Arc<OpenFile>,
+    runtime: Handle,
+    read_permission: Arc<OpenFileReadPermission>,
+    write_permission: Option<Arc<OpenFileWritePermission>>,
 }
 
 impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
@@ -52,10 +62,20 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
                 error!("{}", message);
                 io::Error::new(ErrorKind::Other, message)
             })?;
+            let read_permission = open_file.get_read_permission();
+            let write_permission = match opts.access {
+                sqlite_vfs::OpenAccess::Read => None,
+                sqlite_vfs::OpenAccess::Write
+                | sqlite_vfs::OpenAccess::Create
+                | sqlite_vfs::OpenAccess::CreateNew => Some(open_file.get_write_permission()),
+            };
             Ok(DatabaseFile {
                 lock_state: self.lock_state.clone(),
                 lock: LockKind::None,
                 open_file,
+                runtime: self.runtime.clone(),
+                read_permission,
+                write_permission,
             })
         })
     }
@@ -103,7 +123,11 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
     }
 
     fn random(&self, buffer: &mut [i8]) {
-        todo!()
+        let mut rng_locked = self.random_number_generator.lock().unwrap();
+        // cast the slice from &mut [i8] to &mut [u8]:
+        let buffer_u8 =
+            unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, buffer.len()) };
+        rng_locked.fill_bytes(buffer_u8);
     }
 
     fn sleep(&self, duration: Duration) -> Duration {
@@ -117,77 +141,114 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
     type WalIndex = sqlite_vfs::WalDisabled;
 
     fn size(&self) -> Result<u64, io::Error> {
-        let size = Self::page_count() * PAGE_SIZE;
-        eprintln!("size={size}");
-        Ok(size as u64)
+        self.runtime.block_on(async move {
+            let meta_data = self.open_file.get_meta_data().await;
+            match &meta_data.kind {
+                dogbox_tree::serialization::DirectoryEntryKind::Directory => Err(io::Error::new(
+                    ErrorKind::Other,
+                    "This should not be possible, but the database file is a directory now.",
+                )),
+                dogbox_tree::serialization::DirectoryEntryKind::File(size) => Ok(*size),
+            }
+        })
     }
 
     fn read_exact_at(&mut self, buf: &mut [u8], offset: u64) -> Result<(), io::Error> {
-        let index = offset as usize / PAGE_SIZE;
-        let offset = offset as usize % PAGE_SIZE;
-
-        let data = Self::get_page(index as u32);
-        if data.len() < buf.len() + offset {
-            eprintln!(
-                "read {} < {} -> UnexpectedEof",
-                data.len(),
-                buf.len() + offset
-            );
-            return Err(ErrorKind::UnexpectedEof.into());
-        }
-
-        eprintln!("read index={} len={} offset={}", index, buf.len(), offset);
-        buf.copy_from_slice(&data[offset..offset + buf.len()]);
-
-        Ok(())
+        let open_file = self.open_file.clone();
+        let read_permission = self.read_permission.clone();
+        self.runtime.block_on(async move {
+            let mut next_read_position = offset;
+            let mut remaining = buf;
+            while !remaining.is_empty() {
+                let bytes_read = open_file
+                    .read_bytes(&read_permission, next_read_position, remaining.len())
+                    .await
+                    .map_err(|err| {
+                        let message = format!(
+                            "Failed to read {} bytes at offset {}: {}",
+                            remaining.len(),
+                            next_read_position,
+                            err
+                        );
+                        error!("{}", message);
+                        io::Error::new(io::ErrorKind::Other, message)
+                    })?;
+                if bytes_read.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "Reached end of file",
+                    ));
+                }
+                let split_remaining = remaining.split_at_mut(bytes_read.len());
+                split_remaining.0.copy_from_slice(&bytes_read);
+                remaining = split_remaining.1;
+                next_read_position += bytes_read.len() as u64;
+            }
+            Ok(())
+        })
     }
 
     fn write_all_at(&mut self, buf: &[u8], offset: u64) -> Result<(), io::Error> {
-        if offset as usize % PAGE_SIZE > 0 {
-            return Err(io::Error::new(
-                ErrorKind::Other,
-                "unexpected write across page boundaries",
-            ));
-        }
-
-        let index = offset as usize / PAGE_SIZE;
-        let page = buf.try_into().map_err(|_| {
-            io::Error::new(
-                ErrorKind::Other,
-                format!(
-                    "unexpected write size {}; expected {}",
-                    buf.len(),
-                    PAGE_SIZE
-                ),
-            )
-        })?;
-        eprintln!("write index={} len={}", index, buf.len());
-        Self::put_page(index as u32, page);
-
-        Ok(())
+        let open_file = self.open_file.clone();
+        let write_permission = match &self.write_permission {
+            Some(permission) => permission.clone(),
+            None => {
+                let message = "Attempted to write to a read-only database file.".to_string();
+                error!("{}", message);
+                return Err(io::Error::new(ErrorKind::PermissionDenied, message));
+            }
+        };
+        // unfortunately we have to copy the data here because OpenFile's write_bytes takes Bytes
+        let data = bytes::Bytes::copy_from_slice(buf);
+        self.runtime.block_on(async move {
+            open_file
+                .write_bytes(&write_permission, offset, data)
+                .await
+                .map_err(|err| {
+                    let message = format!(
+                        "Failed to write {} bytes at offset {}: {}",
+                        buf.len(),
+                        offset,
+                        err
+                    );
+                    error!("{}", message);
+                    io::Error::new(io::ErrorKind::Other, message)
+                })
+        })
     }
 
     fn sync(&mut self, _data_only: bool) -> Result<(), io::Error> {
-        // Everything is directly written to storage, so no extra steps necessary to sync.
-        Ok(())
+        self.runtime.block_on(async {
+            let _status: OpenFileStatus = self.open_file.request_save().await.map_err(|err| {
+                let message = format!("Failed to request_save() database file: {}", err);
+                error!("{}", message);
+                io::Error::new(io::ErrorKind::Other, message)
+            })?;
+            // TODO: save directory
+            Ok(())
+        })
     }
 
     fn set_len(&mut self, size: u64) -> Result<(), io::Error> {
-        eprintln!("set_len={size}");
-
-        let mut page_count = size as usize / PAGE_SIZE;
-        if size as usize % PAGE_SIZE > 0 {
-            page_count += 1;
-        }
-
-        let current_page_count = Self::page_count();
-        if page_count > 0 && page_count < current_page_count {
-            for i in (page_count..current_page_count).into_iter().rev() {
-                Self::del_page(i as u32);
+        let write_permission = match &self.write_permission {
+            Some(permission) => permission.clone(),
+            None => {
+                let message = "Attempted to resize to a read-only database file.".to_string();
+                error!("{}", message);
+                return Err(io::Error::new(ErrorKind::PermissionDenied, message));
             }
-        }
-
-        Ok(())
+        };
+        self.runtime.block_on(async {
+            self.open_file
+                .resize(&write_permission, size)
+                .await
+                .map_err(|err| {
+                    let message =
+                        format!("Failed to resize database file to size {}: {}", size, err);
+                    error!("{}", message);
+                    io::Error::new(io::ErrorKind::Other, message)
+                })
+        })
     }
 
     fn lock(&mut self, lock: LockKind) -> Result<bool, io::Error> {
@@ -223,34 +284,12 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
 }
 
 impl<const PAGE_SIZE: usize> DatabaseFile<PAGE_SIZE> {
-    fn get_page(ix: u32) -> [u8; PAGE_SIZE] {
-        todo!()
-    }
-
-    fn put_page(ix: u32, data: &[u8; PAGE_SIZE]) {
-        todo!()
-    }
-
-    fn del_page(ix: u32) {
-        todo!()
-    }
-
-    fn page_count() -> usize {
-        todo!()
-    }
-
     fn lock(&mut self, to: LockKind) -> bool {
         if self.lock == to {
             return true;
         }
 
         let mut lock_state = self.lock_state.lock().unwrap();
-
-        // eprintln!(
-        //     "lock state={:?} from={:?} to={:?}",
-        //     lock_state, self.lock, to
-        // );
-
         // The following locking implementation is probably not sound (wouldn't be surprised if it
         // potentially dead-locks), but suffice for the experiment.
 

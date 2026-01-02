@@ -18,10 +18,22 @@ async fn test_open_database() {
         tokio::runtime::Handle::current(),
     )
     .unwrap();
-    let connection = rusqlite::Connection::open_with_flags_and_vfs(
-        "main.db",
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
-        vfs_name,
-    )
-    .unwrap();
+    let thread = tokio::task::spawn_blocking(move || {
+        let connection = rusqlite::Connection::open_with_flags_and_vfs(
+            "main.db",
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+            vfs_name,
+        )
+        .unwrap();
+        connection
+            .execute(
+                "CREATE TABLE t (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL
+                ) STRICT",
+                (),
+            )
+            .unwrap();
+    });
+    thread.await.unwrap();
 }
