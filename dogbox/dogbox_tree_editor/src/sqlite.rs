@@ -233,7 +233,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
         let write_permission = match &self.write_permission {
             Some(permission) => permission.clone(),
             None => {
-                let message = "Attempted to resize to a read-only database file.".to_string();
+                let message = "Attempted to resize a read-only database file.".to_string();
                 error!("{}", message);
                 return Err(io::Error::new(ErrorKind::PermissionDenied, message));
             }
