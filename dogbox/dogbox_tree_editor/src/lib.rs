@@ -2331,6 +2331,26 @@ impl OpenFileContentBuffer {
             let zeroes = bytes::Bytes::from_iter((0..bytes_to_append).map(|_| 0u8));
             let write_buffer = OptimizedWriteBuffer::from_bytes(old_size, zeroes).await;
             self.write(old_size, write_buffer, storage).await
+        } else if new_size == 0 {
+            let write_buffer_in_blocks = match self {
+                OpenFileContentBuffer::NotLoaded {
+                    digest: _,
+                    size: _,
+                    write_buffer_in_blocks,
+                } => *write_buffer_in_blocks,
+                OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
+                    open_file_content_buffer_loaded.write_buffer_in_blocks
+                }
+            };
+            let (last_known_digest, last_known_digest_file_size) = self.last_known_digest();
+            *self = OpenFileContentBuffer::from_data(
+                Vec::new(),
+                last_known_digest.last_known_digest,
+                last_known_digest_file_size,
+                write_buffer_in_blocks,
+            )
+            .unwrap();
+            Ok(())
         } else {
             todo!()
         }
@@ -2655,7 +2675,16 @@ impl OpenFile {
                     return Err(Error::FileRemoved);
                 }
             };
-            state_locked.content.resize(new_size, storage).await
+            state_locked.content.resize(new_size, storage).await?;
+            let _update_result = Self::update_status(
+                &self.change_event_sender,
+                &state_locked.content,
+                &self.read_permission,
+                &self.write_permission,
+            )
+            .await
+            .map_err(Error::Storage)?;
+            Ok(())
         })
     }
 
@@ -2663,37 +2692,7 @@ impl OpenFile {
         &self,
         write_permission: &OpenFileWritePermission,
     ) -> std::result::Result<(), Error> {
-        self.assert_write_permission(write_permission);
-        debug!("Truncating a file sends a change event for this file.");
-        let mut state_locked = self.state.lock().await;
-        let write_buffer_in_blocks = match &state_locked.content {
-            OpenFileContentBuffer::NotLoaded {
-                digest: _,
-                size: _,
-                write_buffer_in_blocks,
-            } => *write_buffer_in_blocks,
-            OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
-                open_file_content_buffer_loaded.write_buffer_in_blocks
-            }
-        };
-        let (last_known_digest, last_known_digest_file_size) =
-            state_locked.content.last_known_digest();
-        state_locked.content = OpenFileContentBuffer::from_data(
-            Vec::new(),
-            last_known_digest.last_known_digest,
-            last_known_digest_file_size,
-            write_buffer_in_blocks,
-        )
-        .unwrap();
-        let _update_result = Self::update_status(
-            &self.change_event_sender,
-            &state_locked.content,
-            &self.read_permission,
-            &self.write_permission,
-        )
-        .await
-        .map_err(Error::Storage)?;
-        Ok(())
+        self.resize(write_permission, 0).await
     }
 
     async fn drop_all_read_caches(&self) -> CacheDropStats {
