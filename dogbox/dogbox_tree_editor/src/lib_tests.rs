@@ -1403,6 +1403,7 @@ async fn check_open_file_content_buffer(
     expected_content: bytes::Bytes,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
 ) {
+    assert_eq!(expected_content.len() as u64, buffer.size());
     let mut checked = 0;
     while checked < expected_content.len() {
         let read_result = buffer
@@ -1527,5 +1528,79 @@ fn open_file_content_buffer_write_creates_full_block_with_zero_fill(write_positi
                 .chain(write_data.iter().copied()),
         );
         check_open_file_content_buffer(&mut buffer, expected_content, storage).await;
+    });
+}
+
+#[test_case(0, 1)]
+#[test_case(0, 100_000)]
+#[test_case(0, 100_000_000)]
+#[test_case(10_000, 20_000)]
+#[test_case(10_000, 200_000)]
+fn open_file_content_buffer_resize_grow(old_size: u64, new_size: u64) {
+    Runtime::new().unwrap().block_on(async {
+        let storage = Arc::new(InMemoryTreeStorage::empty());
+        let original_content = random_bytes(old_size as usize, 123);
+        let last_known_digest = BlobDigest::hash(&original_content);
+        let last_known_digest_file_size = original_content.len();
+        let mut buffer = OpenFileContentBuffer::from_data(
+            original_content.clone(),
+            last_known_digest,
+            last_known_digest_file_size as u64,
+            1,
+        )
+        .unwrap();
+
+        // grow
+        buffer.resize(new_size, storage.clone()).await.unwrap();
+        check_open_file_content_buffer(
+            &mut buffer,
+            bytes::Bytes::from_iter(
+                original_content
+                    .into_iter()
+                    .chain(std::iter::repeat_n(0u8, (new_size - old_size) as usize)),
+            ),
+            storage.clone(),
+        )
+        .await;
+
+        // shrink to empty
+        buffer.resize(0, storage.clone()).await.unwrap();
+        check_open_file_content_buffer(&mut buffer, bytes::Bytes::new(), storage.clone()).await;
+    });
+}
+
+#[test_case(2, 1)]
+#[test_case(20_000, 10_000)]
+#[test_case(200_000, 10_000)]
+#[test_case(100_000_000, 100_000)]
+fn open_file_content_buffer_resize_shrink(old_size: u64, new_size: u64) {
+    Runtime::new().unwrap().block_on(async {
+        let storage = Arc::new(InMemoryTreeStorage::empty());
+        let original_content = Vec::new();
+        let last_known_digest = BlobDigest::hash(&original_content);
+        let last_known_digest_file_size = original_content.len();
+        let mut buffer = OpenFileContentBuffer::from_data(
+            original_content.clone(),
+            last_known_digest,
+            last_known_digest_file_size as u64,
+            1,
+        )
+        .unwrap();
+        buffer.resize(old_size, storage.clone()).await.unwrap();
+        assert_eq!(old_size, buffer.size());
+
+        // shrink
+        buffer.resize(new_size, storage.clone()).await.unwrap();
+        assert_eq!(new_size, buffer.size());
+        check_open_file_content_buffer(
+            &mut buffer,
+            bytes::Bytes::from_iter(std::iter::repeat_n(0u8, new_size as usize)),
+            storage.clone(),
+        )
+        .await;
+
+        // shrink to empty
+        buffer.resize(0, storage.clone()).await.unwrap();
+        check_open_file_content_buffer(&mut buffer, bytes::Bytes::new(), storage.clone()).await;
     });
 }

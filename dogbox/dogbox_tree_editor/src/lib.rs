@@ -10,6 +10,11 @@ mod segmented_blob;
 #[cfg(test)]
 mod segmented_blob_tests;
 
+pub mod sqlite;
+
+#[cfg(test)]
+mod sqlite_tests;
+
 use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use astraea::{
     storage::{LoadStoreTree, StoreError},
@@ -51,6 +56,7 @@ pub enum Error {
     OtherDeserializationError(String),
     OtherSerializationError(String),
     FileRemoved,
+    InvalidArgument(String),
 }
 
 impl std::fmt::Display for Error {
@@ -1475,6 +1481,29 @@ impl OpenFileContentBlock {
         Ok(WriteResult::new(rest))
     }
 
+    pub async fn resize(
+        &mut self,
+        new_size: usize,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> Result<()> {
+        let max_size = TREE_BLOB_MAX_LENGTH;
+        if new_size > max_size {
+            return Err(Error::InvalidArgument(format!(
+                "new_size was given as {}, but it is not allowed to be greater than {}",
+                new_size, max_size
+            )));
+        }
+        let data = self.access_content_for_writing(storage).await?;
+        let current_size = data.len();
+        if new_size < current_size {
+            data.truncate(new_size as usize);
+        } else if new_size > current_size {
+            let additional_size = new_size - current_size;
+            data.extend(std::iter::repeat_n(0u8, additional_size as usize));
+        }
+        Ok(())
+    }
+
     pub async fn try_store(
         &mut self,
         is_allowed_to_calculate_digest: bool,
@@ -1867,6 +1896,44 @@ impl OpenFileContentBufferLoaded {
         assert_eq!(0, result.open_directories_closed);
         assert_eq!(0, result.files_and_directories_remaining_open);
         result
+    }
+    pub async fn resize(
+        &mut self,
+        new_size: u64,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> Result<()> {
+        let new_number_of_blocks =
+            ((new_size + TREE_BLOB_MAX_LENGTH as u64 - 1) / TREE_BLOB_MAX_LENGTH as u64) as usize;
+        let last_block_size = if new_size == 0 {
+            0
+        } else {
+            ((new_size - 1) % TREE_BLOB_MAX_LENGTH as u64 + 1) as usize
+        };
+        if !self.blocks.is_empty() && (new_number_of_blocks > self.blocks.len()) {
+            self.blocks
+                .last_mut()
+                .unwrap()
+                .resize(TREE_BLOB_MAX_LENGTH, storage.clone())
+                .await?;
+        }
+        let filler = HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH])).unwrap(),
+            TreeChildren::empty(),
+        )));
+        self.blocks.resize_with(new_number_of_blocks, || {
+            OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(filler.clone()))
+        });
+        if last_block_size > 0 {
+            self.blocks
+                .last_mut()
+                .unwrap()
+                .resize(last_block_size, storage)
+                .await?;
+        }
+        self.size = new_size;
+        self.digest.is_digest_up_to_date = false;
+        //TODO: push dirty blocks
+        Ok(())
     }
 }
 
@@ -2315,6 +2382,43 @@ impl OpenFileContentBuffer {
         Ok(())
     }
 
+    pub async fn resize(
+        &mut self,
+        new_size: u64,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> Result<()> {
+        let old_size = self.size();
+        if new_size > old_size {
+            let bytes_to_append = new_size - old_size;
+            let zeroes = bytes::Bytes::from_iter((0..bytes_to_append).map(|_| 0u8));
+            let write_buffer = OptimizedWriteBuffer::from_bytes(old_size, zeroes).await;
+            self.write(old_size, write_buffer, storage).await
+        } else if new_size == 0 {
+            let write_buffer_in_blocks = match self {
+                OpenFileContentBuffer::NotLoaded {
+                    digest: _,
+                    size: _,
+                    write_buffer_in_blocks,
+                } => *write_buffer_in_blocks,
+                OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
+                    open_file_content_buffer_loaded.write_buffer_in_blocks
+                }
+            };
+            let (last_known_digest, last_known_digest_file_size) = self.last_known_digest();
+            *self = OpenFileContentBuffer::from_data(
+                Vec::new(),
+                last_known_digest.last_known_digest,
+                last_known_digest_file_size,
+                write_buffer_in_blocks,
+            )
+            .unwrap();
+            Ok(())
+        } else {
+            let loaded = self.require_loaded(storage.clone()).await?;
+            loaded.resize(new_size, storage).await
+        }
+    }
+
     pub async fn store_all(
         &mut self,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
@@ -2618,41 +2722,40 @@ impl OpenFile {
         self.change_event_sender.subscribe()
     }
 
+    pub fn resize(
+        &self,
+        write_permission: &OpenFileWritePermission,
+        new_size: u64,
+    ) -> Future<'_, ()> {
+        self.assert_write_permission(write_permission);
+        debug!("Resize to {} bytes", new_size);
+        Box::pin(async move {
+            let mut state_locked = self.state.lock().await;
+            let storage = match state_locked.storage.as_ref() {
+                Some(storage) => storage.clone(),
+                None => {
+                    warn!("Cannot write to a removed file");
+                    return Err(Error::FileRemoved);
+                }
+            };
+            state_locked.content.resize(new_size, storage).await?;
+            let _update_result = Self::update_status(
+                &self.change_event_sender,
+                &state_locked.content,
+                &self.read_permission,
+                &self.write_permission,
+            )
+            .await
+            .map_err(Error::Storage)?;
+            Ok(())
+        })
+    }
+
     pub async fn truncate(
         &self,
         write_permission: &OpenFileWritePermission,
     ) -> std::result::Result<(), Error> {
-        self.assert_write_permission(write_permission);
-        debug!("Truncating a file sends a change event for this file.");
-        let mut state_locked = self.state.lock().await;
-        let write_buffer_in_blocks = match &state_locked.content {
-            OpenFileContentBuffer::NotLoaded {
-                digest: _,
-                size: _,
-                write_buffer_in_blocks,
-            } => *write_buffer_in_blocks,
-            OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
-                open_file_content_buffer_loaded.write_buffer_in_blocks
-            }
-        };
-        let (last_known_digest, last_known_digest_file_size) =
-            state_locked.content.last_known_digest();
-        state_locked.content = OpenFileContentBuffer::from_data(
-            Vec::new(),
-            last_known_digest.last_known_digest,
-            last_known_digest_file_size,
-            write_buffer_in_blocks,
-        )
-        .unwrap();
-        let _update_result = Self::update_status(
-            &self.change_event_sender,
-            &state_locked.content,
-            &self.read_permission,
-            &self.write_permission,
-        )
-        .await
-        .map_err(Error::Storage)?;
-        Ok(())
+        self.resize(write_permission, 0).await
     }
 
     async fn drop_all_read_caches(&self) -> CacheDropStats {
