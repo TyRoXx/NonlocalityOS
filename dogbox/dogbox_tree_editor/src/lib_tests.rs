@@ -1403,6 +1403,7 @@ async fn check_open_file_content_buffer(
     expected_content: bytes::Bytes,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
 ) {
+    assert_eq!(expected_content.len() as u64, buffer.size());
     let mut checked = 0;
     while checked < expected_content.len() {
         let read_result = buffer
@@ -1535,7 +1536,7 @@ fn open_file_content_buffer_write_creates_full_block_with_zero_fill(write_positi
 #[test_case(0, 100_000_000)]
 #[test_case(10_000, 20_000)]
 #[test_case(10_000, 200_000)]
-fn open_file_content_buffer_write_resize_grow(old_size: u64, new_size: u64) {
+fn open_file_content_buffer_write_resize(old_size: u64, new_size: u64) {
     Runtime::new().unwrap().block_on(async {
         let storage = Arc::new(InMemoryTreeStorage::empty());
         let original_content = random_bytes(old_size as usize, 123);
@@ -1548,13 +1549,22 @@ fn open_file_content_buffer_write_resize_grow(old_size: u64, new_size: u64) {
             1,
         )
         .unwrap();
+
+        // grow
         buffer.resize(new_size, storage.clone()).await.unwrap();
-        assert_eq!(new_size, buffer.size());
-        let expected_content = bytes::Bytes::from_iter(
-            original_content
-                .into_iter()
-                .chain(std::iter::repeat_n(0u8, (new_size - old_size) as usize)),
-        );
-        check_open_file_content_buffer(&mut buffer, expected_content, storage).await;
+        check_open_file_content_buffer(
+            &mut buffer,
+            bytes::Bytes::from_iter(
+                original_content
+                    .into_iter()
+                    .chain(std::iter::repeat_n(0u8, (new_size - old_size) as usize)),
+            ),
+            storage.clone(),
+        )
+        .await;
+
+        // shrink to empty
+        buffer.resize(0, storage.clone()).await.unwrap();
+        check_open_file_content_buffer(&mut buffer, bytes::Bytes::new(), storage.clone()).await;
     });
 }
