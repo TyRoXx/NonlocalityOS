@@ -2412,37 +2412,6 @@ impl OpenFile {
         self.state.lock().await.content.size()
     }
 
-    pub fn resize(
-        &self,
-        write_permission: &OpenFileWritePermission,
-        new_size: u64,
-    ) -> Future<'_, ()> {
-        self.assert_write_permission(write_permission);
-        debug!("Resize to {} bytes", new_size);
-        Box::pin(async move {
-            let mut state_locked = self.state.lock().await;
-            let old_size = state_locked.content.size();
-            if new_size > old_size {
-                let bytes_to_append = new_size - old_size;
-                let storage = match state_locked.storage.as_ref() {
-                    Some(storage) => storage.clone(),
-                    None => {
-                        warn!("Cannot write to a removed file");
-                        return Err(Error::FileRemoved);
-                    }
-                };
-                let zeroes = bytes::Bytes::from_iter((0..bytes_to_append).map(|_| 0u8));
-                let write_buffer = OptimizedWriteBuffer::from_bytes(old_size, zeroes).await;
-                state_locked
-                    .content
-                    .write(old_size, write_buffer, storage)
-                    .await
-            } else {
-                todo!()
-            }
-        })
-    }
-
     pub async fn get_meta_data(&self) -> DirectoryEntryMetaData {
         DirectoryEntryMetaData::new(DirectoryEntryKind::File(self.size().await), self.modified)
     }
@@ -2652,6 +2621,37 @@ impl OpenFile {
 
     pub async fn watch(&self) -> tokio::sync::watch::Receiver<OpenFileStatus> {
         self.change_event_sender.subscribe()
+    }
+
+    pub fn resize(
+        &self,
+        write_permission: &OpenFileWritePermission,
+        new_size: u64,
+    ) -> Future<'_, ()> {
+        self.assert_write_permission(write_permission);
+        debug!("Resize to {} bytes", new_size);
+        Box::pin(async move {
+            let mut state_locked = self.state.lock().await;
+            let old_size = state_locked.content.size();
+            if new_size > old_size {
+                let bytes_to_append = new_size - old_size;
+                let storage = match state_locked.storage.as_ref() {
+                    Some(storage) => storage.clone(),
+                    None => {
+                        warn!("Cannot write to a removed file");
+                        return Err(Error::FileRemoved);
+                    }
+                };
+                let zeroes = bytes::Bytes::from_iter((0..bytes_to_append).map(|_| 0u8));
+                let write_buffer = OptimizedWriteBuffer::from_bytes(old_size, zeroes).await;
+                state_locked
+                    .content
+                    .write(old_size, write_buffer, storage)
+                    .await
+            } else {
+                todo!()
+            }
+        })
     }
 
     pub async fn truncate(
