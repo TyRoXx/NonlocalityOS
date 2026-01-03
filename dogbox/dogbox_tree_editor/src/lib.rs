@@ -56,6 +56,7 @@ pub enum Error {
     OtherDeserializationError(String),
     OtherSerializationError(String),
     FileRemoved,
+    InvalidArgument(String),
 }
 
 impl std::fmt::Display for Error {
@@ -1480,6 +1481,29 @@ impl OpenFileContentBlock {
         Ok(WriteResult::new(rest))
     }
 
+    pub async fn resize(
+        &mut self,
+        new_size: usize,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> Result<()> {
+        let max_size = TREE_BLOB_MAX_LENGTH;
+        if new_size > max_size {
+            return Err(Error::InvalidArgument(format!(
+                "new_size was given as {}, but it is not allowed to be greater than {}",
+                new_size, max_size
+            )));
+        }
+        let data = self.access_content_for_writing(storage).await?;
+        let current_size = data.len();
+        if new_size < current_size {
+            data.truncate(new_size as usize);
+        } else if new_size > current_size {
+            let additional_size = new_size - current_size;
+            data.extend(std::iter::repeat_n(0u8, additional_size as usize));
+        }
+        Ok(())
+    }
+
     pub async fn try_store(
         &mut self,
         is_allowed_to_calculate_digest: bool,
@@ -1872,6 +1896,44 @@ impl OpenFileContentBufferLoaded {
         assert_eq!(0, result.open_directories_closed);
         assert_eq!(0, result.files_and_directories_remaining_open);
         result
+    }
+    pub async fn resize(
+        &mut self,
+        new_size: u64,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> Result<()> {
+        let new_number_of_blocks =
+            ((new_size + TREE_BLOB_MAX_LENGTH as u64 - 1) / TREE_BLOB_MAX_LENGTH as u64) as usize;
+        let last_block_size = if new_size == 0 {
+            0
+        } else {
+            ((new_size - 1) % TREE_BLOB_MAX_LENGTH as u64 + 1) as usize
+        };
+        if !self.blocks.is_empty() && (new_number_of_blocks > self.blocks.len()) {
+            self.blocks
+                .last_mut()
+                .unwrap()
+                .resize(TREE_BLOB_MAX_LENGTH, storage.clone())
+                .await?;
+        }
+        let filler = HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH])).unwrap(),
+            TreeChildren::empty(),
+        )));
+        self.blocks.resize_with(new_number_of_blocks, || {
+            OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(filler.clone()))
+        });
+        if last_block_size > 0 {
+            self.blocks
+                .last_mut()
+                .unwrap()
+                .resize(last_block_size, storage)
+                .await?;
+        }
+        self.size = new_size;
+        self.digest.is_digest_up_to_date = false;
+        //TODO: push dirty blocks
+        Ok(())
     }
 }
 
@@ -2352,7 +2414,8 @@ impl OpenFileContentBuffer {
             .unwrap();
             Ok(())
         } else {
-            todo!()
+            let loaded = self.require_loaded(storage.clone()).await?;
+            loaded.resize(new_size, storage).await
         }
     }
 

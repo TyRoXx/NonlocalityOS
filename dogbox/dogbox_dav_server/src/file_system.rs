@@ -104,6 +104,10 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
             error!("File was removed");
             dav_server::fs::FsError::NotFound
         }
+        dogbox_tree_editor::Error::InvalidArgument(message) => {
+            error!("Invalid argument: {}", message);
+            dav_server::fs::FsError::GeneralFailure
+        }
     }
 }
 
