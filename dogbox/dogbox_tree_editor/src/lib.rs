@@ -2320,6 +2320,22 @@ impl OpenFileContentBuffer {
         Ok(())
     }
 
+    pub async fn resize(
+        &mut self,
+        new_size: u64,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> Result<()> {
+        let old_size = self.size();
+        if new_size > old_size {
+            let bytes_to_append = new_size - old_size;
+            let zeroes = bytes::Bytes::from_iter((0..bytes_to_append).map(|_| 0u8));
+            let write_buffer = OptimizedWriteBuffer::from_bytes(old_size, zeroes).await;
+            self.write(old_size, write_buffer, storage).await
+        } else {
+            todo!()
+        }
+    }
+
     pub async fn store_all(
         &mut self,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
@@ -2632,25 +2648,14 @@ impl OpenFile {
         debug!("Resize to {} bytes", new_size);
         Box::pin(async move {
             let mut state_locked = self.state.lock().await;
-            let old_size = state_locked.content.size();
-            if new_size > old_size {
-                let bytes_to_append = new_size - old_size;
-                let storage = match state_locked.storage.as_ref() {
-                    Some(storage) => storage.clone(),
-                    None => {
-                        warn!("Cannot write to a removed file");
-                        return Err(Error::FileRemoved);
-                    }
-                };
-                let zeroes = bytes::Bytes::from_iter((0..bytes_to_append).map(|_| 0u8));
-                let write_buffer = OptimizedWriteBuffer::from_bytes(old_size, zeroes).await;
-                state_locked
-                    .content
-                    .write(old_size, write_buffer, storage)
-                    .await
-            } else {
-                todo!()
-            }
+            let storage = match state_locked.storage.as_ref() {
+                Some(storage) => storage.clone(),
+                None => {
+                    warn!("Cannot write to a removed file");
+                    return Err(Error::FileRemoved);
+                }
+            };
+            state_locked.content.resize(new_size, storage).await
         })
     }
 
