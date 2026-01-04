@@ -22,7 +22,7 @@ async fn test_open_database() {
     )
     .unwrap();
     let thread = tokio::task::spawn_blocking(move || {
-        let connection = rusqlite::Connection::open_with_flags_and_vfs(
+        let mut connection = rusqlite::Connection::open_with_flags_and_vfs(
             "test.db",
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
             vfs_name,
@@ -37,10 +37,14 @@ async fn test_open_database() {
                 (),
             )
             .unwrap();
-        for i in 0..100 {
-            connection
-                .execute("INSERT INTO t (name) VALUES (?1)", [format!("Name {}", i)])
-                .unwrap();
+        {
+            let transaction = connection.transaction().unwrap();
+            for i in 0..100 {
+                transaction
+                    .execute("INSERT INTO t (name) VALUES (?1)", [format!("Name {}", i)])
+                    .unwrap();
+            }
+            transaction.commit().unwrap();
         }
         connection.close().unwrap();
     });
@@ -109,7 +113,7 @@ async fn test_reopen_database() {
     let insert_count = 100;
     {
         let thread = tokio::task::spawn_blocking(move || {
-            let connection = rusqlite::Connection::open_with_flags_and_vfs(
+            let mut connection = rusqlite::Connection::open_with_flags_and_vfs(
                 "test.db",
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
                     | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
@@ -119,16 +123,20 @@ async fn test_reopen_database() {
             connection
                 .execute(
                     "CREATE TABLE t (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL
-                ) STRICT",
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL
+                    ) STRICT",
                     (),
                 )
                 .unwrap();
-            for i in 0..insert_count {
-                connection
-                    .execute("INSERT INTO t (name) VALUES (?1)", [format!("Name {}", i)])
-                    .unwrap();
+            {
+                let transaction = connection.transaction().unwrap();
+                for i in 0..insert_count {
+                    transaction
+                        .execute("INSERT INTO t (name) VALUES (?1)", [format!("Name {}", i)])
+                        .unwrap();
+                }
+                transaction.commit().unwrap();
             }
             connection.close().unwrap();
         });
