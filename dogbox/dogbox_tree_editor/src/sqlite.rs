@@ -137,6 +137,7 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
     }
 }
 
+// https://sqlite.org/c3ref/io_methods.html
 impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SIZE> {
     type WalIndex = sqlite_vfs::WalDisabled;
 
@@ -253,9 +254,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
     }
 
     fn lock(&mut self, lock: LockKind) -> Result<bool, io::Error> {
-        let ok = Self::lock(self, lock);
-        // eprintln!("locked = {}", ok);
-        Ok(ok)
+        Ok(Self::lock(self, lock))
     }
 
     fn reserved(&mut self) -> Result<bool, io::Error> {
@@ -282,15 +281,13 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
 }
 
 impl<const PAGE_SIZE: usize> DatabaseFile<PAGE_SIZE> {
+    // https://sqlite.org/c3ref/io_methods.html
     fn lock(&mut self, to: LockKind) -> bool {
         if self.lock == to {
             return true;
         }
 
         let mut lock_state = self.lock_state.lock().unwrap();
-        // The following locking implementation is probably not sound (wouldn't be surprised if it
-        // potentially dead-locks), but suffice for the experiment.
-
         match to {
             LockKind::None => {
                 if self.lock == LockKind::Shared {
