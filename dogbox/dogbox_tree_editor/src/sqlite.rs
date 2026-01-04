@@ -119,7 +119,8 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
     }
 
     fn temporary_name(&self) -> String {
-        todo!()
+        error!("temporary_name has not been implemented yet. Returning an empty string.");
+        "".to_string()
     }
 
     fn random(&self, buffer: &mut [i8]) {
