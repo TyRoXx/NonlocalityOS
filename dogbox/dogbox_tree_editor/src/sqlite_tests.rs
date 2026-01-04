@@ -37,6 +37,11 @@ async fn test_open_database() {
                 (),
             )
             .unwrap();
+        for i in 0..100 {
+            connection
+                .execute("INSERT INTO t (name) VALUES (?1)", [format!("Name {}", i)])
+                .unwrap();
+        }
         connection.close().unwrap();
     });
     thread.await.unwrap();
