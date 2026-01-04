@@ -2,8 +2,7 @@ use crate::{
     NormalizedPath, OpenFile, OpenFileReadPermission, OpenFileStatus, OpenFileWritePermission,
     TreeEditor,
 };
-use rand::rngs::SmallRng;
-use rand::{RngCore, SeedableRng};
+use rand::RngCore;
 use relative_path::RelativePath;
 use sqlite_vfs::{LockKind, OpenOptions, RegisterError, Vfs};
 use std::io::{self, ErrorKind};
@@ -21,11 +20,15 @@ pub struct PagesVfs<const PAGE_SIZE: usize> {
     lock_state: Arc<Mutex<LockState>>,
     runtime: Handle,
     editor: TreeEditor,
-    random_number_generator: Mutex<SmallRng>,
+    random_number_generator: Mutex<Box<dyn RngCore + Send>>,
 }
 
 impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
-    pub fn new(editor: TreeEditor, runtime: Handle) -> Self {
+    pub fn new(
+        editor: TreeEditor,
+        runtime: Handle,
+        random_number_generator: Box<dyn RngCore + Send>,
+    ) -> Self {
         PagesVfs {
             lock_state: Arc::new(Mutex::new(LockState {
                 read: 0,
@@ -33,7 +36,7 @@ impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
             })),
             runtime,
             editor,
-            random_number_generator: Mutex::new(SmallRng::seed_from_u64(123)),
+            random_number_generator: Mutex::new(random_number_generator),
         }
     }
 }
@@ -369,6 +372,15 @@ impl<const PAGE_SIZE: usize> Drop for DatabaseFile<PAGE_SIZE> {
     }
 }
 
-pub fn register_vfs(name: &str, editor: TreeEditor, runtime: Handle) -> Result<(), RegisterError> {
-    sqlite_vfs::register(name, PagesVfs::<4096>::new(editor, runtime), false)
+pub fn register_vfs(
+    name: &str,
+    editor: TreeEditor,
+    runtime: Handle,
+    random_number_generator: Box<dyn RngCore + Send>,
+) -> Result<(), RegisterError> {
+    sqlite_vfs::register(
+        name,
+        PagesVfs::<4096>::new(editor, runtime, random_number_generator),
+        false,
+    )
 }

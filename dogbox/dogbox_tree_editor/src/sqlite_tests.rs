@@ -3,6 +3,7 @@ use astraea::storage::InMemoryTreeStorage;
 use dogbox_tree::serialization::FileName;
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
+use rand::{rngs::SmallRng, SeedableRng};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[test_log::test(tokio::test)]
@@ -19,6 +20,7 @@ async fn test_open_database() {
         vfs_name,
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
+        Box::new(SmallRng::seed_from_u64(123)),
     )
     .unwrap();
     let thread = tokio::task::spawn_blocking(move || {
@@ -108,6 +110,7 @@ async fn test_reopen_database() {
         vfs_name,
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
+        Box::new(SmallRng::seed_from_u64(123)),
     )
     .unwrap();
     let insert_count = 100;
@@ -215,6 +218,7 @@ async fn test_temp_table() {
         vfs_name,
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
+        Box::new(SmallRng::seed_from_u64(123)),
     )
     .unwrap();
     let thread = tokio::task::spawn_blocking(move || {
