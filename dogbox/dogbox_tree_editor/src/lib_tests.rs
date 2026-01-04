@@ -1753,6 +1753,8 @@ fn open_file_content_buffer_write_creates_full_block_with_zero_fill(write_positi
 }
 
 #[test_case(0, 1)]
+#[test_case(0, TREE_BLOB_MAX_LENGTH as u64)]
+#[test_case(0, (TREE_BLOB_MAX_LENGTH as u64) * 2)]
 #[test_case(0, 100_000)]
 #[test_case(0, 100_000_000)]
 #[test_case(10_000, 20_000)]
@@ -1792,7 +1794,9 @@ fn open_file_content_buffer_resize_grow(old_size: u64, new_size: u64) {
 
 #[test_case(2, 1)]
 #[test_case(20_000, 10_000)]
+#[test_case((TREE_BLOB_MAX_LENGTH as u64) * 2, TREE_BLOB_MAX_LENGTH as u64)]
 #[test_case(200_000, 10_000)]
+#[test_case(TREE_BLOB_MAX_LENGTH as u64, 10_000)]
 #[test_case(100_000_000, 100_000)]
 fn open_file_content_buffer_resize_shrink(old_size: u64, new_size: u64) {
     Runtime::new().unwrap().block_on(async {
@@ -1828,6 +1832,8 @@ fn open_file_content_buffer_resize_shrink(old_size: u64, new_size: u64) {
 
 #[test_case(2)]
 #[test_case(20_000)]
+#[test_case(TREE_BLOB_MAX_LENGTH as u64)]
+#[test_case((TREE_BLOB_MAX_LENGTH as u64) * 2)]
 #[test_case(200_000)]
 #[test_case(100_000_000)]
 fn open_file_content_buffer_resize_same(size: u64) {
