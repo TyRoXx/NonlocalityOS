@@ -3,7 +3,7 @@ use crate::{
     DirectoryEntryMetaData, Error, LoadedBlock, MutableDirectoryEntry, NamedEntry, NormalizedPath,
     OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer,
     OpenFileContentBufferLoaded, OpenFileStats, OptimizedWriteBuffer, Prefetcher, StoreChanges,
-    StreakDirection, TreeEditor,
+    StreakDirection, TreeEditor, WallClock,
 };
 use astraea::storage::{
     CollectGarbage, DelayedHashedTree, GarbageCollectionStats, InMemoryTreeStorage, LoadError,
@@ -294,7 +294,7 @@ async fn test_open_directory_get_meta_data() {
         )]),
         Arc::new(NeverUsedStorage {}),
         modified,
-        test_clock,
+        Arc::new(test_clock),
         1,
     );
     let meta_data = directory
@@ -318,7 +318,7 @@ async fn test_open_directory_nothing_happens() {
         )]),
         storage.clone(),
         modified,
-        test_clock,
+        Arc::new(test_clock),
         1,
     );
     let mut receiver = directory.watch().await;
@@ -356,7 +356,7 @@ async fn test_open_directory_open_file() {
         BTreeMap::new(),
         storage.clone(),
         modified,
-        test_clock,
+        Arc::new(test_clock),
         1,
     ));
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
@@ -394,7 +394,12 @@ async fn test_open_directory_open_file() {
 
 #[test_log::test(tokio::test)]
 async fn test_open_directory_drop_all_read_caches() {
-    let modified = test_clock();
+    let current_time = std::sync::Mutex::new(test_clock());
+    let clock: WallClock = Arc::new(move || {
+        let time = *current_time.lock().unwrap();
+        time
+    });
+    let modified = clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let directory = Arc::new(OpenDirectory::new(
         std::path::PathBuf::from("/"),
@@ -402,7 +407,7 @@ async fn test_open_directory_drop_all_read_caches() {
         BTreeMap::new(),
         storage.clone(),
         modified,
-        test_clock,
+        clock,
         1,
     ));
     let tree_editor = TreeEditor::new(directory.clone(), None);
@@ -492,7 +497,7 @@ async fn test_read_directory_after_file_write() {
         BTreeMap::new(),
         storage.clone(),
         modified,
-        test_clock,
+        Arc::new(test_clock),
         1,
     ));
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
@@ -532,7 +537,7 @@ async fn test_read_file_after_garbage_collection() {
         BTreeMap::new(),
         storage.clone(),
         modified,
-        test_clock,
+        Arc::new(test_clock),
         1,
     ));
     let empty_file_digest = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
@@ -640,7 +645,7 @@ async fn test_get_meta_data_after_file_write() {
         BTreeMap::new(),
         storage.clone(),
         modified,
-        test_clock,
+        Arc::new(test_clock),
         1,
     ));
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
@@ -693,7 +698,7 @@ fn open_directory_from_entries(
             .collect(),
         storage,
         modified,
-        test_clock,
+        Arc::new(test_clock),
         1,
     )
 }

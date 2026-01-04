@@ -23,6 +23,7 @@ use astraea::{
 use async_stream::stream;
 use bytes::Buf;
 use cached::Cached;
+use derivative::Derivative;
 use dogbox_tree::serialization::{
     self, deserialize_directory, serialize_directory, DeserializationError, DirectoryEntryKind,
     FileName, FileNameError,
@@ -336,7 +337,7 @@ impl NamedEntry {
     }
 }
 
-pub type WallClock = fn() -> std::time::SystemTime;
+pub type WallClock = Arc<dyn Fn() -> std::time::SystemTime + Send + Sync + 'static>;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub struct OpenFileStats {
@@ -423,7 +424,15 @@ impl OpenDirectoryMutableState {
     }
 }
 
-#[derive(Debug)]
+fn format_wall_clock(
+    _: &WallClock,
+    f: &mut std::fmt::Formatter,
+) -> std::result::Result<(), std::fmt::Error> {
+    write!(f, "WallClock")
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct OpenDirectory {
     original_path: std::path::PathBuf,
     state: tokio::sync::Mutex<OpenDirectoryMutableState>,
@@ -431,6 +440,7 @@ pub struct OpenDirectory {
     change_event_sender: tokio::sync::watch::Sender<OpenDirectoryStatus>,
     _change_event_receiver: tokio::sync::watch::Receiver<OpenDirectoryStatus>,
     modified: std::time::SystemTime,
+    #[derivative(Debug(format_with = "format_wall_clock"))]
     clock: WallClock,
     open_file_write_buffer_in_blocks: usize,
 }
@@ -470,8 +480,8 @@ impl OpenDirectory {
         self.storage.clone()
     }
 
-    pub fn get_clock(&self) -> fn() -> std::time::SystemTime {
-        self.clock
+    pub fn get_clock(&self) -> &WallClock {
+        &self.clock
     }
 
     pub fn latest_status(&self) -> OpenDirectoryStatus {
@@ -653,7 +663,7 @@ impl OpenDirectory {
                             self.storage.clone(),
                             digest,
                             self.modified,
-                            self.clock,
+                            self.clock.clone(),
                             self.open_file_write_buffer_in_blocks,
                         )
                         .await?;
@@ -768,7 +778,7 @@ impl OpenDirectory {
                     self.storage.clone(),
                     &empty_directory_digest,
                     (self.clock)(),
-                    self.clock,
+                    self.clock.clone(),
                     self.open_file_write_buffer_in_blocks,
                 )
                 .await?;
@@ -848,7 +858,7 @@ impl OpenDirectory {
         );
 
         let old_entry = state_locked.names.get(name_here).unwrap();
-        let new_entry = Self::copy_named_entry(old_entry, self.clock).await?;
+        let new_entry = Self::copy_named_entry(old_entry, self.clock.clone()).await?;
         match state_there_locked {
             Some(ref mut value) => {
                 Self::write_into_directory(self.clone(), value, name_there, new_entry)
@@ -2816,7 +2826,7 @@ impl TreeEditor {
                 let directory = OpenDirectory::create_directory(
                     std::path::PathBuf::from("should be irrelevant"),
                     self.root.get_storage(),
-                    self.root.get_clock(),
+                    self.root.get_clock().clone(),
                     1,
                 )
                 .await?;

@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, sync::Arc};
 #[test_log::test(tokio::test)]
 async fn test_open_database() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let clock = || std::time::SystemTime::UNIX_EPOCH;
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let directory = Arc::new(
         OpenDirectory::create_directory(std::path::PathBuf::from(""), storage, clock, 1)
             .await

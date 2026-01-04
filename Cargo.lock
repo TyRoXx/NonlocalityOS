@@ -850,6 +850,7 @@ dependencies = [
  "async-trait",
  "bytes 1.11.0",
  "cached",
+ "derivative",
  "dogbox_tree",
  "futures",
  "futures-core",

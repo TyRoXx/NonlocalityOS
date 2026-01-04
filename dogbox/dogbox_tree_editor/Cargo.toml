@@ -23,6 +23,7 @@ rusqlite = {version = "0", features = ["bundled"]}
 pretty_assertions = "1"
 sqlite-vfs = "0"
 rand = { version = "0", features = [ "small_rng" ]}
+derivative = "2"
 
 [dev-dependencies]
 test-case = "3"
