@@ -1496,7 +1496,7 @@ impl OpenFileContentBlock {
         let data = self.access_content_for_writing(storage).await?;
         let current_size = data.len();
         if new_size < current_size {
-            data.truncate(new_size as usize);
+            data.truncate(new_size);
         } else if new_size > current_size {
             let additional_size = new_size - current_size;
             data.extend(std::iter::repeat_n(0u8, additional_size as usize));
