@@ -405,9 +405,23 @@ async fn test_open_directory_drop_all_read_caches() {
         test_clock,
         1,
     ));
+    let tree_editor = TreeEditor::new(directory.clone(), None);
+    let subdirectory_name = FileName::try_from("subdir".to_string()).unwrap();
+    OpenDirectory::create_subdirectory(
+        directory.clone(),
+        subdirectory_name.clone(),
+        tree_editor.require_empty_directory_digest().await.unwrap(),
+    )
+    .await
+    .unwrap();
+    let subdirectory = directory
+        .clone()
+        .open_subdirectory(subdirectory_name)
+        .await
+        .unwrap();
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
     let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
-    let open_file = directory
+    let open_file = subdirectory
         .clone()
         .open_file(&file_name, &empty_file_digest)
         .await
