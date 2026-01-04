@@ -419,20 +419,38 @@ async fn test_open_directory_drop_all_read_caches() {
         .open_subdirectory(subdirectory_name)
         .await
         .unwrap();
-    let file_name = FileName::try_from("test.txt".to_string()).unwrap();
     let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
-    let open_file = subdirectory
+    let open_file_a = subdirectory
         .clone()
-        .open_file(&file_name, &empty_file_digest)
+        .open_file(
+            &FileName::try_from("a.txt".to_string()).unwrap(),
+            &empty_file_digest,
+        )
         .await
         .unwrap();
-    open_file.flush().await.unwrap();
+    open_file_a.flush().await.unwrap();
+    let open_file_b = subdirectory
+        .clone()
+        .open_file(
+            &FileName::try_from("b.txt".to_string()).unwrap(),
+            &empty_file_digest,
+        )
+        .await
+        .unwrap();
+    open_file_b
+        .write_bytes(
+            &open_file_b.get_write_permission(),
+            0,
+            bytes::Bytes::from_static(b"test"),
+        )
+        .await
+        .unwrap();
     {
         // The file won't be closed while someone is intending to read from it.
-        let _read_permission = open_file.get_read_permission();
+        let _read_permission = open_file_a.get_read_permission();
         assert_eq!(
             CacheDropStats {
-                files_and_directories_remaining_open: 1,
+                files_and_directories_remaining_open: 2,
                 hashed_trees_dropped: 0,
                 open_directories_closed: 0,
                 open_files_closed: 0,
@@ -442,10 +460,10 @@ async fn test_open_directory_drop_all_read_caches() {
     }
     {
         // The file won't be closed while someone is intending to write to it.
-        let _write_permission = open_file.get_write_permission();
+        let _write_permission = open_file_a.get_write_permission();
         assert_eq!(
             CacheDropStats {
-                files_and_directories_remaining_open: 1,
+                files_and_directories_remaining_open: 2,
                 hashed_trees_dropped: 0,
                 open_directories_closed: 0,
                 open_files_closed: 0,
