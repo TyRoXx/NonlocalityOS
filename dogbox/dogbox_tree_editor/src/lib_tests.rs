@@ -1635,6 +1635,7 @@ async fn check_open_file_content_buffer(
             )
             .await;
         let read_bytes = read_result.unwrap();
+        assert_ne!(0, read_bytes.len());
         let expected_piece = expected_content.slice(checked..(checked + read_bytes.len()));
         assert_eq!(expected_piece.len(), read_bytes.len());
         assert!(expected_piece == read_bytes);
