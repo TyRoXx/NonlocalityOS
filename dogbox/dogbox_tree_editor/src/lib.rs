@@ -1921,17 +1921,21 @@ impl OpenFileContentBufferLoaded {
                 .resize(TREE_BLOB_MAX_LENGTH, storage.clone())
                 .await?;
         }
-        let filler = HashedTree::from(Arc::new(Tree::new(
-            TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH])).unwrap(),
-            TreeChildren::empty(),
-        )));
-        assert!(new_number_of_blocks >= 1);
-        for index in self.blocks.len()..(new_number_of_blocks - 1) {
-            self.dirty_blocks.push_back(index);
+        if new_number_of_blocks > self.blocks.len() {
+            let filler = HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH])).unwrap(),
+                TreeChildren::empty(),
+            )));
+            assert!(new_number_of_blocks >= 1);
+            for index in self.blocks.len()..(new_number_of_blocks - 1) {
+                self.dirty_blocks.push_back(index);
+            }
+            self.blocks.resize_with(new_number_of_blocks, || {
+                OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(filler.clone()))
+            });
+        } else {
+            self.blocks.truncate(new_number_of_blocks);
         }
-        self.blocks.resize_with(new_number_of_blocks, || {
-            OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(filler.clone()))
-        });
         let last_block_size = new_size
             .checked_sub((new_number_of_blocks as u64 - 1) * (TREE_BLOB_MAX_LENGTH as u64))
             .expect("Failed to calculate last block size") as usize;
