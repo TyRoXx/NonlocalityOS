@@ -1014,7 +1014,9 @@ async fn test_open_file_content_buffer_loaded_resize_small() {
         write_buffer_in_blocks: 1,
         prefetcher: Prefetcher::new(),
     };
-    buffer.resize(1, storage.clone()).await.unwrap();
+    let new_size = 1;
+    buffer.resize(new_size, storage.clone()).await.unwrap();
+    assert_eq!(buffer.size, new_size);
     assert_eq!(storage.number_of_trees().await, 1);
     buffer.store_cheap_blocks(storage.clone()).await.unwrap();
     // The resized block doesn't count as "cheap" because its digest has to be recalculated.
@@ -1061,13 +1063,12 @@ async fn test_open_file_content_buffer_loaded_resize_large() {
         write_buffer_in_blocks: 1,
         prefetcher: Prefetcher::new(),
     };
-    buffer
-        .resize(TREE_BLOB_MAX_LENGTH as u64 + 1, storage.clone())
-        .await
-        .unwrap();
+    let new_size = (2 * (TREE_BLOB_MAX_LENGTH as u64)) + 1;
+    buffer.resize(new_size, storage.clone()).await.unwrap();
+    assert_eq!(buffer.size, new_size);
     assert_eq!(storage.number_of_trees().await, 1);
     buffer.store_cheap_blocks(storage.clone()).await.unwrap();
-    assert_eq!(storage.number_of_trees().await, 1);
+    assert_eq!(storage.number_of_trees().await, 2);
     assert_eq!(
         StoreChanges::SomeChanges,
         buffer.store_all(storage.clone()).await.unwrap()
@@ -1077,8 +1078,8 @@ async fn test_open_file_content_buffer_loaded_resize_large() {
     assert_eq!(
         DigestStatus {
             last_known_digest: BlobDigest::parse_hex_string(concat!(
-                "21d5cf946a7bedda1764049d28ce34c8ad8a8d02f162d12dd55442962e779beb",
-                "46527b4eebd5977e990a082302e1447d489827e58e48b82f505ece30c57cb6bd"
+                "df68238269cfefdbbc288dc38fb26e54716bd06f2639a4b09505fe840ea33bd8",
+                "4ad74192dbc61eb97e612523524128b980450180ae7e36c690e56686c5fb0e7d"
             ))
             .unwrap(),
             is_digest_up_to_date: true,
