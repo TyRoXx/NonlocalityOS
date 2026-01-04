@@ -1499,7 +1499,7 @@ impl OpenFileContentBlock {
             data.truncate(new_size);
         } else if new_size > current_size {
             let additional_size = new_size - current_size;
-            data.extend(std::iter::repeat_n(0u8, additional_size as usize));
+            data.extend(std::iter::repeat_n(0u8, additional_size));
         }
         Ok(())
     }
