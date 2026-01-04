@@ -271,12 +271,11 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
     }
 
     fn set_chunk_size(&self, chunk_size: usize) -> Result<(), io::Error> {
-        if chunk_size != PAGE_SIZE {
-            eprintln!("set_chunk_size={chunk_size} (rejected)");
-            Err(io::Error::other("changing chunk size is not allowed"))
-        } else {
-            eprintln!("set_chunk_size={chunk_size}");
+        if chunk_size == PAGE_SIZE {
             Ok(())
+        } else {
+            error!("set_chunk_size={chunk_size} (rejected)");
+            Err(io::Error::other("changing chunk size is not allowed"))
         }
     }
 }
