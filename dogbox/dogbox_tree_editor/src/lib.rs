@@ -1921,6 +1921,7 @@ impl OpenFileContentBufferLoaded {
             TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH])).unwrap(),
             TreeChildren::empty(),
         )));
+        // TODO: push dirty blocks for these
         self.blocks.resize_with(new_number_of_blocks, || {
             OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(filler.clone()))
         });
@@ -1931,7 +1932,7 @@ impl OpenFileContentBufferLoaded {
             .await?;
         self.size = new_size;
         self.digest.is_digest_up_to_date = false;
-        //TODO: push dirty blocks
+        self.dirty_blocks.push_back(self.blocks.len() - 1);
         Ok(())
     }
 }

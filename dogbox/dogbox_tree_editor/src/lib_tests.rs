@@ -1,8 +1,8 @@
 use crate::{
     AccessOrderLowerIsMoreRecent, DigestStatus, DirectoryEntryKind, DirectoryEntryMetaData, Error,
-    MutableDirectoryEntry, NamedEntry, NormalizedPath, OpenDirectory, OpenDirectoryStatus,
-    OpenFileContentBlock, OpenFileContentBuffer, OpenFileStats, OptimizedWriteBuffer, Prefetcher,
-    StoreChanges, StreakDirection, TreeEditor,
+    LoadedBlock, MutableDirectoryEntry, NamedEntry, NormalizedPath, OpenDirectory,
+    OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer, OpenFileContentBufferLoaded,
+    OpenFileStats, OptimizedWriteBuffer, Prefetcher, StoreChanges, StreakDirection, TreeEditor,
 };
 use astraea::storage::{
     CollectGarbage, DelayedHashedTree, GarbageCollectionStats, InMemoryTreeStorage, LoadError,
@@ -990,6 +990,102 @@ async fn test_nested_create_directory() {
         let end = reading.next().await;
         assert!(end.is_none());
     }
+}
+
+#[test_log::test(tokio::test)]
+async fn test_open_file_content_buffer_loaded_resize_small() {
+    let hashed_tree = HashedTree::from(Arc::new(Tree::new(
+        TreeBlob::try_from(bytes::Bytes::new()).unwrap(),
+        TreeChildren::empty(),
+    )));
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let last_known_digest = storage.store_tree(&hashed_tree).await.unwrap();
+    let mut buffer = OpenFileContentBufferLoaded {
+        size: 0,
+        blocks: vec![OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
+            hashed_tree,
+        ))],
+        digest: DigestStatus {
+            last_known_digest,
+            is_digest_up_to_date: true,
+        },
+        last_known_digest_file_size: 0,
+        dirty_blocks: VecDeque::new(),
+        write_buffer_in_blocks: 1,
+        prefetcher: Prefetcher::new(),
+    };
+    buffer.resize(1, storage.clone()).await.unwrap();
+    assert_eq!(storage.number_of_trees().await, 1);
+    buffer.store_cheap_blocks(storage.clone()).await.unwrap();
+    // The resized block doesn't count as "cheap" because its digest has to be recalculated.
+    assert_eq!(storage.number_of_trees().await, 1);
+    assert_eq!(
+        StoreChanges::SomeChanges,
+        buffer.store_all(storage.clone()).await.unwrap()
+    );
+    assert_eq!(storage.number_of_trees().await, 2);
+    let digest = buffer.last_known_digest();
+    assert_eq!(
+        DigestStatus {
+            last_known_digest: BlobDigest::parse_hex_string(concat!(
+                "735a02ee9ca2990d0e4a464e2512dbc35f3d4d15addb0faa60813203b5dd5b01",
+                "e22f13ba911e23f629267dd39a1622c45288c3ff5d627cb85e7fb2519f0fd0c3"
+            ))
+            .unwrap(),
+            is_digest_up_to_date: true,
+        },
+        digest
+    );
+    // TODO: load again
+}
+
+#[test_log::test(tokio::test)]
+async fn test_open_file_content_buffer_loaded_resize_large() {
+    let hashed_tree = HashedTree::from(Arc::new(Tree::new(
+        TreeBlob::try_from(bytes::Bytes::new()).unwrap(),
+        TreeChildren::empty(),
+    )));
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let last_known_digest = storage.store_tree(&hashed_tree).await.unwrap();
+    let mut buffer = OpenFileContentBufferLoaded {
+        size: 0,
+        blocks: vec![OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
+            hashed_tree,
+        ))],
+        digest: DigestStatus {
+            last_known_digest,
+            is_digest_up_to_date: true,
+        },
+        last_known_digest_file_size: 0,
+        dirty_blocks: VecDeque::new(),
+        write_buffer_in_blocks: 1,
+        prefetcher: Prefetcher::new(),
+    };
+    buffer
+        .resize(TREE_BLOB_MAX_LENGTH as u64 + 1, storage.clone())
+        .await
+        .unwrap();
+    assert_eq!(storage.number_of_trees().await, 1);
+    buffer.store_cheap_blocks(storage.clone()).await.unwrap();
+    assert_eq!(storage.number_of_trees().await, 1);
+    assert_eq!(
+        StoreChanges::SomeChanges,
+        buffer.store_all(storage.clone()).await.unwrap()
+    );
+    assert_eq!(storage.number_of_trees().await, 4);
+    let digest = buffer.last_known_digest();
+    assert_eq!(
+        DigestStatus {
+            last_known_digest: BlobDigest::parse_hex_string(concat!(
+                "21d5cf946a7bedda1764049d28ce34c8ad8a8d02f162d12dd55442962e779beb",
+                "46527b4eebd5977e990a082302e1447d489827e58e48b82f505ece30c57cb6bd"
+            ))
+            .unwrap(),
+            is_digest_up_to_date: true,
+        },
+        digest
+    );
+    // TODO: load again
 }
 
 #[test_log::test(tokio::test)]
