@@ -2386,16 +2386,8 @@ impl OpenFileContentBuffer {
         new_size: u64,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<()> {
-        let old_size = self.size();
-        if new_size > old_size {
-            let bytes_to_append = new_size - old_size;
-            let zeroes = bytes::Bytes::from_iter((0..bytes_to_append).map(|_| 0u8));
-            let write_buffer = OptimizedWriteBuffer::from_bytes(old_size, zeroes).await;
-            self.write(old_size, write_buffer, storage).await
-        } else {
-            let loaded = self.require_loaded(storage.clone()).await?;
-            loaded.resize(new_size, storage).await
-        }
+        let loaded = self.require_loaded(storage.clone()).await?;
+        loaded.resize(new_size, storage).await
     }
 
     pub async fn store_all(
