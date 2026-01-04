@@ -1933,8 +1933,12 @@ impl OpenFileContentBufferLoaded {
             self.blocks.resize_with(new_number_of_blocks, || {
                 OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(filler.clone()))
             });
-        } else {
+        } else if new_number_of_blocks < self.blocks.len() {
             self.blocks.truncate(new_number_of_blocks);
+            // remove dirty blocks that don't exist anymore
+            self.dirty_blocks.retain(|index| *index < self.blocks.len());
+        } else {
+            debug!("Resize called but number of blocks is unchanged.");
         }
         let last_block_size = new_size
             .checked_sub((new_number_of_blocks as u64 - 1) * (TREE_BLOB_MAX_LENGTH as u64))
