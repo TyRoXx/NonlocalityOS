@@ -10,7 +10,7 @@ use std::io::{self, ErrorKind};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
-use tracing::error;
+use tracing::{error, warn};
 
 struct LockState {
     read: usize,
@@ -216,14 +216,16 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
         })
     }
 
-    fn sync(&mut self, _data_only: bool) -> Result<(), io::Error> {
+    fn sync(&mut self, data_only: bool) -> Result<(), io::Error> {
         self.runtime.block_on(async {
             let _status: OpenFileStatus = self.open_file.request_save().await.map_err(|err| {
                 let message = format!("Failed to request_save() database file: {}", err);
                 error!("{}", message);
                 io::Error::other(message)
             })?;
-            // TODO: save directory
+            if !data_only {
+                warn!("SQLite VFS sync wants to flush the directory, but this has not been implemented yet");
+            }
             Ok(())
         })
     }
