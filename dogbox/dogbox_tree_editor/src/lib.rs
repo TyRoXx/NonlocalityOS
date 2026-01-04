@@ -1155,6 +1155,8 @@ impl OpenDirectory {
         serialize_directory(&entries, storage).await
     }
 
+    pub const READ_CACHE_LIFE_TIME: std::time::Duration = std::time::Duration::from_secs(60);
+
     pub async fn drop_all_read_caches(&self) -> CacheDropStats {
         let mut state_locked = self.state.lock().await;
         let mut result = CacheDropStats::new(0, 0, 0, 0);
@@ -1164,11 +1166,8 @@ impl OpenDirectory {
         if result.files_and_directories_remaining_open == 0 {
             let now = (self.clock)();
             let last_accessed_at = state_locked.last_accessed_at;
-            if now
-                .duration_since(last_accessed_at)
-                .unwrap_or_default()
-                .as_secs()
-                >= 60
+            if now.duration_since(last_accessed_at).unwrap_or_default()
+                >= Self::READ_CACHE_LIFE_TIME
             {
                 debug!(
                     "{}: Dropping directory read cache as it has been unused for at least 60 seconds.",

@@ -494,7 +494,7 @@ async fn test_open_directory_drop_all_read_caches() {
         directory.drop_all_read_caches().await
     );
     open_file_b.flush().await.unwrap();
-    *current_time.lock().unwrap() += std::time::Duration::from_secs(90);
+    *current_time.lock().unwrap() += OpenDirectory::READ_CACHE_LIFE_TIME;
     assert_eq!(
         CacheDropStats {
             files_and_directories_remaining_open: 1,
