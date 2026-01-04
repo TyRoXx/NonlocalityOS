@@ -1,8 +1,9 @@
 use crate::{
-    AccessOrderLowerIsMoreRecent, DigestStatus, DirectoryEntryKind, DirectoryEntryMetaData, Error,
-    LoadedBlock, MutableDirectoryEntry, NamedEntry, NormalizedPath, OpenDirectory,
-    OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer, OpenFileContentBufferLoaded,
-    OpenFileStats, OptimizedWriteBuffer, Prefetcher, StoreChanges, StreakDirection, TreeEditor,
+    AccessOrderLowerIsMoreRecent, CacheDropStats, DigestStatus, DirectoryEntryKind,
+    DirectoryEntryMetaData, Error, LoadedBlock, MutableDirectoryEntry, NamedEntry, NormalizedPath,
+    OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock, OpenFileContentBuffer,
+    OpenFileContentBufferLoaded, OpenFileStats, OptimizedWriteBuffer, Prefetcher, StoreChanges,
+    StreakDirection, TreeEditor,
 };
 use astraea::storage::{
     CollectGarbage, DelayedHashedTree, GarbageCollectionStats, InMemoryTreeStorage, LoadError,
@@ -360,12 +361,12 @@ async fn test_open_directory_open_file() {
     ));
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
     let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
-    let opened = directory
+    let open_file = directory
         .clone()
         .open_file(&file_name, &empty_file_digest)
         .await
         .unwrap();
-    opened.flush().await.unwrap();
+    open_file.flush().await.unwrap();
     assert_eq!(
         DirectoryEntryMetaData::new(DirectoryEntryKind::File(0), modified),
         directory.get_meta_data(&file_name).await.unwrap()
@@ -379,6 +380,73 @@ async fn test_open_directory_open_file() {
             modified,
         }][..],
         &directory_entries[..]
+    );
+    assert_eq!(
+        CacheDropStats {
+            files_and_directories_remaining_open: 1,
+            hashed_trees_dropped: 0,
+            open_directories_closed: 0,
+            open_files_closed: 1,
+        },
+        directory.drop_all_read_caches().await
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_open_directory_drop_all_read_caches() {
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let directory = Arc::new(OpenDirectory::new(
+        std::path::PathBuf::from("/"),
+        DigestStatus::new(*DUMMY_DIGEST, false),
+        BTreeMap::new(),
+        storage.clone(),
+        modified,
+        test_clock,
+        1,
+    ));
+    let file_name = FileName::try_from("test.txt".to_string()).unwrap();
+    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
+    let open_file = directory
+        .clone()
+        .open_file(&file_name, &empty_file_digest)
+        .await
+        .unwrap();
+    open_file.flush().await.unwrap();
+    {
+        // The file won't be closed while someone is intending to read from it.
+        let _read_permission = open_file.get_read_permission();
+        assert_eq!(
+            CacheDropStats {
+                files_and_directories_remaining_open: 1,
+                hashed_trees_dropped: 0,
+                open_directories_closed: 0,
+                open_files_closed: 0,
+            },
+            directory.drop_all_read_caches().await
+        );
+    }
+    {
+        // The file won't be closed while someone is intending to write to it.
+        let _write_permission = open_file.get_write_permission();
+        assert_eq!(
+            CacheDropStats {
+                files_and_directories_remaining_open: 1,
+                hashed_trees_dropped: 0,
+                open_directories_closed: 0,
+                open_files_closed: 0,
+            },
+            directory.drop_all_read_caches().await
+        );
+    }
+    assert_eq!(
+        CacheDropStats {
+            files_and_directories_remaining_open: 1,
+            hashed_trees_dropped: 0,
+            open_directories_closed: 0,
+            open_files_closed: 1,
+        },
+        directory.drop_all_read_caches().await
     );
 }
 
