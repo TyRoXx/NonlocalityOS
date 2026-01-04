@@ -1902,8 +1902,7 @@ impl OpenFileContentBufferLoaded {
         new_size: u64,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<()> {
-        let new_number_of_blocks =
-            ((new_size + TREE_BLOB_MAX_LENGTH as u64 - 1) / TREE_BLOB_MAX_LENGTH as u64) as usize;
+        let new_number_of_blocks = new_size.div_ceil(TREE_BLOB_MAX_LENGTH as u64) as usize;
         let last_block_size = if new_size == 0 {
             0
         } else {
