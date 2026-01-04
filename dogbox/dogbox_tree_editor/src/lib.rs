@@ -1897,16 +1897,18 @@ impl OpenFileContentBufferLoaded {
         assert_eq!(0, result.files_and_directories_remaining_open);
         result
     }
+
     pub async fn resize(
         &mut self,
         new_size: u64,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> Result<()> {
-        let new_number_of_blocks = new_size.div_ceil(TREE_BLOB_MAX_LENGTH as u64) as usize;
+        let new_number_of_blocks =
+            usize::max(1, new_size.div_ceil(TREE_BLOB_MAX_LENGTH as u64) as usize);
         let last_block_size = if new_size == 0 {
             0
         } else {
-            ((new_size - 1) % TREE_BLOB_MAX_LENGTH as u64 + 1) as usize
+            (new_size % (TREE_BLOB_MAX_LENGTH as u64)) as usize
         };
         if !self.blocks.is_empty() && (new_number_of_blocks > self.blocks.len()) {
             self.blocks
@@ -1922,13 +1924,11 @@ impl OpenFileContentBufferLoaded {
         self.blocks.resize_with(new_number_of_blocks, || {
             OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(filler.clone()))
         });
-        if last_block_size > 0 {
-            self.blocks
-                .last_mut()
-                .unwrap()
-                .resize(last_block_size, storage)
-                .await?;
-        }
+        self.blocks
+            .last_mut()
+            .unwrap()
+            .resize(last_block_size, storage)
+            .await?;
         self.size = new_size;
         self.digest.is_digest_up_to_date = false;
         //TODO: push dirty blocks
@@ -2392,26 +2392,6 @@ impl OpenFileContentBuffer {
             let zeroes = bytes::Bytes::from_iter((0..bytes_to_append).map(|_| 0u8));
             let write_buffer = OptimizedWriteBuffer::from_bytes(old_size, zeroes).await;
             self.write(old_size, write_buffer, storage).await
-        } else if new_size == 0 {
-            let write_buffer_in_blocks = match self {
-                OpenFileContentBuffer::NotLoaded {
-                    digest: _,
-                    size: _,
-                    write_buffer_in_blocks,
-                } => *write_buffer_in_blocks,
-                OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
-                    open_file_content_buffer_loaded.write_buffer_in_blocks
-                }
-            };
-            let (last_known_digest, last_known_digest_file_size) = self.last_known_digest();
-            *self = OpenFileContentBuffer::from_data(
-                Vec::new(),
-                last_known_digest.last_known_digest,
-                last_known_digest_file_size,
-                write_buffer_in_blocks,
-            )
-            .unwrap();
-            Ok(())
         } else {
             let loaded = self.require_loaded(storage.clone()).await?;
             loaded.resize(new_size, storage).await
