@@ -20,6 +20,7 @@ use lazy_static::lazy_static;
 use pretty_assertions::assert_eq;
 use pretty_assertions::assert_ne;
 use std::collections::BTreeMap;
+use std::time::SystemTime;
 use std::{
     collections::{BTreeSet, VecDeque},
     sync::Arc,
@@ -394,10 +395,17 @@ async fn test_open_directory_open_file() {
 
 #[test_log::test(tokio::test)]
 async fn test_open_directory_drop_all_read_caches() {
-    let current_time = std::sync::Mutex::new(test_clock());
-    let clock: WallClock = Arc::new(move || {
-        let time = *current_time.lock().unwrap();
-        time
+    let current_time = Arc::new(std::sync::Mutex::new(
+        SystemTime::UNIX_EPOCH
+            .checked_add(std::time::Duration::from_secs(1000))
+            .unwrap(),
+    ));
+    let clock: WallClock = Arc::new({
+        let current_time = current_time.clone();
+        move || {
+            let time = *current_time.lock().unwrap();
+            time
+        }
     });
     let modified = clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
@@ -476,6 +484,17 @@ async fn test_open_directory_drop_all_read_caches() {
             directory.drop_all_read_caches().await
         );
     }
+    assert_eq!(
+        CacheDropStats {
+            files_and_directories_remaining_open: 1,
+            hashed_trees_dropped: 0,
+            open_directories_closed: 0,
+            open_files_closed: 1,
+        },
+        directory.drop_all_read_caches().await
+    );
+    open_file_b.flush().await.unwrap();
+    *current_time.lock().unwrap() += std::time::Duration::from_secs(90);
     assert_eq!(
         CacheDropStats {
             files_and_directories_remaining_open: 1,
