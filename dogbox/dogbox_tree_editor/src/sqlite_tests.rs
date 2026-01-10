@@ -664,3 +664,48 @@ async fn test_vfs_exists_invalid_file_name() {
     }
     assert_eq!(&entries, &BTreeMap::from([]));
 }
+
+#[test_log::test(tokio::test)]
+async fn test_vfs_exists_cannot_open_file_as_directory() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from(""), storage, clock, 1)
+            .await
+            .unwrap(),
+    );
+    let editor = TreeEditor::new(directory.clone(), None);
+    editor
+        .open_file(NormalizedPath::try_from(RelativePath::new("/test")).unwrap())
+        .await
+        .unwrap();
+    let runtime = tokio::runtime::Handle::current();
+    let random_number_generator = Box::new(SmallRng::seed_from_u64(123));
+    let vfs: PagesVfs<4096> = PagesVfs::new(editor, runtime, random_number_generator);
+    let thread = tokio::task::spawn_blocking(move || match vfs.exists("/test/file.db") {
+        Ok(_) => panic!("Expected error"),
+        Err(e) => {
+            assert_eq!(
+                "Failed to check existence of database file `/test/file.db`: CannotOpenRegularFileAsDirectory(FileName { content: FileNameContent(\"test\") })",
+                e.to_string()
+            );
+        }
+    });
+    thread.await.unwrap();
+    let mut entries = BTreeMap::new();
+    let mut entry_stream = directory.read().await;
+    while let Some(entry) = entry_stream.next().await {
+        match entry.kind {
+            crate::DirectoryEntryKind::File(size) => {
+                entries.insert(entry.name.clone(), size);
+            }
+            crate::DirectoryEntryKind::Directory => {
+                panic!("Unexpected directory");
+            }
+        }
+    }
+    assert_eq!(
+        &entries,
+        &BTreeMap::from([(FileName::try_from("test".to_string()).unwrap(), 0)])
+    );
+}
