@@ -32,6 +32,7 @@ impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
         random_number_generator: Box<dyn RngCore + Send>,
         sync_directory: SyncDirectoryFunction,
     ) -> Self {
+        info!("Creating PagesVfs with page size {}", PAGE_SIZE);
         PagesVfs {
             lock_state: Arc::new(Mutex::new(LockState {
                 read: 0,
