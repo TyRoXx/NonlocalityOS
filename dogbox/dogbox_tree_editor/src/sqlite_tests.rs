@@ -826,7 +826,7 @@ async fn test_temp_table() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_read_error() {
+async fn test_storage_read_error() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let directory = Arc::new(
@@ -975,8 +975,7 @@ impl LoadTree for TestStorage {
 impl LoadStoreTree for TestStorage {}
 
 #[test_log::test(tokio::test)]
-async fn test_sync_error() {
-    // DatabaseHandle::sync will fail because storage is set to fail on write.
+async fn test_storage_write_error() {
     let storage = Arc::new(TestStorage::new(
         Arc::new(InMemoryTreeStorage::empty()),
         false,
@@ -1057,8 +1056,7 @@ async fn test_sync_error() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_write_error() {
-    // DatabaseHandle::write_all_at will fail because the database file has been deleted.
+async fn test_deleting_open_database_file() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let directory = Arc::new(
