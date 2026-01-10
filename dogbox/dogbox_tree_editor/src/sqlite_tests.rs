@@ -1,5 +1,6 @@
 use crate::{
-    sqlite::register_vfs, CacheDropStats, NormalizedPath, OpenDirectory, OpenFileStats, TreeEditor,
+    sqlite::{register_vfs, PagesVfs},
+    CacheDropStats, NormalizedPath, OpenDirectory, OpenFileStats, TreeEditor,
 };
 use astraea::storage::InMemoryTreeStorage;
 use dogbox_tree::serialization::FileName;
@@ -7,6 +8,7 @@ use futures::StreamExt;
 use pretty_assertions::assert_eq;
 use rand::{rngs::SmallRng, SeedableRng};
 use relative_path::RelativePath;
+use sqlite_vfs::Vfs;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -538,4 +540,45 @@ async fn test_temp_table() {
         &entries,
         &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 0)])
     );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_vfs_delete_invalid_file_name() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from(""), storage, clock, 1)
+            .await
+            .unwrap(),
+    );
+    let runtime = tokio::runtime::Handle::current();
+    let random_number_generator = Box::new(SmallRng::seed_from_u64(123));
+    let vfs: PagesVfs<4096> = PagesVfs::new(
+        TreeEditor::new(directory.clone(), None),
+        runtime,
+        random_number_generator,
+    );
+    let thread = tokio::task::spawn_blocking(move || match vfs.delete("\\") {
+        Ok(_) => panic!("Expected error"),
+        Err(e) => {
+            assert_eq!(
+                "Invalid database file path `\\`: WindowsSpecialCharacter",
+                e.to_string()
+            );
+        }
+    });
+    thread.await.unwrap();
+    let mut entries = BTreeMap::new();
+    let mut entry_stream = directory.read().await;
+    while let Some(entry) = entry_stream.next().await {
+        match entry.kind {
+            crate::DirectoryEntryKind::File(size) => {
+                entries.insert(entry.name.clone(), size);
+            }
+            crate::DirectoryEntryKind::Directory => {
+                panic!("Unexpected directory");
+            }
+        }
+    }
+    assert_eq!(&entries, &BTreeMap::from([]));
 }
