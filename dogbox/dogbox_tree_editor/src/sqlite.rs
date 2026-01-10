@@ -48,6 +48,7 @@ impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
 type SyncDirectoryFunction = Arc<dyn Fn() -> Result<(), io::Error> + Send + Sync>;
 
 pub struct DatabaseFile<const PAGE_SIZE: usize> {
+    name: String,
     lock_state: Arc<Mutex<LockState>>,
     lock: LockKind,
     open_file: Arc<OpenFile>,
@@ -102,6 +103,7 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
                 sqlite_vfs::OpenAccess::CreateNew => todo!(),
             };
             Ok(DatabaseFile {
+                name: db.to_string(),
                 lock_state: self.lock_state.clone(),
                 lock: LockKind::None,
                 open_file,
@@ -254,27 +256,27 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
     }
 
     fn sync(&mut self, data_only: bool) -> Result<(), io::Error> {
-        self.runtime.block_on(async {
-            let _status: OpenFileStatus = self.open_file.request_save().await.map_err(|err| {
+        let _open_file_status: OpenFileStatus = self.runtime.block_on(async {
+            self.open_file.request_save().await.map_err(|err| {
                 let message = format!("Failed to request_save() database file: {}", err);
                 error!("{}", message);
                 io::Error::other(message)
-            })?;
-            if data_only {
-                info!("Sync data only");
-            } else {
-                info!("Sync data and directory");
-                match (*self.sync_directory)() {
-                    Ok(_) => {}
-                    Err(err) => {
-                        let message = format!("Failed to sync directory: {}", err);
-                        error!("{}", message);
-                        return Err(io::Error::other(message));
-                    }
+            })
+        })?;
+        if data_only {
+            info!("Sync data only: {}", self.name);
+        } else {
+            info!("Sync data and directory: {}", self.name);
+            match (*self.sync_directory)() {
+                Ok(_) => {}
+                Err(err) => {
+                    let message = format!("Failed to sync directory: {}", err);
+                    error!("{}", message);
+                    return Err(io::Error::other(message));
                 }
             }
-            Ok(())
-        })
+        }
+        Ok(())
     }
 
     fn set_len(&mut self, size: u64) -> Result<(), io::Error> {

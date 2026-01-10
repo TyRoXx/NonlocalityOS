@@ -15,7 +15,7 @@ use pretty_assertions::assert_eq;
 use rand::{rngs::SmallRng, SeedableRng};
 use relative_path::RelativePath;
 use sqlite_vfs::Vfs;
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::runtime::Handle;
 use tracing::info;
 
@@ -635,6 +635,201 @@ async fn test_reopen_database() {
             FileName::try_from("test.db".to_string()).unwrap(),
             DirectoryEntryKind::File(8192),
         )]),
+    )
+    .await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_sync_directory() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let directory = Arc::new(
+        OpenDirectory::create_directory(
+            std::path::PathBuf::from(""),
+            storage.clone(),
+            clock.clone(),
+            1,
+        )
+        .await
+        .unwrap(),
+    );
+    let vfs_name = "test_vfs";
+    let handle = Handle::current();
+    let last_synced_digest = Arc::new(tokio::sync::Mutex::new(None));
+    let sync_directory_function = Arc::new({
+        let directory = directory.clone();
+        let handle = handle.clone();
+        let last_synced_digest = last_synced_digest.clone();
+        move || {
+            let directory = directory.clone();
+            handle.block_on(async {
+                let status = directory.request_save().await.unwrap();
+                info!(
+                    "Syncing directory at digest {}",
+                    &status.digest.last_known_digest
+                );
+                assert_eq!(0, status.directories_unsaved_count);
+                assert!(status.digest.is_digest_up_to_date);
+                *last_synced_digest.lock().await = Some(status.digest);
+            });
+            Ok(())
+        }
+    });
+    register_vfs(
+        vfs_name,
+        TreeEditor::new(directory.clone(), None),
+        handle.clone(),
+        Box::new(SmallRng::seed_from_u64(123)),
+        sync_directory_function.clone(),
+    )
+    .unwrap();
+    let insert_count = 100;
+    {
+        let thread = tokio::task::spawn_blocking(move || {
+            let mut connection = rusqlite::Connection::open_with_flags_and_vfs(
+                "test.db",
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+                    | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+                vfs_name,
+            )
+            .unwrap();
+            connection
+                .execute(
+                    "CREATE TABLE t (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL
+                    ) STRICT",
+                    (),
+                )
+                .unwrap();
+            {
+                let transaction = connection.transaction().unwrap();
+                for i in 0..insert_count {
+                    transaction
+                        .execute("INSERT INTO t (name) VALUES (?1)", [format!("Name {}", i)])
+                        .unwrap();
+                }
+                transaction.commit().unwrap();
+            }
+            connection.close().unwrap();
+        });
+        thread.await.unwrap();
+    }
+    {
+        let directory_status = directory.request_save().await.unwrap();
+        assert_eq!(directory_status.directories_open_count, 1);
+        assert_eq!(directory_status.directories_unsaved_count, 0);
+        assert_eq!(
+            &directory_status.open_files,
+            &OpenFileStats {
+                files_open_count: 1,
+                bytes_unflushed_count: 0,
+                files_open_for_reading_count: 1,
+                files_open_for_writing_count: 1,
+                files_unflushed_count: 0,
+            }
+        );
+    }
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(
+            FileName::try_from("test.db".to_string()).unwrap(),
+            DirectoryEntryKind::File(8192),
+        )]),
+    )
+    .await;
+    let loading_digest = last_synced_digest
+        .lock()
+        .await
+        .expect("Expected at least one directory sync");
+    assert!(loading_digest.is_digest_up_to_date);
+    let directory = OpenDirectory::load_directory(
+        PathBuf::from(""),
+        storage,
+        &loading_digest.last_known_digest,
+        clock(),
+        clock,
+        1,
+    )
+    .await
+    .unwrap();
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([
+            (
+                FileName::try_from("test.db".to_string()).unwrap(),
+                DirectoryEntryKind::File(8192),
+            ),
+            (
+                FileName::try_from("test.db-journal".to_string()).unwrap(),
+                DirectoryEntryKind::File(8720),
+            ),
+        ]),
+    )
+    .await;
+    let sync_directory_function = Arc::new({
+        let directory = directory.clone();
+        let handle = handle.clone();
+        move || {
+            let directory = directory.clone();
+            handle.block_on(async {
+                let status = directory.request_save().await.unwrap();
+                info!(
+                    "After loading: Syncing directory at digest {}",
+                    &status.digest.last_known_digest
+                );
+                assert_eq!(0, status.directories_unsaved_count);
+                assert!(status.digest.is_digest_up_to_date);
+                assert_eq!(loading_digest, status.digest)
+            });
+            Ok(())
+        }
+    });
+    register_vfs(
+        vfs_name,
+        TreeEditor::new(directory.clone(), None),
+        handle.clone(),
+        Box::new(SmallRng::seed_from_u64(123)),
+        sync_directory_function,
+    )
+    .unwrap();
+    {
+        let thread = tokio::task::spawn_blocking(move || {
+            let connection = rusqlite::Connection::open_with_flags_and_vfs(
+                "test.db",
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                vfs_name,
+            )
+            .unwrap();
+            /*{
+                let mut select_statement = connection.prepare("SELECT id, name FROM t").unwrap();
+                let mut rows = select_statement.query([]).unwrap();
+                let mut count = 0;
+                while let Some(row) = rows.next().unwrap() {
+                    let id: i32 = row.get(0).unwrap();
+                    let name: String = row.get(1).unwrap();
+                    assert_eq!(id, count + 1);
+                    assert_eq!(name, format!("Name {}", count));
+                    count += 1;
+                }
+                assert_eq!(count, insert_count);
+            }*/
+            connection.close().unwrap();
+        });
+        thread.await.unwrap();
+    }
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([
+            (
+                FileName::try_from("test.db".to_string()).unwrap(),
+                DirectoryEntryKind::File(8192),
+            ),
+            (
+                FileName::try_from("test.db-journal".to_string()).unwrap(),
+                DirectoryEntryKind::File(8720),
+            ),
+        ]),
     )
     .await;
 }
