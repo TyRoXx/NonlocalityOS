@@ -9,7 +9,7 @@ use astraea::{
     },
     tree::{BlobDigest, HashedTree},
 };
-use dogbox_tree::serialization::FileName;
+use dogbox_tree::serialization::{DirectoryEntryKind, FileName};
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
 use rand::{rngs::SmallRng, SeedableRng};
@@ -25,19 +25,12 @@ use tracing::info;
 
 async fn expect_directory_entries(
     directory: &OpenDirectory,
-    expectation: &BTreeMap<FileName, u64>,
+    expectation: &BTreeMap<FileName, DirectoryEntryKind>,
 ) {
     let mut entries = BTreeMap::new();
     let mut entry_stream = directory.read().await;
     while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
+        entries.insert(entry.name, entry.kind);
     }
     assert_eq!(&entries, expectation);
 }
@@ -158,7 +151,10 @@ async fn test_vfs_exists_cannot_open_file_as_directory() {
     thread.await.unwrap();
     expect_directory_entries(
         &directory,
-        &BTreeMap::from([(FileName::try_from("test".to_string()).unwrap(), 0)]),
+        &BTreeMap::from([(
+            FileName::try_from("test".to_string()).unwrap(),
+            DirectoryEntryKind::File(0),
+        )]),
     )
     .await;
 }
@@ -307,7 +303,10 @@ async fn test_open_database() {
     }
     expect_directory_entries(
         &directory,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)]),
+        &BTreeMap::from([(
+            FileName::try_from("test.db".to_string()).unwrap(),
+            DirectoryEntryKind::File(8192),
+        )]),
     )
     .await;
 }
@@ -610,7 +609,10 @@ async fn test_reopen_database() {
     }
     expect_directory_entries(
         &directory,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)]),
+        &BTreeMap::from([(
+            FileName::try_from("test.db".to_string()).unwrap(),
+            DirectoryEntryKind::File(8192),
+        )]),
     )
     .await;
     {
@@ -711,7 +713,10 @@ async fn test_temp_table() {
     }
     expect_directory_entries(
         &directory,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 0)]),
+        &BTreeMap::from([(
+            FileName::try_from("test.db".to_string()).unwrap(),
+            DirectoryEntryKind::File(0),
+        )]),
     )
     .await;
 }
@@ -781,8 +786,14 @@ async fn test_open_database_with_wal() {
     expect_directory_entries(
         &directory,
         &BTreeMap::from([
-            (FileName::try_from("test.db".to_string()).unwrap(), 4096),
-            (FileName::try_from("test.db-wal".to_string()).unwrap(), 0),
+            (
+                FileName::try_from("test.db".to_string()).unwrap(),
+                DirectoryEntryKind::File(4096),
+            ),
+            (
+                FileName::try_from("test.db-wal".to_string()).unwrap(),
+                DirectoryEntryKind::File(0),
+            ),
         ]),
     )
     .await;
@@ -881,7 +892,7 @@ async fn test_change_page_size() {
         &directory,
         &BTreeMap::from([(
             FileName::try_from("test.db".to_string()).unwrap(),
-            page_size * 2,
+            DirectoryEntryKind::File(page_size * 2),
         )]),
     )
     .await;
@@ -973,7 +984,10 @@ async fn test_storage_read_error() {
     }
     expect_directory_entries(
         &directory,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)]),
+        &BTreeMap::from([(
+            FileName::try_from("test.db".to_string()).unwrap(),
+            DirectoryEntryKind::File(8192),
+        )]),
     )
     .await;
 }
@@ -1091,7 +1105,10 @@ async fn test_storage_write_error_in_sync() {
     }
     expect_directory_entries(
         &directory,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 0)]),
+        &BTreeMap::from([(
+            FileName::try_from("test.db".to_string()).unwrap(),
+            DirectoryEntryKind::File(0),
+        )]),
     )
     .await;
 }
@@ -1175,7 +1192,10 @@ async fn test_storage_write_error_in_write_all_at() {
     }
     expect_directory_entries(
         &directory,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)]),
+        &BTreeMap::from([(
+            FileName::try_from("test.db".to_string()).unwrap(),
+            DirectoryEntryKind::File(8192),
+        )]),
     )
     .await;
 }
