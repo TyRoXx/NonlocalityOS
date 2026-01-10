@@ -15,11 +15,7 @@ use pretty_assertions::assert_eq;
 use rand::{rngs::SmallRng, SeedableRng};
 use relative_path::RelativePath;
 use sqlite_vfs::Vfs;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tokio::runtime::Handle;
 use tracing::info;
 
@@ -433,22 +429,14 @@ async fn test_open_failure() {
             }
         );
     }
-    let mut entries = BTreeSet::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(_size) => {
-                panic!("Unexpected file");
-            }
-            crate::DirectoryEntryKind::Directory => {
-                entries.insert(entry.name.clone());
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
-        &BTreeSet::from([FileName::try_from("dir".to_string()).unwrap()])
-    );
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(
+            FileName::try_from("dir".to_string()).unwrap(),
+            DirectoryEntryKind::Directory,
+        )]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
@@ -525,22 +513,14 @@ async fn test_open_no_create() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)])
-    );
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(
+            FileName::try_from("test.db".to_string()).unwrap(),
+            DirectoryEntryKind::File(8192),
+        )]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
@@ -641,6 +621,14 @@ async fn test_reopen_database() {
         });
         thread.await.unwrap();
     }
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(
+            FileName::try_from("test.db".to_string()).unwrap(),
+            DirectoryEntryKind::File(8192),
+        )]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
@@ -810,6 +798,20 @@ async fn test_open_database_with_wal() {
         });
         thread.await.unwrap();
     }
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([
+            (
+                FileName::try_from("test.db".to_string()).unwrap(),
+                DirectoryEntryKind::File(4096),
+            ),
+            (
+                FileName::try_from("test.db-wal".to_string()).unwrap(),
+                DirectoryEntryKind::File(0),
+            ),
+        ]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
