@@ -364,7 +364,7 @@ async fn test_open_directory_open_file() {
     let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let open_file = directory
         .clone()
-        .open_file(&file_name, &empty_file_digest)
+        .open_file(&file_name, &empty_file_digest, true)
         .await
         .unwrap();
     open_file.flush().await.unwrap();
@@ -438,6 +438,7 @@ async fn test_open_directory_drop_all_read_caches() {
         .open_file(
             &FileName::try_from("a.txt".to_string()).unwrap(),
             &empty_file_digest,
+            true,
         )
         .await
         .unwrap();
@@ -447,6 +448,7 @@ async fn test_open_directory_drop_all_read_caches() {
         .open_file(
             &FileName::try_from("b.txt".to_string()).unwrap(),
             &empty_file_digest,
+            true,
         )
         .await
         .unwrap();
@@ -523,7 +525,7 @@ async fn test_read_directory_after_file_write() {
     let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let opened = directory
         .clone()
-        .open_file(&file_name, &empty_file_digest)
+        .open_file(&file_name, &empty_file_digest, true)
         .await
         .unwrap();
     let write_permission = opened.get_write_permission();
@@ -565,7 +567,7 @@ async fn test_read_file_after_garbage_collection() {
     {
         let created_file = directory
             .clone()
-            .open_file(&file_name, &empty_file_digest)
+            .open_file(&file_name, &empty_file_digest, true)
             .await
             .unwrap();
         let write_permission = created_file.get_write_permission();
@@ -583,7 +585,7 @@ async fn test_read_file_after_garbage_collection() {
     // Reopen the file to load the content digests, but not the actual content trees.
     let opened_file = directory
         .clone()
-        .open_file(&file_name, &empty_file_digest)
+        .open_file(&file_name, &empty_file_digest, true)
         .await
         .unwrap();
     let read_permission = opened_file.get_read_permission();
@@ -671,7 +673,7 @@ async fn test_get_meta_data_after_file_write() {
     let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let opened = directory
         .clone()
-        .open_file(&file_name, &empty_file_digest)
+        .open_file(&file_name, &empty_file_digest, true)
         .await
         .unwrap();
     let write_permission = opened.get_write_permission();
@@ -894,7 +896,10 @@ async fn test_read_directory_on_open_regular_file() {
         None,
     );
     let _open_file = editor
-        .open_file(NormalizedPath::try_from(relative_path::RelativePath::new("/test.txt")).unwrap())
+        .open_file(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test.txt")).unwrap(),
+            true,
+        )
         .await
         .unwrap();
     let result = editor
@@ -926,7 +931,10 @@ async fn test_open_file_on_directory() {
         None,
     );
     match editor
-        .open_file(NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap())
+        .open_file(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
+            true,
+        )
         .await
     {
         Ok(_) => panic!("Unexpectedly opened directory as file"),
@@ -999,7 +1007,7 @@ async fn test_create_directory_over_existing_file() {
     let root = Arc::new(open_directory_from_entries(vec![], storage));
     let editor = TreeEditor::new(root.clone(), None);
     let path = NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap();
-    editor.open_file(path.clone()).await.unwrap();
+    editor.open_file(path.clone(), true).await.unwrap();
     // create directory over existing file:
     match editor.create_directory(path.clone()).await {
         Ok(_) => panic!("Unexpectedly created directory over existing file"),

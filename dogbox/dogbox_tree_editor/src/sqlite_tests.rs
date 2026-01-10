@@ -129,7 +129,10 @@ async fn test_vfs_exists_cannot_open_file_as_directory() {
     );
     let editor = TreeEditor::new(directory.clone(), None);
     editor
-        .open_file(NormalizedPath::try_from(RelativePath::new("/test")).unwrap())
+        .open_file(
+            NormalizedPath::try_from(RelativePath::new("/test")).unwrap(),
+            true,
+        )
         .await
         .unwrap();
     let runtime = tokio::runtime::Handle::current();
@@ -457,33 +460,17 @@ async fn test_open_no_create() {
     )
     .unwrap();
     let thread = tokio::task::spawn_blocking(move || {
-        let mut connection = rusqlite::Connection::open_with_flags_and_vfs(
+        match rusqlite::Connection::open_with_flags_and_vfs(
             "test.db",
             // no SQLITE_OPEN_CREATE
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
             vfs_name,
-        )
-        // TODO: fix the implementation to make this fail
-        .unwrap();
-        connection
-            .execute(
-                "CREATE TABLE t (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL
-                ) STRICT",
-                (),
-            )
-            .unwrap();
-        {
-            let transaction = connection.transaction().unwrap();
-            for i in 0..100 {
-                transaction
-                    .execute("INSERT INTO t (name) VALUES (?1)", [format!("Name {}", i)])
-                    .unwrap();
+        ) {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => {
+                assert_eq!("unable to open database file: test.db", e.to_string());
             }
-            transaction.commit().unwrap();
         }
-        connection.close().unwrap();
     });
     thread.await.unwrap();
     {
@@ -494,7 +481,7 @@ async fn test_open_no_create() {
                 files_and_directories_remaining_open: 1,
                 hashed_trees_dropped: 0,
                 open_directories_closed: 0,
-                open_files_closed: 1,
+                open_files_closed: 0,
             }
         );
     }
@@ -513,14 +500,7 @@ async fn test_open_no_create() {
             }
         );
     }
-    expect_directory_entries(
-        &directory,
-        &BTreeMap::from([(
-            FileName::try_from("test.db".to_string()).unwrap(),
-            DirectoryEntryKind::File(8192),
-        )]),
-    )
-    .await;
+    expect_directory_entries(&directory, &BTreeMap::from([])).await;
 }
 
 #[test_log::test(tokio::test)]

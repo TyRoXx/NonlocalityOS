@@ -527,6 +527,7 @@ impl OpenDirectory {
         self: Arc<OpenDirectory>,
         name: &FileName,
         empty_file_digest: &BlobDigest,
+        create_if_not_existing: bool,
     ) -> Result<Arc<OpenFile>> {
         let mut state_locked = self.state.lock().await;
         state_locked.record_access((self.clock)());
@@ -572,24 +573,28 @@ impl OpenDirectory {
                 }
             },
             None => {
-                let open_file = Arc::new(OpenFile::new(
-                    OpenFileContentBuffer::from_storage(
-                        *empty_file_digest,
-                        0,
-                        self.open_file_write_buffer_in_blocks,
-                    ),
-                    self.storage.clone(),
-                    (self.clock)(),
-                ));
-                debug!("Adding file {} to the directory which sends a change event for its parent directory.", &name);
-                let receiver = open_file.watch().await;
-                self.clone().insert_entry(
-                    &mut state_locked,
-                    name.clone(),
-                    NamedEntry::OpenRegularFile(open_file.clone(), receiver),
-                );
-                Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
-                Ok(open_file)
+                if create_if_not_existing {
+                    let open_file = Arc::new(OpenFile::new(
+                        OpenFileContentBuffer::from_storage(
+                            *empty_file_digest,
+                            0,
+                            self.open_file_write_buffer_in_blocks,
+                        ),
+                        self.storage.clone(),
+                        (self.clock)(),
+                    ));
+                    debug!("Adding file {} to the directory which sends a change event for its parent directory.", &name);
+                    let receiver = open_file.watch().await;
+                    self.clone().insert_entry(
+                        &mut state_locked,
+                        name.clone(),
+                        NamedEntry::OpenRegularFile(open_file.clone(), receiver),
+                    );
+                    Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
+                    Ok(open_file)
+                } else {
+                    Err(Error::NotFound(name.clone()))
+                }
             }
         }
     }
@@ -2816,7 +2821,11 @@ impl TreeEditor {
         }
     }
 
-    pub fn open_file<'a>(&'a self, path: NormalizedPath) -> Future<'a, Arc<OpenFile>> {
+    pub fn open_file<'a>(
+        &'a self,
+        path: NormalizedPath,
+        create_if_not_existing: bool,
+    ) -> Future<'a, Arc<OpenFile>> {
         match path.split_right() {
             PathSplitRightResult::Root => todo!(),
             PathSplitRightResult::Entry(directory_path, file_name) => {
@@ -2827,7 +2836,9 @@ impl TreeEditor {
                         Err(error) => return Err(error),
                     };
                     let empty_file_digest = self.require_empty_file_digest().await?;
-                    directory.open_file(&file_name, &empty_file_digest).await
+                    directory
+                        .open_file(&file_name, &empty_file_digest, create_if_not_existing)
+                        .await
                 })
             }
         }

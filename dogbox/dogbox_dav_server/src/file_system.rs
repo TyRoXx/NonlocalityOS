@@ -389,7 +389,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         Box::pin(async move {
             let converted_path = convert_path(path)?;
             let normalized_path = normalize_path(path)?;
-            let open_file = match self.editor.open_file(normalized_path).await {
+            let open_file = match self.editor.open_file(normalized_path, options.create).await {
                 Ok(success) => success,
                 Err(error) => {
                     info!("Could not open file {}: {}", path, error);

@@ -73,11 +73,21 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
             }
         }
         self.runtime.block_on(async move {
-            let open_file = self.editor.open_file(path).await.map_err(|err| {
-                let message = format!("Failed to open database file `{db}`: {err}");
-                error!("{}", message);
-                io::Error::other(message)
-            })?;
+            let create_if_not_existing = match opts.access {
+                sqlite_vfs::OpenAccess::Read => false,
+                sqlite_vfs::OpenAccess::Write => false,
+                sqlite_vfs::OpenAccess::Create => true,
+                sqlite_vfs::OpenAccess::CreateNew => todo!(),
+            };
+            let open_file = self
+                .editor
+                .open_file(path, create_if_not_existing)
+                .await
+                .map_err(|err| {
+                    let message = format!("Failed to open database file `{db}`: {err}");
+                    error!("{}", message);
+                    io::Error::other(message)
+                })?;
             let read_permission = open_file.get_read_permission();
             let write_permission = match opts.access {
                 sqlite_vfs::OpenAccess::Read => None,
