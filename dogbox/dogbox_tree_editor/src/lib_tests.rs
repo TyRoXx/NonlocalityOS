@@ -394,6 +394,48 @@ async fn test_open_directory_open_file() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_open_directory_open_file_not_found() {
+    let modified = test_clock();
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let directory = Arc::new(OpenDirectory::new(
+        std::path::PathBuf::from("/"),
+        DigestStatus::new(*DUMMY_DIGEST, false),
+        BTreeMap::new(),
+        storage.clone(),
+        modified,
+        Arc::new(test_clock),
+        1,
+    ));
+    let file_name = FileName::try_from("test.txt".to_string()).unwrap();
+    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
+    match directory
+        .clone()
+        .open_file(&file_name, &empty_file_digest, false)
+        .await
+    {
+        Ok(_) => panic!("Unexpectedly opened non-existing file"),
+        Err(err) => assert_eq!(err, Error::NotFound(file_name.clone())),
+    }
+    match directory.get_meta_data(&file_name).await {
+        Ok(_) => panic!("Unexpectedly got meta data for non-existing file"),
+        Err(err) => assert_eq!(err, Error::NotFound(file_name.clone())),
+    }
+    use futures::StreamExt;
+    let directory_entries: Vec<MutableDirectoryEntry> = directory.read().await.collect().await;
+    let expected_entries: [MutableDirectoryEntry; 0] = [];
+    assert_eq!(&expected_entries[..], &directory_entries[..]);
+    assert_eq!(
+        CacheDropStats {
+            files_and_directories_remaining_open: 1,
+            hashed_trees_dropped: 0,
+            open_directories_closed: 0,
+            open_files_closed: 0,
+        },
+        directory.drop_all_read_caches().await
+    );
+}
+
+#[test_log::test(tokio::test)]
 async fn test_open_directory_drop_all_read_caches() {
     let current_time = Arc::new(std::sync::Mutex::new(
         SystemTime::UNIX_EPOCH
