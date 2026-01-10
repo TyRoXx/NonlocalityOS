@@ -23,6 +23,25 @@ use std::{
 use tokio::runtime::Handle;
 use tracing::info;
 
+async fn expect_directory_entries(
+    directory: &OpenDirectory,
+    expectation: &BTreeMap<FileName, u64>,
+) {
+    let mut entries = BTreeMap::new();
+    let mut entry_stream = directory.read().await;
+    while let Some(entry) = entry_stream.next().await {
+        match entry.kind {
+            crate::DirectoryEntryKind::File(size) => {
+                entries.insert(entry.name.clone(), size);
+            }
+            crate::DirectoryEntryKind::Directory => {
+                panic!("Unexpected directory");
+            }
+        }
+    }
+    assert_eq!(&entries, expectation);
+}
+
 #[test_log::test(tokio::test)]
 async fn test_vfs_delete_invalid_file_name() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
@@ -49,19 +68,7 @@ async fn test_vfs_delete_invalid_file_name() {
         }
     });
     thread.await.unwrap();
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(&entries, &BTreeMap::from([]));
+    expect_directory_entries(&directory, &BTreeMap::from([])).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -90,19 +97,7 @@ async fn test_vfs_delete_not_found() {
         }
     });
     thread.await.unwrap();
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(&entries, &BTreeMap::from([]));
+    expect_directory_entries(&directory, &BTreeMap::from([])).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -131,19 +126,7 @@ async fn test_vfs_exists_invalid_file_name() {
         }
     });
     thread.await.unwrap();
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(&entries, &BTreeMap::from([]));
+    expect_directory_entries(&directory, &BTreeMap::from([])).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -173,22 +156,11 @@ async fn test_vfs_exists_cannot_open_file_as_directory() {
         }
     });
     thread.await.unwrap();
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
-        &BTreeMap::from([(FileName::try_from("test".to_string()).unwrap(), 0)])
-    );
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(FileName::try_from("test".to_string()).unwrap(), 0)]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
@@ -208,19 +180,7 @@ async fn test_vfs_temporary_name() {
         assert_eq!("", &vfs.temporary_name());
     });
     thread.await.unwrap();
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(&entries, &BTreeMap::from([]));
+    expect_directory_entries(&directory, &BTreeMap::from([])).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -248,19 +208,7 @@ async fn test_vfs_random() {
         vfs.random(&mut []);
     });
     thread.await.unwrap();
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(&entries, &BTreeMap::from([]));
+    expect_directory_entries(&directory, &BTreeMap::from([])).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -282,19 +230,7 @@ async fn test_vfs_sleep() {
         assert!(elapsed >= duration);
     });
     thread.await.unwrap();
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(&entries, &BTreeMap::from([]));
+    expect_directory_entries(&directory, &BTreeMap::from([])).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -369,22 +305,11 @@ async fn test_open_database() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)])
-    );
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
@@ -444,19 +369,7 @@ async fn test_open_invalid_file_name() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(&entries, &BTreeMap::from([]));
+    expect_directory_entries(&directory, &BTreeMap::from([])).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -695,22 +608,11 @@ async fn test_reopen_database() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)])
-    );
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)]),
+    )
+    .await;
     {
         let thread = tokio::task::spawn_blocking(move || {
             let connection = rusqlite::Connection::open_with_flags_and_vfs(
@@ -807,22 +709,11 @@ async fn test_temp_table() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 0)])
-    );
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 0)]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
@@ -887,25 +778,14 @@ async fn test_open_database_with_wal() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
+    expect_directory_entries(
+        &directory,
         &BTreeMap::from([
             (FileName::try_from("test.db".to_string()).unwrap(), 4096),
-            (FileName::try_from("test.db-wal".to_string()).unwrap(), 0)
-        ])
-    );
+            (FileName::try_from("test.db-wal".to_string()).unwrap(), 0),
+        ]),
+    )
+    .await;
     // reopen
     {
         let thread = tokio::task::spawn_blocking(move || {
@@ -997,25 +877,14 @@ async fn test_change_page_size() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
+    expect_directory_entries(
+        &directory,
         &BTreeMap::from([(
             FileName::try_from("test.db".to_string()).unwrap(),
-            page_size * 2
-        )])
-    );
+            page_size * 2,
+        )]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
@@ -1102,22 +971,11 @@ async fn test_storage_read_error() {
         });
         thread.await.unwrap();
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)])
-    );
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)]),
+    )
+    .await;
 }
 
 #[derive(Debug)]
@@ -1231,22 +1089,11 @@ async fn test_storage_write_error_in_sync() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 0)])
-    );
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 0)]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
@@ -1326,22 +1173,11 @@ async fn test_storage_write_error_in_write_all_at() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(
-        &entries,
-        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)])
-    );
+    expect_directory_entries(
+        &directory,
+        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)]),
+    )
+    .await;
 }
 
 #[test_log::test(tokio::test)]
@@ -1406,17 +1242,5 @@ async fn test_deleting_open_database_file() {
             }
         );
     }
-    let mut entries = BTreeMap::new();
-    let mut entry_stream = directory.read().await;
-    while let Some(entry) = entry_stream.next().await {
-        match entry.kind {
-            crate::DirectoryEntryKind::File(size) => {
-                entries.insert(entry.name.clone(), size);
-            }
-            crate::DirectoryEntryKind::Directory => {
-                panic!("Unexpected directory");
-            }
-        }
-    }
-    assert_eq!(&entries, &BTreeMap::from([]));
+    expect_directory_entries(&directory, &BTreeMap::from([])).await;
 }
