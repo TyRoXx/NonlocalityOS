@@ -142,10 +142,8 @@ impl InMemoryTreeStorage {
         }
     }
 
-    pub fn clear(&self) -> impl std::future::Future<Output = ()> + '_ {
-        async move {
-            self.reference_to_tree.lock().await.clear();
-        }
+    pub async fn clear(&self) {
+        self.reference_to_tree.lock().await.clear();
     }
 
     pub async fn number_of_trees(&self) -> usize {

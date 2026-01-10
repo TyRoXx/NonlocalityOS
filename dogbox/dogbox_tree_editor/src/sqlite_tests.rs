@@ -947,7 +947,7 @@ async fn test_change_page_size() {
         )
         .unwrap();
         connection
-            .pragma_update(None, "page_size", &page_size.to_string())
+            .pragma_update(None, "page_size", page_size.to_string())
             .unwrap();
         connection
             .execute(

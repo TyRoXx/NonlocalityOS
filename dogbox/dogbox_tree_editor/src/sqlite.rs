@@ -11,19 +11,12 @@ use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
 use tracing::{error, info, warn};
 
+#[derive(Default)]
 struct LockState {
     read: usize,
     write: Option<bool>,
 }
 
-impl Default for LockState {
-    fn default() -> Self {
-        LockState {
-            read: 0,
-            write: None,
-        }
-    }
-}
 
 pub struct PagesVfs<const PAGE_SIZE: usize> {
     lock_state: Arc<Mutex<LockState>>,
