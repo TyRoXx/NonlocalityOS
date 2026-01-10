@@ -302,6 +302,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
         Ok(sqlite_vfs::WalDisabled)
     }
 
+    // https://sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlchunksize
     fn set_chunk_size(&self, chunk_size: usize) -> Result<(), io::Error> {
         if chunk_size == PAGE_SIZE {
             Ok(())
