@@ -3,7 +3,7 @@ use astraea::tree::TREE_BLOB_MAX_LENGTH;
 use dogbox_tree_editor::{OpenDirectory, WallClock};
 use pretty_assertions::assert_eq;
 use reqwest_dav::{list_cmd::ListEntity, Auth, Client, ClientBuilder, Depth};
-use std::{future::Future, net::SocketAddr, pin::Pin};
+use std::{future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::net::TcpListener;
 use tracing::info;
 
@@ -134,11 +134,11 @@ async fn test_fresh_dav_server<'t>(
     change_files: Option<ChangeFilesFunction<'t>>,
     verify_changes: &impl Fn(Client) -> UnitFuture<'t>,
 ) {
-    let clock = || {
+    let clock = Arc::new(|| {
         std::time::SystemTime::UNIX_EPOCH
             .checked_add(std::time::Duration::from_secs(13))
             .unwrap()
-    };
+    });
     let modified_default = clock();
     let temporary_directory = tempfile::tempdir().unwrap();
     let database_file_name = temporary_directory.path().join("dogbox_dav_server.sqlite");
@@ -152,7 +152,7 @@ async fn test_fresh_dav_server<'t>(
             is_saving_expected,
             &verify_changes,
             modified_default,
-            clock,
+            clock.clone(),
         )
         .await;
     }

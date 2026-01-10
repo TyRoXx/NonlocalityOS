@@ -104,6 +104,10 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
             error!("File was removed");
             dav_server::fs::FsError::NotFound
         }
+        dogbox_tree_editor::Error::InvalidArgument(message) => {
+            error!("Invalid argument: {}", message);
+            dav_server::fs::FsError::GeneralFailure
+        }
     }
 }
 
@@ -230,7 +234,13 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
     fn metadata(&mut self) -> dav_server::fs::FsFuture<'_, Box<dyn dav_server::fs::DavMetaData>> {
         Box::pin(async move {
             Ok(Box::new(DogBoxMetaData {
-                entry: self.handle.get_meta_data().await,
+                entry: {
+                    let metadata = self.handle.get_meta_data().await;
+                    DirectoryEntryMetaData::new(
+                        DirectoryEntryKind::File(metadata.size),
+                        metadata.modified,
+                    )
+                },
             }) as Box<dyn dav_server::fs::DavMetaData>)
         })
     }
@@ -379,7 +389,7 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         Box::pin(async move {
             let converted_path = convert_path(path)?;
             let normalized_path = normalize_path(path)?;
-            let open_file = match self.editor.open_file(normalized_path).await {
+            let open_file = match self.editor.open_file(normalized_path, options.create).await {
                 Ok(success) => success,
                 Err(error) => {
                     info!("Could not open file {}: {}", path, error);
