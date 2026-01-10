@@ -156,7 +156,13 @@ impl NamedEntry {
     async fn get_meta_data(&self) -> DirectoryEntryMetaData {
         match self {
             NamedEntry::NotOpen(meta_data, _) => *meta_data,
-            NamedEntry::OpenRegularFile(open_file, _) => open_file.get_meta_data().await,
+            NamedEntry::OpenRegularFile(open_file, _) => {
+                let metadata = open_file.get_meta_data().await;
+                DirectoryEntryMetaData::new(
+                    DirectoryEntryKind::File(metadata.size),
+                    metadata.modified,
+                )
+            }
             NamedEntry::OpenSubdirectory(open_directory, _) => DirectoryEntryMetaData::new(
                 DirectoryEntryKind::Directory,
                 open_directory.modified(),
@@ -2455,6 +2461,17 @@ pub struct OpenFileReadPermission {}
 #[derive(Debug)]
 pub struct OpenFileWritePermission {}
 
+pub struct FileMetaData {
+    pub size: u64,
+    pub modified: std::time::SystemTime,
+}
+
+impl FileMetaData {
+    pub fn new(size: u64, modified: std::time::SystemTime) -> Self {
+        Self { size, modified }
+    }
+}
+
 #[derive(Debug)]
 pub struct OpenFile {
     state: tokio::sync::Mutex<OpenFileMutableState>,
@@ -2501,8 +2518,8 @@ impl OpenFile {
         self.state.lock().await.content.size()
     }
 
-    pub async fn get_meta_data(&self) -> DirectoryEntryMetaData {
-        DirectoryEntryMetaData::new(DirectoryEntryKind::File(self.size().await), self.modified)
+    pub async fn get_meta_data(&self) -> FileMetaData {
+        FileMetaData::new(self.size().await, self.modified)
     }
 
     pub async fn request_save(&self) -> std::result::Result<OpenFileStatus, Error> {

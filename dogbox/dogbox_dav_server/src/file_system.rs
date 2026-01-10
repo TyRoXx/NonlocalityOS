@@ -234,7 +234,13 @@ impl dav_server::fs::DavFile for DogBoxOpenFile {
     fn metadata(&mut self) -> dav_server::fs::FsFuture<'_, Box<dyn dav_server::fs::DavMetaData>> {
         Box::pin(async move {
             Ok(Box::new(DogBoxMetaData {
-                entry: self.handle.get_meta_data().await,
+                entry: {
+                    let metadata = self.handle.get_meta_data().await;
+                    DirectoryEntryMetaData::new(
+                        DirectoryEntryKind::File(metadata.size),
+                        metadata.modified,
+                    )
+                },
             }) as Box<dyn dav_server::fs::DavMetaData>)
         })
     }

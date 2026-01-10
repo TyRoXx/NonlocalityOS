@@ -16,6 +16,15 @@ struct LockState {
     write: Option<bool>,
 }
 
+impl Default for LockState {
+    fn default() -> Self {
+        LockState {
+            read: 0,
+            write: None,
+        }
+    }
+}
+
 pub struct PagesVfs<const PAGE_SIZE: usize> {
     lock_state: Arc<Mutex<LockState>>,
     runtime: Handle,
@@ -148,12 +157,7 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
     fn size(&self) -> Result<u64, io::Error> {
         self.runtime.block_on(async move {
             let meta_data = self.open_file.get_meta_data().await;
-            match &meta_data.kind {
-                dogbox_tree::serialization::DirectoryEntryKind::Directory => Err(io::Error::other(
-                    "This should not be possible, but the database file is a directory now.",
-                )),
-                dogbox_tree::serialization::DirectoryEntryKind::File(size) => Ok(*size),
-            }
+            Ok(meta_data.size)
         })
     }
 
