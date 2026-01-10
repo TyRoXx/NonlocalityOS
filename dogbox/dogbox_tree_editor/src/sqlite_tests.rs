@@ -975,7 +975,8 @@ impl LoadTree for TestStorage {
 impl LoadStoreTree for TestStorage {}
 
 #[test_log::test(tokio::test)]
-async fn test_write_error() {
+async fn test_sync_error() {
+    // DatabaseHandle::sync will fail because storage is set to fail on write.
     let storage = Arc::new(TestStorage::new(
         Arc::new(InMemoryTreeStorage::empty()),
         false,
