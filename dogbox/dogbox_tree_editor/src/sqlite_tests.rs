@@ -2,7 +2,13 @@ use crate::{
     sqlite::{register_vfs, PagesVfs},
     CacheDropStats, NormalizedPath, OpenDirectory, OpenFileStats, TreeEditor,
 };
-use astraea::storage::InMemoryTreeStorage;
+use astraea::{
+    storage::{
+        DelayedHashedTree, InMemoryTreeStorage, LoadError, LoadStoreTree, LoadTree, StoreError,
+        StoreTree,
+    },
+    tree::{BlobDigest, HashedTree},
+};
 use dogbox_tree::serialization::FileName;
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
@@ -14,6 +20,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::runtime::Handle;
 use tracing::info;
 
 #[test_log::test(tokio::test)]
@@ -917,5 +924,133 @@ async fn test_read_error() {
     assert_eq!(
         &entries,
         &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 8192)])
+    );
+}
+
+#[derive(Debug)]
+struct TestStorage {
+    inner: Arc<InMemoryTreeStorage>,
+    fail_on_write: tokio::sync::Mutex<bool>,
+}
+
+impl TestStorage {
+    fn new(inner: Arc<InMemoryTreeStorage>, fail_on_write: bool) -> Self {
+        Self {
+            inner,
+            fail_on_write: tokio::sync::Mutex::new(fail_on_write),
+        }
+    }
+
+    async fn set_fail_on_write(&self, fail: bool) {
+        let mut lock = self.fail_on_write.lock().await;
+        *lock = fail;
+    }
+}
+
+#[async_trait::async_trait]
+impl StoreTree for TestStorage {
+    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+        if *self.fail_on_write.lock().await {
+            Err(StoreError::NoSpace)
+        } else {
+            self.inner.store_tree(tree).await
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl LoadTree for TestStorage {
+    async fn load_tree(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<DelayedHashedTree, LoadError> {
+        self.inner.load_tree(reference).await
+    }
+
+    async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
+        self.inner.approximate_tree_count().await
+    }
+}
+
+impl LoadStoreTree for TestStorage {}
+
+#[test_log::test(tokio::test)]
+async fn test_write_error() {
+    let storage = Arc::new(TestStorage::new(
+        Arc::new(InMemoryTreeStorage::empty()),
+        false,
+    ));
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from(""), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let vfs_name = "test_vfs";
+    register_vfs(
+        vfs_name,
+        TreeEditor::new(directory.clone(), None),
+        tokio::runtime::Handle::current(),
+        Box::new(SmallRng::seed_from_u64(123)),
+    )
+    .unwrap();
+    {
+        let storage = storage.clone();
+        let thread = tokio::task::spawn_blocking(move || {
+            let connection = rusqlite::Connection::open_with_flags_and_vfs(
+                "test.db",
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+                    | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+                vfs_name,
+            )
+            .unwrap();
+            Handle::current().block_on(storage.set_fail_on_write(true));
+            match connection.execute(
+                "CREATE TABLE t (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL
+                    ) STRICT",
+                (),
+            ) {
+                Ok(_) => panic!("Expected error"),
+                Err(e) => {
+                    assert_eq!("disk I/O error", e.to_string());
+                }
+            }
+            connection.close().unwrap();
+        });
+        thread.await.unwrap();
+    }
+    storage.set_fail_on_write(false).await;
+    {
+        let directory_status = directory.request_save().await.unwrap();
+        assert_eq!(directory_status.directories_open_count, 1);
+        assert_eq!(directory_status.directories_unsaved_count, 0);
+        assert_eq!(
+            &directory_status.open_files,
+            &OpenFileStats {
+                files_open_count: 1,
+                bytes_unflushed_count: 0,
+                files_open_for_reading_count: 0,
+                files_open_for_writing_count: 0,
+                files_unflushed_count: 0,
+            }
+        );
+    }
+    let mut entries = BTreeMap::new();
+    let mut entry_stream = directory.read().await;
+    while let Some(entry) = entry_stream.next().await {
+        match entry.kind {
+            crate::DirectoryEntryKind::File(size) => {
+                entries.insert(entry.name.clone(), size);
+            }
+            crate::DirectoryEntryKind::Directory => {
+                panic!("Unexpected directory");
+            }
+        }
+    }
+    assert_eq!(
+        &entries,
+        &BTreeMap::from([(FileName::try_from("test.db".to_string()).unwrap(), 0)])
     );
 }
