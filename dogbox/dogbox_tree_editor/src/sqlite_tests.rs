@@ -623,3 +623,44 @@ async fn test_vfs_delete_not_found() {
     }
     assert_eq!(&entries, &BTreeMap::from([]));
 }
+
+#[test_log::test(tokio::test)]
+async fn test_vfs_exists_invalid_file_name() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from(""), storage, clock, 1)
+            .await
+            .unwrap(),
+    );
+    let runtime = tokio::runtime::Handle::current();
+    let random_number_generator = Box::new(SmallRng::seed_from_u64(123));
+    let vfs: PagesVfs<4096> = PagesVfs::new(
+        TreeEditor::new(directory.clone(), None),
+        runtime,
+        random_number_generator,
+    );
+    let thread = tokio::task::spawn_blocking(move || match vfs.exists("\\") {
+        Ok(_) => panic!("Expected error"),
+        Err(e) => {
+            assert_eq!(
+                "Invalid database file path `\\`: WindowsSpecialCharacter",
+                e.to_string()
+            );
+        }
+    });
+    thread.await.unwrap();
+    let mut entries = BTreeMap::new();
+    let mut entry_stream = directory.read().await;
+    while let Some(entry) = entry_stream.next().await {
+        match entry.kind {
+            crate::DirectoryEntryKind::File(size) => {
+                entries.insert(entry.name.clone(), size);
+            }
+            crate::DirectoryEntryKind::Directory => {
+                panic!("Unexpected directory");
+            }
+        }
+    }
+    assert_eq!(&entries, &BTreeMap::from([]));
+}
