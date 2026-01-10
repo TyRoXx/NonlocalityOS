@@ -17,7 +17,6 @@ struct LockState {
     write: Option<bool>,
 }
 
-
 pub struct PagesVfs<const PAGE_SIZE: usize> {
     lock_state: Arc<Mutex<LockState>>,
     runtime: Handle,
