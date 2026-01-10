@@ -68,9 +68,10 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
             let read_permission = open_file.get_read_permission();
             let write_permission = match opts.access {
                 sqlite_vfs::OpenAccess::Read => None,
-                sqlite_vfs::OpenAccess::Write
-                | sqlite_vfs::OpenAccess::Create
-                | sqlite_vfs::OpenAccess::CreateNew => Some(open_file.get_write_permission()),
+                sqlite_vfs::OpenAccess::Write | sqlite_vfs::OpenAccess::Create => {
+                    Some(open_file.get_write_permission())
+                }
+                sqlite_vfs::OpenAccess::CreateNew => todo!(),
             };
             Ok(DatabaseFile {
                 lock_state: self.lock_state.clone(),
