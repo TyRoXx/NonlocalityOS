@@ -2550,7 +2550,7 @@ impl OpenFile {
         content: &OpenFileContentBuffer,
         read_permission: &Arc<OpenFileReadPermission>,
         write_permission: &Arc<OpenFileWritePermission>,
-    ) -> std::result::Result<OpenFileStatus, StoreError> {
+    ) -> OpenFileStatus {
         let (last_known_digest, last_known_digest_file_size) = content.last_known_digest();
         let is_open_for_reading = Self::is_open_for_reading(read_permission);
         let is_open_for_writing = Self::is_open_for_writing(write_permission);
@@ -2577,7 +2577,7 @@ impl OpenFile {
                 &status
             );
         }
-        Ok(status)
+        status
     }
 
     pub fn get_read_permission(&self) -> Arc<OpenFileReadPermission> {
@@ -2658,9 +2658,8 @@ impl OpenFile {
             .await;
             // We want to update the status even if parts of the write failed.
             write_result?;
-            update_result.map_err(Error::Storage).map(|status| {
-                debug!("Status after writing: {:?}", &status);
-            })
+            debug!("Status after writing: {:?}", &update_result);
+            Ok(())
         })
     }
 
@@ -2708,19 +2707,13 @@ impl OpenFile {
             .await
             .map_err(Error::Storage)?
         {
-            StoreChanges::SomeChanges => {
-                match Self::update_status(
-                    &self.change_event_sender,
-                    &state_locked.content,
-                    &self.read_permission,
-                    &self.write_permission,
-                )
-                .await
-                {
-                    Ok(status) => Ok(status),
-                    Err(error) => Err(Error::Storage(error)),
-                }
-            }
+            StoreChanges::SomeChanges => Ok(Self::update_status(
+                &self.change_event_sender,
+                &state_locked.content,
+                &self.read_permission,
+                &self.write_permission,
+            )
+            .await),
             StoreChanges::NoChanges => Ok(*self.change_event_sender.borrow()),
         }
     }
@@ -2752,8 +2745,7 @@ impl OpenFile {
                 &self.read_permission,
                 &self.write_permission,
             )
-            .await
-            .map_err(Error::Storage)?;
+            .await;
             Ok(())
         })
     }
