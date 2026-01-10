@@ -253,7 +253,9 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
                 error!("{}", message);
                 io::Error::other(message)
             })?;
-            if !data_only {
+            if data_only {
+                info!("Sync data only"); 
+            } else {
                 warn!("SQLite VFS sync wants to flush the directory, but this has not been implemented yet");
             }
             Ok(())
