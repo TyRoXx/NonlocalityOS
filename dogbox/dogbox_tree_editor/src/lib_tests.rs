@@ -16,6 +16,7 @@ use astraea::{
 };
 use async_trait::async_trait;
 use dogbox_tree::serialization::FileName;
+use futures::StreamExt;
 use lazy_static::lazy_static;
 use pretty_assertions::assert_eq;
 use pretty_assertions::assert_ne;
@@ -982,6 +983,25 @@ async fn test_open_file_on_directory() {
         Ok(_) => panic!("Unexpectedly opened directory as file"),
         Err(err) => assert_eq!(Error::CannotOpenDirectoryAsRegularFile(name), err),
     }
+}
+
+#[test_log::test(tokio::test)]
+async fn test_open_file_not_found() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let name = FileName::try_from("test".to_string()).unwrap();
+    let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
+    match editor
+        .open_file(
+            NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
+            false,
+        )
+        .await
+    {
+        Ok(_) => panic!("Unexpectedly created file"),
+        Err(err) => assert_eq!(Error::NotFound(name), err),
+    }
+    let mut reading_directory = editor.read_directory(NormalizedPath::root()).await.unwrap();
+    assert_eq!(None, reading_directory.next().await);
 }
 
 #[test_log::test(tokio::test)]
