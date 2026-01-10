@@ -9,7 +9,7 @@ use std::io::{self, ErrorKind};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 struct LockState {
     read: usize,
@@ -68,6 +68,18 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
             error!("{}", message);
             io::Error::new(ErrorKind::InvalidInput, message)
         })?;
+        match &opts.kind {
+            sqlite_vfs::OpenKind::MainDb => {}
+            sqlite_vfs::OpenKind::MainJournal => {}
+            sqlite_vfs::OpenKind::TempDb => todo!(),
+            sqlite_vfs::OpenKind::TempJournal => todo!(),
+            sqlite_vfs::OpenKind::TransientDb => todo!(),
+            sqlite_vfs::OpenKind::SubJournal => todo!(),
+            sqlite_vfs::OpenKind::SuperJournal => todo!(),
+            sqlite_vfs::OpenKind::Wal => {
+                info!("Opening WAL file: {}", db);
+            }
+        }
         self.runtime.block_on(async move {
             let open_file = self.editor.open_file(path).await.map_err(|err| {
                 let message = format!("Failed to open database file `{db}`: {err}");
@@ -119,7 +131,10 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
                 .await
                 .map(|_| true)
                 .or_else(|err| match err {
-                    crate::Error::NotFound(_name) => Ok(false),
+                    crate::Error::NotFound(_name) => {
+                        info!("File not found: {}", db);
+                        Ok(false)
+                    }
                     _ => {
                         let message =
                             format!("Failed to check existence of database file `{db}`: {err}");
@@ -182,6 +197,10 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
                         io::Error::other(message)
                     })?;
                 if bytes_read.is_empty() {
+                    warn!(
+                        "Reached end of file while reading at offset {}",
+                        next_read_position
+                    );
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
                         "Reached end of file",
@@ -262,18 +281,24 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
     }
 
     fn lock(&mut self, lock: LockKind) -> Result<bool, io::Error> {
-        Ok(Self::lock(self, lock))
+        let locked = Self::lock(self, lock);
+        info!("Lock requested: {:?}, result: {}", lock, locked);
+        Ok(locked)
     }
 
     fn reserved(&mut self) -> Result<bool, io::Error> {
-        Ok(Self::reserved(self))
+        let is_reserved = Self::reserved(self);
+        info!("Reserved: {}", is_reserved);
+        Ok(is_reserved)
     }
 
     fn current_lock(&self) -> Result<LockKind, io::Error> {
+        info!("Current lock: {:?}", self.lock);
         Ok(self.lock)
     }
 
     fn wal_index(&self, _readonly: bool) -> Result<Self::WalIndex, io::Error> {
+        info!("wal_index returns disabled");
         Ok(sqlite_vfs::WalDisabled)
     }
 
