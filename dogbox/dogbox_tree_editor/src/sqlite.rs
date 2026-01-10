@@ -22,6 +22,7 @@ pub struct PagesVfs<const PAGE_SIZE: usize> {
     runtime: Handle,
     editor: TreeEditor,
     random_number_generator: Mutex<Box<dyn RngCore + Send>>,
+    sync_directory: SyncDirectoryFunction,
 }
 
 impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
@@ -29,6 +30,7 @@ impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
         editor: TreeEditor,
         runtime: Handle,
         random_number_generator: Box<dyn RngCore + Send>,
+        sync_directory: SyncDirectoryFunction,
     ) -> Self {
         PagesVfs {
             lock_state: Arc::new(Mutex::new(LockState {
@@ -38,9 +40,12 @@ impl<const PAGE_SIZE: usize> PagesVfs<PAGE_SIZE> {
             runtime,
             editor,
             random_number_generator: Mutex::new(random_number_generator),
+            sync_directory,
         }
     }
 }
+
+type SyncDirectoryFunction = Arc<dyn Fn() -> Result<(), io::Error> + Send + Sync>;
 
 pub struct DatabaseFile<const PAGE_SIZE: usize> {
     lock_state: Arc<Mutex<LockState>>,
@@ -49,6 +54,7 @@ pub struct DatabaseFile<const PAGE_SIZE: usize> {
     runtime: Handle,
     read_permission: Arc<OpenFileReadPermission>,
     write_permission: Option<Arc<OpenFileWritePermission>>,
+    sync_directory: SyncDirectoryFunction,
 }
 
 impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
@@ -102,6 +108,7 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
                 runtime: self.runtime.clone(),
                 read_permission,
                 write_permission,
+                sync_directory: self.sync_directory.clone(),
             })
         })
     }
@@ -254,9 +261,17 @@ impl<const PAGE_SIZE: usize> sqlite_vfs::DatabaseHandle for DatabaseFile<PAGE_SI
                 io::Error::other(message)
             })?;
             if data_only {
-                info!("Sync data only"); 
+                info!("Sync data only");
             } else {
-                warn!("SQLite VFS sync wants to flush the directory, but this has not been implemented yet");
+                info!("Sync data and directory");
+                match (*self.sync_directory)() {
+                    Ok(_) => {}
+                    Err(err) => {
+                        let message = format!("Failed to sync directory: {}", err);
+                        error!("{}", message);
+                        return Err(io::Error::other(message));
+                    }
+                }
             }
             Ok(())
         })
@@ -411,10 +426,11 @@ pub fn register_vfs(
     editor: TreeEditor,
     runtime: Handle,
     random_number_generator: Box<dyn RngCore + Send>,
+    sync_directory: SyncDirectoryFunction,
 ) -> Result<(), RegisterError> {
     sqlite_vfs::register(
         name,
-        PagesVfs::<4096>::new(editor, runtime, random_number_generator),
+        PagesVfs::<4096>::new(editor, runtime, random_number_generator, sync_directory),
         false,
     )
 }

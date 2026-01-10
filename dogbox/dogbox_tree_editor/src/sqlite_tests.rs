@@ -46,6 +46,7 @@ async fn test_vfs_delete_invalid_file_name() {
         TreeEditor::new(directory.clone(), None),
         runtime,
         random_number_generator,
+        Arc::new(|| Ok(())),
     );
     let thread = tokio::task::spawn_blocking(move || match vfs.delete("\\") {
         Ok(_) => panic!("Expected error"),
@@ -75,6 +76,7 @@ async fn test_vfs_delete_not_found() {
         TreeEditor::new(directory.clone(), None),
         runtime,
         random_number_generator,
+        Arc::new(|| Ok(())),
     );
     let thread = tokio::task::spawn_blocking(move || match vfs.delete("test.db") {
         Ok(_) => panic!("Expected error"),
@@ -104,6 +106,7 @@ async fn test_vfs_exists_invalid_file_name() {
         TreeEditor::new(directory.clone(), None),
         runtime,
         random_number_generator,
+        Arc::new(|| Ok(())),
     );
     let thread = tokio::task::spawn_blocking(move || match vfs.exists("\\") {
         Ok(_) => panic!("Expected error"),
@@ -137,7 +140,12 @@ async fn test_vfs_exists_cannot_open_file_as_directory() {
         .unwrap();
     let runtime = tokio::runtime::Handle::current();
     let random_number_generator = Box::new(SmallRng::seed_from_u64(123));
-    let vfs: PagesVfs<4096> = PagesVfs::new(editor, runtime, random_number_generator);
+    let vfs: PagesVfs<4096> = PagesVfs::new(
+        editor,
+        runtime,
+        random_number_generator,
+        Arc::new(|| Ok(())),
+    );
     let thread = tokio::task::spawn_blocking(move || match vfs.exists("/test/file.db") {
         Ok(_) => panic!("Expected error"),
         Err(e) => {
@@ -170,7 +178,12 @@ async fn test_vfs_temporary_name() {
     let editor = TreeEditor::new(directory.clone(), None);
     let runtime = tokio::runtime::Handle::current();
     let random_number_generator = Box::new(SmallRng::seed_from_u64(123));
-    let vfs: PagesVfs<4096> = PagesVfs::new(editor, runtime, random_number_generator);
+    let vfs: PagesVfs<4096> = PagesVfs::new(
+        editor,
+        runtime,
+        random_number_generator,
+        Arc::new(|| Ok(())),
+    );
     let thread = tokio::task::spawn_blocking(move || {
         assert_eq!("", &vfs.temporary_name());
     });
@@ -190,7 +203,12 @@ async fn test_vfs_random() {
     let editor = TreeEditor::new(directory.clone(), None);
     let runtime = tokio::runtime::Handle::current();
     let random_number_generator = Box::new(SmallRng::seed_from_u64(123));
-    let vfs: PagesVfs<4096> = PagesVfs::new(editor, runtime, random_number_generator);
+    let vfs: PagesVfs<4096> = PagesVfs::new(
+        editor,
+        runtime,
+        random_number_generator,
+        Arc::new(|| Ok(())),
+    );
     let thread = tokio::task::spawn_blocking(move || {
         let mut buffer = [0i8; 16];
         vfs.random(&mut buffer);
@@ -218,7 +236,12 @@ async fn test_vfs_sleep() {
     let editor = TreeEditor::new(directory.clone(), None);
     let runtime = tokio::runtime::Handle::current();
     let random_number_generator = Box::new(SmallRng::seed_from_u64(123));
-    let vfs: PagesVfs<4096> = PagesVfs::new(editor, runtime, random_number_generator);
+    let vfs: PagesVfs<4096> = PagesVfs::new(
+        editor,
+        runtime,
+        random_number_generator,
+        Arc::new(|| Ok(())),
+    );
     let thread = tokio::task::spawn_blocking(move || {
         let duration = Duration::from_micros(1);
         let elapsed = vfs.sleep(duration);
@@ -243,6 +266,7 @@ async fn test_open_database() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     let thread = tokio::task::spawn_blocking(move || {
@@ -325,6 +349,7 @@ async fn test_open_invalid_file_name() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     let thread = tokio::task::spawn_blocking(move || {
@@ -385,6 +410,7 @@ async fn test_open_failure() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     let editor = TreeEditor::new(directory.clone(), None);
@@ -457,6 +483,7 @@ async fn test_open_no_create() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     let thread = tokio::task::spawn_blocking(move || {
@@ -518,6 +545,7 @@ async fn test_reopen_database() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     let insert_count = 100;
@@ -626,6 +654,7 @@ async fn test_temp_table() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     let thread = tokio::task::spawn_blocking(move || {
@@ -704,6 +733,7 @@ async fn test_open_database_with_wal() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     {
@@ -809,6 +839,7 @@ async fn test_change_page_size() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     let page_size = 16384;
@@ -895,6 +926,7 @@ async fn test_storage_read_error() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     let insert_count = 100;
@@ -1040,6 +1072,7 @@ async fn test_storage_write_error_in_sync() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     {
@@ -1114,6 +1147,7 @@ async fn test_storage_write_error_in_write_all_at() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     {
@@ -1197,6 +1231,7 @@ async fn test_deleting_open_database_file() {
         TreeEditor::new(directory.clone(), None),
         tokio::runtime::Handle::current(),
         Box::new(SmallRng::seed_from_u64(123)),
+        Arc::new(|| Ok(())),
     )
     .unwrap();
     {
