@@ -13,6 +13,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+use tracing::info;
 
 #[test_log::test(tokio::test)]
 async fn test_open_database() {
@@ -725,6 +726,46 @@ async fn test_vfs_temporary_name() {
     let vfs: PagesVfs<4096> = PagesVfs::new(editor, runtime, random_number_generator);
     let thread = tokio::task::spawn_blocking(move || {
         assert_eq!("", &vfs.temporary_name());
+    });
+    thread.await.unwrap();
+    let mut entries = BTreeMap::new();
+    let mut entry_stream = directory.read().await;
+    while let Some(entry) = entry_stream.next().await {
+        match entry.kind {
+            crate::DirectoryEntryKind::File(size) => {
+                entries.insert(entry.name.clone(), size);
+            }
+            crate::DirectoryEntryKind::Directory => {
+                panic!("Unexpected directory");
+            }
+        }
+    }
+    assert_eq!(&entries, &BTreeMap::from([]));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_vfs_random() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from(""), storage, clock, 1)
+            .await
+            .unwrap(),
+    );
+    let editor = TreeEditor::new(directory.clone(), None);
+    let runtime = tokio::runtime::Handle::current();
+    let random_number_generator = Box::new(SmallRng::seed_from_u64(123));
+    let vfs: PagesVfs<4096> = PagesVfs::new(editor, runtime, random_number_generator);
+    let thread = tokio::task::spawn_blocking(move || {
+        let mut buffer = [0i8; 16];
+        vfs.random(&mut buffer);
+        info!("Random bytes: {:?}", &buffer);
+        assert_eq!(
+            &buffer,
+            &[122, -104, 16, -8, 53, 87, 86, -91, 46, 102, -115, -27, 66, 70, -111, -42]
+        );
+        // test empty buffer as well
+        vfs.random(&mut []);
     });
     thread.await.unwrap();
     let mut entries = BTreeMap::new();
