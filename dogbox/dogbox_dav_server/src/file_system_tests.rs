@@ -104,9 +104,14 @@ async fn test_dav_access() {
                 assert_eq!("/", folder.href);
                 assert_eq!(None, folder.quota_used_bytes);
                 assert_eq!(None, folder.quota_available_bytes);
-                //TODO: check tag value
-                assert_eq!(true, folder.tag.is_some());
-                //TODO: check last modified
+                assert_eq!(
+                    "0",
+                    folder.tag.as_deref().expect("Folders should have a tag")
+                );
+                assert_eq!(
+                    "1970-01-01T00:00:00+00:00",
+                    folder.last_modified.to_rfc3339()
+                );
             }
         }
     };
