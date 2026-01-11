@@ -21,9 +21,11 @@ async-trait = "0"
 cached = "0"
 rusqlite = {version = "0", features = ["bundled"]}
 pretty_assertions = "1"
+sqlite-vfs = "0"
+rand = { version = "0", features = [ "small_rng" ]}
+derivative = "2"
 
 [dev-dependencies]
-rand = { version = "0", features = [ "small_rng" ]}
 test-case = "3"
 tracing-subscriber = "0"
 test-log = {version = "0", features = ["trace", "log", "color"]}

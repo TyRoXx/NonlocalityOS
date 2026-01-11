@@ -142,6 +142,10 @@ impl InMemoryTreeStorage {
         }
     }
 
+    pub async fn clear(&self) {
+        self.reference_to_tree.lock().await.clear();
+    }
+
     pub async fn number_of_trees(&self) -> usize {
         self.reference_to_tree.lock().await.len()
     }

@@ -1,5 +1,5 @@
 use dogbox_dav_server::run_dav_server;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpListener;
 use tracing::info;
 
@@ -9,7 +9,7 @@ pub async fn dav_server_main(
     let address = SocketAddr::from(([0, 0, 0, 0], 4918));
     let listener = TcpListener::bind(address).await?;
     info!("Serving DAV on http://{}", address);
-    let clock = std::time::SystemTime::now;
+    let clock = Arc::new(std::time::SystemTime::now);
     let modified_default = clock();
     {
         let time_string = chrono::DateTime::<chrono::Utc>::from(modified_default).to_rfc3339();

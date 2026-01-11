@@ -30,7 +30,7 @@ async fn test_dav_access() {
                     OpenDirectory::create_directory(
                         std::path::PathBuf::from("/"),
                         blob_storage,
-                        test_clock,
+                        Arc::new(test_clock),
                         1,
                     )
                     .await

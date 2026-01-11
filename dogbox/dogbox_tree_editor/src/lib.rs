@@ -1,4 +1,5 @@
 #![feature(test)]
+#![feature(formatting_options)]
 #[cfg(test)]
 mod benchmarks;
 
@@ -10,6 +11,11 @@ mod segmented_blob;
 #[cfg(test)]
 mod segmented_blob_tests;
 
+pub mod sqlite;
+
+#[cfg(test)]
+mod sqlite_tests;
+
 use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use astraea::{
     storage::{LoadStoreTree, StoreError},
@@ -18,6 +24,7 @@ use astraea::{
 use async_stream::stream;
 use bytes::Buf;
 use cached::Cached;
+use derivative::Derivative;
 use dogbox_tree::serialization::{
     self, deserialize_directory, serialize_directory, DeserializationError, DirectoryEntryKind,
     FileName, FileNameError,
@@ -51,6 +58,8 @@ pub enum Error {
     OtherDeserializationError(String),
     OtherSerializationError(String),
     FileRemoved,
+    InvalidArgument(String),
+    FileAlreadyExists(FileName),
 }
 
 impl std::fmt::Display for Error {
@@ -149,7 +158,13 @@ impl NamedEntry {
     async fn get_meta_data(&self) -> DirectoryEntryMetaData {
         match self {
             NamedEntry::NotOpen(meta_data, _) => *meta_data,
-            NamedEntry::OpenRegularFile(open_file, _) => open_file.get_meta_data().await,
+            NamedEntry::OpenRegularFile(open_file, _) => {
+                let metadata = open_file.get_meta_data().await;
+                DirectoryEntryMetaData::new(
+                    DirectoryEntryKind::File(metadata.size),
+                    metadata.modified,
+                )
+            }
             NamedEntry::OpenSubdirectory(open_directory, _) => DirectoryEntryMetaData::new(
                 DirectoryEntryKind::Directory,
                 open_directory.modified(),
@@ -330,7 +345,7 @@ impl NamedEntry {
     }
 }
 
-pub type WallClock = fn() -> std::time::SystemTime;
+pub type WallClock = Arc<dyn Fn() -> std::time::SystemTime + Send + Sync + 'static>;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub struct OpenFileStats {
@@ -391,6 +406,35 @@ impl OpenDirectoryStatus {
     }
 }
 
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub struct FileCreationMode {
+    pub fail_if_exists: bool,
+    pub fail_if_not_exists: bool,
+}
+
+impl FileCreationMode {
+    pub fn create_new() -> Self {
+        Self {
+            fail_if_exists: true,
+            fail_if_not_exists: false,
+        }
+    }
+
+    pub fn create() -> Self {
+        Self {
+            fail_if_exists: false,
+            fail_if_not_exists: false,
+        }
+    }
+
+    pub fn open_existing() -> Self {
+        Self {
+            fail_if_exists: false,
+            fail_if_not_exists: true,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct OpenDirectoryMutableState {
     // TODO: support really big directories. We may not be able to hold all entries in memory at the same time.
@@ -417,7 +461,15 @@ impl OpenDirectoryMutableState {
     }
 }
 
-#[derive(Debug)]
+pub fn format_wall_clock(
+    _: &WallClock,
+    f: &mut std::fmt::Formatter,
+) -> std::result::Result<(), std::fmt::Error> {
+    write!(f, "WallClock")
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct OpenDirectory {
     original_path: std::path::PathBuf,
     state: tokio::sync::Mutex<OpenDirectoryMutableState>,
@@ -425,6 +477,7 @@ pub struct OpenDirectory {
     change_event_sender: tokio::sync::watch::Sender<OpenDirectoryStatus>,
     _change_event_receiver: tokio::sync::watch::Receiver<OpenDirectoryStatus>,
     modified: std::time::SystemTime,
+    #[derivative(Debug(format_with = "format_wall_clock"))]
     clock: WallClock,
     open_file_write_buffer_in_blocks: usize,
 }
@@ -464,8 +517,8 @@ impl OpenDirectory {
         self.storage.clone()
     }
 
-    pub fn get_clock(&self) -> fn() -> std::time::SystemTime {
-        self.clock
+    pub fn get_clock(&self) -> &WallClock {
+        &self.clock
     }
 
     pub fn latest_status(&self) -> OpenDirectoryStatus {
@@ -505,69 +558,80 @@ impl OpenDirectory {
         self: Arc<OpenDirectory>,
         name: &FileName,
         empty_file_digest: &BlobDigest,
+        creation_mode: FileCreationMode,
     ) -> Result<Arc<OpenFile>> {
         let mut state_locked = self.state.lock().await;
         state_locked.record_access((self.clock)());
         match state_locked.names.get_mut(name) {
-            Some(found) => match found {
-                NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
-                    DirectoryEntryKind::Directory => {
-                        warn!(
+            Some(found) => {
+                if creation_mode.fail_if_exists {
+                    Err(Error::FileAlreadyExists(name.clone()))
+                } else {
+                    match found {
+                        NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
+                            DirectoryEntryKind::Directory => {
+                                warn!(
                             "Cannot open directory {} (currently not open) as a regular file.",
                             &name
                         );
-                        Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
+                                Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
+                            }
+                            DirectoryEntryKind::File(length) => {
+                                debug!(
+                                    "Opening file of size {} and content {} for reading.",
+                                    length, digest
+                                );
+                                let open_file = Arc::new(OpenFile::new(
+                                    OpenFileContentBuffer::from_storage(
+                                        *digest,
+                                        length,
+                                        self.open_file_write_buffer_in_blocks,
+                                    ),
+                                    self.storage.clone(),
+                                    self.modified,
+                                ));
+                                let receiver = open_file.watch().await;
+                                let mut new_entry =
+                                    NamedEntry::OpenRegularFile(open_file.clone(), receiver);
+                                self.clone().watch_new_entry(&mut new_entry);
+                                *found = new_entry;
+                                Ok(open_file)
+                            }
+                        },
+                        NamedEntry::OpenRegularFile(open_file, _) => Ok(open_file.clone()),
+                        NamedEntry::OpenSubdirectory(_, _) => {
+                            warn!(
+                                "Cannot open directory {} (currently open) as a regular file.",
+                                &name
+                            );
+                            Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
+                        }
                     }
-                    DirectoryEntryKind::File(length) => {
-                        debug!(
-                            "Opening file of size {} and content {} for reading.",
-                            length, digest
-                        );
-                        let open_file = Arc::new(OpenFile::new(
-                            OpenFileContentBuffer::from_storage(
-                                *digest,
-                                length,
-                                self.open_file_write_buffer_in_blocks,
-                            ),
-                            self.storage.clone(),
-                            self.modified,
-                        ));
-                        let receiver = open_file.watch().await;
-                        let mut new_entry =
-                            NamedEntry::OpenRegularFile(open_file.clone(), receiver);
-                        self.clone().watch_new_entry(&mut new_entry);
-                        *found = new_entry;
-                        Ok(open_file)
-                    }
-                },
-                NamedEntry::OpenRegularFile(open_file, _) => Ok(open_file.clone()),
-                NamedEntry::OpenSubdirectory(_, _) => {
-                    warn!(
-                        "Cannot open directory {} (currently open) as a regular file.",
-                        &name
-                    );
-                    Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
                 }
-            },
+            }
             None => {
-                let open_file = Arc::new(OpenFile::new(
-                    OpenFileContentBuffer::from_storage(
-                        *empty_file_digest,
-                        0,
-                        self.open_file_write_buffer_in_blocks,
-                    ),
-                    self.storage.clone(),
-                    (self.clock)(),
-                ));
-                debug!("Adding file {} to the directory which sends a change event for its parent directory.", &name);
-                let receiver = open_file.watch().await;
-                self.clone().insert_entry(
-                    &mut state_locked,
-                    name.clone(),
-                    NamedEntry::OpenRegularFile(open_file.clone(), receiver),
-                );
-                Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
-                Ok(open_file)
+                if creation_mode.fail_if_not_exists {
+                    Err(Error::NotFound(name.clone()))
+                } else {
+                    let open_file = Arc::new(OpenFile::new(
+                        OpenFileContentBuffer::from_storage(
+                            *empty_file_digest,
+                            0,
+                            self.open_file_write_buffer_in_blocks,
+                        ),
+                        self.storage.clone(),
+                        (self.clock)(),
+                    ));
+                    debug!("Adding file {} to the directory which sends a change event for its parent directory.", &name);
+                    let receiver = open_file.watch().await;
+                    self.clone().insert_entry(
+                        &mut state_locked,
+                        name.clone(),
+                        NamedEntry::OpenRegularFile(open_file.clone(), receiver),
+                    );
+                    Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
+                    Ok(open_file)
+                }
             }
         }
     }
@@ -647,7 +711,7 @@ impl OpenDirectory {
                             self.storage.clone(),
                             digest,
                             self.modified,
-                            self.clock,
+                            self.clock.clone(),
                             self.open_file_write_buffer_in_blocks,
                         )
                         .await?;
@@ -762,7 +826,7 @@ impl OpenDirectory {
                     self.storage.clone(),
                     &empty_directory_digest,
                     (self.clock)(),
-                    self.clock,
+                    self.clock.clone(),
                     self.open_file_write_buffer_in_blocks,
                 )
                 .await?;
@@ -842,7 +906,7 @@ impl OpenDirectory {
         );
 
         let old_entry = state_locked.names.get(name_here).unwrap();
-        let new_entry = Self::copy_named_entry(old_entry, self.clock).await?;
+        let new_entry = Self::copy_named_entry(old_entry, self.clock.clone()).await?;
         match state_there_locked {
             Some(ref mut value) => {
                 Self::write_into_directory(self.clone(), value, name_there, new_entry)
@@ -1139,6 +1203,8 @@ impl OpenDirectory {
         serialize_directory(&entries, storage).await
     }
 
+    pub const READ_CACHE_LIFE_TIME: std::time::Duration = std::time::Duration::from_secs(60);
+
     pub async fn drop_all_read_caches(&self) -> CacheDropStats {
         let mut state_locked = self.state.lock().await;
         let mut result = CacheDropStats::new(0, 0, 0, 0);
@@ -1148,11 +1214,8 @@ impl OpenDirectory {
         if result.files_and_directories_remaining_open == 0 {
             let now = (self.clock)();
             let last_accessed_at = state_locked.last_accessed_at;
-            if now
-                .duration_since(last_accessed_at)
-                .unwrap_or_default()
-                .as_secs()
-                >= 60
+            if now.duration_since(last_accessed_at).unwrap_or_default()
+                >= Self::READ_CACHE_LIFE_TIME
             {
                 debug!(
                     "{}: Dropping directory read cache as it has been unused for at least 60 seconds.",
@@ -1473,6 +1536,29 @@ impl OpenFileContentBlock {
         assert_eq!(buf.len(), (overwritten + extension_size + rest.len()));
         data.extend(for_extending);
         Ok(WriteResult::new(rest))
+    }
+
+    pub async fn resize(
+        &mut self,
+        new_size: usize,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> Result<()> {
+        let max_size = TREE_BLOB_MAX_LENGTH;
+        if new_size > max_size {
+            return Err(Error::InvalidArgument(format!(
+                "new_size was given as {}, but it is not allowed to be greater than {}",
+                new_size, max_size
+            )));
+        }
+        let data = self.access_content_for_writing(storage).await?;
+        let current_size = data.len();
+        if new_size < current_size {
+            data.truncate(new_size);
+        } else if new_size > current_size {
+            let additional_size = new_size - current_size;
+            data.extend(std::iter::repeat_n(0u8, additional_size));
+        }
+        Ok(())
     }
 
     pub async fn try_store(
@@ -1867,6 +1953,53 @@ impl OpenFileContentBufferLoaded {
         assert_eq!(0, result.open_directories_closed);
         assert_eq!(0, result.files_and_directories_remaining_open);
         result
+    }
+
+    pub async fn resize(
+        &mut self,
+        new_size: u64,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> Result<()> {
+        let new_number_of_blocks =
+            usize::max(1, new_size.div_ceil(TREE_BLOB_MAX_LENGTH as u64) as usize);
+        if !self.blocks.is_empty() && (new_number_of_blocks > self.blocks.len()) {
+            self.blocks
+                .last_mut()
+                .unwrap()
+                .resize(TREE_BLOB_MAX_LENGTH, storage.clone())
+                .await?;
+        }
+        if new_number_of_blocks > self.blocks.len() {
+            let filler = HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH])).unwrap(),
+                TreeChildren::empty(),
+            )));
+            assert!(new_number_of_blocks >= 1);
+            for index in self.blocks.len()..(new_number_of_blocks - 1) {
+                self.dirty_blocks.push_back(index);
+            }
+            self.blocks.resize_with(new_number_of_blocks, || {
+                OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(filler.clone()))
+            });
+        } else if new_number_of_blocks < self.blocks.len() {
+            self.blocks.truncate(new_number_of_blocks);
+            // remove dirty blocks that don't exist anymore
+            self.dirty_blocks.retain(|index| *index < self.blocks.len());
+        } else {
+            debug!("Resize called but number of blocks is unchanged.");
+        }
+        let last_block_size = new_size
+            .checked_sub((new_number_of_blocks as u64 - 1) * (TREE_BLOB_MAX_LENGTH as u64))
+            .expect("Failed to calculate last block size") as usize;
+        self.blocks
+            .last_mut()
+            .unwrap()
+            .resize(last_block_size, storage)
+            .await?;
+        self.size = new_size;
+        self.digest.is_digest_up_to_date = false;
+        self.dirty_blocks.push_back(self.blocks.len() - 1);
+        Ok(())
     }
 }
 
@@ -2315,6 +2448,15 @@ impl OpenFileContentBuffer {
         Ok(())
     }
 
+    pub async fn resize(
+        &mut self,
+        new_size: u64,
+        storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> Result<()> {
+        let loaded = self.require_loaded(storage.clone()).await?;
+        loaded.resize(new_size, storage).await
+    }
+
     pub async fn store_all(
         &mut self,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
@@ -2360,6 +2502,17 @@ pub struct OpenFileReadPermission {}
 
 #[derive(Debug)]
 pub struct OpenFileWritePermission {}
+
+pub struct FileMetaData {
+    pub size: u64,
+    pub modified: std::time::SystemTime,
+}
+
+impl FileMetaData {
+    pub fn new(size: u64, modified: std::time::SystemTime) -> Self {
+        Self { size, modified }
+    }
+}
 
 #[derive(Debug)]
 pub struct OpenFile {
@@ -2407,8 +2560,8 @@ impl OpenFile {
         self.state.lock().await.content.size()
     }
 
-    pub async fn get_meta_data(&self) -> DirectoryEntryMetaData {
-        DirectoryEntryMetaData::new(DirectoryEntryKind::File(self.size().await), self.modified)
+    pub async fn get_meta_data(&self) -> FileMetaData {
+        FileMetaData::new(self.size().await, self.modified)
     }
 
     pub async fn request_save(&self) -> std::result::Result<OpenFileStatus, Error> {
@@ -2439,7 +2592,7 @@ impl OpenFile {
         content: &OpenFileContentBuffer,
         read_permission: &Arc<OpenFileReadPermission>,
         write_permission: &Arc<OpenFileWritePermission>,
-    ) -> std::result::Result<OpenFileStatus, StoreError> {
+    ) -> OpenFileStatus {
         let (last_known_digest, last_known_digest_file_size) = content.last_known_digest();
         let is_open_for_reading = Self::is_open_for_reading(read_permission);
         let is_open_for_writing = Self::is_open_for_writing(write_permission);
@@ -2466,7 +2619,7 @@ impl OpenFile {
                 &status
             );
         }
-        Ok(status)
+        status
     }
 
     pub fn get_read_permission(&self) -> Arc<OpenFileReadPermission> {
@@ -2547,9 +2700,8 @@ impl OpenFile {
             .await;
             // We want to update the status even if parts of the write failed.
             write_result?;
-            update_result.map_err(Error::Storage).map(|status| {
-                debug!("Status after writing: {:?}", &status);
-            })
+            debug!("Status after writing: {:?}", &update_result);
+            Ok(())
         })
     }
 
@@ -2597,19 +2749,13 @@ impl OpenFile {
             .await
             .map_err(Error::Storage)?
         {
-            StoreChanges::SomeChanges => {
-                match Self::update_status(
-                    &self.change_event_sender,
-                    &state_locked.content,
-                    &self.read_permission,
-                    &self.write_permission,
-                )
-                .await
-                {
-                    Ok(status) => Ok(status),
-                    Err(error) => Err(Error::Storage(error)),
-                }
-            }
+            StoreChanges::SomeChanges => Ok(Self::update_status(
+                &self.change_event_sender,
+                &state_locked.content,
+                &self.read_permission,
+                &self.write_permission,
+            )
+            .await),
             StoreChanges::NoChanges => Ok(*self.change_event_sender.borrow()),
         }
     }
@@ -2618,41 +2764,39 @@ impl OpenFile {
         self.change_event_sender.subscribe()
     }
 
+    pub fn resize(
+        &self,
+        write_permission: &OpenFileWritePermission,
+        new_size: u64,
+    ) -> Future<'_, ()> {
+        self.assert_write_permission(write_permission);
+        debug!("Resize to {} bytes", new_size);
+        Box::pin(async move {
+            let mut state_locked = self.state.lock().await;
+            let storage = match state_locked.storage.as_ref() {
+                Some(storage) => storage.clone(),
+                None => {
+                    warn!("Cannot write to a removed file");
+                    return Err(Error::FileRemoved);
+                }
+            };
+            state_locked.content.resize(new_size, storage).await?;
+            let _update_result = Self::update_status(
+                &self.change_event_sender,
+                &state_locked.content,
+                &self.read_permission,
+                &self.write_permission,
+            )
+            .await;
+            Ok(())
+        })
+    }
+
     pub async fn truncate(
         &self,
         write_permission: &OpenFileWritePermission,
     ) -> std::result::Result<(), Error> {
-        self.assert_write_permission(write_permission);
-        debug!("Truncating a file sends a change event for this file.");
-        let mut state_locked = self.state.lock().await;
-        let write_buffer_in_blocks = match &state_locked.content {
-            OpenFileContentBuffer::NotLoaded {
-                digest: _,
-                size: _,
-                write_buffer_in_blocks,
-            } => *write_buffer_in_blocks,
-            OpenFileContentBuffer::Loaded(open_file_content_buffer_loaded) => {
-                open_file_content_buffer_loaded.write_buffer_in_blocks
-            }
-        };
-        let (last_known_digest, last_known_digest_file_size) =
-            state_locked.content.last_known_digest();
-        state_locked.content = OpenFileContentBuffer::from_data(
-            Vec::new(),
-            last_known_digest.last_known_digest,
-            last_known_digest_file_size,
-            write_buffer_in_blocks,
-        )
-        .unwrap();
-        let _update_result = Self::update_status(
-            &self.change_event_sender,
-            &state_locked.content,
-            &self.read_permission,
-            &self.write_permission,
-        )
-        .await
-        .map_err(Error::Storage)?;
-        Ok(())
+        self.resize(write_permission, 0).await
     }
 
     async fn drop_all_read_caches(&self) -> CacheDropStats {
@@ -2714,7 +2858,11 @@ impl TreeEditor {
         }
     }
 
-    pub fn open_file<'a>(&'a self, path: NormalizedPath) -> Future<'a, Arc<OpenFile>> {
+    pub fn open_file<'a>(
+        &'a self,
+        path: NormalizedPath,
+        creation_mode: FileCreationMode,
+    ) -> Future<'a, Arc<OpenFile>> {
         match path.split_right() {
             PathSplitRightResult::Root => todo!(),
             PathSplitRightResult::Entry(directory_path, file_name) => {
@@ -2725,7 +2873,9 @@ impl TreeEditor {
                         Err(error) => return Err(error),
                     };
                     let empty_file_digest = self.require_empty_file_digest().await?;
-                    directory.open_file(&file_name, &empty_file_digest).await
+                    directory
+                        .open_file(&file_name, &empty_file_digest, creation_mode)
+                        .await
                 })
             }
         }
@@ -2739,7 +2889,7 @@ impl TreeEditor {
                 let directory = OpenDirectory::create_directory(
                     std::path::PathBuf::from("should be irrelevant"),
                     self.root.get_storage(),
-                    self.root.get_clock(),
+                    self.root.get_clock().clone(),
                     1,
                 )
                 .await?;
