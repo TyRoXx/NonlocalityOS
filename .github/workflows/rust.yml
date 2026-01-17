@@ -25,7 +25,7 @@ jobs:
     strategy:
       # https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations
       matrix:
-        task: [ cargo_test, cargo_lint ]
+        task: [ cargo_test, cargo_lint, cargo_fuzz ]
 
     env:
       SCCACHE_VERSION: "v0.12.0"
@@ -79,7 +79,7 @@ jobs:
           ~/.cargo/.crates2.json
           target/
           target-coverage/
-        # separate cache entries for test and lint because they run in parallel
+        # separate cache entries for different tasks because they run in parallel and product different cache contents
         key: cargo-${{ matrix.task }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'scripts/install_cargo-tarpaulin.sh', 'scripts/coverage.sh', 'scripts/build_fuzz.sh', '**/rust-toolchain.toml') }}
 
     ########################
@@ -106,11 +106,15 @@ jobs:
     - name: Check code formatting
       if: matrix.task == 'cargo_lint'
       run: cargo fmt --all -- --check
-
-    - name: Fuzzing
-      if: matrix.task == 'cargo_lint'
-      run: ./quick_fuzzing.sh
     # task cargo_lint end
+    ######################
+
+    ########################
+    # task cargo_fuzz begin
+    - name: Fuzzing
+      if: matrix.task == 'cargo_fuzz'
+      run: ./quick_fuzzing.sh
+    # task cargo_fuzz end
     ######################
 
     - name: sccache stats
