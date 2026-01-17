@@ -25,8 +25,8 @@ rusqlite = {version = "0", features = ["bundled"]}
 pretty_assertions = "1"
 
 [dev-dependencies]
-# rustls-tls-manual-roots disables the loading of root certificates from the OS which is very expensive.
-reqwest = {version = "0", features = ["rustls-tls-manual-roots"]}
+# Not sure if rustls is better or worse than the default.
+reqwest = {version = "0", features = ["rustls"]}
 reqwest_dav = "0"
 test-log = {version = "0", features = ["trace", "log", "color"]}
 tempfile = "3"

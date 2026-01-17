@@ -177,19 +177,17 @@ async fn list_directory(client: &Client, directory: &str) -> Vec<ListEntity> {
 }
 
 fn create_client(server_url: String) -> Client {
+    let agent = reqwest::Client::builder()
+        .use_rustls_tls()
+        // Disable loading root certificates from the OS because that's very expensive.
+        .tls_certs_only([])
+        .build()
+        .unwrap();
+
     ClientBuilder::new()
         .set_host(server_url)
         .set_auth(Auth::Basic("username".to_owned(), "password".to_owned()))
-        .set_agent(
-            reqwest::Client::builder()
-                // In combination with the reqwest feature rustls-tls-manual-roots this backend avoids
-                // loading the OS root certificates which would be very expensive.
-                .use_rustls_tls()
-                // Disable this as well for good measure.
-                .tls_built_in_root_certs(false)
-                .build()
-                .unwrap(),
-        )
+        .set_agent(agent)
         .build()
         .unwrap()
 }
@@ -494,7 +492,7 @@ async fn test_list_infinity() {
     let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
             assert_eq!(
-                    "reqwest_dav::Error { kind: \"Decode\", source: StatusMismatched(StatusMismatchedError { response_code: 403, expected_code: 207 }) }",
+                    "reqwest_dav::Error { kind: \"Decode\", source: StatusMismatched(StatusMismatchedError { response_code: 501, expected_code: 207 }) }",
                     format!(
                         "{:?}",
                         &client.list("/", Depth::Infinity).await.unwrap_err()
