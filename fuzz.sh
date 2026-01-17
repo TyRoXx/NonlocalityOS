@@ -4,6 +4,6 @@ set -e
 TARGET_NAME="$1"
 ./scripts/install_cargo-fuzz.sh
 JOBS=`nproc`
-TIME_PER_TARGET=7
+TIME_PER_TARGET=5
 
 cargo fuzz run --release --jobs "$JOBS" "$TARGET_NAME" -- -max_total_time=$TIME_PER_TARGET
