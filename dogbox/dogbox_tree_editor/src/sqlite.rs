@@ -74,6 +74,9 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
             sqlite_vfs::OpenKind::TempDb => {
                 info!("Opening temporary database file: {}", db);
             }
+            // TODO: These journal types are not implemented. What should happen when SQLite tries to use them?
+            // Should they return NotImplemented error, or create actual journal files?
+            // Not implementing journals could lead to data corruption on crashes. Is this intentional?
             sqlite_vfs::OpenKind::TempJournal => todo!(),
             sqlite_vfs::OpenKind::TransientDb => todo!(),
             sqlite_vfs::OpenKind::SubJournal => todo!(),

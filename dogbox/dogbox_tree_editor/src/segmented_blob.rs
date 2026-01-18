@@ -24,6 +24,11 @@ pub async fn save_segmented_blob(
     .await
 }
 
+// TODO: This function recursively builds a tree structure for large blobs, but the algorithm is not clearly documented.
+// How does the tree height grow with the number of segments? Is there a maximum depth?
+// What's the relationship between segment_capacity and max_children_per_tree in determining the tree structure?
+// Why does segment_capacity get multiplied by max_children_per_tree in the recursive call (line 64)?
+// Is this building a B-tree-like structure? Should this be explained in module-level documentation?
 async fn save_segmented_blob_impl(
     segments: &[BlobDigest],
     segment_capacity: u64,
@@ -38,10 +43,14 @@ async fn save_segmented_blob_impl(
         1 => Ok(segments[0]),
         _ => {
             if segments.len() > max_children_per_tree {
+                // TODO: Why is chunking done here before recursion? Would it be clearer to have a separate function
+                // for building internal tree nodes vs. leaf nodes?
                 let mut chunks = Vec::new();
                 let mut remaining_size = total_size_in_bytes;
                 for chunk in segments.chunks(max_children_per_tree) {
                     let capacity = (chunk.len() as u64) * segment_capacity;
+                    // TODO: This size calculation seems complex. What happens if remaining_size doesn't divide evenly?
+                    // Could there be an off-by-one error in the last chunk?
                     let chunk_size = if remaining_size <= capacity {
                         remaining_size
                     } else {
@@ -74,6 +83,8 @@ async fn save_segmented_blob_impl(
             let children = TreeChildren::try_from(segments.to_vec())
                 .expect("The child count was checked above.");
             let tree = Tree::new(
+                // TODO: Under what conditions could postcard serialization or TreeBlob conversion fail here?
+                // Should these unwraps be proper error handling to avoid panics on malformed data?
                 TreeBlob::try_from(bytes::Bytes::from(postcard::to_allocvec(&info).unwrap()))
                     .unwrap(),
                 children,

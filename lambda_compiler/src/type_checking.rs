@@ -35,6 +35,10 @@ where
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
 pub struct DeepType(pub GenericType<DeepType>);
 
+// TODO: This function converts recursive type structures to a flat reference-based representation.
+// Why is this conversion necessary? Is it for serialization, to avoid stack overflow, or for some other reason?
+// What are the performance implications of converting back and forth between deep and reference types?
+// Should there be documentation explaining when to use DeepType vs. GenericType<ReferenceIndex>?
 pub fn to_reference_type(deep_type: &DeepType) -> (GenericType<ReferenceIndex>, Vec<DeepType>) {
     match deep_type.0 {
         GenericType::Any => (GenericType::Any, Vec::new()),
@@ -57,6 +61,8 @@ pub fn to_reference_type(deep_type: &DeepType) -> (GenericType<ReferenceIndex>, 
                 parameters_references.push(ReferenceIndex(index as u64));
                 children.push(parameter.clone());
             }
+            // TODO: Why does the return type come after all parameters in the children vec?
+            // Is this order significant? Should this ordering convention be documented?
             let return_type_reference = ReferenceIndex(children.len() as u64);
             children.push(return_type.as_ref().clone());
             (
@@ -83,6 +89,8 @@ pub fn type_to_deep_tree(deep_type: &DeepType) -> Result<DeepTree, TreeSerializa
         Some(success) => success,
         None => return Err(TreeSerializationError::TooManyChildren),
     };
+    // TODO: What error conditions can these unwraps fail on? Should these return Result instead of panicking?
+    // Are there valid type structures that could cause serialization to fail?
     let body_serialized = postcard::to_allocvec(&body).unwrap(/*TODO*/);
     Ok(DeepTree::new(
         TreeBlob::try_from(bytes::Bytes::from(body_serialized)).unwrap(/*TODO*/),
@@ -101,6 +109,10 @@ pub fn from_reference_type(body: &GenericType<ReferenceIndex>, children: &[DeepT
                 if index < children.len() {
                     resulting_children.push(children[index].clone());
                 } else {
+                    // TODO: This panic suggests a bug in type construction or serialization/deserialization.
+                    // Should this be a proper error type that can be handled? When could this realistically occur?
+                    // Is there a way to validate the tree structure before getting here to make this unreachable?
+                    // BUG POTENTIAL: If deserialization doesn't validate reference indices, corrupted data could panic here.
                     // TODO error handling
                     // This should not happen if the tree is well-formed.
                     panic!("Reference index out of bounds: {index}");

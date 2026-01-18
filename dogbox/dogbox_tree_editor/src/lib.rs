@@ -198,6 +198,10 @@ impl NamedEntry {
         }
     }
 
+    // TODO: This spawns a task that watches for file/directory status changes, but the lifecycle is unclear.
+    // When does this spawned task terminate? What prevents task accumulation if watch() is called repeatedly?
+    // Why does on_change().await.unwrap() panic on error instead of handling it gracefully?
+    // Should the spawned task be tracked/cancelled to prevent resource leaks?
     fn watch(&mut self, on_change: Box<dyn Fn() -> Future<'static, ()> + Send + Sync>) {
         match self {
             NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {}
@@ -223,6 +227,7 @@ impl NamedEntry {
                                         &previous_status, &current_status
                                     );
                                     previous_status = current_status;
+                                    // TODO: This unwrap could panic. Should errors in on_change callback be logged instead?
                                     on_change().await.unwrap();
                                 }
                             }
@@ -251,6 +256,7 @@ impl NamedEntry {
                                 } else {
                                     debug!("Open directory status changed: {:?}", &current_status);
                                     previous_status = current_status;
+                                    // TODO: This unwrap could panic. Should errors in on_change callback be logged instead?
                                     on_change().await.unwrap();
                                 }
                             }
@@ -289,6 +295,11 @@ impl NamedEntry {
         }
     }
 
+    // TODO: This method appears to implement a caching eviction strategy, but the logic is complex.
+    // Why can files/directories only be dropped if their digest is up to date?
+    // What does "is_open_for_anything" check - open file handles, pending operations, or something else?
+    // Should there be a higher-level explanation of the caching policy and when entries are safe to evict?
+    // Is there a risk of memory leaks if digest is never up to date and files accumulate in cache?
     async fn drop_all_read_caches(&mut self) -> CacheDropStats {
         match self {
             NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {
@@ -305,6 +316,8 @@ impl NamedEntry {
                         );
                         return CacheDropStats::new(0, 1, 0, 0);
                     }
+                    // TODO: How often does this warning occur in practice? Could this indicate a bug
+                    // or a performance issue where digests aren't being updated promptly?
                     warn!("Cannot drop unused file because its digest is not up to date.");
                 }
                 arc.drop_all_read_caches().await

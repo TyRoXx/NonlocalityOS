@@ -14,6 +14,8 @@ pub enum IntegrityCheckResult {
     Corrupted(String),
 }
 
+// TODO: Why does this only return the first byte of the hash? Is 256 buckets enough for good distribution?
+// Would using more bytes improve the split point selection quality?
 pub fn hash_key<Key: Serialize>(key: &Key) -> u8 {
     // TODO: use a better hash function (https://docs.dolthub.com/architecture/storage-engine/prolly-tree#controlling-chunk-size)
     let key_serialized = postcard::to_stdvec(key).expect("serializing key should succeed");
@@ -22,6 +24,10 @@ pub fn hash_key<Key: Serialize>(key: &Key) -> u8 {
     result[0]
 }
 
+// TODO: Why does this function determine split points based on key hash + size but not based on the actual tree balance?
+// Should this be using a rolling hash or Rabin fingerprinting for content-defined chunking?
+// The threshold value of 10 (out of 256 possible hash values) gives ~4% split probability - is this optimal?
+// What happens if keys are not uniformly distributed? Could this lead to unbalanced trees?
 pub fn is_split_after_key<Key: Serialize>(key: &Key, chunk_size_in_bytes: usize) -> bool {
     if chunk_size_in_bytes < 1000 {
         // No point in splitting small chunks.
@@ -33,6 +39,8 @@ pub fn is_split_after_key<Key: Serialize>(key: &Key, chunk_size_in_bytes: usize)
         return true;
     }
     let hash = hash_key(key);
+    // TODO: Why is chunk_boundary_threshold hardcoded to 10? Should this be configurable or derived from target chunk size?
+    // Is there a mathematical relationship between this threshold and the desired average chunk size?
     let chunk_boundary_threshold = 10;
     if hash < chunk_boundary_threshold {
         // written with an if expression so that we can see whether the tests cover both branches
