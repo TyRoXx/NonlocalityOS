@@ -70,3 +70,10 @@ path = "fuzz_targets/prolly-tree-size-tracker.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "segmented-blob"
+path = "fuzz_targets/segmented-blob.rs"
+test = false
+doc = false
+bench = false
