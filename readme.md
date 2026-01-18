@@ -8,6 +8,7 @@
 ## Visual Studio Code
 
 * install the `rust-analyzer` VS Code extension
+* The repository includes a built-in syntax highlighting extension for the Typed Lambda language (`.tl` files) located in `.vscode/extensions/typed-lambda/`. VS Code will automatically load this extension when you open the workspace, providing syntax highlighting for files in `lambda_compiler/examples/`.
 
 ## Windows
 

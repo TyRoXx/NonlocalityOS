@@ -1,0 +1,35 @@
+{
+  "name": "typed-lambda",
+  "displayName": "Typed Lambda Language Support",
+  "description": "Syntax highlighting for the Typed Lambda programming language (.tl files)",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.50.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "typed-lambda",
+        "aliases": [
+          "Typed Lambda",
+          "typed-lambda",
+          "tl"
+        ],
+        "extensions": [
+          ".tl"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "typed-lambda",
+        "scopeName": "source.tl",
+        "path": "./syntaxes/typed-lambda.tmLanguage.json"
+      }
+    ]
+  }
+}

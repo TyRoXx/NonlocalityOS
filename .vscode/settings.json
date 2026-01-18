@@ -7,6 +7,9 @@
     "coverage-gutters.showGutterCoverage": true,
     "coverage-gutters.showLineCoverage": false,
     "[rust]": {
-        "editor.formatOnSave": true,
+        "editor.formatOnSave": true
     },
+    "files.associations": {
+        "*.tl": "typed-lambda"
+    }
 }
