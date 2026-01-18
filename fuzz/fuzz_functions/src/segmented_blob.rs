@@ -225,3 +225,9 @@ async fn test_zero_segments() {
         .await
     );
 }
+
+#[cfg(test)]
+#[test_log::test]
+fn test_crash_0() {
+    assert!(fuzz_function(&[239, 93, 42, 38]));
+}
