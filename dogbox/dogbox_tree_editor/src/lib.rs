@@ -6,7 +6,7 @@ mod benchmarks;
 #[cfg(test)]
 mod lib_tests;
 
-mod segmented_blob;
+pub mod segmented_blob;
 
 #[cfg(test)]
 mod segmented_blob_tests;
