@@ -1754,6 +1754,24 @@ async fn check_open_file_content_buffer(
     assert_eq!(expected_content.len(), checked);
 }
 
+async fn check_open_file_content_buffer_all_zero(
+    buffer: &mut OpenFileContentBuffer,
+    expected_size: u64,
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
+) {
+    assert_eq!(expected_size, buffer.size());
+    let mut checked = 0;
+    while checked < expected_size {
+        let read_piece = u64::min(expected_size - checked, usize::MAX as u64) as usize;
+        let read_result = buffer.read(checked, read_piece, storage.clone()).await;
+        let read_bytes = read_result.unwrap();
+        assert_ne!(0, read_bytes.len());
+        assert!(read_bytes.iter().all(|e| *e == 0));
+        checked += read_bytes.len() as u64;
+    }
+    assert_eq!(expected_size, checked);
+}
+
 #[test_case(0)]
 #[test_case(1)]
 #[test_case(20)]
@@ -1908,7 +1926,6 @@ fn open_file_content_buffer_resize_grow(old_size: u64, new_size: u64) {
 #[test_case((TREE_BLOB_MAX_LENGTH as u64) * 2, TREE_BLOB_MAX_LENGTH as u64)]
 #[test_case(200_000, 10_000)]
 #[test_case(TREE_BLOB_MAX_LENGTH as u64, 10_000)]
-// TODO: optimize for very large sizes (https://github.com/TyRoXx/NonlocalityOS/issues/398)
 #[test_case(100_000_000, 100_000)]
 fn open_file_content_buffer_resize_shrink(old_size: u64, new_size: u64) {
     Runtime::new().unwrap().block_on(async {
@@ -1929,12 +1946,7 @@ fn open_file_content_buffer_resize_shrink(old_size: u64, new_size: u64) {
         // shrink
         buffer.resize(new_size, storage.clone()).await.unwrap();
         assert_eq!(new_size, buffer.size());
-        check_open_file_content_buffer(
-            &mut buffer,
-            bytes::Bytes::from_iter(std::iter::repeat_n(0u8, new_size as usize)),
-            storage.clone(),
-        )
-        .await;
+        check_open_file_content_buffer_all_zero(&mut buffer, new_size, storage.clone()).await;
 
         // shrink to empty
         buffer.resize(0, storage.clone()).await.unwrap();
@@ -1947,7 +1959,6 @@ fn open_file_content_buffer_resize_shrink(old_size: u64, new_size: u64) {
 #[test_case(TREE_BLOB_MAX_LENGTH as u64)]
 #[test_case((TREE_BLOB_MAX_LENGTH as u64) * 2)]
 #[test_case(200_000)]
-// TODO: optimize for very large sizes (https://github.com/TyRoXx/NonlocalityOS/issues/398)
 #[test_case(100_000_000)]
 fn open_file_content_buffer_resize_same(size: u64) {
     Runtime::new().unwrap().block_on(async {
@@ -1967,12 +1978,7 @@ fn open_file_content_buffer_resize_same(size: u64) {
 
         buffer.resize(size, storage.clone()).await.unwrap();
         assert_eq!(size, buffer.size());
-        check_open_file_content_buffer(
-            &mut buffer,
-            bytes::Bytes::from_iter(std::iter::repeat_n(0u8, size as usize)),
-            storage.clone(),
-        )
-        .await;
+        check_open_file_content_buffer_all_zero(&mut buffer, size, storage.clone()).await;
 
         // shrink to empty
         buffer.resize(0, storage.clone()).await.unwrap();
