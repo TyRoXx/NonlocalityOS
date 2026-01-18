@@ -39,7 +39,8 @@ async fn run_test_case(test_case: &TestCase) -> bool {
     }
 
     // Ensure max_children_per_tree is in valid range [2, TREE_MAX_CHILDREN]
-    let max_children_per_tree = (test_case.max_children_per_tree as usize).max(2).min(TREE_MAX_CHILDREN);
+    let max_children_per_tree =
+        (test_case.max_children_per_tree as usize).clamp(2, TREE_MAX_CHILDREN);
 
     let storage = Arc::new(InMemoryTreeStorage::new(Mutex::new(BTreeMap::new())));
 
@@ -47,7 +48,7 @@ async fn run_test_case(test_case: &TestCase) -> bool {
     // We'll create segments that represent the actual data size
     let mut segments = Vec::new();
     let mut actual_total_size = 0u64;
-    
+
     for i in 0..num_segments {
         // Create blob content with varying sizes, but respecting total_size
         let remaining = total_size.saturating_sub(actual_total_size);
@@ -55,7 +56,7 @@ async fn run_test_case(test_case: &TestCase) -> bool {
             // If we've used up total_size but need more segments, reject this case
             return false;
         }
-        
+
         let segment_size = if i == num_segments - 1 {
             // Last segment gets the remaining size
             remaining
@@ -64,20 +65,20 @@ async fn run_test_case(test_case: &TestCase) -> bool {
             let max_per_segment = remaining / ((num_segments - i) as u64);
             std::cmp::min(max_per_segment, TREE_BLOB_MAX_LENGTH as u64)
         };
-        
+
         if segment_size == 0 && num_segments > 1 {
             // Can't have zero-size segments in multi-segment case
             return false;
         }
-        
+
         if segment_size > TREE_BLOB_MAX_LENGTH as u64 {
             // Segment size exceeds tree blob max length
             return false;
         }
-        
+
         let blob_content = vec![i as u8; segment_size as usize];
         actual_total_size += segment_size;
-        
+
         let tree = Tree::new(
             TreeBlob::try_from(bytes::Bytes::from(blob_content)).unwrap(),
             TreeChildren::empty(),
@@ -86,27 +87,38 @@ async fn run_test_case(test_case: &TestCase) -> bool {
         let digest = storage.store_tree(&hashed).await.unwrap();
         segments.push(digest);
     }
-    
+
     // Ensure we match the expected total size
-    assert_eq!(actual_total_size, total_size, "Internal test error: segment sizes don't match total_size");
+    assert_eq!(
+        actual_total_size, total_size,
+        "Internal test error: segment sizes don't match total_size"
+    );
 
     // Use save_segmented_blob to save the segments
-    let saved_digest =
-        match save_segmented_blob(&segments, total_size, max_children_per_tree, storage.as_ref())
-            .await
-        {
-            Ok(digest) => digest,
-            Err(_) => return false, // Reject invalid inputs
-        };
+    let saved_digest = match save_segmented_blob(
+        &segments,
+        total_size,
+        max_children_per_tree,
+        storage.as_ref(),
+    )
+    .await
+    {
+        Ok(digest) => digest,
+        Err(_) => return false, // Reject invalid inputs
+    };
 
     // Use load_segmented_blob to load the segments back
-    let (loaded_segments, loaded_size) = match load_segmented_blob(&saved_digest, storage.as_ref()).await {
-        Ok(result) => result,
-        Err(err) => {
-            // Deserialization should not fail after successful serialization with valid data
-            panic!("Deserialization failed after successful serialization: {:?}", err);
-        }
-    };
+    let (loaded_segments, loaded_size) =
+        match load_segmented_blob(&saved_digest, storage.as_ref()).await {
+            Ok(result) => result,
+            Err(err) => {
+                // Deserialization should not fail after successful serialization with valid data
+                panic!(
+                    "Deserialization failed after successful serialization: {:?}",
+                    err
+                );
+            }
+        };
 
     // Verify that the loaded data matches what we saved
     // For single segment case, the digest is returned directly and size is actual blob size
@@ -128,7 +140,7 @@ async fn run_test_case(test_case: &TestCase) -> bool {
             loaded_size, total_size,
             "Loaded size should match saved size for multiple segments"
         );
-        
+
         // Verify consistency based on tree structure
         // The segments might be reorganized into a tree structure, but total count should be preserved
         // when the structure is flat enough to not require hierarchical organization
