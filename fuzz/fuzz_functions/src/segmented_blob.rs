@@ -1,7 +1,7 @@
 use arbitrary::{Arbitrary, Unstructured};
 use astraea::{
     storage::{InMemoryTreeStorage, StoreTree},
-    tree::{HashedTree, Tree, TreeBlob, TreeChildren},
+    tree::{HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH, TREE_MAX_CHILDREN},
 };
 use dogbox_tree_editor::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use pretty_assertions::assert_eq;
@@ -38,8 +38,8 @@ async fn run_test_case(test_case: &TestCase) -> bool {
         return false;
     }
 
-    // Ensure max_children_per_tree is in valid range [2, 255]
-    let max_children_per_tree = (test_case.max_children_per_tree as usize).max(2).min(255);
+    // Ensure max_children_per_tree is in valid range [2, TREE_MAX_CHILDREN]
+    let max_children_per_tree = (test_case.max_children_per_tree as usize).max(2).min(TREE_MAX_CHILDREN);
 
     let storage = Arc::new(InMemoryTreeStorage::new(Mutex::new(BTreeMap::new())));
 
@@ -62,11 +62,16 @@ async fn run_test_case(test_case: &TestCase) -> bool {
         } else {
             // Earlier segments get an equal share, but not more than remaining
             let max_per_segment = remaining / ((num_segments - i) as u64);
-            std::cmp::min(max_per_segment, 64000) // TREE_BLOB_MAX_LENGTH
+            std::cmp::min(max_per_segment, TREE_BLOB_MAX_LENGTH as u64)
         };
         
         if segment_size == 0 && num_segments > 1 {
             // Can't have zero-size segments in multi-segment case
+            return false;
+        }
+        
+        if segment_size > TREE_BLOB_MAX_LENGTH as u64 {
+            // Segment size exceeds tree blob max length
             return false;
         }
         
