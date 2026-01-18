@@ -27,7 +27,7 @@ use cached::Cached;
 use derivative::Derivative;
 use dogbox_tree::serialization::{
     self, deserialize_directory, serialize_directory, DeserializationError, DirectoryEntryKind,
-    FileName, FileNameError,
+    DirectoryEntryMetaData, FileName, FileNameError,
 };
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
@@ -73,18 +73,6 @@ impl std::error::Error for Error {}
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Future<'a, T> = Pin<Box<dyn core::future::Future<Output = Result<T>> + Send + 'a>>;
 pub type Stream<T> = Pin<Box<dyn futures_core::stream::Stream<Item = T> + Send>>;
-
-#[derive(Clone, Debug, PartialEq, Copy)]
-pub struct DirectoryEntryMetaData {
-    pub kind: DirectoryEntryKind,
-    pub modified: std::time::SystemTime,
-}
-
-impl DirectoryEntryMetaData {
-    pub fn new(kind: DirectoryEntryKind, modified: std::time::SystemTime) -> Self {
-        Self { kind, modified }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MutableDirectoryEntry {
@@ -139,9 +127,23 @@ pub enum OpenNamedEntryStatus {
     File(OpenFileStatus),
 }
 
-pub enum NamedEntryStatus {
+pub enum NamedEntryOpenClosedStatus {
     Closed(serialization::DirectoryEntryKind, BlobDigest),
     Open(OpenNamedEntryStatus),
+}
+
+pub struct NamedEntryStatus {
+    pub open_closed: NamedEntryOpenClosedStatus,
+    pub modified: std::time::SystemTime,
+}
+
+impl NamedEntryStatus {
+    pub fn new(open_closed: NamedEntryOpenClosedStatus, modified: std::time::SystemTime) -> Self {
+        Self {
+            open_closed,
+            modified,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -167,15 +169,29 @@ impl NamedEntry {
             }
             NamedEntry::OpenSubdirectory(open_directory, _) => DirectoryEntryMetaData::new(
                 DirectoryEntryKind::Directory,
-                open_directory.modified(),
+                open_directory.modified().await,
             ),
+        }
+    }
+
+    async fn set_modified(&mut self, modified: std::time::SystemTime) {
+        match self {
+            NamedEntry::NotOpen(meta_data, _) => {
+                meta_data.modified = modified;
+            }
+            NamedEntry::OpenRegularFile(open_file, _) => {
+                open_file.set_modified(modified).await;
+            }
+            NamedEntry::OpenSubdirectory(open_directory, _) => {
+                open_directory.set_modified(modified).await;
+            }
         }
     }
 
     fn get_status(&self) -> NamedEntryStatus {
         match self {
-            NamedEntry::NotOpen(directory_entry_meta_data, blob_digest) => {
-                NamedEntryStatus::Closed(
+            NamedEntry::NotOpen(directory_entry_meta_data, blob_digest) => NamedEntryStatus::new(
+                NamedEntryOpenClosedStatus::Closed(
                     match directory_entry_meta_data.kind {
                         DirectoryEntryKind::Directory => {
                             serialization::DirectoryEntryKind::Directory
@@ -185,15 +201,24 @@ impl NamedEntry {
                         }
                     },
                     *blob_digest,
-                )
-            }
+                ),
+                directory_entry_meta_data.modified,
+            ),
             NamedEntry::OpenRegularFile(_open_file, receiver) => {
                 let open_file_status: OpenFileStatus = *receiver.borrow();
-                NamedEntryStatus::Open(OpenNamedEntryStatus::File(open_file_status))
+                NamedEntryStatus::new(
+                    NamedEntryOpenClosedStatus::Open(OpenNamedEntryStatus::File(open_file_status)),
+                    open_file_status.modified,
+                )
             }
-            NamedEntry::OpenSubdirectory(_directory, receiver) => {
+            NamedEntry::OpenSubdirectory(_open_directory, receiver) => {
                 let open_directory_status: OpenDirectoryStatus = *receiver.borrow();
-                NamedEntryStatus::Open(OpenNamedEntryStatus::Directory(open_directory_status))
+                NamedEntryStatus::new(
+                    NamedEntryOpenClosedStatus::Open(OpenNamedEntryStatus::Directory(
+                        open_directory_status,
+                    )),
+                    open_directory_status.modified,
+                )
             }
         }
     }
@@ -202,7 +227,10 @@ impl NamedEntry {
     // When does this spawned task terminate? What prevents task accumulation if watch() is called repeatedly?
     // Why does on_change().await.unwrap() panic on error instead of handling it gracefully?
     // Should the spawned task be tracked/cancelled to prevent resource leaks?
-    fn watch(&mut self, on_change: Box<dyn Fn() -> Future<'static, ()> + Send + Sync>) {
+    fn watch(
+        &mut self,
+        on_change: Box<dyn Fn(std::time::SystemTime) -> Future<'static, ()> + Send + Sync>,
+    ) {
         match self {
             NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {}
             NamedEntry::OpenRegularFile(_arc, receiver) => {
@@ -228,7 +256,7 @@ impl NamedEntry {
                                     );
                                     previous_status = current_status;
                                     // TODO: This unwrap could panic. Should errors in on_change callback be logged instead?
-                                    on_change().await.unwrap();
+                                    on_change(current_status.modified).await.unwrap();
                                 }
                             }
                             Err(error) => {
@@ -257,7 +285,7 @@ impl NamedEntry {
                                     debug!("Open directory status changed: {:?}", &current_status);
                                     previous_status = current_status;
                                     // TODO: This unwrap could panic. Should errors in on_change callback be logged instead?
-                                    on_change().await.unwrap();
+                                    on_change(current_status.modified).await.unwrap();
                                 }
                             }
                             Err(error) => {
@@ -271,10 +299,10 @@ impl NamedEntry {
         }
     }
 
-    async fn request_save(&self) -> Result<NamedEntryStatus> {
+    async fn request_save(&self) -> Result<NamedEntryOpenClosedStatus> {
         match self {
             NamedEntry::NotOpen(directory_entry_meta_data, blob_digest) => {
-                Ok(NamedEntryStatus::Closed(
+                Ok(NamedEntryOpenClosedStatus::Closed(
                     match directory_entry_meta_data.kind {
                         DirectoryEntryKind::Directory => {
                             serialization::DirectoryEntryKind::Directory
@@ -286,10 +314,10 @@ impl NamedEntry {
                     *blob_digest,
                 ))
             }
-            NamedEntry::OpenRegularFile(arc, _receiver) => Ok(NamedEntryStatus::Open(
+            NamedEntry::OpenRegularFile(arc, _receiver) => Ok(NamedEntryOpenClosedStatus::Open(
                 OpenNamedEntryStatus::File(arc.request_save().await?),
             )),
-            NamedEntry::OpenSubdirectory(arc, _receiver) => Ok(NamedEntryStatus::Open(
+            NamedEntry::OpenSubdirectory(arc, _receiver) => Ok(NamedEntryOpenClosedStatus::Open(
                 OpenNamedEntryStatus::Directory(arc.request_save().await?),
             )),
         }
@@ -309,7 +337,7 @@ impl NamedEntry {
                 if !arc.is_open_for_anything() {
                     let (digest, size) = arc.last_known_digest().await;
                     if digest.is_digest_up_to_date {
-                        let modified = arc.modified();
+                        let modified = arc.modified().await;
                         *self = NamedEntry::NotOpen(
                             DirectoryEntryMetaData::new(DirectoryEntryKind::File(size), modified),
                             digest.last_known_digest,
@@ -325,8 +353,8 @@ impl NamedEntry {
             NamedEntry::OpenSubdirectory(arc, _receiver) => {
                 let mut stats = Box::pin(arc.drop_all_read_caches()).await;
                 if stats.files_and_directories_remaining_open == 0 {
-                    let modified = arc.modified();
                     let latest_status = arc.latest_status();
+                    let modified = latest_status.modified;
                     if latest_status.digest.is_digest_up_to_date {
                         *self = NamedEntry::NotOpen(
                             DirectoryEntryMetaData::new(DirectoryEntryKind::Directory, modified),
@@ -401,6 +429,7 @@ pub struct OpenDirectoryStatus {
     pub directories_open_count: usize,
     pub directories_unsaved_count: usize,
     pub open_files: OpenFileStats,
+    pub modified: std::time::SystemTime,
 }
 
 impl OpenDirectoryStatus {
@@ -409,12 +438,14 @@ impl OpenDirectoryStatus {
         directories_open_count: usize,
         directories_unsaved_count: usize,
         open_files: OpenFileStats,
+        modified: std::time::SystemTime,
     ) -> Self {
         Self {
             digest,
             directories_open_count,
             directories_unsaved_count,
             open_files,
+            modified,
         }
     }
 }
@@ -454,6 +485,7 @@ struct OpenDirectoryMutableState {
     names: BTreeMap<FileName, NamedEntry>,
     has_unsaved_changes: bool,
     last_accessed_at: std::time::SystemTime,
+    modified: std::time::SystemTime,
 }
 
 impl OpenDirectoryMutableState {
@@ -461,11 +493,13 @@ impl OpenDirectoryMutableState {
         names: BTreeMap<FileName, NamedEntry>,
         has_unsaved_changes: bool,
         last_accessed_at: std::time::SystemTime,
+        modified: std::time::SystemTime,
     ) -> Self {
         Self {
             names,
             has_unsaved_changes,
             last_accessed_at,
+            modified,
         }
     }
 
@@ -489,7 +523,6 @@ pub struct OpenDirectory {
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
     change_event_sender: tokio::sync::watch::Sender<OpenDirectoryStatus>,
     _change_event_receiver: tokio::sync::watch::Receiver<OpenDirectoryStatus>,
-    modified: std::time::SystemTime,
     #[derivative(Debug(format_with = "format_wall_clock"))]
     clock: WallClock,
     open_file_write_buffer_in_blocks: usize,
@@ -507,7 +540,7 @@ impl OpenDirectory {
     ) -> Self {
         let has_unsaved_changes = !digest.is_digest_up_to_date;
         let (change_event_sender, change_event_receiver) = tokio::sync::watch::channel(
-            OpenDirectoryStatus::new(digest, 1, 0, OpenFileStats::new(0, 0, 0, 0, 0)),
+            OpenDirectoryStatus::new(digest, 1, 0, OpenFileStats::new(0, 0, 0, 0, 0), modified),
         );
         let last_accessed_at = (clock)();
         Self {
@@ -516,11 +549,11 @@ impl OpenDirectory {
                 names,
                 has_unsaved_changes,
                 last_accessed_at,
+                modified,
             )),
             storage,
             change_event_sender,
             _change_event_receiver: change_event_receiver,
-            modified,
             clock,
             open_file_write_buffer_in_blocks,
         }
@@ -538,8 +571,14 @@ impl OpenDirectory {
         *self.change_event_sender.borrow()
     }
 
-    pub fn modified(&self) -> std::time::SystemTime {
-        self.modified
+    pub async fn modified(&self) -> std::time::SystemTime {
+        let state_locked = self.state.lock().await;
+        state_locked.modified
+    }
+
+    pub async fn set_modified(&self, modified: std::time::SystemTime) {
+        let mut state_locked = self.state.lock().await;
+        state_locked.modified = modified;
     }
 
     pub async fn read(&self) -> Stream<MutableDirectoryEntry> {
@@ -584,9 +623,9 @@ impl OpenDirectory {
                         NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
                             DirectoryEntryKind::Directory => {
                                 warn!(
-                            "Cannot open directory {} (currently not open) as a regular file.",
-                            &name
-                        );
+                                    "Cannot open directory {} (currently not open) as a regular file.",
+                                    &name
+                                );
                                 Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
                             }
                             DirectoryEntryKind::File(length) => {
@@ -601,7 +640,7 @@ impl OpenDirectory {
                                         self.open_file_write_buffer_in_blocks,
                                     ),
                                     self.storage.clone(),
-                                    self.modified,
+                                    meta_data.modified,
                                 ));
                                 let receiver = open_file.watch().await;
                                 let mut new_entry =
@@ -626,6 +665,7 @@ impl OpenDirectory {
                 if creation_mode.fail_if_not_exists {
                     Err(Error::NotFound(name.clone()))
                 } else {
+                    let modified = (self.clock)();
                     let open_file = Arc::new(OpenFile::new(
                         OpenFileContentBuffer::from_storage(
                             *empty_file_digest,
@@ -633,7 +673,7 @@ impl OpenDirectory {
                             self.open_file_write_buffer_in_blocks,
                         ),
                         self.storage.clone(),
-                        (self.clock)(),
+                        modified,
                     ));
                     debug!("Adding file {} to the directory which sends a change event for its parent directory.", &name);
                     let receiver = open_file.watch().await;
@@ -642,7 +682,12 @@ impl OpenDirectory {
                         name.clone(),
                         NamedEntry::OpenRegularFile(open_file.clone(), receiver),
                     );
-                    Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
+                    Self::notify_about_change(
+                        &mut state_locked,
+                        &self.change_event_sender,
+                        modified,
+                    )
+                    .await;
                     Ok(open_file)
                 }
             }
@@ -650,13 +695,14 @@ impl OpenDirectory {
     }
 
     fn watch_new_entry(self: Arc<OpenDirectory>, entry: &mut NamedEntry) {
-        entry.watch(Box::new(move || {
+        entry.watch(Box::new(move |modified| {
             debug!("Notifying directory of changes in one of the entries.");
             let self2 = self.clone();
             Box::pin(async move {
                 let mut state_locked = self2.state.lock().await;
                 debug!("ACTUALLY Notifying directory of changes in one of the entries.");
-                Self::notify_about_change(&mut state_locked, &self2.change_event_sender).await;
+                Self::notify_about_change(&mut state_locked, &self2.change_event_sender, modified)
+                    .await;
                 Ok(())
             })
         }));
@@ -678,7 +724,7 @@ impl OpenDirectory {
         original_path: std::path::PathBuf,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
         digest: &BlobDigest,
-        modified: std::time::SystemTime,
+        modified_default: std::time::SystemTime,
         clock: WallClock,
         open_file_write_buffer_in_blocks: usize,
     ) -> Result<Arc<OpenDirectory>> {
@@ -690,20 +736,28 @@ impl OpenDirectory {
                 return Err(Error::OtherDeserializationError(message));
             }
         };
+        let mut modified = None;
         let mut entries = BTreeMap::new();
         for maybe_entry in deserialized_directory {
-            let (name, (kind, digest)) = maybe_entry;
-            entries.insert(
-                name,
-                NamedEntry::NotOpen(DirectoryEntryMetaData::new(kind, modified), digest),
-            );
+            let (name, (meta, digest)) = maybe_entry;
+            match modified {
+                Some(current_modified) => {
+                    if meta.modified > current_modified {
+                        modified = Some(meta.modified);
+                    }
+                }
+                None => {
+                    modified = Some(meta.modified);
+                }
+            }
+            entries.insert(name, NamedEntry::NotOpen(meta, digest));
         }
         Ok(Arc::new(OpenDirectory::new(
             original_path,
             DigestStatus::new(*digest, true),
             entries,
             storage,
-            modified,
+            modified.unwrap_or(modified_default),
             clock,
             open_file_write_buffer_in_blocks,
         )))
@@ -723,7 +777,7 @@ impl OpenDirectory {
                             self.original_path.join(name.to_string()),
                             self.storage.clone(),
                             digest,
-                            self.modified,
+                            meta_data.modified,
                             self.clock.clone(),
                             self.open_file_write_buffer_in_blocks,
                         )
@@ -834,11 +888,12 @@ impl OpenDirectory {
                     "Creating directory {} sends a change event for its parent directory.",
                     &name
                 );
+                let modified = (self.clock)();
                 let directory = Self::load_directory(
                     self.original_path.join(name.to_string()),
                     self.storage.clone(),
                     &empty_directory_digest,
-                    (self.clock)(),
+                    modified,
                     self.clock.clone(),
                     self.open_file_write_buffer_in_blocks,
                 )
@@ -849,7 +904,8 @@ impl OpenDirectory {
                     name,
                     NamedEntry::OpenSubdirectory(directory, receiver),
                 );
-                Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
+                Self::notify_about_change(&mut state_locked, &self.change_event_sender, modified)
+                    .await;
                 Ok(())
             }
         }
@@ -866,7 +922,8 @@ impl OpenDirectory {
                 return Err(Error::NotFound(name_here.clone()));
             }
         }
-        Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
+        let modified = (self.clock)();
+        Self::notify_about_change(&mut state_locked, &self.change_event_sender, modified).await;
         Ok(())
     }
 
@@ -929,11 +986,16 @@ impl OpenDirectory {
             }
         }
 
+        let modified = (self.clock)();
         if let Some(mut state_there_locked_present) = state_there_locked {
-            Self::notify_about_change(&mut state_there_locked_present, &there.change_event_sender)
-                .await;
+            Self::notify_about_change(
+                &mut state_there_locked_present,
+                &there.change_event_sender,
+                modified,
+            )
+            .await;
         }
-        Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
+        Self::notify_about_change(&mut state_locked, &self.change_event_sender, modified).await;
         Ok(())
     }
 
@@ -1001,7 +1063,9 @@ impl OpenDirectory {
             name_here, name_there
         );
 
-        let (_obsolete_name, entry) = /*TODO: stop watching the entry*/ state_locked.names.remove_entry(name_here).unwrap();
+        let modified = (self.clock)();
+        let (_obsolete_name, mut entry) = /*TODO: stop watching the entry*/ state_locked.names.remove_entry(name_here).unwrap();
+        entry.set_modified(modified).await;
         match state_there_locked {
             Some(ref mut value) => self.clone().write_into_directory(value, name_there, entry),
             None => self
@@ -1009,9 +1073,9 @@ impl OpenDirectory {
                 .write_into_directory(&mut state_locked, name_there, entry),
         }
 
-        Self::notify_about_change(&mut state_locked, &self.change_event_sender).await;
+        Self::notify_about_change(&mut state_locked, &self.change_event_sender, modified).await;
         if let Some(ref mut state_there) = state_there_locked {
-            Self::notify_about_change(state_there, &there.change_event_sender).await;
+            Self::notify_about_change(state_there, &there.change_event_sender, modified).await;
         }
         Ok(())
     }
@@ -1050,6 +1114,7 @@ impl OpenDirectory {
     async fn notify_about_change(
         state_locked: &mut OpenDirectoryMutableState,
         change_event_sender: &tokio::sync::watch::Sender<OpenDirectoryStatus>,
+        modified: std::time::SystemTime,
     ) {
         if state_locked.has_unsaved_changes {
             debug!("Directory had unsaved changes already.");
@@ -1057,14 +1122,32 @@ impl OpenDirectory {
             debug!("Directory has unsaved changes now.");
             state_locked.has_unsaved_changes = true;
         }
+        if modified > state_locked.modified {
+            info!(
+                "Directory modified time updated from {:?} to {:?}",
+                state_locked.modified, modified
+            );
+            state_locked.modified = modified;
+        } else if modified == state_locked.modified {
+            debug!(
+                "Directory modified time remains at {:?}",
+                state_locked.modified
+            );
+        } else {
+            debug!("Ignoring modified time update because it is in the past.");
+        }
         change_event_sender.send_if_modified(|last_status| {
+            let mut result = false;
+            if last_status.modified != modified {
+                last_status.modified = modified;
+                result = true;
+            }
             if last_status.digest.is_digest_up_to_date {
                 last_status.digest.is_digest_up_to_date = false;
                 last_status.directories_unsaved_count += 1;
-                true
-            } else {
-                false
+                result = true;
             }
+            result
         });
     }
 
@@ -1121,37 +1204,40 @@ impl OpenDirectory {
         let mut are_children_up_to_date = true;
         for entry in state_locked.names.iter_mut() {
             let named_entry_status = entry.1.get_status();
-            match named_entry_status {
-                NamedEntryStatus::Closed(_directory_entry_kind, _blob_digest) => {}
-                NamedEntryStatus::Open(open_named_entry_status) => match open_named_entry_status {
-                    OpenNamedEntryStatus::Directory(open_directory_status) => {
-                        directories_open_count += open_directory_status.directories_open_count;
-                        directories_unsaved_count +=
-                            open_directory_status.directories_unsaved_count;
-                        open_files.add(&open_directory_status.open_files);
-                        if !open_directory_status.digest.is_digest_up_to_date {
-                            debug!("Child directory is not up to date.");
-                            are_children_up_to_date = false;
+            match named_entry_status.open_closed {
+                NamedEntryOpenClosedStatus::Closed(_directory_entry_kind, _blob_digest) => {}
+                NamedEntryOpenClosedStatus::Open(open_named_entry_status) => {
+                    match open_named_entry_status {
+                        OpenNamedEntryStatus::Directory(open_directory_status) => {
+                            directories_open_count += open_directory_status.directories_open_count;
+                            directories_unsaved_count +=
+                                open_directory_status.directories_unsaved_count;
+                            open_files.add(&open_directory_status.open_files);
+                            if !open_directory_status.digest.is_digest_up_to_date {
+                                debug!("Child directory is not up to date.");
+                                are_children_up_to_date = false;
+                            }
+                        }
+                        OpenNamedEntryStatus::File(open_file_status) => {
+                            open_files.files_open_count += 1;
+                            if open_file_status.is_open_for_reading {
+                                open_files.files_open_for_reading_count += 1;
+                            }
+                            if open_file_status.is_open_for_writing {
+                                open_files.files_open_for_writing_count += 1;
+                            }
+                            if open_file_status.bytes_unflushed_count > 0 {
+                                open_files.files_unflushed_count += 1;
+                            }
+                            open_files.bytes_unflushed_count +=
+                                open_file_status.bytes_unflushed_count;
+                            if !open_file_status.digest.is_digest_up_to_date {
+                                debug!("Child file is not up to date.");
+                                are_children_up_to_date = false;
+                            }
                         }
                     }
-                    OpenNamedEntryStatus::File(open_file_status) => {
-                        open_files.files_open_count += 1;
-                        if open_file_status.is_open_for_reading {
-                            open_files.files_open_for_reading_count += 1;
-                        }
-                        if open_file_status.is_open_for_writing {
-                            open_files.files_open_for_writing_count += 1;
-                        }
-                        if open_file_status.bytes_unflushed_count > 0 {
-                            open_files.files_unflushed_count += 1;
-                        }
-                        open_files.bytes_unflushed_count += open_file_status.bytes_unflushed_count;
-                        if !open_file_status.digest.is_digest_up_to_date {
-                            debug!("Child file is not up to date.");
-                            are_children_up_to_date = false;
-                        }
-                    }
-                },
+                }
             }
         }
         let is_up_to_date = are_children_up_to_date && !state_locked.has_unsaved_changes;
@@ -1160,6 +1246,7 @@ impl OpenDirectory {
             directories_unsaved_count += 1;
             state_locked.has_unsaved_changes = true;
         }
+        let modified = state_locked.modified;
         change_event_sender.send_if_modified(|last_status| {
             let digest = match new_digest {
                 Some(new_digest) => DigestStatus::new(new_digest, is_up_to_date),
@@ -1170,6 +1257,7 @@ impl OpenDirectory {
                 directories_open_count,
                 directories_unsaved_count,
                 open_files,
+                modified,
             );
             if *last_status == status {
                 debug!(
@@ -1190,28 +1278,39 @@ impl OpenDirectory {
         state_locked: &mut OpenDirectoryMutableState,
         storage: &(dyn LoadStoreTree + Send + Sync),
     ) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
-        let mut entries: BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)> = BTreeMap::new();
-        for entry in state_locked.names.iter_mut() {
-            let name = entry.0;
-            let named_entry_status = entry.1.get_status();
-            let (kind, digest) = match named_entry_status {
-                NamedEntryStatus::Closed(directory_entry_kind, blob_digest) => {
+        let mut entries: BTreeMap<FileName, (DirectoryEntryMetaData, BlobDigest)> = BTreeMap::new();
+        for (name, entry) in state_locked.names.iter_mut() {
+            let named_entry_status = entry.get_status();
+            let (kind, digest) = match named_entry_status.open_closed {
+                NamedEntryOpenClosedStatus::Closed(directory_entry_kind, blob_digest) => {
                     (directory_entry_kind, blob_digest)
                 }
-                NamedEntryStatus::Open(open_named_entry_status) => match open_named_entry_status {
-                    OpenNamedEntryStatus::Directory(open_directory_status) => (
-                        serialization::DirectoryEntryKind::Directory,
-                        open_directory_status.digest.last_known_digest,
-                    ),
-                    OpenNamedEntryStatus::File(open_file_status) => (
-                        serialization::DirectoryEntryKind::File(
-                            open_file_status.last_known_digest_file_size,
+                NamedEntryOpenClosedStatus::Open(open_named_entry_status) => {
+                    match open_named_entry_status {
+                        OpenNamedEntryStatus::Directory(open_directory_status) => (
+                            serialization::DirectoryEntryKind::Directory,
+                            open_directory_status.digest.last_known_digest,
                         ),
-                        open_file_status.digest.last_known_digest,
-                    ),
-                },
+                        OpenNamedEntryStatus::File(open_file_status) => (
+                            serialization::DirectoryEntryKind::File(
+                                open_file_status.last_known_digest_file_size,
+                            ),
+                            open_file_status.digest.last_known_digest,
+                        ),
+                    }
+                }
             };
-            entries.insert(name.clone(), (kind, digest));
+            debug!(
+                "Saving entry {} modified at {:?}",
+                name, named_entry_status.modified
+            );
+            entries.insert(
+                name.clone(),
+                (
+                    DirectoryEntryMetaData::new(kind, named_entry_status.modified),
+                    digest,
+                ),
+            );
         }
         serialize_directory(&entries, storage).await
     }
@@ -1331,6 +1430,7 @@ pub struct OpenFileStatus {
     pub is_open_for_reading: bool,
     pub is_open_for_writing: bool,
     pub bytes_unflushed_count: u64,
+    pub modified: std::time::SystemTime,
 }
 
 impl OpenFileStatus {
@@ -1341,6 +1441,7 @@ impl OpenFileStatus {
         is_open_for_reading: bool,
         is_open_for_writing: bool,
         bytes_unflushed_count: u64,
+        modified: std::time::SystemTime,
     ) -> Self {
         Self {
             digest,
@@ -1349,6 +1450,7 @@ impl OpenFileStatus {
             is_open_for_reading,
             is_open_for_writing,
             bytes_unflushed_count,
+            modified,
         }
     }
 }
@@ -2508,6 +2610,7 @@ impl OpenFileContentBuffer {
 struct OpenFileMutableState {
     content: OpenFileContentBuffer,
     storage: Option<Arc<dyn LoadStoreTree + Send + Sync>>,
+    modified: std::time::SystemTime,
 }
 
 #[derive(Debug)]
@@ -2532,7 +2635,6 @@ pub struct OpenFile {
     state: tokio::sync::Mutex<OpenFileMutableState>,
     change_event_sender: tokio::sync::watch::Sender<OpenFileStatus>,
     _change_event_receiver: tokio::sync::watch::Receiver<OpenFileStatus>,
-    modified: std::time::SystemTime,
     read_permission: Arc<OpenFileReadPermission>,
     write_permission: Arc<OpenFileWritePermission>,
 }
@@ -2551,22 +2653,37 @@ impl OpenFile {
             false,
             false,
             0,
+            modified,
         ));
         OpenFile {
             state: tokio::sync::Mutex::new(OpenFileMutableState {
                 content,
                 storage: Some(storage),
+                modified,
             }),
             change_event_sender: sender,
             _change_event_receiver: receiver,
-            modified,
             read_permission: Arc::new(OpenFileReadPermission {}),
             write_permission: Arc::new(OpenFileWritePermission {}),
         }
     }
 
-    pub fn modified(&self) -> std::time::SystemTime {
-        self.modified
+    pub async fn modified(&self) -> std::time::SystemTime {
+        let state_locked = self.state.lock().await;
+        state_locked.modified
+    }
+
+    async fn set_modified(&self, modified: std::time::SystemTime) {
+        let mut locked = self.state.lock().await;
+        locked.modified = modified;
+        _ = Self::update_status(
+            &self.change_event_sender,
+            &locked.content,
+            &self.read_permission,
+            &self.write_permission,
+            modified,
+        )
+        .await
     }
 
     pub async fn size(&self) -> u64 {
@@ -2574,7 +2691,8 @@ impl OpenFile {
     }
 
     pub async fn get_meta_data(&self) -> FileMetaData {
-        FileMetaData::new(self.size().await, self.modified)
+        let state_locked = self.state.lock().await;
+        FileMetaData::new(state_locked.content.size(), state_locked.modified)
     }
 
     pub async fn request_save(&self) -> std::result::Result<OpenFileStatus, Error> {
@@ -2605,6 +2723,7 @@ impl OpenFile {
         content: &OpenFileContentBuffer,
         read_permission: &Arc<OpenFileReadPermission>,
         write_permission: &Arc<OpenFileWritePermission>,
+        modified: std::time::SystemTime,
     ) -> OpenFileStatus {
         let (last_known_digest, last_known_digest_file_size) = content.last_known_digest();
         let is_open_for_reading = Self::is_open_for_reading(read_permission);
@@ -2616,6 +2735,7 @@ impl OpenFile {
             is_open_for_reading,
             is_open_for_writing,
             content.unsaved_blocks() * (TREE_BLOB_MAX_LENGTH as u64),
+            modified,
         );
         if change_event_sender.send_if_modified(|last_status| {
             if *last_status == status {
@@ -2709,6 +2829,7 @@ impl OpenFile {
                 &state_locked.content,
                 &self.read_permission,
                 &self.write_permission,
+                state_locked.modified,
             )
             .await;
             // We want to update the status even if parts of the write failed.
@@ -2767,6 +2888,7 @@ impl OpenFile {
                 &state_locked.content,
                 &self.read_permission,
                 &self.write_permission,
+                state_locked.modified,
             )
             .await),
             StoreChanges::NoChanges => Ok(*self.change_event_sender.borrow()),
@@ -2799,6 +2921,7 @@ impl OpenFile {
                 &state_locked.content,
                 &self.read_permission,
                 &self.write_permission,
+                state_locked.modified,
             )
             .await;
             Ok(())
@@ -2856,9 +2979,15 @@ impl TreeEditor {
 
     pub fn get_meta_data<'a>(&self, path: NormalizedPath) -> Future<'a, DirectoryEntryMetaData> {
         match path.split_right() {
-            PathSplitRightResult::Root => Box::pin(std::future::ready(Ok(
-                DirectoryEntryMetaData::new(DirectoryEntryKind::Directory, self.root.modified()),
-            ))),
+            PathSplitRightResult::Root => {
+                let root = self.root.clone();
+                Box::pin(async move {
+                    Ok(DirectoryEntryMetaData::new(
+                        DirectoryEntryKind::Directory,
+                        root.modified().await,
+                    ))
+                })
+            }
             PathSplitRightResult::Entry(directory_path, leaf_name) => {
                 let root = self.root.clone();
                 Box::pin(async move {

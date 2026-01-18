@@ -1,9 +1,9 @@
 use crate::{
     format_wall_clock, AccessOrderLowerIsMoreRecent, CacheDropStats, DigestStatus,
-    DirectoryEntryKind, DirectoryEntryMetaData, Error, FileCreationMode, LoadedBlock,
-    MutableDirectoryEntry, NamedEntry, NormalizedPath, OpenDirectory, OpenDirectoryStatus,
-    OpenFileContentBlock, OpenFileContentBuffer, OpenFileContentBufferLoaded, OpenFileStats,
-    OptimizedWriteBuffer, Prefetcher, StoreChanges, StreakDirection, TreeEditor, WallClock,
+    DirectoryEntryKind, Error, FileCreationMode, LoadedBlock, MutableDirectoryEntry, NamedEntry,
+    NormalizedPath, OpenDirectory, OpenDirectoryStatus, OpenFileContentBlock,
+    OpenFileContentBuffer, OpenFileContentBufferLoaded, OpenFileStats, OptimizedWriteBuffer,
+    Prefetcher, StoreChanges, StreakDirection, TreeEditor, WallClock,
 };
 use astraea::storage::{
     CollectGarbage, DelayedHashedTree, GarbageCollectionStats, InMemoryTreeStorage, LoadError,
@@ -15,7 +15,7 @@ use astraea::{
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
-use dogbox_tree::serialization::FileName;
+use dogbox_tree::serialization::{DirectoryEntryMetaData, FileName};
 use futures::StreamExt;
 use lazy_static::lazy_static;
 use pretty_assertions::assert_eq;
@@ -355,6 +355,7 @@ async fn test_open_directory_nothing_happens() {
             1,
             0,
             OpenFileStats::new(0, 0, 0, 0, 0),
+            modified,
         ),
         status
     );
@@ -682,6 +683,7 @@ async fn test_read_file_after_garbage_collection() {
             1,
             0,
             OpenFileStats::new(0, 0, 0, 0, 0),
+            modified,
         ),
         &directory_status
     );

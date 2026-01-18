@@ -122,14 +122,38 @@ pub enum DirectoryEntryKind {
     File(u64),
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct DirectoryEntryMetaData {
+    pub kind: DirectoryEntryKind,
+    pub modified: std::time::SystemTime,
+}
+
+impl DirectoryEntryMetaData {
+    pub fn new(
+        kind: DirectoryEntryKind,
+        modified: std::time::SystemTime,
+    ) -> DirectoryEntryMetaData {
+        DirectoryEntryMetaData { kind, modified }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DirectoryEntry {
-    pub kind: DirectoryEntryKind,
+    pub meta: DirectoryEntryMetaData,
     pub child: sorted_tree::sorted_tree::TreeReference,
 }
 
+impl DirectoryEntry {
+    pub fn new(
+        meta: DirectoryEntryMetaData,
+        child: sorted_tree::sorted_tree::TreeReference,
+    ) -> DirectoryEntry {
+        DirectoryEntry { meta, child }
+    }
+}
+
 impl sorted_tree::sorted_tree::NodeValue for DirectoryEntry {
-    type Content = DirectoryEntryKind;
+    type Content = DirectoryEntryMetaData;
 
     fn has_child(_content: &Self::Content) -> bool {
         // Each directory entry points to either a file or a subdirectory. Both are represented by a child reference.
@@ -139,7 +163,7 @@ impl sorted_tree::sorted_tree::NodeValue for DirectoryEntry {
     fn from_content(content: Self::Content, child: &Option<BlobDigest>) -> Self {
         match child {
             Some(reference) => DirectoryEntry {
-                kind: content,
+                meta: content,
                 child: sorted_tree::sorted_tree::TreeReference::new(*reference),
             },
             None => unreachable!("DirectoryEntry must have a child reference"),
@@ -147,23 +171,11 @@ impl sorted_tree::sorted_tree::NodeValue for DirectoryEntry {
     }
 
     fn to_content(&self) -> Self::Content {
-        self.kind
+        self.meta
     }
 
     fn get_reference(&self) -> Option<BlobDigest> {
         Some(*self.child.reference())
-    }
-}
-
-impl DirectoryEntry {
-    pub fn new(
-        kind: DirectoryEntryKind,
-        content: sorted_tree::sorted_tree::TreeReference,
-    ) -> DirectoryEntry {
-        DirectoryEntry {
-            kind,
-            child: content,
-        }
     }
 }
 
@@ -187,15 +199,15 @@ impl std::error::Error for DeserializationError {}
 type ProllyTree = prolly_tree_editable_node::EditableNode<FileName, DirectoryEntry>;
 
 pub async fn serialize_directory(
-    entries: &BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)>,
+    entries: &BTreeMap<FileName, (DirectoryEntryMetaData, BlobDigest)>,
     storage: &(dyn LoadStoreTree + Send + Sync),
 ) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
     let mut prolly_tree = ProllyTree::new();
-    for (name, (kind, digest)) in entries.iter() {
+    for (name, (meta, digest)) in entries.iter() {
         prolly_tree
             .insert(
                 name.clone(),
-                DirectoryEntry::new(*kind, sorted_tree::sorted_tree::TreeReference::new(*digest)),
+                DirectoryEntry::new(*meta, sorted_tree::sorted_tree::TreeReference::new(*digest)),
                 storage,
             )
             .await?;
@@ -207,12 +219,12 @@ pub async fn serialize_directory(
 pub async fn deserialize_directory(
     storage: &(dyn LoadStoreTree + Send + Sync),
     digest: &BlobDigest,
-) -> Result<BTreeMap<FileName, (DirectoryEntryKind, BlobDigest)>, Box<dyn std::error::Error>> {
+) -> Result<BTreeMap<FileName, (DirectoryEntryMetaData, BlobDigest)>, Box<dyn std::error::Error>> {
     let mut prolly_tree = ProllyTree::load(digest, storage).await?;
     let mut result = BTreeMap::new();
     let mut iterator = Iterator::new(&mut prolly_tree, storage);
     while let Some((name, entry)) = iterator.next().await? {
-        result.insert(name, (entry.kind, *entry.child.reference()));
+        result.insert(name, (entry.meta, *entry.child.reference()));
     }
     debug!("Deserialized directory with {} entries", result.len());
     Ok(result)

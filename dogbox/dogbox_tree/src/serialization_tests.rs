@@ -1,6 +1,6 @@
 use crate::serialization::{
-    deserialize_directory, serialize_directory, DirectoryEntryKind, FileName, FileNameContent,
-    FileNameError,
+    deserialize_directory, serialize_directory, DirectoryEntryKind, DirectoryEntryMetaData,
+    FileName, FileNameContent, FileNameError,
 };
 use astraea::tree::{BlobDigest, TREE_MAX_CHILDREN};
 use pretty_assertions::assert_eq;
@@ -103,19 +103,28 @@ async fn test_deserialize_directory() {
             (FileName::try_from(format!("{}", i)).unwrap(), {
                 let content = i.to_be_bytes();
                 let digest = BlobDigest::hash(&content);
-                if i.is_multiple_of(3) {
-                    (DirectoryEntryKind::Directory, digest)
-                } else {
-                    (DirectoryEntryKind::File(content.len() as u64), digest)
-                }
+                let modified = std::time::SystemTime::UNIX_EPOCH
+                    .checked_add(std::time::Duration::from_secs(i as u64))
+                    .unwrap();
+                (
+                    DirectoryEntryMetaData::new(
+                        if i.is_multiple_of(3) {
+                            DirectoryEntryKind::Directory
+                        } else {
+                            DirectoryEntryKind::File(content.len() as u64)
+                        },
+                        modified,
+                    ),
+                    digest,
+                )
             })
         })
         .collect();
     let digest = serialize_directory(&original, &storage).await.unwrap();
-    assert_eq!(6, storage.number_of_trees().await);
+    assert_eq!(9, storage.number_of_trees().await);
     assert_eq!(
         BlobDigest::parse_hex_string(
-            "77e712cf05e19dcd622c502a3167027f9ce838094c82cef0fbf853c9b5fe2e22ce1af698fb306feb586019ddadc923f5b8f70a8c004b9f84b451be453930be14"
+            "e5abae670a46da24d421474487f82466bcd0f7f097282a9a2b6804577c4827164035c713e11ad64732d350222a0b17088d8cfbee6aeadc2e6a1516488a34b66c"
         )
         .unwrap(),
         digest

@@ -11,10 +11,6 @@ pub async fn dav_server_main(
     info!("Serving DAV on http://{}", address);
     let clock = Arc::new(std::time::SystemTime::now);
     let modified_default = clock();
-    {
-        let time_string = chrono::DateTime::<chrono::Utc>::from(modified_default).to_rfc3339();
-        info!("Last modification time defaults to {}", &time_string);
-    }
     let (mut save_status_receiver, server, root_directory) = run_dav_server(
         listener,
         database_file_name,

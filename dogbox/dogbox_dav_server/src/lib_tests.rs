@@ -1,5 +1,6 @@
 use crate::run_dav_server;
 use astraea::tree::TREE_BLOB_MAX_LENGTH;
+use dav_server::fs::DavMetaData;
 use dogbox_tree_editor::{OpenDirectory, WallClock};
 use pretty_assertions::assert_eq;
 use reqwest_dav::{list_cmd::ListEntity, Auth, Client, ClientBuilder, Depth};
@@ -84,8 +85,11 @@ async fn run_dav_server_instance<'t>(
         if let Some(change_files2) = change_files {
             change_files2(create_client(server_url.clone())).await;
         }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        info!("Verifying changes 1st time");
         verify_changes(create_client(server_url.clone())).await;
         // verify again to be extra sure this is deterministic
+        info!("Verifying changes 2nd time");
         verify_changes(create_client(server_url)).await;
     };
     let waiting_for_saved_status = async {
@@ -133,17 +137,13 @@ async fn run_dav_server_instance<'t>(
 async fn test_fresh_dav_server<'t>(
     change_files: Option<ChangeFilesFunction<'t>>,
     verify_changes: &impl Fn(Client) -> UnitFuture<'t>,
+    clock: WallClock,
 ) {
-    let clock = Arc::new(|| {
-        std::time::SystemTime::UNIX_EPOCH
-            .checked_add(std::time::Duration::from_secs(13))
-            .unwrap()
-    });
-    let modified_default = clock();
     let temporary_directory = tempfile::tempdir().unwrap();
     let database_file_name = temporary_directory.path().join("dogbox_dav_server.sqlite");
     assert!(!std::fs::exists(&database_file_name).unwrap());
     info!("First test server instance");
+    let modified_default = clock();
     {
         let is_saving_expected = change_files.is_some();
         run_dav_server_instance(
@@ -192,7 +192,7 @@ fn create_client(server_url: String) -> Client {
         .unwrap()
 }
 
-fn expect_directory(entity: &ListEntity, name: &str) {
+fn expect_directory(entity: &ListEntity, name: &str, last_modified: &std::time::SystemTime) {
     match entity {
         reqwest_dav::list_cmd::ListEntity::File(_) => panic!(),
         reqwest_dav::list_cmd::ListEntity::Folder(folder) => {
@@ -200,11 +200,17 @@ fn expect_directory(entity: &ListEntity, name: &str) {
             assert_eq!(None, folder.quota_used_bytes);
             assert_eq!(None, folder.quota_available_bytes);
             assert_eq!(
-                "1970-01-01T00:00:13+00:00",
-                folder.last_modified.to_rfc3339()
+                chrono::DateTime::<chrono::Utc>::from_timestamp_secs(
+                    last_modified
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64,
+                )
+                .unwrap(),
+                folder.last_modified
             );
             assert_eq!(
-                generate_file_tag(&[]),
+                generate_directory_etag(last_modified),
                 folder.tag.as_deref().expect("Directory should have a tag"),
                 "Directory tag does not match",
             );
@@ -212,20 +218,52 @@ fn expect_directory(entity: &ListEntity, name: &str) {
     }
 }
 
-async fn expect_directory_empty(client: &Client, directory: &str) {
+async fn expect_directory_empty(
+    client: &Client,
+    directory: &str,
+    last_modified: &std::time::SystemTime,
+) {
     let subdir_listed = list_directory(client, directory).await;
     assert_eq!(1, subdir_listed.len());
-    expect_directory(&subdir_listed[0], directory)
+    expect_directory(&subdir_listed[0], directory, last_modified)
 }
 
-// Generate a tag for files or folders, if it's a folder content should be an empty slice
-fn generate_file_tag(content: &[u8]) -> String {
-    let magic_suffix = "c65d40";
-    if content.is_empty() {
-        return magic_suffix.to_string();
+#[derive(Debug, Clone)]
+struct ETagHelper {
+    length: Option<u64>,
+    modified: std::time::SystemTime,
+}
+
+impl dav_server::fs::DavMetaData for ETagHelper {
+    fn len(&self) -> u64 {
+        self.length.expect("This is a directory")
     }
 
-    format!("{:x}-{}", content.len(), magic_suffix)
+    fn modified(&self) -> dav_server::fs::FsResult<std::time::SystemTime> {
+        Ok(self.modified)
+    }
+
+    fn is_dir(&self) -> bool {
+        self.length.is_none()
+    }
+}
+
+fn generate_file_etag(content: &[u8], last_modified: &std::time::SystemTime) -> String {
+    ETagHelper {
+        length: Some(content.len() as u64),
+        modified: *last_modified,
+    }
+    .etag()
+    .unwrap()
+}
+
+fn generate_directory_etag(last_modified: &std::time::SystemTime) -> String {
+    ETagHelper {
+        length: None,
+        modified: *last_modified,
+    }
+    .etag()
+    .unwrap()
 }
 
 async fn expect_file(
@@ -234,6 +272,7 @@ async fn expect_file(
     name: &str,
     content: &[u8],
     content_type: &str,
+    last_modified: &std::time::SystemTime,
 ) {
     match entity {
         reqwest_dav::list_cmd::ListEntity::File(file) => {
@@ -244,14 +283,21 @@ async fn expect_file(
                 "File content length does not match"
             );
             assert_eq!(content_type, file.content_type, "File type does not match");
-
             assert_eq!(
-                generate_file_tag(content),
+                chrono::DateTime::<chrono::Utc>::from_timestamp_secs(
+                    last_modified
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64,
+                )
+                .unwrap(),
+                file.last_modified
+            );
+            assert_eq!(
+                generate_file_etag(content, last_modified),
                 file.tag.as_deref().expect("File should have a tag"),
                 "File tag does not match"
             );
-            assert_eq!("1970-01-01T00:00:13+00:00", file.last_modified.to_rfc3339());
-
             let response = client.get(name).await.unwrap();
             let response_content = response.bytes().await.unwrap().to_vec();
             assert_eq!(*content, response_content, "File content is wrong");
@@ -262,8 +308,53 @@ async fn expect_file(
     }
 }
 
+fn make_simple_clock() -> WallClock {
+    Arc::new(|| {
+        std::time::SystemTime::UNIX_EPOCH
+            .checked_add(std::time::Duration::from_secs(14))
+            .unwrap()
+    })
+}
+
+struct FakeClockSimulator {
+    start: std::time::SystemTime,
+    advanced: std::sync::Mutex<u32>,
+}
+
+impl FakeClockSimulator {
+    fn advance(&self) {
+        let mut advanced_lock = self.advanced.lock().unwrap();
+        *advanced_lock = advanced_lock.checked_add(1).unwrap();
+    }
+
+    fn clock(self: &Arc<Self>) -> WallClock {
+        let arc_self = self.clone();
+        Arc::new(move || arc_self.read())
+    }
+
+    fn read(&self) -> std::time::SystemTime {
+        let advanced_lock = self.advanced.lock().unwrap();
+        self.read_at(*advanced_lock)
+    }
+
+    fn read_at(&self, advanced: u32) -> std::time::SystemTime {
+        self.start
+            .checked_add(std::time::Duration::from_secs(advanced as u64))
+            .unwrap()
+    }
+}
+
+fn simulate_clock() -> Arc<FakeClockSimulator> {
+    Arc::new(FakeClockSimulator {
+        start: std::time::SystemTime::UNIX_EPOCH,
+        advanced: std::sync::Mutex::new(0),
+    })
+}
+
 #[test_log::test(tokio::test)]
 async fn test_file_not_found() {
+    let clock = make_simple_clock();
+    let now = clock();
     let verify_changes = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
             {
@@ -285,37 +376,53 @@ async fn test_file_not_found() {
             }
             let listed = list_directory(&client, "/").await;
             assert_eq!(1, listed.len());
-            expect_directory(&listed[0], "/");
+            expect_directory(&listed[0], "/", &now);
         })
     };
-    test_fresh_dav_server(None, &verify_changes).await
+    test_fresh_dav_server(None, &verify_changes, clock).await
 }
 
 async fn test_create_file(content: Vec<u8>) {
+    let clock_simulator = simulate_clock();
     let file_name = "test.txt";
     let content_cloned = content.clone();
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put(file_name, content_cloned).await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put(file_name, content_cloned).await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        let content_cloned = content.clone();
-        Box::pin(async move {
-            let listed = list_directory(&client, "/").await;
-            assert_eq!(2, listed.len());
-            expect_directory(&listed[0], "/");
-            expect_file(
-                &client,
-                &listed[1],
-                &format!("/{file_name}"),
-                &content_cloned,
-                "text/plain",
-            )
-            .await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let content_cloned = content.clone();
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let now = clock_simulator.read();
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/", &now);
+                expect_file(
+                    &client,
+                    &listed[1],
+                    &format!("/{file_name}"),
+                    &content_cloned,
+                    "text/plain",
+                    &now,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
@@ -358,136 +465,208 @@ async fn test_create_file_random_100k() {
 
 #[test_log::test(tokio::test)]
 async fn test_create_file_truncate() {
+    let clock_simulator = simulate_clock();
     let file_name = "test.txt";
     let long_content = "looooooong";
     let short_content = "short";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put(file_name, long_content).await.unwrap();
-            assert!(
-                short_content.len() < long_content.len(),
-                "Test is not valid, short content is not shorter than long content"
-            );
-            client.put(file_name, short_content).await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put(file_name, long_content).await.unwrap();
+                assert!(
+                    short_content.len() < long_content.len(),
+                    "Test is not valid, short content is not shorter than long content"
+                );
+                //clock_simulator.advance();
+                client.put(file_name, short_content).await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let listed = list_directory(&client, "/").await;
-            assert_eq!(2, listed.len());
-            expect_directory(&listed[0], "/");
-            expect_file(
-                &client,
-                &listed[1],
-                &format!("/{file_name}"),
-                short_content.as_bytes(),
-                "text/plain",
-            )
-            .await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                let expected_modified_time = clock_simulator.read();
+                expect_directory(&listed[0], "/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &listed[1],
+                    &format!("/{file_name}"),
+                    short_content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_create_directory() {
+    let clock_simulator = simulate_clock();
     let dir_name = "Dir4";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.mkcol(dir_name).await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.mkcol(dir_name).await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            {
-                let listed = list_directory(&client, "/").await;
-                assert_eq!(2, listed.len());
-                expect_directory(&listed[0], "/");
-                expect_directory(&listed[1], &format!("/{dir_name}/"));
-            }
-            {
-                let listed = list_directory(&client, &format!("/{dir_name}/")).await;
-                assert_eq!(1, listed.len());
-                expect_directory(&listed[0], &format!("/{dir_name}/"));
-            }
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                {
+                    let listed = list_directory(&client, "/").await;
+                    assert_eq!(2, listed.len());
+                    expect_directory(&listed[0], "/", &expected_modified_time);
+                    expect_directory(
+                        &listed[1],
+                        &format!("/{dir_name}/"),
+                        &expected_modified_time,
+                    );
+                }
+                {
+                    let listed = list_directory(&client, &format!("/{dir_name}/")).await;
+                    assert_eq!(1, listed.len());
+                    expect_directory(
+                        &listed[0],
+                        &format!("/{dir_name}/"),
+                        &expected_modified_time,
+                    );
+                }
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_two_nested_directories() {
-    let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.mkcol("a").await.unwrap();
-            client.mkcol("a/b").await.unwrap();
-        })
+    let clock_simulator = simulate_clock();
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.mkcol("a").await.unwrap();
+                clock_simulator.advance();
+                client.mkcol("a/b").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            {
-                let listed = list_directory(&client, "/").await;
-                assert_eq!(2, listed.len());
-                expect_directory(&listed[0], "/");
-                expect_directory(&listed[1], "/a/");
-            }
-            {
-                let listed = list_directory(&client, "/a").await;
-                assert_eq!(2, listed.len());
-                expect_directory(&listed[0], "/a/");
-                expect_directory(&listed[1], "/a/b/");
-            }
-            {
-                let listed = list_directory(&client, "/a/b").await;
-                assert_eq!(1, listed.len());
-                expect_directory(&listed[0], "/a/b/");
-            }
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                {
+                    let listed = list_directory(&client, "/").await;
+                    assert_eq!(2, listed.len());
+                    expect_directory(&listed[0], "/", &clock_simulator.read_at(2));
+                    expect_directory(&listed[1], "/a/", &clock_simulator.read_at(2));
+                }
+                {
+                    let listed = list_directory(&client, "/a").await;
+                    assert_eq!(2, listed.len());
+                    expect_directory(&listed[0], "/a/", &clock_simulator.read_at(2));
+                    expect_directory(&listed[1], "/a/b/", &clock_simulator.read_at(2));
+                }
+                {
+                    let listed = list_directory(&client, "/a/b").await;
+                    assert_eq!(1, listed.len());
+                    expect_directory(&listed[0], "/a/b/", &clock_simulator.read_at(2));
+                }
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_three_nested_directories() {
-    let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.mkcol("a").await.unwrap();
-            client.mkcol("a/b").await.unwrap();
-            client.mkcol("a/b/c").await.unwrap();
-        })
+    let clock_simulator = simulate_clock();
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.mkcol("a").await.unwrap();
+                clock_simulator.advance();
+                client.mkcol("a/b").await.unwrap();
+                clock_simulator.advance();
+                client.mkcol("a/b/c").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            {
-                let listed = list_directory(&client, "/").await;
-                assert_eq!(2, listed.len());
-                expect_directory(&listed[0], "/");
-                expect_directory(&listed[1], "/a/");
-            }
-            {
-                let listed = list_directory(&client, "/a").await;
-                assert_eq!(2, listed.len());
-                expect_directory(&listed[0], "/a/");
-                expect_directory(&listed[1], "/a/b/");
-            }
-            {
-                let listed = list_directory(&client, "/a/b").await;
-                assert_eq!(2, listed.len());
-                expect_directory(&listed[0], "/a/b/");
-                expect_directory(&listed[1], "/a/b/c/");
-            }
-            {
-                let listed = list_directory(&client, "/a/b/c").await;
-                assert_eq!(1, listed.len());
-                expect_directory(&listed[0], "/a/b/c/");
-            }
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                {
+                    let listed = list_directory(&client, "/").await;
+                    assert_eq!(2, listed.len());
+                    expect_directory(&listed[0], "/", &clock_simulator.read_at(3));
+                    expect_directory(&listed[1], "/a/", &clock_simulator.read_at(3));
+                }
+                {
+                    let listed = list_directory(&client, "/a").await;
+                    assert_eq!(2, listed.len());
+                    expect_directory(&listed[0], "/a/", &clock_simulator.read_at(3));
+                    expect_directory(&listed[1], "/a/b/", &clock_simulator.read_at(3));
+                }
+                {
+                    let listed = list_directory(&client, "/a/b").await;
+                    assert_eq!(2, listed.len());
+                    expect_directory(&listed[0], "/a/b/", &clock_simulator.read_at(3));
+                    expect_directory(&listed[1], "/a/b/c/", &clock_simulator.read_at(3));
+                }
+                {
+                    let listed = list_directory(&client, "/a/b/c").await;
+                    assert_eq!(1, listed.len());
+                    expect_directory(&listed[0], "/a/b/c/", &clock_simulator.read_at(3));
+                }
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_list_infinity() {
+    let clock = make_simple_clock();
     // WebDAV servers sometimes refuse "depth: infinity" PROPFIND requests. The library we use does this as well.
     let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
@@ -500,11 +679,13 @@ async fn test_list_infinity() {
                 );
         })
     };
-    test_fresh_dav_server(None, &verify_changes).await
+    test_fresh_dav_server(None, &verify_changes, clock).await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_rename_root() {
+    let clock = make_simple_clock();
+    let now = clock();
     let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
             assert_eq!(
@@ -514,531 +695,830 @@ async fn test_rename_root() {
                         &client.mv("/", "/test/").await.unwrap_err()));
             let listed = list_directory(&client, "/").await;
             assert_eq!(1, listed.len());
-            expect_directory(&listed[0], "/");
+            expect_directory(&listed[0], "/", &now);
         })
     };
-    test_fresh_dav_server(None, &verify_changes).await
+    test_fresh_dav_server(None, &verify_changes, clock).await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_rename_file_to_already_existing_path() {
+    let clock_simulator = simulate_clock();
     let content_a = "test";
     let content_b = "foo";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put("A", content_a).await.unwrap();
-            client.put("B", content_b).await.unwrap();
-            client.mv("A", "B").await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put("A", content_a).await.unwrap();
+                // clock_simulator.advance();
+                client.put("B", content_b).await.unwrap();
+                // clock_simulator.advance();
+                client.mv("A", "B").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let listed = list_directory(&client, "/").await;
-            assert_eq!(2, listed.len());
-            expect_directory(&listed[0], "/");
-            expect_file(
-                &client,
-                &listed[1],
-                "/B",
-                content_a.as_bytes(),
-                "application/octet-stream",
-            )
-            .await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/", &clock_simulator.read_at(1));
+                expect_file(
+                    &client,
+                    &listed[1],
+                    "/B",
+                    content_a.as_bytes(),
+                    "application/octet-stream",
+                    &clock_simulator.read_at(1),
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_rename_file() {
+    let clock_simulator = simulate_clock();
     let content = "test";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put("A", content).await.unwrap();
-            client.mv("A", "B").await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put("A", content).await.unwrap();
+                clock_simulator.advance();
+                client.mv("A", "B").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let listed = list_directory(&client, "/").await;
-            assert_eq!(2, listed.len());
-            expect_directory(&listed[0], "/");
-            expect_file(
-                &client,
-                &listed[1],
-                "/B",
-                content.as_bytes(),
-                "application/octet-stream",
-            )
-            .await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/", &clock_simulator.read_at(2));
+                expect_file(
+                    &client,
+                    &listed[1],
+                    "/B",
+                    content.as_bytes(),
+                    "application/octet-stream",
+                    &clock_simulator.read_at(2),
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_rename_directory() {
-    let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.mkcol("A").await.unwrap();
-            client.mv("A", "B").await.unwrap();
-        })
+    let clock_simulator = simulate_clock();
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.mkcol("A").await.unwrap();
+                //  clock_simulator.advance();
+                client.mv("A", "B").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let listed = list_directory(&client, "/").await;
-            assert_eq!(2, listed.len());
-            expect_directory(&listed[0], "/");
-            expect_directory(&listed[1], "/B/");
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/", &expected_modified_time);
+                expect_directory(&listed[1], "/B/", &expected_modified_time);
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_rename_with_different_directories() {
+    let clock_simulator = simulate_clock();
     let content = "test";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.mkcol("A").await.unwrap();
-            client.put("A/foo.txt", content).await.unwrap();
-            client.mv("A/foo.txt", "B.txt").await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.mkcol("A").await.unwrap();
+                //  clock_simulator.advance();
+                client.put("A/foo.txt", content).await.unwrap();
+                //  clock_simulator.advance();
+                client.mv("A/foo.txt", "B.txt").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let root_listed = list_directory(&client, "/").await;
-            assert_eq!(3, root_listed.len());
-            expect_directory(&root_listed[0], "/");
-            expect_directory(&root_listed[1], "/A/");
-            expect_file(
-                &client,
-                &root_listed[2],
-                "/B.txt",
-                content.as_bytes(),
-                "text/plain",
-            )
-            .await;
-
-            expect_directory_empty(&client, "/A/").await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let root_listed = list_directory(&client, "/").await;
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/", &expected_modified_time);
+                expect_directory(&root_listed[1], "/A/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &root_listed[2],
+                    "/B.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+                expect_directory_empty(&client, "/A/", &expected_modified_time).await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_rename_with_different_directories_locking() {
+    let clock_simulator = simulate_clock();
     let content = "test";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.mkcol("A").await.unwrap();
-            client.put("A/foo.txt", content).await.unwrap();
-            client.mv("A/foo.txt", "B.txt").await.unwrap();
-            client.mv("B.txt", "A/foo.txt").await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.mkcol("A").await.unwrap();
+                //  clock_simulator.advance();
+                client.put("A/foo.txt", content).await.unwrap();
+                //  clock_simulator.advance();
+                client.mv("A/foo.txt", "B.txt").await.unwrap();
+                //  clock_simulator.advance();
+                client.mv("B.txt", "A/foo.txt").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let root_listed = list_directory(&client, "/").await;
-            assert_eq!(2, root_listed.len());
-            expect_directory(&root_listed[0], "/");
-            expect_directory(&root_listed[1], "/A/");
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let root_listed = list_directory(&client, "/").await;
+                assert_eq!(2, root_listed.len());
+                expect_directory(&root_listed[0], "/", &expected_modified_time);
+                expect_directory(&root_listed[1], "/A/", &expected_modified_time);
 
-            let a_listed = list_directory(&client, "/A/").await;
-            assert_eq!(2, a_listed.len());
-            expect_directory(&a_listed[0], "/A/");
-            expect_file(
-                &client,
-                &a_listed[1],
-                "/A/foo.txt",
-                content.as_bytes(),
-                "text/plain",
-            )
-            .await;
-        })
+                let a_listed = list_directory(&client, "/A/").await;
+                assert_eq!(2, a_listed.len());
+                expect_directory(&a_listed[0], "/A/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &a_listed[1],
+                    "/A/foo.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_remove_non_existing_file() {
-    let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            match client.delete("A").await {
-                Ok(_) => {
-                    panic!("The request should have failed");
+    let clock_simulator = simulate_clock();
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                match client.delete("A").await {
+                    Ok(_) => {
+                        panic!("The request should have failed");
+                    }
+                    Err(err) => match err {
+                        reqwest_dav::Error::Reqwest(_error) => {
+                            panic!("Expecting a different error")
+                        }
+                        reqwest_dav::Error::ReqwestDecode(_reqwest_decode_error) => {
+                            panic!("The request failed decoding")
+                        }
+                        reqwest_dav::Error::Decode(decode_error) => {
+                            match decode_error {
+                                reqwest_dav::DecodeError::DigestAuth(_error) => {
+                                    panic!("DigestAuth error")
+                                }
+                                reqwest_dav::DecodeError::NoAuthHeaderInResponse => {
+                                    panic!("No auth header in response")
+                                }
+                                reqwest_dav::DecodeError::SerdeXml(_error) => {
+                                    panic!("XML decoding error")
+                                }
+                                reqwest_dav::DecodeError::FieldNotSupported(field_error) => {
+                                    panic!("{field_error:?}")
+                                }
+                                reqwest_dav::DecodeError::FieldNotFound(field_error) => {
+                                    panic!("{field_error:?}")
+                                }
+                                reqwest_dav::DecodeError::StatusMismatched(
+                                    status_mismatched_error,
+                                ) => {
+                                    panic!("{status_mismatched_error:?}")
+                                }
+                                reqwest_dav::DecodeError::Server(server_error) => {
+                                    assert_eq!(404, server_error.response_code);
+                                }
+                            };
+                        }
+                        reqwest_dav::Error::MissingAuthContext => {
+                            panic!("The request failed decoding")
+                        }
+                    },
                 }
-                Err(err) => match err {
-                    reqwest_dav::Error::Reqwest(_error) => {
-                        panic!("Expecting a different error")
-                    }
-                    reqwest_dav::Error::ReqwestDecode(_reqwest_decode_error) => {
-                        panic!("The request failed decoding")
-                    }
-                    reqwest_dav::Error::Decode(decode_error) => {
-                        match decode_error {
-                            reqwest_dav::DecodeError::DigestAuth(_error) => {
-                                panic!("DigestAuth error")
-                            }
-                            reqwest_dav::DecodeError::NoAuthHeaderInResponse => {
-                                panic!("No auth header in response")
-                            }
-                            reqwest_dav::DecodeError::SerdeXml(_error) => {
-                                panic!("XML decoding error")
-                            }
-                            reqwest_dav::DecodeError::FieldNotSupported(field_error) => {
-                                panic!("{field_error:?}")
-                            }
-                            reqwest_dav::DecodeError::FieldNotFound(field_error) => {
-                                panic!("{field_error:?}")
-                            }
-                            reqwest_dav::DecodeError::StatusMismatched(status_mismatched_error) => {
-                                panic!("{status_mismatched_error:?}")
-                            }
-                            reqwest_dav::DecodeError::Server(server_error) => {
-                                assert_eq!(404, server_error.response_code);
-                            }
-                        };
-                    }
-                    reqwest_dav::Error::MissingAuthContext => {
-                        panic!("The request failed decoding")
-                    }
-                },
-            }
 
-            // We need this extra file so that the state of the directory actually changes.
-            client.put("B.txt", "").await.unwrap();
-        })
+                //  clock_simulator.advance();
+
+                // We need this extra file so that the state of the directory actually changes.
+                client.put("B.txt", "").await.unwrap();
+            })
+        }
     };
-    let verify_changes =
-        move |_client: Client| -> Pin<Box<dyn Future<Output = ()>>> { Box::pin(async move {}) };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &listed[1],
+                    "/B.txt",
+                    &[],
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
+    };
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_remove_file() {
-    let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put("A", "content").await.unwrap();
-            client.delete("A").await.unwrap();
+    let clock_simulator = simulate_clock();
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put("A", "content").await.unwrap();
+                //  clock_simulator.advance();
+                client.delete("A").await.unwrap();
+                //  clock_simulator.advance();
 
-            // We need this extra file so that the state of the directory actually changes.
-            client.put("B.txt", "").await.unwrap();
-        })
+                // We need this extra file so that the state of the directory actually changes.
+                client.put("B.txt", "").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let listed = list_directory(&client, "/").await;
-            assert_eq!(2, listed.len());
-            expect_directory(&listed[0], "/");
-            expect_file(&client, &listed[1], "/B.txt", "".as_bytes(), "text/plain").await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &listed[1],
+                    "/B.txt",
+                    "".as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_remove_directory() {
-    let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.mkcol("A").await.unwrap();
-            client.delete("A").await.unwrap();
+    let clock_simulator = simulate_clock();
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.mkcol("A").await.unwrap();
+                //  clock_simulator.advance();
+                client.delete("A").await.unwrap();
+                //  clock_simulator.advance();
 
-            // We need this extra file so that the state of the directory actually changes.
-            client.put("B.txt", "").await.unwrap();
-        })
+                // We need this extra file so that the state of the directory actually changes.
+                client.put("B.txt", "").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let listed = list_directory(&client, "/").await;
-            assert_eq!(2, listed.len());
-            expect_directory(&listed[0], "/");
-            expect_file(&client, &listed[1], "/B.txt", "".as_bytes(), "text/plain").await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let listed = list_directory(&client, "/").await;
+                assert_eq!(2, listed.len());
+                expect_directory(&listed[0], "/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &listed[1],
+                    "/B.txt",
+                    "".as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_copy_file() {
+    let clock_simulator = simulate_clock();
     let content = "content";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put("A.txt", content).await.unwrap();
-            client.cp("A.txt", "B.txt").await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put("A.txt", content).await.unwrap();
+                client.cp("A.txt", "B.txt").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let root_listed = client.list("", Depth::Number(1)).await.unwrap();
-            assert_eq!(3, root_listed.len());
-            expect_directory(&root_listed[0], "/");
-            expect_file(
-                &client,
-                &root_listed[1],
-                "/A.txt",
-                content.as_bytes(),
-                "text/plain",
-            )
-            .await;
-            expect_file(
-                &client,
-                &root_listed[2],
-                "/B.txt",
-                content.as_bytes(),
-                "text/plain",
-            )
-            .await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+                expect_file(
+                    &client,
+                    &root_listed[2],
+                    "/B.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_copy_file_independent_content() {
+    let clock_simulator = simulate_clock();
     let content_1 = "1";
     let content_2 = "2";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put("A.txt", content_1).await.unwrap();
-            client.cp("A.txt", "B.txt").await.unwrap();
-            client.put("A.txt", content_2).await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put("A.txt", content_1).await.unwrap();
+                //  clock_simulator.advance();
+                client.cp("A.txt", "B.txt").await.unwrap();
+                //  clock_simulator.advance();
+                client.put("A.txt", content_2).await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let root_listed = client.list("", Depth::Number(1)).await.unwrap();
-            assert_eq!(3, root_listed.len());
-            expect_directory(&root_listed[0], "/");
-            expect_file(
-                &client,
-                &root_listed[1],
-                "/A.txt",
-                content_2.as_bytes(),
-                "text/plain",
-            )
-            .await;
-            expect_file(
-                &client,
-                &root_listed[2],
-                "/B.txt",
-                content_1.as_bytes(),
-                "text/plain",
-            )
-            .await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content_2.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+                expect_file(
+                    &client,
+                    &root_listed[2],
+                    "/B.txt",
+                    content_1.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_copy_file_into_different_folder() {
+    let clock_simulator = simulate_clock();
     let content = "content";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put("A.txt", content).await.unwrap();
-            client.mkcol("/foo").await.unwrap();
-            client.cp("A.txt", "/foo/B.txt").await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put("A.txt", content).await.unwrap();
+                //  clock_simulator.advance();
+                client.mkcol("/foo").await.unwrap();
+                //  clock_simulator.advance();
+                client.cp("A.txt", "/foo/B.txt").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let root_listed = client.list("", Depth::Number(1)).await.unwrap();
-            assert_eq!(3, root_listed.len());
-            expect_directory(&root_listed[0], "/");
-            expect_file(
-                &client,
-                &root_listed[1],
-                "/A.txt",
-                content.as_bytes(),
-                "text/plain",
-            )
-            .await;
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
 
-            let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
-            expect_directory(&foo_listed[0], "/foo/");
-            expect_file(
-                &client,
-                &foo_listed[1],
-                "/foo/B.txt",
-                content.as_bytes(),
-                "text/plain",
-            )
-            .await;
-        })
+                let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
+                expect_directory(&foo_listed[0], "/foo/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &foo_listed[1],
+                    "/foo/B.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_copy_file_to_already_existing_target() {
+    let clock_simulator = simulate_clock();
     let content = "content";
     let other_content = "some other content";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put("A.txt", content).await.unwrap();
-            client.mkcol("/foo").await.unwrap();
-            client.put("/foo/B.txt", other_content).await.unwrap();
-
-            client.cp("A.txt", "/foo/B.txt").await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put("A.txt", content).await.unwrap();
+                //  clock_simulator.advance();
+                client.mkcol("/foo").await.unwrap();
+                //  clock_simulator.advance();
+                client.put("/foo/B.txt", other_content).await.unwrap();
+                //  clock_simulator.advance();
+                client.cp("A.txt", "/foo/B.txt").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let root_listed = client.list("", Depth::Number(1)).await.unwrap();
-            assert_eq!(3, root_listed.len());
-            expect_directory(&root_listed[0], "/");
-            expect_file(
-                &client,
-                &root_listed[1],
-                "/A.txt",
-                content.as_bytes(),
-                "text/plain",
-            )
-            .await;
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
 
-            let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
-            expect_directory(&foo_listed[0], "/foo/");
-            expect_file(
-                &client,
-                &foo_listed[1],
-                "/foo/B.txt",
-                content.as_bytes(),
-                "text/plain",
-            )
-            .await;
-        })
+                let foo_listed = client.list("/foo", Depth::Number(1)).await.unwrap();
+                expect_directory(&foo_listed[0], "/foo/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &foo_listed[1],
+                    "/foo/B.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_copy_file_to_itself() {
+    let clock_simulator = simulate_clock();
     let content = "content";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.put("A.txt", content).await.unwrap();
-            match client.cp("A.txt", "A.txt").await {
-                Ok(_) => {
-                    panic!("The request should have failed");
-                }
-                Err(err) => match err {
-                    reqwest_dav::Error::Reqwest(_error) => {
-                        panic!("Expecting a different error")
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.put("A.txt", content).await.unwrap();
+                match client.cp("A.txt", "A.txt").await {
+                    Ok(_) => {
+                        panic!("The request should have failed");
                     }
-                    reqwest_dav::Error::ReqwestDecode(_reqwest_decode_error) => {
-                        panic!("The request failed decoding")
-                    }
-                    reqwest_dav::Error::Decode(decode_error) => {
-                        match decode_error {
-                            reqwest_dav::DecodeError::DigestAuth(_error) => {
-                                panic!("DigestAuth error")
-                            }
-                            reqwest_dav::DecodeError::NoAuthHeaderInResponse => {
-                                panic!("No auth header in response")
-                            }
-                            reqwest_dav::DecodeError::SerdeXml(_error) => {
-                                panic!("XML decoding error")
-                            }
-                            reqwest_dav::DecodeError::FieldNotSupported(field_error) => {
-                                panic!("{field_error:?}")
-                            }
-                            reqwest_dav::DecodeError::FieldNotFound(field_error) => {
-                                panic!("{field_error:?}")
-                            }
-                            reqwest_dav::DecodeError::StatusMismatched(status_mismatched_error) => {
-                                panic!("{status_mismatched_error:?}")
-                            }
-                            reqwest_dav::DecodeError::Server(_server_error) => {}
-                        };
-                    }
-                    reqwest_dav::Error::MissingAuthContext => {
-                        panic!("The request failed decoding")
-                    }
-                },
-            };
-        })
+                    Err(err) => match err {
+                        reqwest_dav::Error::Reqwest(_error) => {
+                            panic!("Expecting a different error")
+                        }
+                        reqwest_dav::Error::ReqwestDecode(_reqwest_decode_error) => {
+                            panic!("The request failed decoding")
+                        }
+                        reqwest_dav::Error::Decode(decode_error) => {
+                            match decode_error {
+                                reqwest_dav::DecodeError::DigestAuth(_error) => {
+                                    panic!("DigestAuth error")
+                                }
+                                reqwest_dav::DecodeError::NoAuthHeaderInResponse => {
+                                    panic!("No auth header in response")
+                                }
+                                reqwest_dav::DecodeError::SerdeXml(_error) => {
+                                    panic!("XML decoding error")
+                                }
+                                reqwest_dav::DecodeError::FieldNotSupported(field_error) => {
+                                    panic!("{field_error:?}")
+                                }
+                                reqwest_dav::DecodeError::FieldNotFound(field_error) => {
+                                    panic!("{field_error:?}")
+                                }
+                                reqwest_dav::DecodeError::StatusMismatched(
+                                    status_mismatched_error,
+                                ) => {
+                                    panic!("{status_mismatched_error:?}")
+                                }
+                                reqwest_dav::DecodeError::Server(_server_error) => {}
+                            };
+                        }
+                        reqwest_dav::Error::MissingAuthContext => {
+                            panic!("The request failed decoding")
+                        }
+                    },
+                };
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let root_listed = client.list("", Depth::Number(1)).await.unwrap();
-            assert_eq!(2, root_listed.len());
-            expect_directory(&root_listed[0], "/");
-            expect_file(
-                &client,
-                &root_listed[1],
-                "/A.txt",
-                content.as_bytes(),
-                "text/plain",
-            )
-            .await;
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(2, root_listed.len());
+                expect_directory(&root_listed[0], "/", &expected_modified_time);
+                expect_file(
+                    &client,
+                    &root_listed[1],
+                    "/A.txt",
+                    content.as_bytes(),
+                    "text/plain",
+                    &expected_modified_time,
+                )
+                .await;
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_copy_non_existing_file() {
-    let change_files = |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.mkcol("/foo").await.unwrap();
-            match client.cp("A.txt", "/foo/B.txt").await {
-                Ok(_) => {
-                    panic!("The request should have failed");
-                }
-                Err(err) => match err {
-                    reqwest_dav::Error::Reqwest(error) => {
-                        assert_eq!(error.status().unwrap(), 404)
+    let clock_simulator = simulate_clock();
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.mkcol("/foo").await.unwrap();
+                match client.cp("A.txt", "/foo/B.txt").await {
+                    Ok(_) => {
+                        panic!("The request should have failed");
                     }
-                    reqwest_dav::Error::ReqwestDecode(_reqwest_decode_error) => {
-                        panic!("The request failed decoding")
-                    }
-                    reqwest_dav::Error::Decode(_decode_error) => {
-                        print!("{_decode_error:?}")
-                    }
-                    reqwest_dav::Error::MissingAuthContext => {
-                        panic!("The request failed decoding")
-                    }
-                },
-            };
-        })
+                    Err(err) => match err {
+                        reqwest_dav::Error::Reqwest(error) => {
+                            assert_eq!(error.status().unwrap(), 404)
+                        }
+                        reqwest_dav::Error::ReqwestDecode(_reqwest_decode_error) => {
+                            panic!("The request failed decoding")
+                        }
+                        reqwest_dav::Error::Decode(_decode_error) => {
+                            print!("{_decode_error:?}")
+                        }
+                        reqwest_dav::Error::MissingAuthContext => {
+                            panic!("The request failed decoding")
+                        }
+                    },
+                };
+            })
+        }
     };
-    let verify_changes =
-        move |_client: Client| -> Pin<Box<dyn Future<Output = ()>>> { Box::pin(async move {}) };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(2, root_listed.len());
+                expect_directory(&root_listed[0], "/", &expected_modified_time);
+                expect_directory(&root_listed[1], "/foo/", &expected_modified_time);
+            })
+        }
+    };
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_copy_directory() {
+    let clock_simulator = simulate_clock();
     let content = "content";
-    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            client.mkcol("dir").await.unwrap();
-            client.put("dir/A.txt", content).await.unwrap();
-            client.cp("dir", "dir2").await.unwrap();
-        })
+    let change_files = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                clock_simulator.advance();
+                client.mkcol("dir").await.unwrap();
+                //  clock_simulator.advance();
+                client.put("dir/A.txt", content).await.unwrap();
+                //  clock_simulator.advance();
+                client.cp("dir", "dir2").await.unwrap();
+            })
+        }
     };
-    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let root_listed = client.list("", Depth::Number(1)).await.unwrap();
-            assert_eq!(3, root_listed.len());
-            expect_directory(&root_listed[0], "/");
-            expect_directory(&root_listed[1], "/dir/");
-            expect_directory(&root_listed[2], "/dir2/");
-            for dir in ["/dir/", "/dir2/"] {
-                let dir_listed = client.list(dir, Depth::Number(1)).await.unwrap();
-                assert_eq!(2, dir_listed.len());
-                expect_directory(&dir_listed[0], dir);
-                expect_file(
-                    &client,
-                    &dir_listed[1],
-                    &format!("{}A.txt", dir),
-                    content.as_bytes(),
-                    "text/plain",
-                )
-                .await;
-            }
-        })
+    let verify_changes = {
+        let clock_simulator = clock_simulator.clone();
+        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+            let clock_simulator = clock_simulator.clone();
+            Box::pin(async move {
+                let expected_modified_time = clock_simulator.read();
+                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                assert_eq!(3, root_listed.len());
+                expect_directory(&root_listed[0], "/", &expected_modified_time);
+                expect_directory(&root_listed[1], "/dir/", &expected_modified_time);
+                expect_directory(&root_listed[2], "/dir2/", &expected_modified_time);
+                for dir in ["/dir/", "/dir2/"] {
+                    let dir_listed = client.list(dir, Depth::Number(1)).await.unwrap();
+                    assert_eq!(2, dir_listed.len());
+                    expect_directory(&dir_listed[0], dir, &expected_modified_time);
+                    expect_file(
+                        &client,
+                        &dir_listed[1],
+                        &format!("{}A.txt", dir),
+                        content.as_bytes(),
+                        "text/plain",
+                        &expected_modified_time,
+                    )
+                    .await;
+                }
+            })
+        }
     };
-    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+    test_fresh_dav_server(
+        Some(Box::new(change_files)),
+        &verify_changes,
+        clock_simulator.clock(),
+    )
+    .await
 }
