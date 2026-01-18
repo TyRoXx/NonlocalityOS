@@ -75,34 +75,39 @@ async fn run_test_case(test_case: &TestCase) -> bool {
         segments.push(digest);
     }
 
-    // Create a tree with the serialized SegmentedBlob and segments as children
-    if segments.len() > 1 {
-        let tree = Tree::new(
+    // Create a tree with the serialized SegmentedBlob
+    // For single segment, test with empty children; for multiple segments, test with children
+    let tree = if segments.len() > 1 {
+        Tree::new(
             TreeBlob::try_from(bytes::Bytes::from(serialized.clone())).unwrap(),
             TreeChildren::try_from(segments.clone()).unwrap(),
-        );
-        let hashed = HashedTree::from(Arc::new(tree));
-        let digest = storage.store_tree(&hashed).await.unwrap();
+        )
+    } else {
+        Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(serialized.clone())).unwrap(),
+            TreeChildren::empty(),
+        )
+    };
+    let hashed = HashedTree::from(Arc::new(tree));
+    let digest = storage.store_tree(&hashed).await.unwrap();
 
-        // Verify we can read it back
-        let loaded_tree = storage.load_tree(&digest).await.unwrap();
-        let hashed_loaded = loaded_tree.hash().unwrap();
-        let tree_ref = hashed_loaded.tree().as_ref();
+    // Verify we can read it back
+    let loaded_tree = storage.load_tree(&digest).await.unwrap();
+    let hashed_loaded = loaded_tree.hash().unwrap();
+    let tree_ref = hashed_loaded.tree().as_ref();
 
-        // Deserialize the blob info
-        let loaded_info: SegmentedBlob =
-            match postcard::from_bytes(tree_ref.blob().as_slice()) {
-                Ok(data) => data,
-                Err(_) => {
-                    panic!("Failed to deserialize SegmentedBlob from stored tree");
-                }
-            };
+    // Deserialize the blob info
+    let loaded_info: SegmentedBlob = match postcard::from_bytes(tree_ref.blob().as_slice()) {
+        Ok(data) => data,
+        Err(_) => {
+            panic!("Failed to deserialize SegmentedBlob from stored tree");
+        }
+    };
 
-        assert_eq!(
-            loaded_info.size_in_bytes, total_size,
-            "Loaded info size should match"
-        );
-    }
+    assert_eq!(
+        loaded_info.size_in_bytes, total_size,
+        "Loaded info size should match"
+    );
 
     true
 }
