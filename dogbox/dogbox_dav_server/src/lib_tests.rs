@@ -1042,3 +1042,105 @@ async fn test_copy_directory() {
     };
     test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
 }
+
+#[test_log::test(tokio::test)]
+async fn test_etag_stability_for_thumbnail_caching() {
+    // This test verifies that ETags are stable for unchanged files (enabling thumbnail caching)
+    // and change when files are modified (enabling thumbnail cache invalidation).
+    // In real usage, modification times differ, causing ETags to change. In tests with fixed clocks,
+    // we verify ETag changes when file size changes.
+    let initial_content = "image data v1";
+    let modified_content = "different length content v2";
+    
+    let change_files = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        Box::pin(async move {
+            // Create an initial file (simulating an image)
+            client.put("image.jpg", initial_content).await.unwrap();
+            
+            // First access: get the initial ETag
+            let listed1 = list_directory(&client, "/").await;
+            assert_eq!(2, listed1.len());
+            
+            let initial_etag = match &listed1[1] {
+                ListEntity::File(file) => {
+                    assert_eq!("/image.jpg", file.href);
+                    assert_eq!(initial_content.len() as i64, file.content_length);
+                    file.tag.as_ref().expect("File should have an ETag").clone()
+                }
+                _ => panic!("Expected a file"),
+            };
+            
+            // Second access: verify ETag is the same (thumbnail cache should be valid)
+            let listed2 = list_directory(&client, "/").await;
+            let second_etag = match &listed2[1] {
+                ListEntity::File(file) => {
+                    file.tag.as_ref().expect("File should have an ETag").clone()
+                }
+                _ => panic!("Expected a file"),
+            };
+            
+            assert_eq!(
+                initial_etag, second_etag,
+                "ETag should be stable for unchanged files (enables thumbnail caching)"
+            );
+            
+            // Modify the file content with different length
+            // In real usage with changing modification times, ETags would change even with same length
+            client.put("image.jpg", modified_content).await.unwrap();
+            
+            // Third access: verify ETag changed (thumbnail cache should be invalidated)
+            let listed3 = list_directory(&client, "/").await;
+            let modified_etag = match &listed3[1] {
+                ListEntity::File(file) => {
+                    assert_eq!(modified_content.len() as i64, file.content_length);
+                    file.tag.as_ref().expect("File should have an ETag").clone()
+                }
+                _ => panic!("Expected a file"),
+            };
+            
+            assert_ne!(
+                initial_etag, modified_etag,
+                "ETag should change when file is modified (enables thumbnail cache invalidation)"
+            );
+            
+            // Verify the modified ETag is also stable
+            let listed4 = list_directory(&client, "/").await;
+            let fourth_etag = match &listed4[1] {
+                ListEntity::File(file) => {
+                    file.tag.as_ref().expect("File should have an ETag").clone()
+                }
+                _ => panic!("Expected a file"),
+            };
+            
+            assert_eq!(
+                modified_etag, fourth_etag,
+                "ETag should remain stable after modification"
+            );
+            
+            info!(
+                "Successfully verified ETag stability for thumbnail caching. \
+                Initial ETag: {}, Modified ETag: {}",
+                initial_etag, modified_etag
+            );
+        })
+    };
+    
+    let verify_changes = move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+        Box::pin(async move {
+            // Verify the file exists with the modified content
+            let listed = list_directory(&client, "/").await;
+            assert_eq!(2, listed.len());
+            expect_directory(&listed[0], "/");
+            expect_file(
+                &client,
+                &listed[1],
+                "/image.jpg",
+                modified_content.as_bytes(),
+                "image/jpeg",
+            )
+            .await;
+        })
+    };
+    
+    test_fresh_dav_server(Some(Box::new(change_files)), &verify_changes).await
+}
