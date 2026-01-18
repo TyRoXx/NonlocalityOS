@@ -31,3 +31,4 @@ reqwest_dav = "0"
 test-log = {version = "0", features = ["trace", "log", "color"]}
 tempfile = "3"
 rand = { version = "0", features = [ "small_rng" ]}
+chrono = "0"

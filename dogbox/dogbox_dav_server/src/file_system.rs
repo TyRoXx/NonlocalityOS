@@ -1,7 +1,7 @@
 use async_stream::stream;
 use dav_server::fs::FsError;
 use dogbox_tree::serialization::DirectoryEntryKind;
-use dogbox_tree_editor::DirectoryEntryMetaData;
+use dogbox_tree::serialization::DirectoryEntryMetaData;
 use dogbox_tree_editor::NormalizedPath;
 use dogbox_tree_editor::OpenFile;
 use dogbox_tree_editor::OpenFileReadPermission;

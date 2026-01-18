@@ -867,6 +867,7 @@ dependencies = [
  "astraea",
  "async-stream",
  "bytes 1.11.0",
+ "chrono",
  "dav-server",
  "dogbox_tree",
  "dogbox_tree_editor",
