@@ -40,6 +40,8 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
             info!("Cannot open directory {} as a regular file", name);
             dav_server::fs::FsError::Forbidden
         }
+        // TODO: What should be returned for FileSizeMismatch? This could indicate data corruption.
+        // Should this be GeneralFailure, or a different error code?
         dogbox_tree_editor::Error::FileSizeMismatch => todo!(),
         dogbox_tree_editor::Error::SegmentedBlobSizeMismatch {
             digest,
@@ -53,7 +55,10 @@ fn handle_error(err: dogbox_tree_editor::Error) -> FsError {
             dav_server::fs::FsError::GeneralFailure
         }
         dogbox_tree_editor::Error::CannotRename => FsError::Forbidden,
+        // TODO: What should Storage errors map to? Different storage errors might need different FsError codes.
+        // Should transient failures be retryable vs. permanent failures?
         dogbox_tree_editor::Error::Storage(_) => todo!(),
+        // TODO: What does TooManyReferences mean in the context of a DAV operation? Should this be a specific error?
         dogbox_tree_editor::Error::TooManyReferences(_blob_digest) => todo!(),
         dogbox_tree_editor::Error::SaveFailed => {
             error!("Saving failed");

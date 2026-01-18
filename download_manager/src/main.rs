@@ -312,6 +312,10 @@ fn start_watching_url_input_file(
     Ok((watcher, watcher_thread, rx_async))
 }
 
+// TODO: This function retries indefinitely without any upper bound on attempts.
+// Should there be a maximum retry limit to prevent infinite loops if the file is permanently inaccessible?
+// What happens if the file path is invalid or permissions are denied forever?
+// Could this lead to resource exhaustion or zombie processes in error scenarios?
 async fn read_file_tolerantly(
     url_input_file_path: &Path,
     retry_delay: &std::time::Duration,

@@ -108,6 +108,9 @@ fn expect_right_brace(
                 non_whitespace.location,
             ))
         }
+        // TODO: What should happen when tokens is None here? Is this an unexpected EOF?
+        // Should this return a proper error instead of using todo!()?
+        // This could crash the parser in production if the input is malformed.
         None => todo!(),
     }
 }
