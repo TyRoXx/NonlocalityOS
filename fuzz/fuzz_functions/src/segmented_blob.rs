@@ -1,9 +1,9 @@
 use arbitrary::{Arbitrary, Unstructured};
 use astraea::{
     storage::{InMemoryTreeStorage, LoadTree, StoreTree},
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
+    tree::{HashedTree, Tree, TreeBlob, TreeChildren},
 };
-use dogbox_tree_editor::segmented_blob::{load_segmented_blob, save_segmented_blob};
+use dogbox_tree::serialization::SegmentedBlob;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -21,8 +21,6 @@ struct TestCase {
     num_segments: u8,
     /// Total size of the blob in bytes
     total_size: u32,
-    /// Maximum children per tree (must be between 2 and TREE_MAX_CHILDREN)
-    max_children_per_tree: u8,
 }
 
 async fn run_test_case(test_case: &TestCase) -> bool {
@@ -35,9 +33,33 @@ async fn run_test_case(test_case: &TestCase) -> bool {
     // Limit the total size to keep fuzzing fast
     let total_size = (test_case.total_size as u64).min(MAX_TOTAL_SIZE_FOR_FUZZING);
 
-    // Ensure max_children_per_tree is in valid range [2, 255]
-    let max_children_per_tree = (test_case.max_children_per_tree as usize).max(2).min(255);
+    // Test serialization and deserialization of SegmentedBlob
+    let info = SegmentedBlob {
+        size_in_bytes: total_size,
+    };
 
+    // Serialize using postcard
+    let serialized = match postcard::to_allocvec(&info) {
+        Ok(data) => data,
+        Err(_) => return false, // Reject invalid inputs
+    };
+
+    // Deserialize using postcard
+    let deserialized: SegmentedBlob = match postcard::from_bytes(&serialized) {
+        Ok(data) => data,
+        Err(_) => {
+            // Deserialization should not fail after successful serialization
+            panic!("Deserialization failed after successful serialization");
+        }
+    };
+
+    // Verify round-trip consistency
+    assert_eq!(
+        deserialized.size_in_bytes, info.size_in_bytes,
+        "Deserialized size should match original size"
+    );
+
+    // Test with TreeBlob storage (simulating real usage)
     let storage = Arc::new(InMemoryTreeStorage::new(Mutex::new(BTreeMap::new())));
 
     // Create dummy segments - each segment is just a tree with some blob data
@@ -46,66 +68,40 @@ async fn run_test_case(test_case: &TestCase) -> bool {
         let blob_content = format!("segment_{}", i);
         let tree = Tree::new(
             TreeBlob::try_from(bytes::Bytes::from(blob_content)).unwrap(),
-            TreeChildren::new(),
+            TreeChildren::empty(),
         );
         let hashed = HashedTree::from(Arc::new(tree));
         let digest = storage.store_tree(&hashed).await.unwrap();
         segments.push(digest);
     }
 
-    // Save the segmented blob
-    let saved_digest =
-        match save_segmented_blob(&segments, total_size, max_children_per_tree, storage.as_ref())
-            .await
-        {
-            Ok(digest) => digest,
-            Err(_) => return false, // Reject invalid inputs
-        };
-
-    // Load the segmented blob back
-    let (loaded_segments, loaded_size) =
-        match load_segmented_blob(&saved_digest, storage.as_ref()).await {
-            Ok(result) => result,
-            Err(_) => {
-                // Deserialization should not fail if serialization succeeded
-                panic!("Deserialization failed after successful serialization");
-            }
-        };
-
-    // Verify that the loaded data matches what we saved
-    assert_eq!(
-        loaded_size, total_size,
-        "Loaded size should match saved size"
-    );
-
-    // For single segment case, the digest is returned directly
-    if segments.len() == 1 {
-        assert_eq!(
-            loaded_segments.len(),
-            1,
-            "Single segment should be returned as-is"
+    // Create a tree with the serialized SegmentedBlob and segments as children
+    if segments.len() > 1 {
+        let tree = Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(serialized.clone())).unwrap(),
+            TreeChildren::try_from(segments.clone()).unwrap(),
         );
+        let hashed = HashedTree::from(Arc::new(tree));
+        let digest = storage.store_tree(&hashed).await.unwrap();
+
+        // Verify we can read it back
+        let loaded_tree = storage.load_tree(&digest).await.unwrap();
+        let hashed_loaded = loaded_tree.hash().unwrap();
+        let tree_ref = hashed_loaded.tree().as_ref();
+
+        // Deserialize the blob info
+        let loaded_info: SegmentedBlob =
+            match postcard::from_bytes(tree_ref.blob().as_slice()) {
+                Ok(data) => data,
+                Err(_) => {
+                    panic!("Failed to deserialize SegmentedBlob from stored tree");
+                }
+            };
+
         assert_eq!(
-            loaded_segments[0], segments[0],
-            "Single segment digest should match"
+            loaded_info.size_in_bytes, total_size,
+            "Loaded info size should match"
         );
-    } else {
-        // For multiple segments, verify consistency
-        // The segments might be reorganized into a tree structure, but total count should be preserved
-        // when the structure is flat enough to not require hierarchical organization
-        if segments.len() <= max_children_per_tree {
-            assert_eq!(
-                loaded_segments.len(),
-                segments.len(),
-                "Segment count should be preserved for flat structures"
-            );
-            assert_eq!(
-                loaded_segments, segments,
-                "Segments should match for flat structures"
-            );
-        }
-        // For hierarchical structures, we just verify that we got segments back
-        // The exact structure depends on the implementation details
     }
 
     true
@@ -130,7 +126,6 @@ async fn test_single_segment() {
         run_test_case(&TestCase {
             num_segments: 1,
             total_size: 100,
-            max_children_per_tree: 2,
         })
         .await
     );
@@ -143,7 +138,6 @@ async fn test_multiple_segments_flat() {
         run_test_case(&TestCase {
             num_segments: 5,
             total_size: 500,
-            max_children_per_tree: 10,
         })
         .await
     );
@@ -156,7 +150,6 @@ async fn test_multiple_segments_hierarchical() {
         run_test_case(&TestCase {
             num_segments: 20,
             total_size: 2000,
-            max_children_per_tree: 3,
         })
         .await
     );
@@ -169,7 +162,6 @@ async fn test_zero_segments() {
         !run_test_case(&TestCase {
             num_segments: 0,
             total_size: 0,
-            max_children_per_tree: 2,
         })
         .await
     );

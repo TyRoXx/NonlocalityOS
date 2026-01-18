@@ -1315,6 +1315,9 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "astraea",
+ "bytes 1.11.0",
+ "dogbox_tree",
+ "dogbox_tree_editor",
  "lambda",
  "lambda_compiler",
  "postcard",
