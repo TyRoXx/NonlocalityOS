@@ -4,9 +4,6 @@
 pub mod storage;
 
 #[cfg(test)]
-mod storage_tests;
-
-#[cfg(test)]
 mod storage_benchmarks;
 
 pub mod deep_tree;
@@ -33,3 +30,8 @@ pub mod in_memory_storage;
 mod in_memory_storage_tests;
 
 pub mod load_cache_storage;
+
+pub mod delayed_hashed_tree;
+
+#[cfg(test)]
+mod delayed_hashed_tree_tests;

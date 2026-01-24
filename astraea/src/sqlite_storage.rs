@@ -1,7 +1,8 @@
 use crate::{
+    delayed_hashed_tree::DelayedHashedTree,
     storage::{
-        CollectGarbage, CommitChanges, DelayedHashedTree, GarbageCollectionStats, LoadError,
-        LoadRoot, LoadStoreTree, LoadTree, StoreError, StoreTree, UpdateRoot,
+        CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadRoot, LoadStoreTree,
+        LoadTree, StoreError, StoreTree, UpdateRoot,
     },
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };

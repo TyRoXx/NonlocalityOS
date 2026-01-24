@@ -1,5 +1,6 @@
 use crate::{
-    storage::{DelayedHashedTree, LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree},
+    delayed_hashed_tree::DelayedHashedTree,
+    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree},
     tree::{BlobDigest, HashedTree},
 };
 use async_trait::async_trait;
