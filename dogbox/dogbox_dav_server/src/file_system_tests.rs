@@ -1,5 +1,5 @@
 use crate::file_system::{DogBoxFileSystem, DogBoxOpenFile};
-use astraea::{storage::InMemoryTreeStorage, tree::BlobDigest};
+use astraea::{in_memory_storage::InMemoryTreeStorage, tree::BlobDigest};
 use dav_server::{fakels::FakeLs, fs::DavFile, DavHandler};
 use dogbox_tree_editor::{OpenDirectory, OpenFile};
 use hyper::{body, server::conn::http1, Request};

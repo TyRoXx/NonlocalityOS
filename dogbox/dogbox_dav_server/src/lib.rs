@@ -1,5 +1,7 @@
 use astraea::{
-    sqlite_storage::SQLiteStorage, storage::{CollectGarbage, CommitChanges, LoadRoot, UpdateRoot}, tree::TREE_BLOB_MAX_LENGTH
+    sqlite_storage::SQLiteStorage,
+    storage::{CollectGarbage, CommitChanges, LoadRoot, UpdateRoot},
+    tree::TREE_BLOB_MAX_LENGTH,
 };
 use dav_server::{fakels::FakeLs, DavHandler};
 use dogbox_tree_editor::{

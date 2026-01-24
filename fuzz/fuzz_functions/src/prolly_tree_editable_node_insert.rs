@@ -1,5 +1,5 @@
 use arbitrary::{Arbitrary, Unstructured};
-use astraea::tree::BlobDigest;
+use astraea::{in_memory_storage::InMemoryTreeStorage, tree::BlobDigest};
 use pretty_assertions::assert_eq;
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use sorted_tree::{
@@ -24,7 +24,7 @@ fn randomize_insertion_order(seed: u8, insertion_batches: &InsertionBatches) -> 
 }
 
 async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut editable_node: EditableNode<u32, i64> = EditableNode::new();
     let mut oracle = BTreeMap::new();
     for (key, _value) in insertions.iter() {

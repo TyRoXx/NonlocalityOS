@@ -2,7 +2,10 @@ use crate::serialization::{
     deserialize_directory, serialize_directory, DirectoryEntryKind, DirectoryEntryMetaData,
     FileName, FileNameContent, FileNameError,
 };
-use astraea::tree::{BlobDigest, TREE_MAX_CHILDREN};
+use astraea::{
+    in_memory_storage::InMemoryTreeStorage,
+    tree::{BlobDigest, TREE_MAX_CHILDREN},
+};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
@@ -79,7 +82,7 @@ fn test_file_name_content_from() {
 
 #[test_log::test(tokio::test)]
 async fn test_serialize_directory_empty() {
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let digest = serialize_directory(&BTreeMap::from([]), &storage)
         .await
         .unwrap();
@@ -95,7 +98,7 @@ async fn test_serialize_directory_empty() {
 
 #[test_log::test(tokio::test)]
 async fn test_deserialize_directory() {
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     // Directories can have more than TREE_MAX_CHILDREN entries now.
     let number_of_entries = TREE_MAX_CHILDREN as u32 + 10;
     let original = (0..number_of_entries)

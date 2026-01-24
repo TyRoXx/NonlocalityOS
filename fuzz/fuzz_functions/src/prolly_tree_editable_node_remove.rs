@@ -1,8 +1,5 @@
 use arbitrary::{Arbitrary, Unstructured};
-use astraea::{
-    storage::{InMemoryTreeStorage, LoadTree},
-    tree::BlobDigest,
-};
+use astraea::{in_memory_storage::InMemoryTreeStorage, storage::LoadTree, tree::BlobDigest};
 use pretty_assertions::assert_eq;
 use sorted_tree::{prolly_tree_editable_node::EditableNode, sorted_tree::TreeReference};
 use std::collections::BTreeMap;
@@ -160,7 +157,7 @@ async fn run_test_case(test_case: &TestCase) {
         map
     };
     assert_eq!(final_map, test_case.after);
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let before_digest = btree_map_to_digest(&test_case.before, &storage).await;
     let operations_executed =
         execute_operations_on_prolly_tree(&before_digest, &test_case.operations, &storage).await;

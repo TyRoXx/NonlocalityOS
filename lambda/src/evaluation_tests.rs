@@ -1,5 +1,5 @@
 use crate::expressions::{evaluate, DeepExpression, Expression};
-use astraea::{deep_tree::DeepTree, storage::InMemoryTreeStorage};
+use astraea::{deep_tree::DeepTree, in_memory_storage::InMemoryTreeStorage};
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 

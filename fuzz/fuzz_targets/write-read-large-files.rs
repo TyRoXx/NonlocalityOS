@@ -7,7 +7,8 @@ fn main() {
 }
 
 use astraea::{
-    storage::{InMemoryTreeStorage, StoreTree},
+    in_memory_storage::InMemoryTreeStorage,
+    storage::StoreTree,
     tree::{HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 use dogbox_tree_editor::{OpenFileContentBuffer, OptimizedWriteBuffer};
