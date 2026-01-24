@@ -1,5 +1,5 @@
 use crate::{
-    storage::DelayedHashedTree,
+    delayed_hashed_tree::DelayedHashedTree,
     tree::{BlobDigest, Tree, TreeBlob, TreeChildren},
 };
 use bytes::Bytes;
