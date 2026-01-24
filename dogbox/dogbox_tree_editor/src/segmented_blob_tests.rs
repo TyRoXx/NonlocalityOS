@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use astraea::{
-    storage::{InMemoryTreeStorage, LoadTree, StoreTree},
+    in_memory_storage::InMemoryTreeStorage,
+    storage::{LoadTree, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 

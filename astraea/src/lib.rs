@@ -26,3 +26,8 @@ pub mod sqlite_storage;
 
 #[cfg(test)]
 mod sqlite_storage_tests;
+
+pub mod in_memory_storage;
+
+#[cfg(test)]
+mod in_memory_storage_tests;

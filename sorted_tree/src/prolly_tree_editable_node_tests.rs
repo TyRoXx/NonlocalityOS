@@ -5,7 +5,7 @@ use crate::{
     sorted_tree::TreeReference,
 };
 use astraea::{
-    storage::InMemoryTreeStorage,
+    in_memory_storage::InMemoryTreeStorage,
     tree::{BlobDigest, TREE_BLOB_MAX_LENGTH},
 };
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
@@ -129,7 +129,7 @@ async fn test_insert_flat_values_one_at_a_time(
     expected_trees_created: usize,
 ) -> BlobDigest {
     let number_of_keys = number;
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut editable_node: EditableNode<String, i64> = EditableNode::new();
     let mut all_entries = Vec::new();
     for index in 0..number_of_keys {
@@ -214,7 +214,7 @@ async fn test_insert_flat_values_one_at_a_time_1000() {
 async fn test_insert_large_elements() {
     // Large enough to cause frequent chunk splitting to avoid going over the TREE_BLOB_MAX_LENGTH.
     let large_value = vec![0u8; TREE_BLOB_MAX_LENGTH / 4];
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut editable_node: EditableNode<u64, Vec<u8>> = EditableNode::new();
     editable_node
         .insert(4001, large_value.clone(), &storage)
@@ -305,7 +305,7 @@ async fn test_remove_nothing() {
 async fn test_remove_many() {
     let seed = 123;
     let number_of_keys = 1000;
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut editable_node: EditableNode<String, i64> = EditableNode::new();
     let mut all_entries = Vec::new();
     for index in 0..number_of_keys {

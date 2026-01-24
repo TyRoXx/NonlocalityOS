@@ -5,10 +5,11 @@ use crate::{
     OpenFileContentBuffer, OpenFileContentBufferLoaded, OpenFileStats, OptimizedWriteBuffer,
     Prefetcher, StoreChanges, StreakDirection, TreeEditor, WallClock,
 };
+use astraea::in_memory_storage::InMemoryTreeStorage;
 use astraea::sqlite_storage::SQLiteStorage;
 use astraea::storage::{
-    CollectGarbage, DelayedHashedTree, GarbageCollectionStats, InMemoryTreeStorage, LoadError,
-    LoadTree, StoreError, StoreTree, UpdateRoot,
+    CollectGarbage, DelayedHashedTree, GarbageCollectionStats, LoadError, LoadTree, StoreError,
+    StoreTree, UpdateRoot,
 };
 use astraea::tree::{calculate_reference, TreeChildren, TREE_MAX_CHILDREN};
 use astraea::{

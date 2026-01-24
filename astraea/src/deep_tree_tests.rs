@@ -1,6 +1,7 @@
 use crate::{
     deep_tree::{DeepTree, DeepTreeChildren},
-    storage::{InMemoryTreeStorage, LoadError, StoreTree},
+    in_memory_storage::InMemoryTreeStorage,
+    storage::{LoadError, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
 use pretty_assertions::assert_eq;

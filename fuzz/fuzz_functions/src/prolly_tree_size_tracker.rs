@@ -1,5 +1,5 @@
 use arbitrary::{Arbitrary, Unstructured};
-use astraea::storage::LoadTree;
+use astraea::{in_memory_storage::InMemoryTreeStorage, storage::LoadTree};
 use pretty_assertions::assert_eq;
 use sorted_tree::prolly_tree_editable_node::{EditableLeafNode, EditableLoadedNode, SizeTracker};
 use std::collections::BTreeMap;
@@ -17,7 +17,7 @@ async fn run_test_case(test_case: &TestCase) -> bool {
             None => return false,
         },
     );
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let digest = node.save(&storage).await.unwrap();
 
     let mut size_tracker = SizeTracker::new();

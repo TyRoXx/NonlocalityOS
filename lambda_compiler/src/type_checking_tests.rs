@@ -8,6 +8,7 @@ use crate::{
 };
 use astraea::{
     deep_tree::{DeepTree, DeepTreeChildren},
+    in_memory_storage::InMemoryTreeStorage,
     tree::{TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
 use lambda::{
@@ -22,7 +23,7 @@ const TEST_SOURCE_NAMESPACE: NamespaceId =
 const IRRELEVANT_SOURCE_LOCATION: SourceLocation = SourceLocation { line: 4, column: 2 };
 
 async fn expect_evaluate_result(entry_point: &DeepExpression, expected_result: &DeepTree) {
-    let storage = astraea::storage::InMemoryTreeStorage::empty();
+    let storage = InMemoryTreeStorage::empty();
     let evaluate_result = DeepTree::deserialize(
         &evaluate(entry_point, &storage, &storage, &None, &None)
             .await

@@ -1,5 +1,8 @@
 use crate::sorted_tree::{find, insert, load_node, new_tree, node_to_tree, Node, TreeReference};
-use astraea::tree::{BlobDigest, Tree, TreeBlob, TreeChildren};
+use astraea::{
+    in_memory_storage::InMemoryTreeStorage,
+    tree::{BlobDigest, Tree, TreeBlob, TreeChildren},
+};
 use pretty_assertions::{assert_eq, assert_ne};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 use std::collections::BTreeMap;
@@ -7,7 +10,7 @@ use tokio::sync::Mutex;
 
 #[test_log::test(tokio::test)]
 async fn insert_first_key() {
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let empty = new_tree::<String, i64>(&storage)
         .await
         .expect("creating a new tree should succeed");
@@ -35,7 +38,7 @@ async fn insert_first_key() {
 
 #[test_log::test(tokio::test)]
 async fn insert_existing_key() {
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let empty = new_tree::<String, i64>(&storage)
         .await
         .expect("creating a new tree should succeed");
@@ -97,7 +100,7 @@ async fn insert_existing_key() {
 
 #[test_log::test(tokio::test)]
 async fn insert_before() {
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let empty = new_tree::<String, i64>(&storage)
         .await
         .expect("creating a new tree should succeed");
@@ -160,7 +163,7 @@ async fn insert_before() {
 
 #[test_log::test(tokio::test)]
 async fn insert_after() {
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let empty = new_tree::<String, i64>(&storage)
         .await
         .expect("creating a new tree should succeed");
@@ -225,7 +228,7 @@ async fn insert_after() {
 #[test_log::test(tokio::test)]
 async fn insert_many_new_keys() {
     let number_of_insertions = 100;
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut current_state = new_tree::<String, i64>(&storage)
         .await
         .expect("creating a new tree should succeed");
@@ -266,7 +269,7 @@ async fn insert_many_new_keys() {
 #[test_log::test(tokio::test)]
 async fn insert_many_with_overwrites() {
     let number_of_insertions = 100;
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut current_state = new_tree::<String, i64>(&storage)
         .await
         .expect("creating a new tree should succeed");
@@ -337,7 +340,7 @@ fn node_to_tree_with_child_references() {
 
 #[test_log::test(tokio::test)]
 async fn insert_reference_value() {
-    let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let empty = new_tree::<String, TreeReference>(&storage)
         .await
         .expect("creating a new tree should succeed");

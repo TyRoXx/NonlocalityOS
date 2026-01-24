@@ -1,4 +1,5 @@
 use arbitrary::Unstructured;
+use astraea::in_memory_storage::InMemoryTreeStorage;
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
 
@@ -12,7 +13,7 @@ pub fn fuzz_function(data: &[u8]) -> bool {
         .build()
         .unwrap()
         .block_on(async {
-            let storage = astraea::storage::InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+            let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
             let mut current_state = sorted_tree::sorted_tree::new_tree::<String, i64>(&storage)
                 .await
                 .expect("creating a new tree should succeed");

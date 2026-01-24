@@ -3,10 +3,8 @@ use crate::{
     CacheDropStats, FileCreationMode, NormalizedPath, OpenDirectory, OpenFileStats, TreeEditor,
 };
 use astraea::{
-    storage::{
-        DelayedHashedTree, InMemoryTreeStorage, LoadError, LoadStoreTree, LoadTree, StoreError,
-        StoreTree,
-    },
+    in_memory_storage::InMemoryTreeStorage,
+    storage::{DelayedHashedTree, LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree},
     tree::{BlobDigest, HashedTree},
 };
 use dogbox_tree::serialization::{DirectoryEntryKind, FileName};

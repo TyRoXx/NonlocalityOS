@@ -2,7 +2,7 @@ use crate::expressions::{
     deserialize_recursively, evaluate, serialize_recursively, DeepExpression, Expression,
     PrintExpression,
 };
-use astraea::{deep_tree::DeepTree, storage::InMemoryTreeStorage};
+use astraea::{deep_tree::DeepTree, in_memory_storage::InMemoryTreeStorage};
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 

@@ -4,7 +4,8 @@ use crate::{
 };
 use astraea::{
     deep_tree::DeepTree,
-    storage::{InMemoryTreeStorage, StoreTree},
+    in_memory_storage::InMemoryTreeStorage,
+    storage::StoreTree,
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
 use lambda::{expressions::apply_evaluated_argument, name::NamespaceId};
