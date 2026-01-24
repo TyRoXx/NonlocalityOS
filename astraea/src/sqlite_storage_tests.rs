@@ -246,9 +246,10 @@ async fn test_roots_may_be_equal() {
     assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
     storage.update_root(name_2, &reference_1).await.unwrap();
     assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
+    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_2).await);
     storage.commit_changes().await.unwrap();
     assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
-    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
+    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_2).await);
 }
 
 #[test_log::test(tokio::test)]
