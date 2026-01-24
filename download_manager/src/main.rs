@@ -2,7 +2,7 @@ use crate::{
     dropbox::{join_dropbox_paths, RealDropbox},
     telegram_bot::{HandleTelegramBotRequests, TelegramBot, TeloxideTelegramBot},
 };
-use astraea::{storage::SQLiteStorage, tree::BlobDigest};
+use astraea::{sqlite_storage::SQLiteStorage, tree::BlobDigest};
 use notify::{RecommendedWatcher, Watcher};
 use pretty_assertions::assert_eq;
 use std::{

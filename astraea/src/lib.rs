@@ -4,7 +4,7 @@
 pub mod storage;
 
 #[cfg(test)]
-pub mod storage_tests;
+mod storage_tests;
 
 #[cfg(test)]
 mod storage_benchmarks;
@@ -12,7 +12,7 @@ mod storage_benchmarks;
 pub mod deep_tree;
 
 #[cfg(test)]
-pub mod deep_tree_tests;
+mod deep_tree_tests;
 
 pub mod tree;
 
@@ -21,3 +21,8 @@ mod tree_tests;
 
 #[cfg(test)]
 mod tree_benchmarks;
+
+pub mod sqlite_storage;
+
+#[cfg(test)]
+mod sqlite_storage_tests;

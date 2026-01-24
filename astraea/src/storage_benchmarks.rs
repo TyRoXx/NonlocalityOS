@@ -1,8 +1,7 @@
 extern crate test;
 use crate::{
-    storage::{
-        CollectGarbage, GarbageCollectionStats, LoadTree, SQLiteStorage, StoreTree, UpdateRoot,
-    },
+    sqlite_storage::SQLiteStorage,
+    storage::{CollectGarbage, GarbageCollectionStats, LoadTree, StoreTree, UpdateRoot},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 use pretty_assertions::assert_eq;
