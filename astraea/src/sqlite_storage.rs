@@ -456,12 +456,15 @@ impl LoadRoot for SQLiteStorage {
 #[async_trait]
 impl CommitChanges for SQLiteStorage {
     #[instrument(skip_all)]
-    async fn commit_changes(&self) -> Result<(), rusqlite::Error> {
+    async fn commit_changes(&self) -> Result<(), StoreError> {
         let mut state_locked = self.state.lock().await;
         match state_locked.transaction {
             Some(ref stats) => {
                 info!("COMMITting transaction with {} writes", stats.writes);
-                state_locked.connection.execute("COMMIT;", ())?;
+                state_locked
+                    .connection
+                    .execute("COMMIT;", ())
+                    .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
                 state_locked.transaction = None;
                 Ok(())
             }

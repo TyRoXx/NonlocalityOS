@@ -79,5 +79,5 @@ pub trait CollectGarbage {
 
 #[async_trait]
 pub trait CommitChanges {
-    async fn commit_changes(&self) -> Result<(), rusqlite::Error>;
+    async fn commit_changes(&self) -> Result<(), StoreError>;
 }
