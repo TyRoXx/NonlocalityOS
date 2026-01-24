@@ -23,6 +23,13 @@ rand = { version = "0", features = [ "small_rng" ]}
 pretty_assertions = "1"
 
 [[bin]]
+name = "segmented-blob"
+path = "fuzz_targets/segmented_blob.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "write-read-large-files"
 path = "fuzz_targets/write-read-large-files.rs"
 test = false

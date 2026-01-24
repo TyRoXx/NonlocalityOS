@@ -15,6 +15,8 @@ tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "sync"]
 astraea = { path = "../../astraea" }
 rand = { version = "0", features = [ "small_rng", "min_const_gen" ]}
 sorted_tree = { path = "../../sorted_tree" }
+dogbox_tree_editor = { path = "../../dogbox/dogbox_tree_editor" }
+bytes = "1.11"
 
 [dev-dependencies]
 test-log = {version = "0", features = ["trace", "log", "color"]}
