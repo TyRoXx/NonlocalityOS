@@ -4,7 +4,7 @@ use crate::{
         CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadRoot, LoadTree,
         StoreError, StoreTree, UpdateRoot,
     },
-    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_MAX_CHILDREN},
 };
 use bytes::Bytes;
 use pretty_assertions::assert_eq;
@@ -395,6 +395,64 @@ async fn test_compression_load_corrupted_blob() {
     assert_eq!(
         Err(LoadError::Rusqlite("Query is not read-only".to_string())),
         loaded_back
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_load_too_many_children() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    let reference = BlobDigest::parse_hex_string(concat!(
+        "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+        "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+    ))
+    .unwrap();
+    let children =
+        TreeChildren::try_from(std::iter::repeat_n(reference, TREE_MAX_CHILDREN).collect())
+            .unwrap();
+    let stored = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            children,
+        ))))
+        .await
+        .unwrap();
+    storage.commit_changes().await.unwrap();
+    let loaded_back = storage.load_tree(&stored).await;
+    assert!(loaded_back.is_ok());
+    {
+        let connection2 = rusqlite::Connection::open(&database_path).unwrap();
+        let tree_row_id: i64 = {
+            let stored_array: [u8; 64] = stored.into();
+            let mut statement = connection2
+                .prepare_cached("SELECT id FROM tree WHERE digest = ?1")
+                .unwrap();
+            statement
+                .query_row(
+                    (&stored_array,),
+                    |row: &rusqlite::Row<'_>| -> rusqlite::Result<_, rusqlite::Error> {
+                        row.get(0)
+                    },
+                )
+                .unwrap()
+        };
+        let reference_array: [u8; 64] = reference.into();
+        connection2
+            .execute(
+                "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",
+                (tree_row_id, TREE_MAX_CHILDREN as i64, &reference_array),
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        Err(LoadError::Inconsistency(
+            stored,
+            "Tree has too many children: 1001".to_string()
+        )),
+        storage.load_tree(&stored).await
     );
 }
 

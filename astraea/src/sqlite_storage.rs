@@ -325,11 +325,13 @@ impl LoadTree for SQLiteStorage {
                 Ok(target)
             })
             .try_collect()?;
+        let child_count = references.len();
         let children = match TreeChildren::try_from(references) {
             Some(children) => children,
             None => {
-                error!("Failed to reconstruct TreeChildren for tree with digest {reference}");
-                return Err(LoadError::TreeNotFound(*reference));
+                let message = format!("Tree has too many children: {}", child_count);
+                error!("{}", message);
+                return Err(LoadError::Inconsistency(*reference, message));
             }
         };
         Ok(DelayedHashedTree::delayed(
