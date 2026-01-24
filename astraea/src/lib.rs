@@ -31,3 +31,5 @@ pub mod in_memory_storage;
 
 #[cfg(test)]
 mod in_memory_storage_tests;
+
+pub mod load_cache_storage;
