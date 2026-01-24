@@ -422,6 +422,7 @@ impl CollectGarbage for SQLiteStorage {
             .require_gc_new_tree_table()
             .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         let connection_locked = &state_locked.connection;
+        // TODO: rework the transaction handling here
         let stats = collect_garbage(connection_locked)
             .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         state_locked
