@@ -18,14 +18,14 @@ async fn run_test_case(test_case: &TestCase) -> bool {
         },
     );
     let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
-    let digest = node.save(&storage).await.unwrap();
+    let reference = node.save(&storage).await.unwrap();
 
     let mut size_tracker = SizeTracker::new();
     for (key, value) in test_case.entries.iter() {
         size_tracker.add_entry(key, value);
     }
 
-    let tree = storage.load_tree(&digest).await.unwrap();
+    let tree = storage.load_tree(reference.digest()).await.unwrap();
     let hashed_tree = tree.hash().unwrap();
     assert_eq!(
         hashed_tree.tree().blob().len() as usize,

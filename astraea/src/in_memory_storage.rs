@@ -1,6 +1,6 @@
 use crate::{
     delayed_hashed_tree::DelayedHashedTree,
-    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree},
+    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree, StrongReference},
     tree::{BlobDigest, HashedTree},
 };
 use async_trait::async_trait;
@@ -43,11 +43,14 @@ impl InMemoryTreeStorage {
 
 #[async_trait]
 impl StoreTree for InMemoryTreeStorage {
-    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_tree(
+        &self,
+        tree: &HashedTree,
+    ) -> std::result::Result<StrongReference, StoreError> {
         let mut lock = self.reference_to_tree.lock().await;
-        let reference = *tree.digest();
-        lock.entry(reference).or_insert_with(|| tree.clone());
-        Ok(reference)
+        let digest = *tree.digest();
+        lock.entry(digest).or_insert_with(|| tree.clone());
+        Ok(StrongReference::new(None, digest))
     }
 }
 

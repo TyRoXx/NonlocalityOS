@@ -1,5 +1,5 @@
 use astraea::{
-    storage::{LoadTree, StoreError, StoreTree},
+    storage::{LoadTree, StoreError, StoreTree, StrongReference},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TreeSerializationError},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -166,7 +166,7 @@ pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
     store_tree: &(dyn StoreTree + Send + Sync),
     node: &Node<Key, Value>,
     metadata: &bytes::Bytes,
-) -> Result<BlobDigest, StoreError> {
+) -> Result<StrongReference, StoreError> {
     let tree = match node_to_tree(node, metadata) {
         Ok(tree) => tree,
         Err(error) => return Err(StoreError::TreeSerializationError(error)),
@@ -228,7 +228,7 @@ pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue
 
 pub async fn new_tree<Key: Serialize + Ord, Value: NodeValue>(
     store_tree: &(dyn StoreTree + Send + Sync),
-) -> Result<BlobDigest, StoreError> {
+) -> Result<StrongReference, StoreError> {
     let root = Node::<Key, Value> {
         entries: Vec::new(),
     };
@@ -241,7 +241,7 @@ pub async fn insert<Key: Serialize + DeserializeOwned + Ord + Clone, Value: Node
     root: &BlobDigest,
     key: Key,
     value: Value,
-) -> Result<BlobDigest, StoreError> {
+) -> Result<StrongReference, StoreError> {
     let mut node = load_node::<Key, Value>(load_tree, root).await;
     node.insert(key, value);
     store_node(store_tree, &node, /*this function is only used by sorted_tree_tests, so we don't need the prolly_tree metadata*/ &bytes::Bytes::new()).await

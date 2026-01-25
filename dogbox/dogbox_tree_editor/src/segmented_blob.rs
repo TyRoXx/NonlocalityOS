@@ -1,5 +1,5 @@
 use astraea::{
-    storage::{LoadTree, StoreError, StoreTree},
+    storage::{LoadTree, StoreError, StoreTree, StrongReference},
     tree::{
         BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH,
         TREE_MAX_CHILDREN,
@@ -13,7 +13,7 @@ pub async fn save_segmented_blob(
     total_size_in_bytes: u64,
     max_children_per_tree: usize,
     storage: &(dyn StoreTree + Send + Sync),
-) -> std::result::Result<BlobDigest, StoreError> {
+) -> std::result::Result<StrongReference, StoreError> {
     save_segmented_blob_impl(
         segments,
         TREE_BLOB_MAX_LENGTH as u64,
@@ -35,12 +35,12 @@ async fn save_segmented_blob_impl(
     total_size_in_bytes: u64,
     max_children_per_tree: usize,
     storage: &(dyn StoreTree + Send + Sync),
-) -> std::result::Result<BlobDigest, StoreError> {
+) -> std::result::Result<StrongReference, StoreError> {
     assert!(max_children_per_tree >= 2);
     assert!(max_children_per_tree <= TREE_MAX_CHILDREN);
     match segments.len() {
         0 => Err(StoreError::Unrepresentable),
-        1 => Ok(segments[0]),
+        1 => Ok(StrongReference::from_weak(segments[0])),
         _ => {
             if segments.len() > max_children_per_tree {
                 // TODO: Why is chunking done here before recursion? Would it be clearer to have a separate function
@@ -69,7 +69,10 @@ async fn save_segmented_blob_impl(
                     );
                 }
                 return Box::pin(save_segmented_blob_impl(
-                    &chunks,
+                    &chunks
+                        .iter()
+                        .map(|chunk| *chunk.digest())
+                        .collect::<Vec<_>>(),
                     segment_capacity * max_children_per_tree as u64,
                     total_size_in_bytes,
                     max_children_per_tree,

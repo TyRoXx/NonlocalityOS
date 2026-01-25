@@ -20,7 +20,7 @@ fn sqlite_in_memory_store_tree_redundantly(b: &mut Bencher, tree_blob_size: usiz
     let runtime = Runtime::new().unwrap();
     b.iter(|| {
         let reference = runtime.block_on(storage.store_tree(&stored_tree)).unwrap();
-        assert_eq!(stored_tree.digest(), &reference);
+        assert_eq!(stored_tree.digest(), reference.digest());
         reference
     });
     b.bytes = tree_blob_size as u64;
@@ -75,7 +75,7 @@ fn sqlite_in_memory_store_tree_newly(
         let storage = SQLiteStorage::from(connection).unwrap();
         for stored_tree in &stored_trees {
             let reference = runtime.block_on(storage.store_tree(stored_tree)).unwrap();
-            assert_eq!(stored_tree.digest(), &reference);
+            assert_eq!(stored_tree.digest(), reference.digest());
         }
         storage
     });
@@ -150,16 +150,16 @@ fn sqlite_in_memory_load_and_hash_tree(b: &mut Bencher, tree_count_in_database: 
     )));
     let reference = runtime.block_on(storage.store_tree(&stored_tree)).unwrap();
     assert_eq!(
-        BlobDigest::parse_hex_string(concat!(
+        &BlobDigest::parse_hex_string(concat!(
             "f4f60b9678a11ac75b4c28944111e29657976c7cc46050eb8c2b422f77a3cc99",
             "043054027fb3c041ed5c2195002bd24ca0d93e08d20e5ce9b54a9a16d9fd5beb"
         ))
         .unwrap(),
-        reference
+        reference.digest()
     );
     b.iter(|| {
         let loaded = runtime
-            .block_on(storage.load_tree(&reference))
+            .block_on(storage.load_tree(reference.digest()))
             .unwrap()
             .hash()
             .unwrap();
@@ -199,8 +199,8 @@ fn collect_garbage_nothing_to_collect(b: &mut Bencher, tree_count_in_database: u
                 })
                 .unwrap(),
             )));
-            let digest = storage.store_tree(&stored_tree).await.unwrap();
-            previous_tree = Some(digest);
+            let reference = storage.store_tree(&stored_tree).await.unwrap();
+            previous_tree = Some(*reference.digest());
         }
         storage
             .update_root("bench", &previous_tree.unwrap())

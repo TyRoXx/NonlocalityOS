@@ -2,14 +2,14 @@ use crate::{
     delayed_hashed_tree::DelayedHashedTree,
     storage::{
         CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadRoot, LoadStoreTree,
-        LoadTree, StoreError, StoreTree, UpdateRoot,
+        LoadTree, StoreError, StoreTree, StrongReference, StrongReferenceTrait, UpdateRoot,
     },
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
 use pretty_assertions::assert_eq;
 use rusqlite::OptionalExtension;
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument};
 
@@ -18,11 +18,16 @@ struct TransactionStats {
     writes: u64,
 }
 
+struct SQLiteStrongReferenceImpl {}
+
+impl StrongReferenceTrait for SQLiteStrongReferenceImpl {}
+
 #[derive(Debug)]
 struct SQLiteState {
     connection: rusqlite::Connection,
     transaction: Option<TransactionStats>,
     has_gc_new_tree_table: bool,
+    additional_roots: BTreeSet<BlobDigest>,
 }
 
 impl SQLiteState {
@@ -57,6 +62,11 @@ impl SQLiteState {
             Ok(())
         }
     }
+
+    fn add_additional_root(&mut self, root: &BlobDigest) -> StrongReference {
+        self.additional_roots.insert(*root);
+        StrongReference::new(Some(Arc::new(SQLiteStrongReferenceImpl {})), *root)
+    }
 }
 
 #[derive(Debug)]
@@ -72,6 +82,7 @@ impl SQLiteStorage {
                 connection,
                 transaction: None,
                 has_gc_new_tree_table: false,
+                additional_roots: BTreeSet::new(),
             }),
         })
     }
@@ -145,24 +156,29 @@ impl SQLiteStorage {
 #[async_trait]
 impl StoreTree for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_tree(
+        &self,
+        tree: &HashedTree,
+    ) -> std::result::Result<StrongReference, StoreError> {
         let mut state_locked = self.state.lock().await;
         let reference = *tree.digest();
         let origin_digest: [u8; 64] = reference.into();
         {
-            let connection_locked = &state_locked.connection;
-            let mut statement = connection_locked
-                .prepare_cached("SELECT COUNT(*) FROM tree WHERE digest = ?")
-                .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
-            let existing_count: i64 = statement
-                .query_row(
-                    (&origin_digest,),
-                    |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
-                )
-                .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
+            let existing_count: i64 = {
+                let connection_locked = &state_locked.connection;
+                let mut statement = connection_locked
+                    .prepare_cached("SELECT COUNT(*) FROM tree WHERE digest = ?")
+                    .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
+                statement
+                    .query_row(
+                        (&origin_digest,),
+                        |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
+                    )
+                    .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?
+            };
             match existing_count {
                 0 => {}
-                1 => return Ok(reference),
+                1 => return Ok(state_locked.add_additional_root(&reference)),
                 _ => panic!(),
             }
         }
@@ -234,15 +250,17 @@ impl StoreTree for SQLiteStorage {
             }
         }
 
-        let mut statement = connection_locked
-            .prepare_cached("INSERT OR IGNORE INTO gc_new_tree (tree_id) VALUES (?1)")
-            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
-        let rows_inserted = statement
-            .execute((&tree_id,))
-            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
-        assert!(rows_inserted <= 1);
+        {
+            let mut statement = connection_locked
+                .prepare_cached("INSERT OR IGNORE INTO gc_new_tree (tree_id) VALUES (?1)")
+                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
+            let rows_inserted = statement
+                .execute((&tree_id,))
+                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
+            assert!(rows_inserted <= 1);
+        }
 
-        Ok(reference)
+        Ok(state_locked.add_additional_root(&reference))
     }
 }
 
