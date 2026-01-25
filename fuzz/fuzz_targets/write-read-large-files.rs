@@ -152,7 +152,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
         let mut buffers = Vec::new();
         for _ in 0..3 {
             let storage = Arc::new(InMemoryTreeStorage::empty());
-            let last_known_digest = storage
+            let last_known_reference = storage
                 .store_tree(&HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::empty(),
                     TreeChildren::empty(),
@@ -163,7 +163,7 @@ fn run_generated_test(test: GeneratedTest) -> Corpus {
                 storage,
                 OpenFileContentBuffer::from_data(
                     initial_content.clone(),
-                    last_known_digest,
+                    *last_known_reference.digest(),
                     last_known_digest_file_size as u64,
                     test.write_buffer_in_blocks as usize,
                 )
