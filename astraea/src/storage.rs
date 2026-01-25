@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     delayed_hashed_tree::DelayedHashedTree,
     tree::{BlobDigest, HashedTree, TreeSerializationError},
@@ -36,9 +38,53 @@ impl std::fmt::Display for LoadError {
 
 impl std::error::Error for LoadError {}
 
+pub trait StrongReferenceTrait {}
+
+#[derive(Clone)]
+pub struct StrongReference {
+    internals: Option<Arc<dyn StrongReferenceTrait + Send + Sync>>,
+    digest: BlobDigest,
+}
+
+impl StrongReference {
+    pub fn new(
+        internals: Option<Arc<dyn StrongReferenceTrait + Send + Sync>>,
+        digest: BlobDigest,
+    ) -> StrongReference {
+        StrongReference { internals, digest }
+    }
+
+    // TODO: rename StrongReference?
+    pub fn from_weak(digest: BlobDigest) -> StrongReference {
+        StrongReference {
+            internals: None,
+            digest,
+        }
+    }
+
+    pub fn digest(&self) -> &BlobDigest {
+        &self.digest
+    }
+}
+
+impl std::fmt::Debug for StrongReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StrongReference({})", self.digest)
+    }
+}
+
+impl std::fmt::Display for StrongReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StrongReference({})", self.digest)
+    }
+}
+
 #[async_trait::async_trait]
 pub trait StoreTree {
-    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError>;
+    async fn store_tree(
+        &self,
+        tree: &HashedTree,
+    ) -> std::result::Result<StrongReference, StoreError>;
 }
 
 #[async_trait::async_trait]

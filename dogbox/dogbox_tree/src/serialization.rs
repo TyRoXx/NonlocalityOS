@@ -1,5 +1,5 @@
 use astraea::{
-    storage::{LoadError, LoadStoreTree},
+    storage::{LoadError, LoadStoreTree, StrongReference},
     tree::BlobDigest,
 };
 use serde::{Deserialize, Serialize};
@@ -201,7 +201,7 @@ type ProllyTree = prolly_tree_editable_node::EditableNode<FileName, DirectoryEnt
 pub async fn serialize_directory(
     entries: &BTreeMap<FileName, (DirectoryEntryMetaData, BlobDigest)>,
     storage: &(dyn LoadStoreTree + Send + Sync),
-) -> std::result::Result<BlobDigest, Box<dyn std::error::Error>> {
+) -> std::result::Result<StrongReference, Box<dyn std::error::Error>> {
     let mut prolly_tree = ProllyTree::new();
     for (name, (meta, digest)) in entries.iter() {
         prolly_tree
