@@ -19,31 +19,40 @@ pub fn fuzz_function(data: &[u8]) -> bool {
                 .expect("creating a new tree should succeed");
             let mut oracle = BTreeMap::new();
             for (key, _value) in entries.iter() {
-                let found =
-                    sorted_tree::sorted_tree::find::<String, i64>(&storage, &current_state, key)
-                        .await;
+                let found = sorted_tree::sorted_tree::find::<String, i64>(
+                    &storage,
+                    current_state.digest(),
+                    key,
+                )
+                .await;
                 assert_eq!(None, found);
             }
             for (key, value) in entries.iter() {
                 current_state = sorted_tree::sorted_tree::insert::<String, i64>(
                     &storage,
                     &storage,
-                    &current_state,
+                    current_state.digest(),
                     key.clone(),
                     *value,
                 )
                 .await
                 .expect("inserting key should succeed");
-                let found =
-                    sorted_tree::sorted_tree::find::<String, i64>(&storage, &current_state, key)
-                        .await;
+                let found = sorted_tree::sorted_tree::find::<String, i64>(
+                    &storage,
+                    current_state.digest(),
+                    key,
+                )
+                .await;
                 assert_eq!(Some(*value), found);
                 oracle.insert(key.clone(), *value);
             }
             for (key, value) in oracle.iter() {
-                let found =
-                    sorted_tree::sorted_tree::find::<String, i64>(&storage, &current_state, key)
-                        .await;
+                let found = sorted_tree::sorted_tree::find::<String, i64>(
+                    &storage,
+                    current_state.digest(),
+                    key,
+                )
+                .await;
                 assert_eq!(Some(*value), found);
             }
         });

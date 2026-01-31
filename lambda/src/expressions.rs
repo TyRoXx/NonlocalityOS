@@ -1,5 +1,6 @@
 use crate::name::Name;
 use astraea::deep_tree::DeepTree;
+use astraea::storage::StrongReference;
 use astraea::tree::{
     BlobDigest, HashedTree, ReferenceIndex, Tree, TreeChildren, TreeDeserializationError,
     TreeSerializationError,
@@ -304,7 +305,7 @@ pub fn expression_to_tree(expression: &ShallowExpression) -> Result<Tree, TreeSe
 pub async fn serialize_shallow(
     expression: &ShallowExpression,
     storage: &(dyn StoreTree + Sync),
-) -> std::result::Result<BlobDigest, StoreError> {
+) -> std::result::Result<StrongReference, StoreError> {
     let tree = match expression_to_tree(expression) {
         Ok(success) => success,
         Err(error) => return Err(StoreError::TreeSerializationError(error)),
@@ -315,7 +316,7 @@ pub async fn serialize_shallow(
 pub async fn serialize_recursively(
     expression: &DeepExpression,
     storage: &(dyn StoreTree + Sync),
-) -> std::result::Result<BlobDigest, StoreError> {
+) -> std::result::Result<StrongReference, StoreError> {
     let shallow_expression: ShallowExpression = expression
         .0
         .map_child_expressions(&|child: &Arc<DeepExpression>| -> Pin<
@@ -325,6 +326,8 @@ pub async fn serialize_recursively(
             Box::pin(async move {
                 serialize_recursively(&child, storage)
                     .await
+                    // TODO: keep alive
+                    .map(|reference| *reference.digest())
             })
         },&|child: &DeepTree| -> Pin<
         Box<dyn Future<Output = Result<BlobDigest, StoreError>>>,
@@ -332,6 +335,8 @@ pub async fn serialize_recursively(
             let child = child.clone();
             Box::pin(async move {
                 child.serialize(storage).await
+                // TODO: keep alive
+                .map(|reference| *reference.digest())
             })
         })
         .await?;
@@ -367,12 +372,10 @@ impl Closure {
     pub async fn serialize(
         &self,
         store_tree: &(dyn StoreTree + Sync),
-    ) -> Result<BlobDigest, StoreError> {
-        let children = TreeChildren::try_from(vec![
-            self.environment,
-            serialize_recursively(&self.body, store_tree).await?,
-        ])
-        .expect("Two children always fit");
+    ) -> Result<StrongReference, StoreError> {
+        let body_reference = serialize_recursively(&self.body, store_tree).await?;
+        let children = TreeChildren::try_from(vec![self.environment, *body_reference.digest()])
+            .expect("Two children always fit");
         let closure_blob = ClosureBlob::new();
         let closure_blob_bytes = postcard::to_allocvec(&closure_blob).unwrap(/*TODO*/);
         store_tree
@@ -405,17 +408,17 @@ impl Closure {
 
 async fn call_method(
     body: &DeepExpression,
-    argument: &BlobDigest,
-    environment: &BlobDigest,
+    argument: &StrongReference,
+    environment: &StrongReference,
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
-) -> std::result::Result<BlobDigest, StoreError> {
+) -> std::result::Result<StrongReference, StoreError> {
     Box::pin(evaluate(
         body,
         load_tree,
         store_tree,
-        &Some(*argument),
-        &Some(*environment),
+        &Some(argument.clone()),
+        &Some(environment.clone()),
     ))
     .await
 }
@@ -425,12 +428,12 @@ pub type ReadVariable =
 
 pub async fn apply_evaluated_argument(
     callee: &DeepExpression,
-    evaluated_argument: &BlobDigest,
+    evaluated_argument: &StrongReference,
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
-    current_lambda_argument: &Option<BlobDigest>,
-    current_lambda_environment: &Option<BlobDigest>,
-) -> std::result::Result<BlobDigest, StoreError> {
+    current_lambda_argument: &Option<StrongReference>,
+    current_lambda_environment: &Option<StrongReference>,
+) -> std::result::Result<StrongReference, StoreError> {
     let evaluated_callee = Box::pin(evaluate(
         callee,
         load_tree,
@@ -439,14 +442,15 @@ pub async fn apply_evaluated_argument(
         current_lambda_environment,
     ))
     .await?;
-    let closure = match Closure::deserialize(&evaluated_callee, load_tree).await {
+    let closure = match Closure::deserialize(evaluated_callee.digest(), load_tree).await {
         Ok(success) => success,
         Err(_) => todo!(),
     };
     call_method(
         &closure.body,
         evaluated_argument,
-        &closure.environment,
+        // TODO: keep alive
+        &StrongReference::from_weak(closure.environment),
         load_tree,
         store_tree,
     )
@@ -458,9 +462,9 @@ pub async fn evaluate_apply(
     argument: &DeepExpression,
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
-    current_lambda_argument: &Option<BlobDigest>,
-    current_lambda_environment: &Option<BlobDigest>,
-) -> std::result::Result<BlobDigest, StoreError> {
+    current_lambda_argument: &Option<StrongReference>,
+    current_lambda_environment: &Option<StrongReference>,
+) -> std::result::Result<StrongReference, StoreError> {
     let evaluated_argument = Box::pin(evaluate(
         argument,
         load_tree,
@@ -484,9 +488,9 @@ pub async fn evaluate(
     expression: &DeepExpression,
     load_tree: &(dyn LoadTree + Sync),
     store_tree: &(dyn StoreTree + Sync),
-    current_lambda_argument: &Option<BlobDigest>,
-    current_lambda_environment: &Option<BlobDigest>,
-) -> std::result::Result<BlobDigest, StoreError> {
+    current_lambda_argument: &Option<StrongReference>,
+    current_lambda_environment: &Option<StrongReference>,
+) -> std::result::Result<StrongReference, StoreError> {
     match &expression.0 {
         Expression::Literal(literal_value) => literal_value.serialize(store_tree).await,
         Expression::Apply { callee, argument } => {
@@ -502,14 +506,14 @@ pub async fn evaluate(
         }
         Expression::Argument => {
             if let Some(argument) = current_lambda_argument {
-                Ok(*argument)
+                Ok(argument.clone())
             } else {
                 todo!("We are not in a lambda context; argument is not available")
             }
         }
         Expression::Environment => {
             if let Some(environment) = current_lambda_environment {
-                Ok(*environment)
+                Ok(environment.clone())
             } else {
                 todo!("We are not in a lambda context; environment is not available")
             }
@@ -523,7 +527,7 @@ pub async fn evaluate(
                 current_lambda_environment,
             ))
             .await?;
-            let closure = Closure::new(evaluated_environment, body.clone());
+            let closure = Closure::new(*evaluated_environment.digest(), body.clone());
             let serialized = closure.serialize(store_tree).await?;
             Ok(serialized)
         }
@@ -540,7 +544,12 @@ pub async fn evaluate(
                 .await?;
                 evaluated_arguments.push(evaluated_argument);
             }
-            let children = match TreeChildren::try_from(evaluated_arguments) {
+            let children = match TreeChildren::try_from(
+                evaluated_arguments
+                    .iter()
+                    .map(|reference| *reference.digest())
+                    .collect(),
+            ) {
                 Some(success) => success,
                 None => {
                     return Err(StoreError::TreeSerializationError(
@@ -564,7 +573,8 @@ pub async fn evaluate(
                 current_lambda_environment,
             ))
             .await?;
-            let loaded_parent = load_tree.load_tree(&evaluated_parent).await.unwrap(/*TODO*/);
+            let loaded_parent =
+                load_tree.load_tree(evaluated_parent.digest()).await.unwrap(/*TODO*/);
             let hashed_tree = loaded_parent
                 .hash()
                 .unwrap(/*TODO*/);
@@ -574,7 +584,8 @@ pub async fn evaluate(
                 .references()
                 .get(*index as usize)
                 .expect("TODO handle out of range error");
-            Ok(*child)
+            // TODO: keep alive
+            Ok(StrongReference::from_weak(*child))
         }
     }
 }

@@ -11,7 +11,7 @@ async fn expect_evaluate_result(
     let evaluated_digest = evaluate(expression, storage, storage, &None, &None)
         .await
         .unwrap();
-    let evaluated = DeepTree::deserialize(&evaluated_digest, storage)
+    let evaluated = DeepTree::deserialize(evaluated_digest.digest(), storage)
         .await
         .unwrap();
     assert_eq!(expected_result, &evaluated);

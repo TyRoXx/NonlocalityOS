@@ -65,12 +65,12 @@ async fn execute_operations_on_prolly_tree(
             MapOperation::Save => {
                 let saved_digest = editable_node.save(storage).await.unwrap();
                 let reloaded_node: EditableNode<u32, i64> =
-                    EditableNode::Reference(TreeReference::new(saved_digest));
+                    EditableNode::Reference(TreeReference::new(*saved_digest.digest()));
                 editable_node = reloaded_node;
             }
         }
     }
-    editable_node.save(storage).await.unwrap()
+    *editable_node.save(storage).await.unwrap().digest()
 }
 
 fn execute_operations_on_btree_map(map: &mut BTreeMap<u32, i64>, operations: &[MapOperation]) {
@@ -139,9 +139,9 @@ async fn btree_map_to_digest(
     for (key, value) in map.iter() {
         editable_node.insert(*key, *value, storage).await.unwrap();
     }
-    let digest = editable_node.save(storage).await.unwrap();
-    verify_prolly_tree_equality_to_map(&digest, map, storage).await;
-    digest
+    let reference = editable_node.save(storage).await.unwrap();
+    verify_prolly_tree_equality_to_map(reference.digest(), map, storage).await;
+    *reference.digest()
 }
 
 async fn run_test_case(test_case: &TestCase) {

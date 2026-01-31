@@ -26,15 +26,25 @@ async fn test_store_unit_first_time() {
         .await
         .unwrap();
     assert_eq!(
-        BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap(),
-        reference
+        &BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap(),
+        reference.digest()
     );
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(HashedTree::from(Arc::new(Tree::empty())), loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(HashedTree::from(Arc::new(Tree::empty())), loaded_back);
 }
 
@@ -48,18 +58,18 @@ async fn test_store_unit_again() {
         .await
         .unwrap();
     assert_eq!(
-        BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap(),
-        reference_1
+        &BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap(),
+        reference_1.digest()
     );
 
     let reference_2 = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
-    assert_eq!(reference_1, reference_2);
+    assert_eq!(reference_1.digest(), reference_2.digest());
 
     let loaded_back = storage
-        .load_tree(&reference_1)
+        .load_tree(reference_1.digest())
         .await
         .unwrap()
         .hash()
@@ -69,7 +79,7 @@ async fn test_store_unit_again() {
     storage.commit_changes().await.unwrap();
 
     let loaded_back = storage
-        .load_tree(&reference_1)
+        .load_tree(reference_1.digest())
         .await
         .unwrap()
         .hash()
@@ -91,16 +101,26 @@ async fn test_store_blob() {
         .await
         .unwrap();
     assert_eq!(
-        BlobDigest::parse_hex_string("9be8213097a391e7b693a99d6645d11297b72113314f5e9ef98704205a7c795e41819a670fb10a60b4ca6aa92b4abd8a50932503ec843df6c40219d49f08a623").unwrap(),
-        reference
+        &BlobDigest::parse_hex_string("9be8213097a391e7b693a99d6645d11297b72113314f5e9ef98704205a7c795e41819a670fb10a60b4ca6aa92b4abd8a50932503ec843df6c40219d49f08a623").unwrap(),
+        reference.digest()
     );
     let expected = HashedTree::from(tree);
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 }
 
@@ -119,16 +139,26 @@ async fn test_store_reference() {
         .await
         .unwrap();
     assert_eq!(
-        BlobDigest::parse_hex_string("f9e26873d85cf34136a52d16c95dcbb557c302a60d6f2dadebea15dc769e0c8b1ca4137804bf82b4c668d65943c110db29bd6cef8493abe14b504b961e728e17").unwrap(),
-        reference
+        &BlobDigest::parse_hex_string("f9e26873d85cf34136a52d16c95dcbb557c302a60d6f2dadebea15dc769e0c8b1ca4137804bf82b4c668d65943c110db29bd6cef8493abe14b504b961e728e17").unwrap(),
+        reference.digest()
     );
     let expected = HashedTree::from(tree);
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 }
 
@@ -150,16 +180,26 @@ async fn test_store_two_references() {
         .await
         .unwrap();
     assert_eq!(
-            BlobDigest::parse_hex_string("ba085996952452402912ed9165e1515b30283897608e4a82d6c48740397c9cdac50321835d2749adb1f8278038dd2ab00b9a7e6a128a082e8b6ed7b0f00fd225").unwrap(),
-            reference
+            &BlobDigest::parse_hex_string("ba085996952452402912ed9165e1515b30283897608e4a82d6c48740397c9cdac50321835d2749adb1f8278038dd2ab00b9a7e6a128a082e8b6ed7b0f00fd225").unwrap(),
+            reference.digest()
         );
     let expected = HashedTree::from(tree);
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 }
 
@@ -181,16 +221,26 @@ async fn test_store_three_references() {
         .await
         .unwrap();
     assert_eq!(
-            BlobDigest::parse_hex_string("73dc0c58f0627b29dd0d09967e98318201504969e476b390e38e11b131faca075de24d114ba3d00524a402b88437d5b9c8ee654bbf3bb96e2ff23164a3ca4e49").unwrap(),
-            reference
+            &BlobDigest::parse_hex_string("73dc0c58f0627b29dd0d09967e98318201504969e476b390e38e11b131faca075de24d114ba3d00524a402b88437d5b9c8ee654bbf3bb96e2ff23164a3ca4e49").unwrap(),
+            reference.digest()
         );
     let expected = HashedTree::from(tree);
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 }
 
@@ -222,12 +272,27 @@ async fn test_update_root() {
         .unwrap();
     let name = "test";
     assert_eq!(Ok(None), storage.load_root(name).await);
-    storage.update_root(name, &reference_1).await.unwrap();
-    assert_eq!(Ok(Some(reference_1)), storage.load_root(name).await);
-    storage.update_root(name, &reference_2).await.unwrap();
-    assert_eq!(Ok(Some(reference_2)), storage.load_root(name).await);
+    storage
+        .update_root(name, reference_1.digest())
+        .await
+        .unwrap();
+    assert_eq!(
+        Ok(Some(*reference_1.digest())),
+        storage.load_root(name).await
+    );
+    storage
+        .update_root(name, reference_2.digest())
+        .await
+        .unwrap();
+    assert_eq!(
+        Ok(Some(*reference_2.digest())),
+        storage.load_root(name).await
+    );
     storage.commit_changes().await.unwrap();
-    assert_eq!(Ok(Some(reference_2)), storage.load_root(name).await);
+    assert_eq!(
+        Ok(Some(*reference_2.digest())),
+        storage.load_root(name).await
+    );
 }
 
 #[test_log::test(tokio::test)]
@@ -242,14 +307,35 @@ async fn test_roots_may_be_equal() {
     let name_1 = "testA";
     let name_2 = "testB";
     assert_eq!(Ok(None), storage.load_root(name_1).await);
-    storage.update_root(name_1, &reference_1).await.unwrap();
-    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
-    storage.update_root(name_2, &reference_1).await.unwrap();
-    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
-    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_2).await);
+    storage
+        .update_root(name_1, &reference_1.digest())
+        .await
+        .unwrap();
+    assert_eq!(
+        Ok(Some(*reference_1.digest())),
+        storage.load_root(name_1).await
+    );
+    storage
+        .update_root(name_2, &reference_1.digest())
+        .await
+        .unwrap();
+    assert_eq!(
+        Ok(Some(*reference_1.digest())),
+        storage.load_root(name_1).await
+    );
+    assert_eq!(
+        Ok(Some(*reference_1.digest())),
+        storage.load_root(name_2).await
+    );
     storage.commit_changes().await.unwrap();
-    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_1).await);
-    assert_eq!(Ok(Some(reference_1)), storage.load_root(name_2).await);
+    assert_eq!(
+        Ok(Some(*reference_1.digest())),
+        storage.load_root(name_1).await
+    );
+    assert_eq!(
+        Ok(Some(*reference_1.digest())),
+        storage.load_root(name_2).await
+    );
 }
 
 #[test_log::test(tokio::test)]
@@ -272,13 +358,23 @@ async fn test_compression_compressible_data() {
 
     // Verify we can load it back correctly
     let expected = HashedTree::from(tree);
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
     // Verify we can still load after commit
-    let loaded_back_after_commit = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back_after_commit = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back_after_commit);
 }
 
@@ -302,13 +398,23 @@ async fn test_compression_uncompressible_data() {
 
     // Verify we can load it back correctly
     let expected = HashedTree::from(tree);
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
     // Verify we can still load after commit
-    let loaded_back_after_commit = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back_after_commit = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back_after_commit);
 }
 
@@ -338,13 +444,23 @@ async fn test_compression_large_blob() {
 
     // Verify we can load it back correctly
     let expected = HashedTree::from(tree);
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
     // Verify we can still load after commit
-    let loaded_back_after_commit = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back_after_commit = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back_after_commit);
 }
 
@@ -363,13 +479,23 @@ async fn test_compression_empty_blob() {
 
     // Verify we can load it back correctly
     let expected = HashedTree::from(tree);
-    let loaded_back = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back);
 
     storage.commit_changes().await.unwrap();
 
     // Verify we can still load after commit
-    let loaded_back_after_commit = storage.load_tree(&reference).await.unwrap().hash().unwrap();
+    let loaded_back_after_commit = storage
+        .load_tree(reference.digest())
+        .await
+        .unwrap()
+        .hash()
+        .unwrap();
     assert_eq!(expected, loaded_back_after_commit);
 }
 
@@ -421,12 +547,12 @@ async fn test_load_too_many_children() {
         .await
         .unwrap();
     storage.commit_changes().await.unwrap();
-    let loaded_back = storage.load_tree(&stored).await;
+    let loaded_back = storage.load_tree(stored.digest()).await;
     assert!(loaded_back.is_ok());
     {
         let connection2 = rusqlite::Connection::open(&database_path).unwrap();
         let tree_row_id: i64 = {
-            let stored_array: [u8; 64] = stored.into();
+            let stored_array: [u8; 64] = stored.digest().clone().into();
             let mut statement = connection2
                 .prepare_cached("SELECT id FROM tree WHERE digest = ?1")
                 .unwrap();
@@ -449,10 +575,10 @@ async fn test_load_too_many_children() {
     }
     assert_eq!(
         Err(LoadError::Inconsistency(
-            stored,
+            *stored.digest(),
             "Tree has too many children: 1001".to_string()
         )),
-        storage.load_tree(&stored).await
+        storage.load_tree(stored.digest()).await
     );
 }
 
@@ -465,25 +591,66 @@ async fn test_collect_garbage() {
         GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
     );
-    storage
+    let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
-    assert_eq!(
-        GarbageCollectionStats { trees_collected: 0 },
-        storage.collect_some_garbage().await.unwrap()
-    );
+    drop(reference);
     assert_eq!(
         GarbageCollectionStats { trees_collected: 1 },
         storage.collect_some_garbage().await.unwrap()
     );
-    let digest = storage
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
-    storage.update_root("test", &digest).await.unwrap();
+    storage
+        .update_root("test", reference.digest())
+        .await
+        .unwrap();
+    drop(reference);
     assert_eq!(
         GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_strong_reference() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+        .await
+        .unwrap();
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    drop(reference);
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 1 },
         storage.collect_some_garbage().await.unwrap()
     );
     assert_eq!(
@@ -503,10 +670,11 @@ async fn test_sql_errors() {
         storage.load_tree(&digest).await
     );
     assert_eq!(
-        Err(StoreError::Rusqlite("no such table: tree".to_string())),
+        StoreError::Rusqlite("no such table: tree".to_string()),
         storage
             .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
             .await
+            .unwrap_err()
     );
     assert_eq!(
         Err(LoadError::Rusqlite("no such table: root".to_string())),

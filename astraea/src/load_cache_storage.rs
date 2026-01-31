@@ -1,6 +1,6 @@
 use crate::{
     delayed_hashed_tree::DelayedHashedTree,
-    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree},
+    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree, StrongReference},
     tree::{BlobDigest, HashedTree},
 };
 use async_trait::async_trait;
@@ -57,7 +57,10 @@ impl LoadTree for LoadCache {
 
 #[async_trait]
 impl StoreTree for LoadCache {
-    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_tree(
+        &self,
+        tree: &HashedTree,
+    ) -> std::result::Result<StrongReference, StoreError> {
         self.next.store_tree(tree).await
     }
 }

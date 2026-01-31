@@ -1,6 +1,6 @@
 use crate::sorted_tree::{self, NodeValue, TreeReference};
 use astraea::{
-    storage::{LoadError, LoadTree, StoreError, StoreTree},
+    storage::{LoadError, LoadTree, StoreError, StoreTree, StrongReference},
     tree::{BlobDigest, TREE_BLOB_MAX_LENGTH},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -94,7 +94,7 @@ pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
     store_tree: &(dyn StoreTree + Send + Sync),
     node: &sorted_tree::Node<Key, Value>,
     metadata: &Metadata,
-) -> Result<BlobDigest, StoreError> {
+) -> Result<StrongReference, StoreError> {
     let metadata_serialized =
         postcard::to_stdvec(metadata).expect("serializing metadata should always succeed");
     crate::sorted_tree::store_node(store_tree, node, &bytes::Bytes::from(metadata_serialized)).await
@@ -286,9 +286,11 @@ impl<
     pub async fn save(
         &mut self,
         store_tree: &(dyn StoreTree + Send + Sync),
-    ) -> Result<BlobDigest, Box<dyn std::error::Error>> {
+    ) -> Result<StrongReference, Box<dyn std::error::Error>> {
         match self {
-            EditableNode::Reference(tree_ref) => Ok(*tree_ref.reference()),
+            EditableNode::Reference(tree_ref) => {
+                Ok(StrongReference::from_weak(*tree_ref.reference()))
+            }
             EditableNode::Loaded(loaded_node) => loaded_node.save(store_tree).await,
         }
     }
@@ -840,7 +842,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
     pub async fn save(
         &mut self,
         store_tree: &(dyn StoreTree + Send + Sync),
-    ) -> Result<BlobDigest, Box<dyn std::error::Error>> {
+    ) -> Result<StrongReference, Box<dyn std::error::Error>> {
         match self {
             EditableLoadedNode::Leaf(leaf_node) => {
                 let mut new_node = crate::sorted_tree::Node {
@@ -857,10 +859,10 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
                     entries: Vec::new(),
                 };
                 for (key, child_node) in &mut internal_node.entries {
-                    let child_digest = Box::pin(child_node.save(store_tree)).await?;
+                    let child_reference = Box::pin(child_node.save(store_tree)).await?;
                     new_node
                         .entries
-                        .push((key.clone(), TreeReference::new(child_digest)));
+                        .push((key.clone(), TreeReference::new(*child_reference.digest())));
                 }
                 let digest =
                     store_node(store_tree, &new_node, &Metadata { is_leaf: false }).await?;

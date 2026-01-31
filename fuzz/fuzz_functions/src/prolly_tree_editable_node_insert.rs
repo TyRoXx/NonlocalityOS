@@ -74,14 +74,14 @@ async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
     let final_count = editable_node.count(&storage).await.unwrap();
     assert_eq!(oracle.len() as u64, final_count);
     assert_eq!(0, storage.number_of_trees().await);
-    let digest = editable_node.save(&storage).await.unwrap();
+    let reference = editable_node.save(&storage).await.unwrap();
     let number_of_trees = storage.number_of_trees().await;
     assert!(number_of_trees >= 1);
     // TODO: find a better upper bound
     assert!(number_of_trees <= 1000);
 
     // test loading from storage
-    editable_node = EditableNode::Reference(TreeReference::new(digest));
+    editable_node = EditableNode::Reference(TreeReference::new(*reference.digest()));
     for (key, value) in oracle.iter() {
         let found = editable_node.find(key, &storage).await.unwrap();
         assert_eq!(Some(*value), found);
@@ -91,9 +91,9 @@ async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
         editable_node.count(&storage).await.unwrap()
     );
     let saved_again = editable_node.save(&storage).await.unwrap();
-    assert_eq!(saved_again, digest);
+    assert_eq!(saved_again.digest(), reference.digest());
 
-    digest
+    *reference.digest()
 }
 
 #[derive(Arbitrary, Debug)]
