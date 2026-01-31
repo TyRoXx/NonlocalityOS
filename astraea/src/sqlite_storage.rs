@@ -9,7 +9,7 @@ use crate::{
 use async_trait::async_trait;
 use pretty_assertions::assert_eq;
 use rusqlite::OptionalExtension;
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument};
 
@@ -27,7 +27,7 @@ struct SQLiteState {
     connection: rusqlite::Connection,
     transaction: Option<TransactionStats>,
     has_gc_new_tree_table: bool,
-    additional_roots: BTreeSet<i64>,
+    additional_roots: BTreeMap<BlobDigest, i64>,
 }
 
 impl SQLiteState {
@@ -64,7 +64,7 @@ impl SQLiteState {
     }
 
     fn add_additional_root(&mut self, root: &BlobDigest, root_tree_id: i64) -> StrongReference {
-        self.additional_roots.insert(root_tree_id);
+        self.additional_roots.insert(*root, root_tree_id);
         StrongReference::new(Some(Arc::new(SQLiteStrongReferenceImpl {})), *root)
     }
 }
@@ -82,7 +82,7 @@ impl SQLiteStorage {
                 connection,
                 transaction: None,
                 has_gc_new_tree_table: false,
-                additional_roots: BTreeSet::new(),
+                additional_roots: BTreeMap::new(),
             }),
         })
     }
@@ -400,13 +400,13 @@ impl UpdateRoot for SQLiteStorage {
 #[instrument(skip_all)]
 fn collect_garbage(
     connection: &mut rusqlite::Connection,
-    additional_roots: &BTreeSet<i64>,
+    additional_roots: &BTreeMap<BlobDigest, i64>,
 ) -> rusqlite::Result<GarbageCollectionStats> {
     connection.execute("DELETE FROM gc_new_tree", ())?;
     {
         let mut statement =
             connection.prepare_cached("INSERT OR IGNORE INTO gc_new_tree (tree_id) VALUES (?1)")?;
-        for tree_id in additional_roots {
+        for (_, tree_id) in additional_roots {
             statement.execute((tree_id,))?;
         }
     }
