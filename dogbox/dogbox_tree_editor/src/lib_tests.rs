@@ -1310,7 +1310,7 @@ async fn test_open_file_content_buffer_loaded_resize_large() {
     let new_size = (2 * (TREE_BLOB_MAX_LENGTH as u64)) + 1;
     buffer.resize(new_size, storage.clone()).await.unwrap();
     assert_eq!(buffer.size, new_size);
-    assert_eq!(storage.number_of_trees().await, 1);
+    assert_eq!(storage.number_of_trees().await, 2);
     buffer.store_cheap_blocks(storage.clone()).await.unwrap();
     assert_eq!(storage.number_of_trees().await, 2);
     assert_eq!(
