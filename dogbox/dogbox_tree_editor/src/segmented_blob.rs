@@ -9,7 +9,7 @@ use dogbox_tree::serialization::{DeserializationError, SegmentedBlob};
 use std::sync::Arc;
 
 pub async fn save_segmented_blob(
-    segments: &[BlobDigest],
+    segments: &[StrongReference],
     total_size_in_bytes: u64,
     max_children_per_tree: usize,
     storage: &(dyn StoreTree + Send + Sync),
@@ -30,7 +30,7 @@ pub async fn save_segmented_blob(
 // Why does segment_capacity get multiplied by max_children_per_tree in the recursive call (line 64)?
 // Is this building a B-tree-like structure? Should this be explained in module-level documentation?
 async fn save_segmented_blob_impl(
-    segments: &[BlobDigest],
+    segments: &[StrongReference],
     segment_capacity: u64,
     total_size_in_bytes: u64,
     max_children_per_tree: usize,
@@ -40,7 +40,7 @@ async fn save_segmented_blob_impl(
     assert!(max_children_per_tree <= TREE_MAX_CHILDREN);
     match segments.len() {
         0 => Err(StoreError::Unrepresentable),
-        1 => Ok(StrongReference::from_weak(segments[0])),
+        1 => Ok(segments[0].clone()),
         _ => {
             if segments.len() > max_children_per_tree {
                 // TODO: Why is chunking done here before recursion? Would it be clearer to have a separate function
@@ -69,10 +69,7 @@ async fn save_segmented_blob_impl(
                     );
                 }
                 return Box::pin(save_segmented_blob_impl(
-                    &chunks
-                        .iter()
-                        .map(|chunk| *chunk.digest())
-                        .collect::<Vec<_>>(),
+                    &chunks,
                     segment_capacity * max_children_per_tree as u64,
                     total_size_in_bytes,
                     max_children_per_tree,
@@ -83,8 +80,9 @@ async fn save_segmented_blob_impl(
             let info = SegmentedBlob {
                 size_in_bytes: total_size_in_bytes,
             };
-            let children = TreeChildren::try_from(segments.to_vec())
-                .expect("The child count was checked above.");
+            let children =
+                TreeChildren::try_from(segments.iter().map(|r| *r.digest()).collect::<Vec<_>>())
+                    .expect("The child count was checked above.");
             let tree = Tree::new(
                 // TODO: Under what conditions could postcard serialization or TreeBlob conversion fail here?
                 // Should these unwraps be proper error handling to avoid panics on malformed data?
@@ -92,10 +90,10 @@ async fn save_segmented_blob_impl(
                     .unwrap(),
                 children,
             );
-            let digest = storage
+            let reference = storage
                 .store_tree(&HashedTree::from(Arc::new(tree)))
                 .await?;
-            Ok(digest)
+            Ok(reference)
         }
     }
 }
