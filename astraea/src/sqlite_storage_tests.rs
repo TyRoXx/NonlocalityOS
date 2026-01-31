@@ -597,11 +597,11 @@ async fn test_collect_garbage() {
         .unwrap();
     drop(reference);
     assert_eq!(
-        GarbageCollectionStats { trees_collected: 0 },
+        GarbageCollectionStats { trees_collected: 1 },
         storage.collect_some_garbage().await.unwrap()
     );
     assert_eq!(
-        GarbageCollectionStats { trees_collected: 1 },
+        GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
     );
     let reference = storage
