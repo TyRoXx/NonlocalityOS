@@ -1,13 +1,12 @@
-use dogbox_tree::serialization::SegmentedBlob;
-use pretty_assertions::assert_eq;
-use std::sync::Arc;
-
 use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
     storage::{LoadTree, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
+use dogbox_tree::serialization::SegmentedBlob;
+use pretty_assertions::assert_eq;
+use std::sync::Arc;
 
 #[test_log::test(tokio::test)]
 async fn test_save_segmented_blob_0() {
@@ -34,7 +33,7 @@ async fn test_save_segmented_blob_1() {
         .await
         .unwrap();
     assert_eq!(1, storage.number_of_trees().await);
-    let original_segments = [*segment.digest()];
+    let original_segments = [segment.clone()];
     let reference = save_segmented_blob(
         &original_segments,
         total_size as u64,
@@ -48,7 +47,11 @@ async fn test_save_segmented_blob_1() {
     let (loaded_segments, loaded_size) = load_segmented_blob(reference.digest(), &storage)
         .await
         .unwrap();
-    assert_eq!(original_segments, &loaded_segments[..]);
+    let expected_segments = original_segments
+        .iter()
+        .map(|reference| *reference.digest())
+        .collect::<Vec<_>>();
+    assert_eq!(&expected_segments, &loaded_segments);
     assert_eq!(total_size as u64, loaded_size);
 }
 
@@ -56,14 +59,21 @@ async fn test_save_segmented_blob_1() {
 async fn test_save_segmented_blob_2() {
     let storage = InMemoryTreeStorage::empty();
     let max_children_per_tree = 2;
-    let segment_0 = BlobDigest::parse_hex_string(
-            "77e712cf05e19dcd622c502a3167027f9ce838094c82cef0fbf853c9b5fe2e22ce1af698fb306feb586019ddadc923f5b8f70a8c004b9f84b451be453930be14"
-        )
+    let segment_0 = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH])).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
         .unwrap();
-    let segment_1 = BlobDigest::parse_hex_string(
-            "12e712cf05e19dcd622c502a3167027f9ce838094c82cef0fbf853c9b5fe2e22ce1af698fb306feb586019ddadc923f5b8f70a8c004b9f84b451be453930be14"
-        )
+    let segment_1 = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(vec![0u8; 1])).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
         .unwrap();
+    assert_eq!(2, storage.number_of_trees().await);
     let original_segments = [segment_0, segment_1];
     let total_size = TREE_BLOB_MAX_LENGTH as u64 + 1;
     let reference = save_segmented_blob(
@@ -82,7 +92,11 @@ async fn test_save_segmented_blob_2() {
     let (loaded_segments, loaded_size) = load_segmented_blob(reference.digest(), &storage)
         .await
         .unwrap();
-    assert_eq!(original_segments, &loaded_segments[..]);
+    let expected_segments = original_segments
+        .iter()
+        .map(|reference| *reference.digest())
+        .collect::<Vec<_>>();
+    assert_eq!(&expected_segments, &loaded_segments);
     assert_eq!({ total_size }, loaded_size);
 }
 
@@ -90,12 +104,15 @@ async fn test_save_segmented_blob_2() {
 async fn test_save_segmented_blob_5() {
     let storage = InMemoryTreeStorage::empty();
     let max_children_per_tree = 5;
-    let segment = BlobDigest::parse_hex_string(
-            "77e712cf05e19dcd622c502a3167027f9ce838094c82cef0fbf853c9b5fe2e22ce1af698fb306feb586019ddadc923f5b8f70a8c004b9f84b451be453930be14"
-        )
+    let segment = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(vec![0u8; 23])).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
         .unwrap();
     let original_segments = (0..max_children_per_tree)
-        .map(|_| segment)
+        .map(|_| segment.clone())
         .collect::<Vec<_>>();
     let total_size = (TREE_BLOB_MAX_LENGTH as u64) * (original_segments.len() as u64);
     let reference = save_segmented_blob(
@@ -114,7 +131,11 @@ async fn test_save_segmented_blob_5() {
     let (loaded_segments, loaded_size) = load_segmented_blob(reference.digest(), &storage)
         .await
         .unwrap();
-    assert_eq!(original_segments, &loaded_segments[..]);
+    let expected_segments = original_segments
+        .iter()
+        .map(|reference| *reference.digest())
+        .collect::<Vec<_>>();
+    assert_eq!(&expected_segments, &loaded_segments);
     assert_eq!({ total_size }, loaded_size);
 }
 
@@ -123,11 +144,16 @@ async fn test_save_segmented_blob_one_indirection() {
     let max_children_per_tree = 5;
     let number_of_segments = max_children_per_tree + 1;
     let storage = InMemoryTreeStorage::empty();
-    let segment = BlobDigest::parse_hex_string(
-            "77e712cf05e19dcd622c502a3167027f9ce838094c82cef0fbf853c9b5fe2e22ce1af698fb306feb586019ddadc923f5b8f70a8c004b9f84b451be453930be14"
-        )
+    let segment = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(vec![0u8; 23])).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
         .unwrap();
-    let original_segments = (0..number_of_segments).map(|_| segment).collect::<Vec<_>>();
+    let original_segments = (0..number_of_segments)
+        .map(|_| segment.clone())
+        .collect::<Vec<_>>();
     let total_size = (TREE_BLOB_MAX_LENGTH as u64) * (original_segments.len() as u64);
     let reference = save_segmented_blob(
         &original_segments,
@@ -155,7 +181,7 @@ async fn test_save_segmented_blob_one_indirection() {
                 .unwrap(),
             ))
             .unwrap(),
-            TreeChildren::try_from(vec![inner_layer, segment]).unwrap(),
+            TreeChildren::try_from(vec![inner_layer, *segment.digest()]).unwrap(),
         ),
         storage
             .load_tree(reference.digest())
@@ -177,7 +203,7 @@ async fn test_save_segmented_blob_one_indirection() {
             .unwrap(),
             TreeChildren::try_from(
                 (0..max_children_per_tree)
-                    .map(|_| segment)
+                    .map(|_| *segment.digest())
                     .collect::<Vec<_>>()
             )
             .unwrap(),
@@ -194,7 +220,11 @@ async fn test_save_segmented_blob_one_indirection() {
     let (loaded_segments, loaded_size) = load_segmented_blob(reference.digest(), &storage)
         .await
         .unwrap();
-    assert_eq!(&original_segments, &loaded_segments[..]);
+    let expected_segments = original_segments
+        .iter()
+        .map(|reference| *reference.digest())
+        .collect::<Vec<_>>();
+    assert_eq!(&expected_segments, &loaded_segments);
     assert_eq!({ total_size }, loaded_size);
 }
 
@@ -203,11 +233,16 @@ async fn test_save_segmented_blob_two_indirections() {
     let max_children_per_tree = 5;
     let number_of_segments = (max_children_per_tree * max_children_per_tree) + 1;
     let storage = InMemoryTreeStorage::empty();
-    let segment = BlobDigest::parse_hex_string(
-            "77e712cf05e19dcd622c502a3167027f9ce838094c82cef0fbf853c9b5fe2e22ce1af698fb306feb586019ddadc923f5b8f70a8c004b9f84b451be453930be14"
-        )
+    let segment = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(vec![0u8; 23])).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
         .unwrap();
-    let original_segments = (0..number_of_segments).map(|_| segment).collect::<Vec<_>>();
+    let original_segments = (0..number_of_segments)
+        .map(|_| segment.clone())
+        .collect::<Vec<_>>();
     let total_size = (TREE_BLOB_MAX_LENGTH as u64) * (original_segments.len() as u64);
     let reference = save_segmented_blob(
         &original_segments,
@@ -235,7 +270,7 @@ async fn test_save_segmented_blob_two_indirections() {
                 .unwrap(),
             ))
             .unwrap(),
-            TreeChildren::try_from(vec![inner_layer, segment]).unwrap(),
+            TreeChildren::try_from(vec![inner_layer, *segment.digest()]).unwrap(),
         ),
         storage
             .load_tree(reference.digest())
@@ -249,6 +284,10 @@ async fn test_save_segmented_blob_two_indirections() {
     let (loaded_segments, loaded_size) = load_segmented_blob(reference.digest(), &storage)
         .await
         .unwrap();
-    assert_eq!(&original_segments, &loaded_segments[..]);
+    let expected_segments = original_segments
+        .iter()
+        .map(|reference| *reference.digest())
+        .collect::<Vec<_>>();
+    assert_eq!(&expected_segments, &loaded_segments);
     assert_eq!({ total_size }, loaded_size);
 }

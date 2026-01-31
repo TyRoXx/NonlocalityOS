@@ -1692,9 +1692,9 @@ impl OpenFileContentBlock {
         &mut self,
         is_allowed_to_calculate_digest: bool,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
-    ) -> std::result::Result<Option<BlobDigest>, StoreError> {
+    ) -> std::result::Result<Option<StrongReference>, StoreError> {
         match self {
-            OpenFileContentBlock::NotLoaded(reference, _) => Ok(Some(*reference.digest())),
+            OpenFileContentBlock::NotLoaded(reference, _) => Ok(Some(reference.clone())),
             OpenFileContentBlock::Loaded(loaded) => {
                 let hashed_tree = match loaded {
                     LoadedBlock::KnownDigest(hashed_tree, _reference) => hashed_tree.clone(),
@@ -1715,8 +1715,8 @@ impl OpenFileContentBlock {
                 let result = storage.store_tree(&hashed_tree).await?;
                 assert_eq!(hashed_tree.digest(), result.digest());
                 // free the memory
-                *self = OpenFileContentBlock::NotLoaded(result, size);
-                Ok(Some(*hashed_tree.digest()))
+                *self = OpenFileContentBlock::NotLoaded(result.clone(), size);
+                Ok(Some(result))
             }
         }
     }
@@ -2012,7 +2012,8 @@ impl OpenFileContentBufferLoaded {
         let mut skipped = 0;
         while let Some(index) = self.dirty_blocks.get(skipped) {
             let block = &mut self.blocks[*index];
-            let block_stored: Option<BlobDigest> = block.try_store(false, storage.clone()).await?;
+            let block_stored: Option<StrongReference> =
+                block.try_store(false, storage.clone()).await?;
             match block_stored {
                 Some(_) => {
                     self.dirty_blocks.pop_front();
