@@ -591,10 +591,11 @@ async fn test_collect_garbage() {
         GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
     );
-    storage
+    let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
+    drop(reference);
     assert_eq!(
         GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
@@ -603,13 +604,53 @@ async fn test_collect_garbage() {
         GarbageCollectionStats { trees_collected: 1 },
         storage.collect_some_garbage().await.unwrap()
     );
-    let digest = storage
+    let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
         .unwrap();
-    storage.update_root("test", digest.digest()).await.unwrap();
+    storage
+        .update_root("test", reference.digest())
+        .await
+        .unwrap();
+    drop(reference);
     assert_eq!(
         GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_strong_reference() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+        .await
+        .unwrap();
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 0 },
+        storage.collect_some_garbage().await.unwrap()
+    );
+    drop(reference);
+    assert_eq!(
+        GarbageCollectionStats { trees_collected: 1 },
         storage.collect_some_garbage().await.unwrap()
     );
     assert_eq!(

@@ -28,7 +28,7 @@ async fn test_example_evaluation(
         .unwrap();
     let evaluated = apply_evaluated_argument(
         &output.entry_point.unwrap().expression,
-        argument.digest(),
+        &argument,
         storage,
         storage,
         &None,
@@ -40,9 +40,11 @@ async fn test_example_evaluation(
         DeepTree::deserialize(expected_result, storage)
             .await
             .unwrap(),
-        DeepTree::deserialize(&evaluated, storage).await.unwrap()
+        DeepTree::deserialize(evaluated.digest(), storage)
+            .await
+            .unwrap()
     );
-    assert_eq!(*expected_result, evaluated);
+    assert_eq!(expected_result, evaluated.digest());
 }
 
 fn test_example_formatting(source: &str) {
