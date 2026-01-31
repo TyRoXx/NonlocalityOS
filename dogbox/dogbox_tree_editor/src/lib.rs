@@ -1190,7 +1190,9 @@ impl OpenDirectory {
             };
             assert!(state_locked.has_unsaved_changes);
             state_locked.has_unsaved_changes = false;
-            Ok(Some(*saved.digest()))
+            let digest = *saved.digest();
+            state_locked.last_save_reference = Some(saved);
+            Ok(Some(digest))
         } else {
             debug!("Nothing to save for this directory.");
             Ok(None)
