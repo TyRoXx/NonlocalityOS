@@ -695,13 +695,14 @@ async fn test_read_file_after_garbage_collection() {
         .update_root("test", &directory_status.digest.last_known_digest)
         .await
         .unwrap();
+    drop(empty_file_reference);
     // Trigger garbage collection:
     assert_eq!(
-        GarbageCollectionStats { trees_collected: 0 },
+        GarbageCollectionStats { trees_collected: 1 },
         storage.collect_some_garbage().await.unwrap()
     );
     assert_eq!(
-        GarbageCollectionStats { trees_collected: 2 },
+        GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
     );
     assert_eq!(
@@ -1508,7 +1509,7 @@ async fn open_file_content_buffer_store_large_file() {
         .await
         .unwrap();
     assert_eq!(large_file_size, buffer.size());
-    assert_eq!(1, storage.number_of_trees().await);
+    assert_eq!(2, storage.number_of_trees().await);
     let changes = buffer.store_all(storage).await.unwrap();
     assert_eq!(StoreChanges::SomeChanges, changes);
     assert_eq!(
