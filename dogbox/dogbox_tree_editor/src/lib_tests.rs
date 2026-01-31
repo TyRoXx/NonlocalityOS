@@ -1581,7 +1581,15 @@ async fn open_file_content_buffer_overwrite_full_block() {
         TreeChildren::empty(),
     )));
     let block_reference = storage.store_tree(&block_tree).await.unwrap();
-    let expected_digests = BTreeSet::from([last_known_digest]);
+    assert_eq!(
+        &BlobDigest::parse_hex_string(concat!(
+            "f0177c239d8d9abc953668618a673bd10102f022471afa48f2fb51643a65b646",
+            "14c65dc817c71872739ef3b6b8c64ab67f7437d64a25138c8aa359a001ef7812"
+        ))
+        .unwrap(),
+        block_reference.digest(),
+    );
+    let expected_digests = BTreeSet::from([last_known_digest, *block_reference.digest()]);
     assert_eq!(expected_digests, storage.digests().await);
 }
 
