@@ -62,8 +62,10 @@ async fn effect() {
     assert_eq!(call_main, deserialized_call_main);
     assert_eq!(
         concat!(
+            "StrongReference(",
             "cfc5e5a5af2a776b7e68af66ee9fcaf1a6d60a8a6c7c83662559721486640e7c",
-            "42ff89a67c184be5c7aac78ac674f778b8e620b29ac2dc9775ad6e162ea212ab"
+            "42ff89a67c184be5c7aac78ac674f778b8e620b29ac2dc9775ad6e162ea212ab",
+            ")"
         ),
         format!("{}", &call_main_reference)
     );
@@ -73,8 +75,10 @@ async fn effect() {
         .unwrap();
     assert_eq!(
         concat!(
+            "StrongReference(",
             "4bcb4ead6334a387f95af13a11a6f33497ddead7689574c07072c11433313324",
-            "c22ab666038872a20f139846489494249545d0aed3b2d8042071e5aeacc45dd2"
+            "c22ab666038872a20f139846489494249545d0aed3b2d8042071e5aeacc45dd2",
+            ")"
         ),
         format!("{}", &main_result)
     );
