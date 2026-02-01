@@ -1,8 +1,5 @@
-use crate::{
-    prolly_tree_editable_node::{
-        hash_key, EditableLeafNode, EditableNode, IntegrityCheckResult, Iterator,
-    },
-    sorted_tree::TreeReference,
+use crate::prolly_tree_editable_node::{
+    hash_key, EditableLeafNode, EditableNode, IntegrityCheckResult, Iterator,
 };
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
@@ -30,8 +27,7 @@ async fn test_save_load_roundtrip<
     expected_digest: &BlobDigest,
 ) {
     let reference = node.save(storage).await.unwrap();
-    let mut loaded_node: EditableNode<Key, Value> =
-        EditableNode::Reference(TreeReference::new(*reference.digest()));
+    let mut loaded_node: EditableNode<Key, Value> = EditableNode::Reference(reference.clone());
     let saved_again = loaded_node.save(storage).await.unwrap();
     assert_eq!(reference.digest(), saved_again.digest());
     assert_eq!(reference.digest(), expected_digest);
@@ -397,8 +393,7 @@ async fn test_save_reference() {
     let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut editable_node: EditableNode<u32, u32> = EditableNode::default();
     let reference = editable_node.save(&storage).await.unwrap();
-    let mut loaded_node: EditableNode<u32, u32> =
-        EditableNode::Reference(TreeReference::new(*reference.digest()));
+    let mut loaded_node: EditableNode<u32, u32> = EditableNode::Reference(reference.clone());
     let saved_again = loaded_node.save(&storage).await.unwrap();
     assert_eq!(reference.digest(), saved_again.digest());
     test_save_load_roundtrip(&mut editable_node, &storage, reference.digest()).await;

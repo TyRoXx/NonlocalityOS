@@ -160,11 +160,11 @@ impl sorted_tree::sorted_tree::NodeValue for DirectoryEntry {
         true
     }
 
-    fn from_content(content: Self::Content, child: &Option<BlobDigest>) -> Self {
+    fn from_content(content: Self::Content, child: &Option<StrongReference>) -> Self {
         match child {
             Some(reference) => DirectoryEntry {
                 meta: content,
-                child: sorted_tree::sorted_tree::TreeReference::new(*reference),
+                child: sorted_tree::sorted_tree::TreeReference::new(reference.clone()),
             },
             None => unreachable!("DirectoryEntry must have a child reference"),
         }
@@ -174,8 +174,8 @@ impl sorted_tree::sorted_tree::NodeValue for DirectoryEntry {
         self.meta
     }
 
-    fn get_reference(&self) -> Option<BlobDigest> {
-        Some(*self.child.reference())
+    fn get_reference(&self) -> Option<StrongReference> {
+        Some(self.child.reference().clone())
     }
 }
 
@@ -199,15 +199,18 @@ impl std::error::Error for DeserializationError {}
 type ProllyTree = prolly_tree_editable_node::EditableNode<FileName, DirectoryEntry>;
 
 pub async fn serialize_directory(
-    entries: &BTreeMap<FileName, (DirectoryEntryMetaData, BlobDigest)>,
+    entries: &BTreeMap<FileName, (DirectoryEntryMetaData, StrongReference)>,
     storage: &(dyn LoadStoreTree + Send + Sync),
 ) -> std::result::Result<StrongReference, Box<dyn std::error::Error>> {
     let mut prolly_tree = ProllyTree::new();
-    for (name, (meta, digest)) in entries.iter() {
+    for (name, (meta, reference)) in entries.iter() {
         prolly_tree
             .insert(
                 name.clone(),
-                DirectoryEntry::new(*meta, sorted_tree::sorted_tree::TreeReference::new(*digest)),
+                DirectoryEntry::new(
+                    *meta,
+                    sorted_tree::sorted_tree::TreeReference::new(reference.clone()),
+                ),
                 storage,
             )
             .await?;

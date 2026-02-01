@@ -1,11 +1,12 @@
 use crate::sorted_tree::{find, insert, load_node, new_tree, node_to_tree, Node, TreeReference};
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
-    tree::{BlobDigest, Tree, TreeBlob, TreeChildren},
+    storage::StoreTree,
+    tree::{HashedTree, Tree, TreeBlob, TreeChildren},
 };
 use pretty_assertions::{assert_eq, assert_ne};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::Mutex;
 
 #[test_log::test(tokio::test)]
@@ -33,7 +34,9 @@ async fn insert_first_key() {
         assert_eq!(None, found);
     }
     assert_eq!(storage.number_of_trees().await, 2);
-    let loaded_back = load_node::<String, i64>(&storage, one_element.digest()).await;
+    let loaded_back = load_node::<String, i64>(&storage, one_element.digest())
+        .await
+        .unwrap();
     assert_eq!(&Vec::from([("key".into(), value)]), loaded_back.entries());
 }
 
@@ -70,7 +73,9 @@ async fn insert_existing_key() {
     }
     assert_eq!(storage.number_of_trees().await, 2);
     {
-        let loaded_back = load_node::<String, i64>(&storage, after_first_insert.digest()).await;
+        let loaded_back = load_node::<String, i64>(&storage, after_first_insert.digest())
+            .await
+            .unwrap();
         assert_eq!(
             &Vec::from([("key".to_string(), first_value)]),
             loaded_back.entries()
@@ -100,7 +105,9 @@ async fn insert_existing_key() {
     }
     assert_eq!(storage.number_of_trees().await, 3);
     {
-        let loaded_back = load_node::<String, i64>(&storage, after_second_insert.digest()).await;
+        let loaded_back = load_node::<String, i64>(&storage, after_second_insert.digest())
+            .await
+            .unwrap();
         assert_eq!(
             &Vec::from([("key".to_string(), second_value)]),
             loaded_back.entries()
@@ -142,7 +149,9 @@ async fn insert_before() {
     }
     assert_eq!(storage.number_of_trees().await, 2);
     {
-        let loaded_back = load_node::<String, i64>(&storage, after_first_insert.digest()).await;
+        let loaded_back = load_node::<String, i64>(&storage, after_first_insert.digest())
+            .await
+            .unwrap();
         assert_eq!(
             &Vec::from([(first_key.clone(), first_value)]),
             loaded_back.entries()
@@ -168,7 +177,9 @@ async fn insert_before() {
     }
     assert_eq!(storage.number_of_trees().await, 3);
     {
-        let loaded_back = load_node::<String, i64>(&storage, after_second_insert.digest()).await;
+        let loaded_back = load_node::<String, i64>(&storage, after_second_insert.digest())
+            .await
+            .unwrap();
         assert_eq!(
             &Vec::from([(second_key, second_value), (first_key, first_value)]),
             loaded_back.entries()
@@ -210,7 +221,9 @@ async fn insert_after() {
     }
     assert_eq!(storage.number_of_trees().await, 2);
     {
-        let loaded_back = load_node::<String, i64>(&storage, after_first_insert.digest()).await;
+        let loaded_back = load_node::<String, i64>(&storage, after_first_insert.digest())
+            .await
+            .unwrap();
         assert_eq!(
             &Vec::from([(first_key.clone(), first_value)]),
             loaded_back.entries()
@@ -237,7 +250,9 @@ async fn insert_after() {
     }
     assert_eq!(storage.number_of_trees().await, 3);
     {
-        let loaded_back = load_node::<String, i64>(&storage, after_second_insert.digest()).await;
+        let loaded_back = load_node::<String, i64>(&storage, after_second_insert.digest())
+            .await
+            .unwrap();
         assert_eq!(
             &Vec::from([(first_key, first_value), (second_key, second_value)]),
             loaded_back.entries()
@@ -281,7 +296,9 @@ async fn insert_many_new_keys() {
         expected_entries.push((key, value));
         expected_entries.sort_by_key(|element| element.0.clone());
         {
-            let loaded_back = load_node::<String, i64>(&storage, current_state.digest()).await;
+            let loaded_back = load_node::<String, i64>(&storage, current_state.digest())
+                .await
+                .unwrap();
             assert_eq!(&expected_entries, loaded_back.entries());
         }
     }
@@ -326,7 +343,9 @@ async fn insert_many_with_overwrites() {
         }
         oracle.insert(key, value);
         {
-            let loaded_back = load_node::<String, i64>(&storage, current_state.digest()).await;
+            let loaded_back = load_node::<String, i64>(&storage, current_state.digest())
+                .await
+                .unwrap();
             let expected_entries = oracle
                 .iter()
                 .map(|(k, v)| (k.clone(), *v))
@@ -353,17 +372,30 @@ fn node_to_tree_without_child_references() {
     assert_eq!(expected, tree);
 }
 
-#[test_log::test]
-fn node_to_tree_with_child_references() {
+#[test_log::test(tokio::test)]
+async fn node_to_tree_with_child_references() {
+    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
     let mut node = Node::<u64, TreeReference>::new();
-    let reference_1 = BlobDigest::hash(&[31]);
-    node.insert(1, TreeReference::new(reference_1));
-    let reference_2 = BlobDigest::hash(&[32]);
-    node.insert(2, TreeReference::new(reference_2));
+    let reference_1 = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(b"\x00")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    node.insert(1, TreeReference::new(reference_1.clone()));
+    let reference_2 = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(b"\x01")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    node.insert(2, TreeReference::new(reference_2.clone()));
     let tree = node_to_tree(&node, &bytes::Bytes::new()).unwrap();
     let expected = Tree::new(
         TreeBlob::try_from(bytes::Bytes::from_iter([2, 1, 2])).unwrap(),
-        TreeChildren::try_from(vec![reference_1, reference_2]).unwrap(),
+        TreeChildren::try_from(vec![*reference_1.digest(), *reference_2.digest()]).unwrap(),
     );
     assert_eq!(expected, tree);
 }
@@ -384,7 +416,7 @@ async fn insert_reference_value() {
         &storage,
         empty.digest(),
         "key".into(),
-        TreeReference::new(*empty.digest()),
+        TreeReference::new(empty.clone()),
     )
     .await
     .expect("inserting first key should succeed");
@@ -392,7 +424,7 @@ async fn insert_reference_value() {
     {
         let found =
             find::<String, TreeReference>(&storage, one_element.digest(), &"key".to_string()).await;
-        assert_eq!(Some(TreeReference::new(*empty.digest())), found);
+        assert_eq!(Some(TreeReference::new(empty.clone())), found);
     }
     {
         let found =
@@ -400,9 +432,11 @@ async fn insert_reference_value() {
         assert_eq!(None, found);
     }
     assert_eq!(storage.number_of_trees().await, 2);
-    let loaded_back = load_node::<String, TreeReference>(&storage, one_element.digest()).await;
+    let loaded_back = load_node::<String, TreeReference>(&storage, one_element.digest())
+        .await
+        .unwrap();
     assert_eq!(
-        &Vec::from([("key".into(), TreeReference::new(*empty.digest()))]),
+        &Vec::from([("key".into(), TreeReference::new(empty))]),
         loaded_back.entries()
     );
 }

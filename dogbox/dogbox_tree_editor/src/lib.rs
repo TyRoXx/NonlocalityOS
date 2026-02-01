@@ -1284,7 +1284,8 @@ impl OpenDirectory {
         state_locked: &mut OpenDirectoryMutableState,
         storage: &(dyn LoadStoreTree + Send + Sync),
     ) -> std::result::Result<StrongReference, Box<dyn std::error::Error>> {
-        let mut entries: BTreeMap<FileName, (DirectoryEntryMetaData, BlobDigest)> = BTreeMap::new();
+        let mut entries: BTreeMap<FileName, (DirectoryEntryMetaData, StrongReference)> =
+            BTreeMap::new();
         for (name, entry) in state_locked.names.iter_mut() {
             let named_entry_status = entry.get_status();
             let (kind, digest) = match named_entry_status.open_closed {

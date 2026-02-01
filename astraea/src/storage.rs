@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{hash::Hash, sync::Arc};
 
 use crate::{
     delayed_hashed_tree::DelayedHashedTree,
-    tree::{BlobDigest, HashedTree, TreeSerializationError},
+    tree::{BlobDigest, HashedTree, Tree, TreeSerializationError},
 };
 use async_trait::async_trait;
 
@@ -82,6 +82,32 @@ impl std::fmt::Display for StrongReference {
     }
 }
 
+impl Hash for StrongReference {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.digest.hash(state);
+    }
+}
+
+impl PartialEq for StrongReference {
+    fn eq(&self, other: &Self) -> bool {
+        self.digest == other.digest
+    }
+}
+
+impl Eq for StrongReference {}
+
+impl PartialOrd for StrongReference {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.digest().partial_cmp(other.digest())
+    }
+}
+
+impl Ord for StrongReference {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.digest.cmp(&other.digest)
+    }
+}
+
 #[derive(Debug)]
 pub struct StrongDelayedHashedTree {
     reference: StrongReference,
@@ -110,6 +136,18 @@ impl StrongDelayedHashedTree {
             None => None,
         }
     }
+}
+
+pub async fn load_children(
+    load_tree: &(dyn LoadTree + Send + Sync),
+    parent: &Tree,
+) -> Result<Vec<StrongDelayedHashedTree>, LoadError> {
+    let mut references = Vec::new();
+    for child_digest in parent.children().references() {
+        let loaded_child = load_tree.load_tree_v2(child_digest).await?;
+        references.push(loaded_child);
+    }
+    Ok(references)
 }
 
 #[derive(Debug, Clone)]
