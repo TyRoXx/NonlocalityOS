@@ -251,6 +251,8 @@ async fn persist_root_on_change(
                             if gc_stats.trees_collected > 0 {
                                 info!("Garbage collected {} trees", gc_stats.trees_collected);
                             }
+                            // end the garbage collection transaction to avoid "database is locked" errors
+                            blob_storage_commit.commit_changes().await.expect("TODO");
                         });
                     }
                 })
