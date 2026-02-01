@@ -1600,7 +1600,9 @@ impl OpenFileContentBlock {
                     .blob()
                     .content
                     .clone(),
-                LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
+                LoadedBlock::KnownDigestDirty(hashed_tree) => {
+                    hashed_tree.tree().blob().content.clone()
+                }
                 LoadedBlock::UnknownDigest(vec) => bytes::Bytes::copy_from_slice(vec),
             },
         })
