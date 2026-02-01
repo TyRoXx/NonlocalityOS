@@ -128,7 +128,7 @@ pub enum OpenNamedEntryStatus {
 }
 
 pub enum NamedEntryOpenClosedStatus {
-    Closed(serialization::DirectoryEntryKind, BlobDigest),
+    Closed(serialization::DirectoryEntryKind, StrongReference),
     Open(OpenNamedEntryStatus),
 }
 
@@ -148,7 +148,7 @@ impl NamedEntryStatus {
 
 #[derive(Clone, Debug)]
 pub enum NamedEntry {
-    NotOpen(DirectoryEntryMetaData, BlobDigest),
+    NotOpen(DirectoryEntryMetaData, StrongReference),
     OpenRegularFile(Arc<OpenFile>, tokio::sync::watch::Receiver<OpenFileStatus>),
     OpenSubdirectory(
         Arc<OpenDirectory>,
@@ -190,20 +190,22 @@ impl NamedEntry {
 
     fn get_status(&self) -> NamedEntryStatus {
         match self {
-            NamedEntry::NotOpen(directory_entry_meta_data, blob_digest) => NamedEntryStatus::new(
-                NamedEntryOpenClosedStatus::Closed(
-                    match directory_entry_meta_data.kind {
-                        DirectoryEntryKind::Directory => {
-                            serialization::DirectoryEntryKind::Directory
-                        }
-                        DirectoryEntryKind::File(size) => {
-                            serialization::DirectoryEntryKind::File(size)
-                        }
-                    },
-                    *blob_digest,
-                ),
-                directory_entry_meta_data.modified,
-            ),
+            NamedEntry::NotOpen(directory_entry_meta_data, strong_reference) => {
+                NamedEntryStatus::new(
+                    NamedEntryOpenClosedStatus::Closed(
+                        match directory_entry_meta_data.kind {
+                            DirectoryEntryKind::Directory => {
+                                serialization::DirectoryEntryKind::Directory
+                            }
+                            DirectoryEntryKind::File(size) => {
+                                serialization::DirectoryEntryKind::File(size)
+                            }
+                        },
+                        *strong_reference,
+                    ),
+                    directory_entry_meta_data.modified,
+                )
+            }
             NamedEntry::OpenRegularFile(_open_file, receiver) => {
                 let open_file_status: OpenFileStatus = *receiver.borrow();
                 NamedEntryStatus::new(
@@ -232,7 +234,7 @@ impl NamedEntry {
         on_change: Box<dyn Fn(std::time::SystemTime) -> Future<'static, ()> + Send + Sync>,
     ) {
         match self {
-            NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {}
+            NamedEntry::NotOpen(_directory_entry_meta_data, _strong_reference) => {}
             NamedEntry::OpenRegularFile(_arc, receiver) => {
                 let mut cloned_receiver = receiver.clone();
                 let mut previous_status = *cloned_receiver.borrow_and_update();
@@ -301,7 +303,7 @@ impl NamedEntry {
 
     async fn request_save(&self) -> Result<NamedEntryOpenClosedStatus> {
         match self {
-            NamedEntry::NotOpen(directory_entry_meta_data, blob_digest) => {
+            NamedEntry::NotOpen(directory_entry_meta_data, strong_reference) => {
                 Ok(NamedEntryOpenClosedStatus::Closed(
                     match directory_entry_meta_data.kind {
                         DirectoryEntryKind::Directory => {
@@ -311,7 +313,7 @@ impl NamedEntry {
                             serialization::DirectoryEntryKind::File(size)
                         }
                     },
-                    *blob_digest,
+                    *strong_reference,
                 ))
             }
             NamedEntry::OpenRegularFile(arc, _receiver) => Ok(NamedEntryOpenClosedStatus::Open(
@@ -330,7 +332,7 @@ impl NamedEntry {
     // Is there a risk of memory leaks if digest is never up to date and files accumulate in cache?
     async fn drop_all_read_caches(&mut self) -> CacheDropStats {
         match self {
-            NamedEntry::NotOpen(_directory_entry_meta_data, _blob_digest) => {
+            NamedEntry::NotOpen(_directory_entry_meta_data, _strong_reference) => {
                 CacheDropStats::new(0, 0, 0, 0)
             }
             NamedEntry::OpenRegularFile(arc, _receiver) => {
@@ -624,7 +626,7 @@ impl OpenDirectory {
                     Err(Error::FileAlreadyExists(name.clone()))
                 } else {
                     match found {
-                        NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
+                        NamedEntry::NotOpen(meta_data, strong_reference) => match meta_data.kind {
                             DirectoryEntryKind::Directory => {
                                 warn!(
                                     "Cannot open directory {} (currently not open) as a regular file.",
@@ -635,11 +637,11 @@ impl OpenDirectory {
                             DirectoryEntryKind::File(length) => {
                                 debug!(
                                     "Opening file of size {} and content {} for reading.",
-                                    length, digest
+                                    length, strong_reference
                                 );
                                 let open_file = Arc::new(OpenFile::new(
                                     OpenFileContentBuffer::from_storage(
-                                        *digest,
+                                        *strong_reference,
                                         length,
                                         self.open_file_write_buffer_in_blocks,
                                     ),
@@ -775,12 +777,12 @@ impl OpenDirectory {
         state_locked.record_access((self.clock)());
         match state_locked.names.get_mut(&name) {
             Some(found) => match found {
-                NamedEntry::NotOpen(meta_data, digest) => match meta_data.kind {
+                NamedEntry::NotOpen(meta_data, strong_reference) => match meta_data.kind {
                     DirectoryEntryKind::Directory => {
                         let subdirectory = Self::load_directory(
                             self.original_path.join(name.to_string()),
                             self.storage.clone(),
-                            digest,
+                            strong_reference,
                             meta_data.modified,
                             self.clock.clone(),
                             self.open_file_write_buffer_in_blocks,
@@ -1008,10 +1010,9 @@ impl OpenDirectory {
         clock: WallClock,
     ) -> std::result::Result<NamedEntry, Error> {
         match original {
-            NamedEntry::NotOpen(directory_entry_meta_data, blob_digest) => Ok(NamedEntry::NotOpen(
-                *directory_entry_meta_data,
-                *blob_digest,
-            )),
+            NamedEntry::NotOpen(directory_entry_meta_data, strong_reference) => Ok(
+                NamedEntry::NotOpen(*directory_entry_meta_data, *strong_reference),
+            ),
             NamedEntry::OpenRegularFile(open_file, _receiver) => {
                 let status = open_file.flush().await?;
                 assert!(status.digest.is_digest_up_to_date);

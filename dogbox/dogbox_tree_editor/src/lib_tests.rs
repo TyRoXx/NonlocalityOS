@@ -301,14 +301,22 @@ lazy_static! {
 
 #[test_log::test(tokio::test)]
 async fn test_open_directory_get_meta_data() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let modified = test_clock();
     let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
+    let content_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let directory = OpenDirectory::new(
         std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::from([(
             FileName::try_from("test.txt".to_string()).unwrap(),
-            NamedEntry::NotOpen(expected, BlobDigest::hash(&[])),
+            NamedEntry::NotOpen(expected, content_reference),
         )]),
         Arc::new(NeverUsedStorage {}),
         modified,
@@ -327,12 +335,19 @@ async fn test_open_directory_nothing_happens() {
     let modified = test_clock();
     let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let content_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let directory = OpenDirectory::new(
         std::path::PathBuf::from("/"),
         DigestStatus::new(*DUMMY_DIGEST, false),
         BTreeMap::from([(
             FileName::try_from("test.txt".to_string()).unwrap(),
-            NamedEntry::NotOpen(expected, BlobDigest::hash(&[])),
+            NamedEntry::NotOpen(expected, content_reference),
         )]),
         storage.clone(),
         modified,
@@ -781,7 +796,7 @@ async fn test_get_meta_data_after_file_write() {
 pub struct DirectoryEntry {
     pub name: FileName,
     pub kind: DirectoryEntryKind,
-    pub digest: BlobDigest,
+    pub content: StrongReference,
 }
 
 fn open_directory_from_entries(
@@ -950,12 +965,20 @@ async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
 
 #[test_log::test(tokio::test)]
 async fn test_read_directory_on_closed_regular_file() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let content = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::from_bytes(bytes::Bytes::from_static(b"TEST")),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let editor = TreeEditor::new(
         Arc::new(open_directory_from_entries(
             vec![DirectoryEntry {
                 name: FileName::try_from("test.txt".to_string()).unwrap(),
                 kind: DirectoryEntryKind::File(4),
-                digest: BlobDigest::hash(b"TEST"),
+                content,
             }],
             Arc::new(NeverUsedStorage {}),
         )),
@@ -977,12 +1000,19 @@ async fn test_read_directory_on_closed_regular_file() {
 #[test_log::test(tokio::test)]
 async fn test_read_directory_on_open_regular_file() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let content = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::from_bytes(bytes::Bytes::from_static(b"")),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let editor = TreeEditor::new(
         Arc::new(open_directory_from_entries(
             vec![DirectoryEntry {
                 name: FileName::try_from("test.txt".to_string()).unwrap(),
                 kind: DirectoryEntryKind::File(0),
-                digest: BlobDigest::hash(b""),
+                content,
             }],
             storage,
         )),
@@ -1011,13 +1041,20 @@ async fn test_read_directory_on_open_regular_file() {
 #[test_log::test(tokio::test)]
 async fn test_open_file_on_directory() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let content = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::from_bytes(bytes::Bytes::from_static(b"")),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let name = FileName::try_from("test".to_string()).unwrap();
     let editor = TreeEditor::new(
         Arc::new(open_directory_from_entries(
             vec![DirectoryEntry {
                 name: name.clone(),
                 kind: DirectoryEntryKind::Directory,
-                digest: BlobDigest::hash(b""),
+                content,
             }],
             storage,
         )),
