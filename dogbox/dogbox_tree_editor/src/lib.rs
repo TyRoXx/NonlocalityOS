@@ -1745,9 +1745,7 @@ impl OpenFileContentBlock {
                 LoadedBlock::KnownDigest(strong_hashed_tree) => {
                     strong_hashed_tree.hashed_tree().tree().blob().len()
                 }
-                LoadedBlock::KnownDigestDirty(hashed_tree) => {
-                    hashed_tree.tree().blob().len()
-                }
+                LoadedBlock::KnownDigestDirty(hashed_tree) => hashed_tree.tree().blob().len(),
                 LoadedBlock::UnknownDigest(vec) => vec.len() as u16,
             },
         }
