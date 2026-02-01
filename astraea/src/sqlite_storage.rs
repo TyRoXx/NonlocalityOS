@@ -432,13 +432,10 @@ fn collect_garbage(
     {
         let mut statement =
             connection.prepare_cached("INSERT OR IGNORE INTO gc_new_tree (tree_id) VALUES (?1)")?;
-        for (_, (tree_id, reference_counter)) in additional_roots {
-            match reference_counter.upgrade() {
-                None => {
-                    // TODO: remove the map entry
-                    continue;
-                }
-                Some(_) => {}
+        for (tree_id, reference_counter) in additional_roots.values_mut() {
+            if reference_counter.upgrade().is_none() {
+                // TODO: remove the map entry
+                continue;
             }
             statement.execute((*tree_id,))?;
         }

@@ -308,7 +308,7 @@ async fn test_roots_may_be_equal() {
     let name_2 = "testB";
     assert_eq!(Ok(None), storage.load_root(name_1).await);
     storage
-        .update_root(name_1, &reference_1.digest())
+        .update_root(name_1, reference_1.digest())
         .await
         .unwrap();
     assert_eq!(
@@ -316,7 +316,7 @@ async fn test_roots_may_be_equal() {
         storage.load_root(name_1).await
     );
     storage
-        .update_root(name_2, &reference_1.digest())
+        .update_root(name_2, reference_1.digest())
         .await
         .unwrap();
     assert_eq!(
@@ -552,7 +552,7 @@ async fn test_load_too_many_children() {
     {
         let connection2 = rusqlite::Connection::open(&database_path).unwrap();
         let tree_row_id: i64 = {
-            let stored_array: [u8; 64] = stored.digest().clone().into();
+            let stored_array: [u8; 64] = (*stored.digest()).into();
             let mut statement = connection2
                 .prepare_cached("SELECT id FROM tree WHERE digest = ?1")
                 .unwrap();

@@ -1746,7 +1746,7 @@ impl OpenFileContentBlock {
                     strong_hashed_tree.hashed_tree().tree().blob().len()
                 }
                 LoadedBlock::KnownDigestDirty(hashed_tree) => {
-                    hashed_tree.tree().blob().len() as u16
+                    hashed_tree.tree().blob().len()
                 }
                 LoadedBlock::UnknownDigest(vec) => vec.len() as u16,
             },
@@ -2132,7 +2132,7 @@ impl OpenFileContentBufferLoaded {
             let filler_reference = storage
                 .store_tree(&filler_hashed_tree)
                 .await
-                .map_err(|e| Error::Storage(e))?;
+                .map_err(Error::Storage)?;
             let filler = StrongHashedTree::new(filler_reference, filler_hashed_tree);
             assert!(new_number_of_blocks >= 1);
             self.blocks.resize_with(new_number_of_blocks, || {
@@ -2536,7 +2536,7 @@ impl OpenFileContentBuffer {
                 let filler_reference = storage
                     .store_tree(&filler_hashed_tree)
                     .await
-                    .map_err(|e| Error::Storage(e))?;
+                    .map_err(Error::Storage)?;
                 let filler = StrongHashedTree::new(filler_reference, filler_hashed_tree.clone());
                 while first_block_index > (loaded.blocks.len() as u64) {
                     loaded
