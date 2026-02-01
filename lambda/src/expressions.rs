@@ -587,8 +587,11 @@ pub async fn evaluate(
                 .references()
                 .get(*index as usize)
                 .expect("TODO handle out of range error");
-            // TODO: keep alive
-            Ok(StrongReference::from_weak(*child))
+            let child_loaded = match load_tree.load_tree_v2(&child).await {
+                Ok(success) => success,
+                Err(_error) => todo!(),
+            };
+            Ok(child_loaded.reference().clone())
         }
     }
 }
