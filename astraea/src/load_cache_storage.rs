@@ -11,10 +11,10 @@ use cached::Cached;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CacheValue {
     tree: HashedTree,
-    reference: Option<StrongReference>,
+    reference: StrongReference,
 }
 
 #[derive(Debug)]
@@ -31,10 +31,33 @@ impl LoadCache {
         }
     }
 
-    async fn load_tree(
+    async fn load_tree_impl(
         &self,
         reference: &BlobDigest,
     ) -> std::result::Result<CacheValue, LoadError> {
+        {
+            let mut entries_locked = self.entries.lock().await;
+            if let Some(found) = entries_locked.cache_get(reference) {
+                return Ok(found.clone());
+            }
+        }
+        let loaded = match self.next.load_tree_v2(reference).await {
+            Ok(loaded) => loaded,
+            Err(err) => return Err(err),
+        };
+        let maybe_hashed_tree = loaded.hash();
+        match maybe_hashed_tree {
+            Some(success) => {
+                let mut entries_locked = self.entries.lock().await;
+                let result = CacheValue {
+                    tree: success.hashed_tree().clone(),
+                    reference: success.reference().clone(),
+                };
+                entries_locked.cache_set(*reference, result.clone());
+                Ok(result)
+            }
+            None => Err(LoadError::TreeNotFound(*reference)),
+        }
     }
 }
 
@@ -44,38 +67,18 @@ impl LoadTree for LoadCache {
         &self,
         reference: &BlobDigest,
     ) -> std::result::Result<DelayedHashedTree, LoadError> {
-        {
-            let mut entries_locked = self.entries.lock().await;
-            if let Some(found) = entries_locked.cache_get(reference) {
-                return Ok(DelayedHashedTree::immediate(found.tree.clone()));
-            }
-        }
-        let loaded = match self.next.load_tree(reference).await {
-            Ok(loaded) => loaded,
-            Err(err) => return Err(err),
-        };
-        let maybe_hashed_tree = loaded.hash();
-        match maybe_hashed_tree {
-            Some(success) => {
-                let mut entries_locked = self.entries.lock().await;
-                entries_locked.cache_set(
-                    *reference,
-                    CacheValue {
-                        tree: success.clone(),
-                        reference: None,
-                    },
-                );
-                Ok(DelayedHashedTree::immediate(success))
-            }
-            None => Err(LoadError::TreeNotFound(*reference)),
-        }
+        self.load_tree_impl(reference)
+            .await
+            .map(|v| DelayedHashedTree::immediate(v.tree))
     }
 
     async fn load_tree_v2(
         &self,
         reference: &BlobDigest,
     ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
-        todo!()
+        self.load_tree_impl(reference).await.map(|v| {
+            StrongDelayedHashedTree::new(v.reference, DelayedHashedTree::immediate(v.tree))
+        })
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
