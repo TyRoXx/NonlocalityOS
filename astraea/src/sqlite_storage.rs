@@ -2,7 +2,8 @@ use crate::{
     delayed_hashed_tree::DelayedHashedTree,
     storage::{
         CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadRoot, LoadStoreTree,
-        LoadTree, StoreError, StoreTree, StrongReference, StrongReferenceTrait, UpdateRoot,
+        LoadTree, StoreError, StoreTree, StrongDelayedHashedTree, StrongReference,
+        StrongReferenceTrait, UpdateRoot,
     },
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
@@ -263,6 +264,11 @@ impl StoreTree for SQLiteStorage {
     }
 }
 
+async fn load_tree_impl(
+    reference: &BlobDigest,
+) -> std::result::Result<DelayedHashedTree, LoadError> {
+}
+
 #[async_trait]
 impl LoadTree for SQLiteStorage {
     //#[instrument(skip_all)]
@@ -355,6 +361,13 @@ impl LoadTree for SQLiteStorage {
             Arc::new(Tree::new(tree_blob, children)),
             *reference,
         ))
+    }
+
+    async fn load_tree_v2(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
+        todo!()
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {

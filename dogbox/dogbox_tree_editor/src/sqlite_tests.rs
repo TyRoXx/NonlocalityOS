@@ -5,7 +5,10 @@ use crate::{
 use astraea::{
     delayed_hashed_tree::DelayedHashedTree,
     in_memory_storage::InMemoryTreeStorage,
-    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree, StrongReference},
+    storage::{
+        LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree, StrongDelayedHashedTree,
+        StrongReference,
+    },
     tree::{BlobDigest, HashedTree},
 };
 use dogbox_tree::serialization::{DirectoryEntryKind, FileName};
@@ -1260,6 +1263,13 @@ impl LoadTree for TestStorage {
         reference: &BlobDigest,
     ) -> std::result::Result<DelayedHashedTree, LoadError> {
         self.inner.load_tree(reference).await
+    }
+
+    async fn load_tree_v2(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
+        todo!()
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {

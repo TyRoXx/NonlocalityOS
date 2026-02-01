@@ -10,7 +10,7 @@ use astraea::in_memory_storage::InMemoryTreeStorage;
 use astraea::sqlite_storage::SQLiteStorage;
 use astraea::storage::{
     CollectGarbage, GarbageCollectionStats, LoadError, LoadTree, StoreError, StoreTree,
-    StrongReference, UpdateRoot,
+    StrongDelayedHashedTree, StrongHashedTree, StrongReference, UpdateRoot,
 };
 use astraea::tree::{calculate_reference, TreeChildren, TREE_MAX_CHILDREN};
 use astraea::{
@@ -840,6 +840,13 @@ impl LoadTree for NeverUsedStorage {
         panic!()
     }
 
+    async fn load_tree_v2(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
+        panic!()
+    }
+
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
         panic!()
     }
@@ -1243,8 +1250,7 @@ async fn test_open_file_content_buffer_loaded_resize_small() {
     let mut buffer = OpenFileContentBufferLoaded {
         size: 0,
         blocks: vec![OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
-            hashed_tree,
-            last_known_reference.clone(),
+            StrongHashedTree::new(last_known_reference.clone(), hashed_tree),
         ))],
         digest: DigestStatus {
             last_known_digest: *last_known_reference.digest(),
@@ -1294,8 +1300,7 @@ async fn test_open_file_content_buffer_loaded_resize_large() {
     let mut buffer = OpenFileContentBufferLoaded {
         size: 0,
         blocks: vec![OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
-            hashed_tree,
-            last_known_reference.clone(),
+            StrongHashedTree::new(last_known_reference.clone(), hashed_tree),
         ))],
         digest: DigestStatus {
             last_known_digest: *last_known_reference.digest(),

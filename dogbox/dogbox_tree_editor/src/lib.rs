@@ -18,7 +18,7 @@ mod sqlite_tests;
 
 use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use astraea::{
-    storage::{LoadStoreTree, StoreError, StrongReference},
+    storage::{LoadStoreTree, StoreError, StrongHashedTree, StrongReference},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 use async_stream::stream;
@@ -1473,14 +1473,18 @@ impl WriteResult {
 }
 
 pub enum LoadedBlock {
-    KnownDigest(HashedTree, StrongReference),
+    // TODO: rename
+    KnownDigest(StrongHashedTree),
+    // TODO: rename
+    KnownDigestDirty(HashedTree),
     UnknownDigest(Vec<u8>),
 }
 
 impl std::fmt::Debug for LoadedBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::KnownDigest(arg0, _arg1) => f.debug_tuple("KnownDigest").field(arg0).finish(),
+            Self::KnownDigest(arg0) => f.debug_tuple("KnownDigest").field(arg0).finish(),
+            Self::KnownDigestDirty(arg0) => f.debug_tuple("KnownDigestDirty").field(arg0).finish(),
             Self::UnknownDigest(arg0) => f
                 .debug_tuple("UnknownDigest.0.len()")
                 .field(&arg0.len())
@@ -1499,7 +1503,7 @@ impl OpenFileContentBlock {
     pub fn prepare_for_reading<'t>(
         &self,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
-    ) -> Option<Future<'t, HashedTree>> {
+    ) -> Option<Future<'t, StrongHashedTree>> {
         match self {
             OpenFileContentBlock::NotLoaded(reference, size) => {
                 let reference = reference.clone();
@@ -1512,33 +1516,27 @@ impl OpenFileContentBlock {
         }
     }
 
-    pub fn set_prepare_for_reading_result(&mut self, prepared: HashedTree) {
+    pub fn set_prepare_for_reading_result(&mut self, prepared: StrongHashedTree) {
         match self {
             OpenFileContentBlock::NotLoaded(reference, _size) => {
-                assert_eq!(reference.digest(), prepared.digest())
+                assert_eq!(reference.digest(), prepared.hashed_tree().digest())
             }
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(_hashed_tree, _reference) => todo!(),
+                LoadedBlock::KnownDigest(_strong_hashed_tree) => todo!(),
+                LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
                 LoadedBlock::UnknownDigest(_vec) => todo!(),
             },
         }
-        let reference = StrongReference::from_weak(*prepared.digest());
-        *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(prepared, reference));
+        *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(prepared));
     }
 
     async fn load(
         blob_digest: &BlobDigest,
         size: u16,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
-    ) -> Result<HashedTree> {
-        let loaded = if size == 0 {
-            // there is nothing to load
-            HashedTree::from(Arc::new(Tree::new(
-                TreeBlob::empty(),
-                TreeChildren::empty(),
-            )))
-        } else {
-            let delayed = match storage.load_tree(blob_digest).await {
+    ) -> Result<StrongHashedTree> {
+        let loaded = {
+            let delayed = match storage.load_tree_v2(blob_digest).await {
                 Ok(success) => success,
                 Err(error) => {
                     return Err(Error::Deserialization(DeserializationError::Load(error)))
@@ -1556,20 +1554,26 @@ impl OpenFileContentBlock {
                 }
             }
         };
-        if loaded.tree().blob().as_slice().len() != size as usize {
+        if loaded.hashed_tree().tree().blob().as_slice().len() != size as usize {
             error!(
                 "Loaded blob {:?} of size {}, but it was expected to be {} long",
                 blob_digest,
-                loaded.tree().blob().as_slice().len(),
+                loaded.hashed_tree().tree().blob().as_slice().len(),
                 size
             );
             return Err(Error::FileSizeMismatch);
         }
-        if !loaded.tree().children().references().is_empty() {
+        if !loaded
+            .hashed_tree()
+            .tree()
+            .children()
+            .references()
+            .is_empty()
+        {
             error!(
                 "Loaded blob {:?} of size {}, and its size was correct, but it had unexpected references (number: {}).",
                 blob_digest,
-                size, loaded.tree().children().references().len()
+                size, loaded.hashed_tree().tree().children().references().len()
             );
             return Err(Error::TooManyReferences(*blob_digest));
         }
@@ -1583,17 +1587,20 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(reference, size) => {
                 let loaded = Self::load(reference.digest(), *size, storage).await?;
-                let reference = StrongReference::from_weak(*reference.digest());
-                *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(loaded, reference));
+                *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(loaded));
             }
             OpenFileContentBlock::Loaded(_) => {}
         }
         Ok(match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(hashed_tree, _reference) => {
-                    hashed_tree.tree().blob().content.clone()
-                }
+                LoadedBlock::KnownDigest(strong_hashed_tree) => strong_hashed_tree
+                    .hashed_tree()
+                    .tree()
+                    .blob()
+                    .content
+                    .clone(),
+                LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
                 LoadedBlock::UnknownDigest(vec) => bytes::Bytes::copy_from_slice(vec),
             },
         })
@@ -1606,29 +1613,34 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(reference, size) => {
                 let loaded = Self::load(reference.digest(), *size, storage).await?;
-                *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
-                    loaded,
-                    reference.clone(),
-                ));
+                *self = OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(loaded));
             }
             OpenFileContentBlock::Loaded(_) => {}
         }
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(hashed_tree, _reference) => {
-                    *loaded =
-                        LoadedBlock::UnknownDigest(hashed_tree.tree().blob().as_slice().to_vec());
+                LoadedBlock::KnownDigest(strong_hashed_tree) => {
+                    *loaded = LoadedBlock::UnknownDigest(
+                        strong_hashed_tree
+                            .hashed_tree()
+                            .tree()
+                            .blob()
+                            .as_slice()
+                            .to_vec(),
+                    );
                 }
+                LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
                 LoadedBlock::UnknownDigest(_vec) => {}
             },
         }
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => panic!(),
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(_hashed_tree, _reference) => {
+                LoadedBlock::KnownDigest(_strong_hashed_tree) => {
                     panic!()
                 }
+                LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
                 LoadedBlock::UnknownDigest(vec) => Ok(vec),
             },
         }
@@ -1697,7 +1709,10 @@ impl OpenFileContentBlock {
             OpenFileContentBlock::NotLoaded(reference, _) => Ok(Some(reference.clone())),
             OpenFileContentBlock::Loaded(loaded) => {
                 let hashed_tree = match loaded {
-                    LoadedBlock::KnownDigest(hashed_tree, _reference) => hashed_tree.clone(),
+                    LoadedBlock::KnownDigest(strong_hashed_tree) => {
+                        return Ok(Some(strong_hashed_tree.reference().clone()))
+                    }
+                    LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
                     LoadedBlock::UnknownDigest(vec) => {
                         assert!(vec.len() <= TREE_BLOB_MAX_LENGTH);
                         if !is_allowed_to_calculate_digest {
@@ -1725,9 +1740,10 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, size) => *size,
             OpenFileContentBlock::Loaded(loaded) => match loaded {
-                LoadedBlock::KnownDigest(hashed_tree, _reference) => {
-                    hashed_tree.tree().blob().len()
+                LoadedBlock::KnownDigest(strong_hashed_tree) => {
+                    strong_hashed_tree.hashed_tree().tree().blob().len()
                 }
+                LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
                 LoadedBlock::UnknownDigest(vec) => vec.len() as u16,
             },
         }
@@ -1737,14 +1753,15 @@ impl OpenFileContentBlock {
         match self {
             OpenFileContentBlock::NotLoaded(_blob_digest, _) => CacheDropStats::new(0, 0, 0, 0),
             OpenFileContentBlock::Loaded(loaded_block) => match loaded_block {
-                LoadedBlock::KnownDigest(hashed_tree, reference) => {
+                LoadedBlock::KnownDigest(strong_hashed_tree) => {
                     // free some memory:
                     *self = OpenFileContentBlock::NotLoaded(
-                        reference.clone(),
-                        hashed_tree.tree().blob().len(),
+                        strong_hashed_tree.reference().clone(),
+                        strong_hashed_tree.hashed_tree().tree().blob().len(),
                     );
                     CacheDropStats::new(1, 0, 0, 0)
                 }
+                LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
                 LoadedBlock::UnknownDigest(_vec) => CacheDropStats::new(0, 0, 0, 0),
             },
         }
@@ -1925,14 +1942,14 @@ impl Prefetcher {
             explicitly_requested_blocks_right_now.take(self.max_number_of_blocks_tracked()),
         );
 
-        let futures: Vec<Future<(u64, Result<HashedTree>)>> = blocks_to_load
+        let futures: Vec<Future<(u64, Result<StrongHashedTree>)>> = blocks_to_load
             .into_iter()
             .filter_map(|block_index| {
                 let block = &mut blocks[block_index as usize];
-                let result: Option<Future<(u64, Result<HashedTree>)>> = block
+                let result: Option<Future<(u64, Result<StrongHashedTree>)>> = block
                     .prepare_for_reading(storage.clone())
-                    .map(|future: Future<HashedTree>| {
-                        let result2: Future<(u64, Result<HashedTree>)> =
+                    .map(|future: Future<StrongHashedTree>| {
+                        let result2: Future<(u64, Result<StrongHashedTree>)> =
                             Box::pin(async move { Ok((block_index, future.await)) });
                         result2
                     });
@@ -1944,7 +1961,7 @@ impl Prefetcher {
             return;
         }
 
-        let joined: Vec<Result<(u64, Result<HashedTree>)>> = join_all(futures).await;
+        let joined: Vec<Result<(u64, Result<StrongHashedTree>)>> = join_all(futures).await;
         for join_result in joined.into_iter() {
             let (block_index, prepare_result) = join_result.unwrap();
             let prepared = match prepare_result {
@@ -2104,20 +2121,18 @@ impl OpenFileContentBufferLoaded {
                 .await?;
         }
         if new_number_of_blocks > self.blocks.len() {
-            let filler = HashedTree::from(Arc::new(Tree::new(
+            let filler_hashed_tree = HashedTree::from(Arc::new(Tree::new(
                 TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH])).unwrap(),
                 TreeChildren::empty(),
             )));
             let filler_reference = storage
-                .store_tree(&filler)
+                .store_tree(&filler_hashed_tree)
                 .await
                 .map_err(|e| Error::Storage(e))?;
+            let filler = StrongHashedTree::new(filler_reference, filler_hashed_tree);
             assert!(new_number_of_blocks >= 1);
             self.blocks.resize_with(new_number_of_blocks, || {
-                OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
-                    filler.clone(),
-                    filler_reference.clone(),
-                ))
+                OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(filler.clone()))
             });
         } else if new_number_of_blocks < self.blocks.len() {
             self.blocks.truncate(new_number_of_blocks);
@@ -2509,21 +2524,21 @@ impl OpenFileContentBuffer {
             }
             if first_block_index > (loaded.blocks.len() as u64) {
                 // We only need to calculate this block once and can use it many times in the loop below.
-                let filler = HashedTree::from(Arc::new(Tree::new(
+                let filler_hashed_tree = HashedTree::from(Arc::new(Tree::new(
                     TreeBlob::try_from(bytes::Bytes::from(vec![0u8; TREE_BLOB_MAX_LENGTH]))
                         .unwrap(),
                     TreeChildren::empty(),
                 )));
                 let filler_reference = storage
-                    .store_tree(&filler)
+                    .store_tree(&filler_hashed_tree)
                     .await
                     .map_err(|e| Error::Storage(e))?;
+                let filler = StrongHashedTree::new(filler_reference, filler_hashed_tree.clone());
                 while first_block_index > (loaded.blocks.len() as u64) {
                     loaded
                         .blocks
                         .push(OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
                             filler.clone(),
-                            filler_reference.clone(),
                         )));
                 }
             }
@@ -2564,17 +2579,16 @@ impl OpenFileContentBuffer {
         }
 
         for full_block in buf.full_blocks {
-            let reference = StrongReference::from_weak(full_block.digest().clone());
             if next_block_index == loaded.blocks.len() {
                 loaded
                     .blocks
-                    .push(OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
-                        full_block, reference,
+                    .push(OpenFileContentBlock::Loaded(LoadedBlock::KnownDigestDirty(
+                        full_block,
                     )));
             } else {
                 let existing_block = &mut loaded.blocks[next_block_index];
                 *existing_block =
-                    OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(full_block, reference));
+                    OpenFileContentBlock::Loaded(LoadedBlock::KnownDigestDirty(full_block));
             }
             loaded.dirty_blocks.push_back(next_block_index);
             next_block_index += 1;

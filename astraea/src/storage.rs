@@ -79,6 +79,59 @@ impl std::fmt::Display for StrongReference {
     }
 }
 
+#[derive(Debug)]
+pub struct StrongDelayedHashedTree {
+    reference: StrongReference,
+    delayed_tree: DelayedHashedTree,
+}
+
+impl StrongDelayedHashedTree {
+    pub fn new(reference: StrongReference, delayed_tree: DelayedHashedTree) -> Self {
+        StrongDelayedHashedTree {
+            reference,
+            delayed_tree,
+        }
+    }
+
+    pub fn reference(&self) -> &StrongReference {
+        &self.reference
+    }
+
+    pub fn delayed_tree(&self) -> &DelayedHashedTree {
+        &self.delayed_tree
+    }
+
+    pub fn hash(self) -> Option<StrongHashedTree> {
+        match self.delayed_tree.hash() {
+            Some(hashed_tree) => Some(StrongHashedTree::new(self.reference.clone(), hashed_tree)),
+            None => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StrongHashedTree {
+    reference: StrongReference,
+    hashed_tree: HashedTree,
+}
+
+impl StrongHashedTree {
+    pub fn new(reference: StrongReference, hashed_tree: HashedTree) -> Self {
+        StrongHashedTree {
+            reference,
+            hashed_tree,
+        }
+    }
+
+    pub fn reference(&self) -> &StrongReference {
+        &self.reference
+    }
+
+    pub fn hashed_tree(&self) -> &HashedTree {
+        &self.hashed_tree
+    }
+}
+
 #[async_trait::async_trait]
 pub trait StoreTree {
     async fn store_tree(
@@ -93,6 +146,10 @@ pub trait LoadTree: std::fmt::Debug {
         &self,
         reference: &BlobDigest,
     ) -> std::result::Result<DelayedHashedTree, LoadError>;
+    async fn load_tree_v2(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError>;
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError>;
 }
 

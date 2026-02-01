@@ -1,6 +1,9 @@
 use crate::{
     delayed_hashed_tree::DelayedHashedTree,
-    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree, StrongReference},
+    storage::{
+        LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree, StrongDelayedHashedTree,
+        StrongReference,
+    },
     tree::{BlobDigest, HashedTree},
 };
 use async_trait::async_trait;
@@ -50,7 +53,9 @@ impl StoreTree for InMemoryTreeStorage {
         let mut lock = self.reference_to_tree.lock().await;
         let digest = *tree.digest();
         lock.entry(digest).or_insert_with(|| tree.clone());
-        Ok(StrongReference::new(None, digest))
+        Ok(StrongReference::new(
+            /*this storage doesn't collect garbage*/ None, digest,
+        ))
     }
 }
 
@@ -65,6 +70,20 @@ impl LoadTree for InMemoryTreeStorage {
             Some(found) => Ok(DelayedHashedTree::immediate(found.clone())),
             None => return Err(LoadError::TreeNotFound(*reference)),
         }
+    }
+
+    async fn load_tree_v2(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
+        self.load_tree(reference).await.map(|delayed_tree| {
+            StrongDelayedHashedTree::new(
+                StrongReference::new(
+                    /*this storage doesn't collect garbage*/ None, *reference,
+                ),
+                delayed_tree,
+            )
+        })
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
