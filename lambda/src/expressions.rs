@@ -446,11 +446,14 @@ pub async fn apply_evaluated_argument(
         Ok(success) => success,
         Err(_) => todo!(),
     };
+    let environment = match load_tree.load_tree_v2(&closure.environment).await {
+        Ok(success) => success,
+        Err(_) => todo!(),
+    };
     call_method(
         &closure.body,
         evaluated_argument,
-        // TODO: keep alive
-        &StrongReference::from_weak(closure.environment),
+        environment.reference(),
         load_tree,
         store_tree,
     )
