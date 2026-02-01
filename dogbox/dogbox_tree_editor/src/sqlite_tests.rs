@@ -1269,7 +1269,7 @@ impl LoadTree for TestStorage {
         &self,
         reference: &BlobDigest,
     ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
-        todo!()
+        self.inner.load_tree_v2(reference).await
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {

@@ -12,9 +12,15 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
+struct CacheValue {
+    tree: HashedTree,
+    reference: Option<StrongReference>,
+}
+
+#[derive(Debug)]
 pub struct LoadCache {
     next: Arc<dyn LoadStoreTree + Send + Sync>,
-    entries: Mutex<cached::stores::SizedCache<BlobDigest, HashedTree>>,
+    entries: Mutex<cached::stores::SizedCache<BlobDigest, CacheValue>>,
 }
 
 impl LoadCache {
@@ -23,6 +29,12 @@ impl LoadCache {
             next,
             entries: Mutex::new(cached::stores::SizedCache::with_size(max_entries)),
         }
+    }
+
+    async fn load_tree(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<CacheValue, LoadError> {
     }
 }
 
@@ -35,7 +47,7 @@ impl LoadTree for LoadCache {
         {
             let mut entries_locked = self.entries.lock().await;
             if let Some(found) = entries_locked.cache_get(reference) {
-                return Ok(DelayedHashedTree::immediate(found.clone()));
+                return Ok(DelayedHashedTree::immediate(found.tree.clone()));
             }
         }
         let loaded = match self.next.load_tree(reference).await {
@@ -46,7 +58,13 @@ impl LoadTree for LoadCache {
         match maybe_hashed_tree {
             Some(success) => {
                 let mut entries_locked = self.entries.lock().await;
-                entries_locked.cache_set(*reference, success.clone());
+                entries_locked.cache_set(
+                    *reference,
+                    CacheValue {
+                        tree: success.clone(),
+                        reference: None,
+                    },
+                );
                 Ok(DelayedHashedTree::immediate(success))
             }
             None => Err(LoadError::TreeNotFound(*reference)),

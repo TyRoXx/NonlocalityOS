@@ -842,7 +842,7 @@ impl LoadTree for NeverUsedStorage {
 
     async fn load_tree_v2(
         &self,
-        reference: &BlobDigest,
+        _reference: &BlobDigest,
     ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
         panic!()
     }

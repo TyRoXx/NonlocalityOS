@@ -1712,14 +1712,14 @@ impl OpenFileContentBlock {
                     LoadedBlock::KnownDigest(strong_hashed_tree) => {
                         return Ok(Some(strong_hashed_tree.reference().clone()))
                     }
-                    LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
+                    LoadedBlock::KnownDigestDirty(hashed_tree) => hashed_tree.clone(),
                     LoadedBlock::UnknownDigest(vec) => {
+                        // TODO: change into a KnownDigestDirty
                         assert!(vec.len() <= TREE_BLOB_MAX_LENGTH);
                         if !is_allowed_to_calculate_digest {
                             return Ok(None);
                         }
                         debug!("Calculating unknown digest of size {}", vec.len());
-
                         HashedTree::from(Arc::new(Tree::new(
                             TreeBlob::try_from( bytes::Bytes::from(vec.clone() /*TODO: avoid clone*/)).unwrap(/*TODO*/),
                             TreeChildren::empty(),
@@ -1743,7 +1743,9 @@ impl OpenFileContentBlock {
                 LoadedBlock::KnownDigest(strong_hashed_tree) => {
                     strong_hashed_tree.hashed_tree().tree().blob().len()
                 }
-                LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
+                LoadedBlock::KnownDigestDirty(hashed_tree) => {
+                    hashed_tree.tree().blob().len() as u16
+                }
                 LoadedBlock::UnknownDigest(vec) => vec.len() as u16,
             },
         }
@@ -1761,7 +1763,7 @@ impl OpenFileContentBlock {
                     );
                     CacheDropStats::new(1, 0, 0, 0)
                 }
-                LoadedBlock::KnownDigestDirty(_hashed_tree) => todo!(),
+                LoadedBlock::KnownDigestDirty(_hashed_tree) => CacheDropStats::new(0, 0, 0, 0),
                 LoadedBlock::UnknownDigest(_vec) => CacheDropStats::new(0, 0, 0, 0),
             },
         }
