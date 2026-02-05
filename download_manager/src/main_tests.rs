@@ -14,18 +14,17 @@ use std::sync::Arc;
 use tracing::info;
 
 #[test_log::test]
-fn test_upgrade_schema_on_new_database() {
+fn test_upgrade_schema() {
     let connection =
         rusqlite::Connection::open_in_memory().expect("Failed to open in-memory database");
-    upgrade_schema(&connection).expect("Failed to upgrade schema on new database");
-}
-
-#[test_log::test]
-fn test_upgrade_schema_on_existing_database() {
-    let connection =
-        rusqlite::Connection::open_in_memory().expect("Failed to open in-memory database");
-    upgrade_schema(&connection).expect("Failed to upgrade schema on new database");
-    upgrade_schema(&connection).expect("Failed to upgrade schema on existing database");
+    // Call upgrade_schema multiple times to ensure it can be called repeatedly without error after the first successful upgrade.
+    for _ in 0..2 {
+        upgrade_schema(&connection).expect("Failed to upgrade schema");
+        let user_version = connection
+            .query_row("PRAGMA user_version;", [], |row| row.get::<_, i32>(0))
+            .expect("Failed to get user_version from database");
+        assert_eq!(2, user_version);
+    }
 }
 
 #[test_log::test]
