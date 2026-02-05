@@ -747,6 +747,50 @@ async fn test_run_download_job_url_not_found_in_database() {
     }
 }
 
+struct FailingDownload {}
+
+#[async_trait::async_trait]
+impl Download for FailingDownload {
+    async fn download(&self, url: &str) -> Result<Vec<BlobDigest>, Box<dyn std::error::Error>> {
+        assert_eq!("http://example.com", url);
+        Err("Simulated download failure".into())
+    }
+}
+
+#[test_log::test(tokio::test)]
+async fn test_run_download_job_download_fails_url_not_found_in_database() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+    let database_dir = temp_dir.path().join("database");
+    std::fs::create_dir_all(&database_dir).expect("Failed to create database directory");
+    let mut connection = prepare_database(&database_dir).expect("Failed to prepare database");
+    let download = FailingDownload {};
+    match run_download_job(&mut connection, &download, "http://example.com").await {
+        Ok(_) => {
+            panic!("Expected error for URL not found in database");
+        }
+        Err(err) => {
+            assert_eq!(err.to_string(), "URL not found in database when recording failed download attempt for URL: http://example.com");
+        }
+    }
+}
+
+#[test_log::test(tokio::test)]
+async fn test_run_download_job_download_fails() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+    let database_dir = temp_dir.path().join("database");
+    std::fs::create_dir_all(&database_dir).expect("Failed to create database directory");
+    let mut connection = prepare_database(&database_dir).expect("Failed to prepare database");
+    store_urls_in_database(vec!["http://example.com".to_string()], &mut connection).unwrap();
+    let download = FailingDownload {};
+    run_download_job(&mut connection, &download, "http://example.com")
+        .await
+        .unwrap();
+    assert_eq!(
+        Vec::<String>::new(),
+        load_undownloaded_urls_from_database(&mut connection, 0).unwrap()
+    );
+}
+
 #[test_log::test(tokio::test)]
 async fn test_run_main_loop() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");

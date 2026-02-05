@@ -501,7 +501,14 @@ async fn run_download_job(
         }
         Err(e) => {
             error!("Download failed for URL: {}: {}", url, e);
-            Err(e)
+            if record_failed_download_attempt(connection, url)? {
+                Ok(())
+            } else {
+                Err(Box::from(format!(
+                    "URL not found in database when recording failed download attempt for URL: {}",
+                    url
+                )))
+            }
         }
     }
 }
