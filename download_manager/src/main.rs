@@ -33,48 +33,50 @@ mod dropbox_tests;
 fn upgrade_schema(
     connection: &rusqlite::Connection,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let user_version =
-        connection.query_row("PRAGMA user_version;", [], |row| row.get::<_, i32>(0))?;
-    match user_version {
-        0 => {
-            assert_eq!(
-                0,
-                connection.execute(
-                    "CREATE TABLE download_job (
-                        id INTEGER PRIMARY KEY NOT NULL,
-                        url TEXT UNIQUE NOT NULL
-                    ) STRICT",
-                    ()
-                )?
-            );
-            assert_eq!(
-                0,
-                connection.execute(
-                    "CREATE TABLE result_file (
-                    id INTEGER PRIMARY KEY NOT NULL,
-                    download_job_id INTEGER NOT NULL,
-                    sha3_512_digest BLOB NOT NULL,
-                    FOREIGN KEY(download_job_id) REFERENCES download_job(id),
-                    CONSTRAINT sha3_512_digest_length_check CHECK (LENGTH(sha3_512_digest) == 64)
-                ) STRICT",
-                    ()
-                )?
-            );
-            assert_eq!(0, connection.execute("PRAGMA user_version = 1;", ())?);
-            Ok(())
-        }
-        1 => {
-            // Future migrations go here
-            Ok(())
-        }
-        _ => {
-            error!("Unsupported database schema version: {}", user_version);
-            Err(Box::from(format!(
-                "Unsupported database schema version: {}",
-                user_version
-            )))
+    for _ in 0..2 {
+        let user_version =
+            connection.query_row("PRAGMA user_version;", [], |row| row.get::<_, i32>(0))?;
+        match user_version {
+            0 => {
+                assert_eq!(
+                    0,
+                    connection.execute(
+                        "CREATE TABLE download_job (
+                            id INTEGER PRIMARY KEY NOT NULL,
+                            url TEXT UNIQUE NOT NULL
+                        ) STRICT",
+                        ()
+                    )?
+                );
+                assert_eq!(
+                    0,
+                    connection.execute(
+                        "CREATE TABLE result_file (
+                            id INTEGER PRIMARY KEY NOT NULL,
+                            download_job_id INTEGER NOT NULL,
+                            sha3_512_digest BLOB NOT NULL,
+                            FOREIGN KEY(download_job_id) REFERENCES download_job(id),
+                            CONSTRAINT sha3_512_digest_length_check CHECK (LENGTH(sha3_512_digest) == 64)
+                        ) STRICT",
+                        ()
+                    )?
+                );
+                assert_eq!(0, connection.execute("PRAGMA user_version = 1;", ())?);
+            }
+            1 => {
+                // Future migrations go here
+                return Ok(());
+            }
+            _ => {
+                let message = format!("Unsupported database schema version: {}", user_version);
+                error!("{}", message);
+                return Err(Box::from(message));
+            }
         }
     }
+    let message = "Database schema upgrade did not complete; this likely indicates a bug in the migration logic (user_version did not reach a supported value)".to_string();
+    error!("{}", message);
+    return Err(Box::from(message));
 }
 
 fn store_urls_in_database(
