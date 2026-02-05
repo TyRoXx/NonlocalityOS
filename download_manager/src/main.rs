@@ -109,10 +109,16 @@ fn store_urls_in_database(
 
 fn load_undownloaded_urls_from_database(
     connection: &mut rusqlite::Connection,
+    max_fail_count: u32,
 ) -> rusqlite::Result<Vec<String>> {
-    let mut statement = connection
-        .prepare("SELECT url FROM download_job WHERE NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id) ORDER BY url ASC")?;
-    let url_iter = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let mut statement = connection.prepare(concat!(
+        "SELECT url ",
+        "FROM download_job ",
+        "WHERE fail_count <= ?1 ",
+        "    AND NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id) ",
+        "ORDER BY url ASC"
+    ))?;
+    let url_iter = statement.query_map([(max_fail_count)], |row| row.get::<_, String>(0))?;
     let mut urls = Vec::new();
     for url_result in url_iter {
         urls.push(url_result?);
@@ -198,6 +204,17 @@ fn set_download_job_digests(
     }
     transaction.commit()?;
     Ok(SetDownloadJobDigestOutcome::Success)
+}
+
+fn record_failed_download_attempt(
+    connection: &mut rusqlite::Connection,
+    url: &str,
+) -> rusqlite::Result<bool> {
+    let rows_updated = connection.execute(
+        "UPDATE download_job SET fail_count = fail_count + 1 WHERE url = ?1",
+        rusqlite::params![url],
+    )?;
+    Ok(rows_updated > 0)
 }
 
 fn make_database_file_name(config_directory: &std::path::Path) -> std::path::PathBuf {
@@ -495,7 +512,8 @@ async fn keep_downloading_urls_from_database(
     download: &dyn Download,
 ) {
     loop {
-        match load_undownloaded_urls_from_database(connection) {
+        const MAX_FAIL_COUNT: u32 = 5;
+        match load_undownloaded_urls_from_database(connection, MAX_FAIL_COUNT) {
             Ok(urls) => {
                 info!("Loaded {} undownloaded URLs from database", urls.len());
                 for url in &urls {
