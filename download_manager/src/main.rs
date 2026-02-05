@@ -87,7 +87,7 @@ fn upgrade_schema(
     }
     let message = "Database schema upgrade did not complete; this likely indicates a bug in the migration logic (user_version did not reach a supported value)".to_string();
     error!("{}", message);
-    return Err(Box::from(message));
+    Err(Box::from(message))
 }
 
 fn store_urls_in_database(

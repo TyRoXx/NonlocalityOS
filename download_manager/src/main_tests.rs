@@ -11,7 +11,7 @@ use crate::{
 };
 use astraea::tree::BlobDigest;
 use pretty_assertions::assert_eq;
-use std::{sync::Arc, u32};
+use std::sync::Arc;
 use tracing::info;
 
 #[test_log::test]
