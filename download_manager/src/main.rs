@@ -33,7 +33,7 @@ mod dropbox_tests;
 fn upgrade_schema(
     connection: &rusqlite::Connection,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    for _ in 0..2 {
+    for _ in 0..3 {
         let user_version =
             connection.query_row("PRAGMA user_version;", [], |row| row.get::<_, i32>(0))?;
         match user_version {
@@ -64,6 +64,17 @@ fn upgrade_schema(
                 assert_eq!(0, connection.execute("PRAGMA user_version = 1;", ())?);
             }
             1 => {
+                // Add column download_job.fail_count so that the downloader will eventually give up on broken links.
+                assert_eq!(
+                    0,
+                    connection.execute(
+                        "ALTER TABLE download_job ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0",
+                        ()
+                    )?
+                );
+                assert_eq!(0, connection.execute("PRAGMA user_version = 2;", ())?);
+            }
+            2 => {
                 // Future migrations go here
                 return Ok(());
             }
