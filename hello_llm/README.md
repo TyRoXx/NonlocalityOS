@@ -16,13 +16,13 @@ The program will automatically attempt to download Phi-3 Mini (Q4_K_M quantized,
 
 ### Manual Download (if automatic download fails)
 
-If the automatic download fails (e.g., no internet connection), you can manually download a model:
+If the automatic download fails (e.g., no internet connection), you can manually download the model:
 
-1. Download Phi-3 Mini from [Hugging Face](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf)
-2. Place the model file at: `models/model.gguf` (relative to repository root)
+1. Download Phi-3 Mini Q4_K_M from [Hugging Face](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/blob/main/Phi-3-mini-4k-instruct-q4.gguf)
+2. Rename it to `model.gguf` and place it at: `models/model.gguf` (relative to repository root)
 3. Run the binary
 
-You can use any GGUF format model from sources like:
+You can also use any other GGUF format model from sources like:
 - [Hugging Face GGUF models](https://huggingface.co/models?library=gguf)
 - Other sources that provide GGUF format models
 
