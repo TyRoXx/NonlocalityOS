@@ -40,9 +40,11 @@ async fn test_example_evaluation(
         DeepTree::deserialize(expected_result, storage)
             .await
             .unwrap(),
-        DeepTree::deserialize(&evaluated, storage).await.unwrap()
+        DeepTree::deserialize(evaluated.digest(), storage)
+            .await
+            .unwrap()
     );
-    assert_eq!(*expected_result, evaluated);
+    assert_eq!(expected_result, evaluated.digest());
 }
 
 fn test_example_formatting(source: &str) {
@@ -76,17 +78,18 @@ async fn test_hello_world() {
     let expected_result = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
-            TreeChildren::try_from(vec![storage
+            TreeChildren::try_from(vec![*storage
                 .store_tree(&HashedTree::from(Arc::new(
                     Tree::from_string("Hello, world!").unwrap(),
                 )))
                 .await
-                .unwrap()])
+                .unwrap()
+                .digest()])
             .unwrap(),
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -97,26 +100,29 @@ async fn test_integers() {
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
             TreeChildren::try_from(vec![
-                storage
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(Tree::from_postcard_integer(1))))
                     .await
-                    .unwrap(),
-                storage
+                    .unwrap()
+                    .digest(),
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(Tree::from_postcard_integer(
                         123456789,
                     ))))
                     .await
-                    .unwrap(),
-                storage
+                    .unwrap()
+                    .digest(),
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(Tree::from_postcard_integer(0))))
                     .await
-                    .unwrap(),
+                    .unwrap()
+                    .digest(),
             ])
             .unwrap(),
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -127,24 +133,26 @@ async fn test_lambda_captures() {
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
             TreeChildren::try_from(vec![
-                storage
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("lam").unwrap(),
                     )))
                     .await
-                    .unwrap(),
-                storage
+                    .unwrap()
+                    .digest(),
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("bda").unwrap(),
                     )))
                     .await
-                    .unwrap(),
+                    .unwrap()
+                    .digest(),
             ])
             .unwrap(),
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -155,24 +163,26 @@ async fn test_lambda_parameters() {
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
             TreeChildren::try_from(vec![
-                storage
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("lam").unwrap(),
                     )))
                     .await
-                    .unwrap(),
-                storage
+                    .unwrap()
+                    .digest(),
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("bda").unwrap(),
                     )))
                     .await
-                    .unwrap(),
+                    .unwrap()
+                    .digest(),
             ])
             .unwrap(),
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -183,24 +193,26 @@ async fn test_local_variables() {
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
             TreeChildren::try_from(vec![
-                storage
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("lam").unwrap(),
                     )))
                     .await
-                    .unwrap(),
-                storage
+                    .unwrap()
+                    .digest(),
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("bda").unwrap(),
                     )))
                     .await
-                    .unwrap(),
+                    .unwrap()
+                    .digest(),
             ])
             .unwrap(),
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -211,22 +223,24 @@ async fn test_type_of() {
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
             TreeChildren::try_from(vec![
-                storage
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("lam").unwrap(),
                     )))
                     .await
-                    .unwrap(),
-                storage
+                    .unwrap()
+                    .digest(),
+                *storage
                     .store_tree(&HashedTree::from(Arc::new(
                         Tree::from_string("bda").unwrap(),
                     )))
                     .await
-                    .unwrap(),
+                    .unwrap()
+                    .digest(),
             ])
             .unwrap(),
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }

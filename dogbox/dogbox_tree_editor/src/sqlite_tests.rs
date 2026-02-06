@@ -5,7 +5,10 @@ use crate::{
 use astraea::{
     delayed_hashed_tree::DelayedHashedTree,
     in_memory_storage::InMemoryTreeStorage,
-    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree},
+    storage::{
+        LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree, StrongDelayedHashedTree,
+        StrongReference,
+    },
     tree::{BlobDigest, HashedTree},
 };
 use dogbox_tree::serialization::{DirectoryEntryKind, FileName};
@@ -1241,7 +1244,10 @@ impl TestStorage {
 
 #[async_trait::async_trait]
 impl StoreTree for TestStorage {
-    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_tree(
+        &self,
+        tree: &HashedTree,
+    ) -> std::result::Result<StrongReference, StoreError> {
         if *self.fail_on_write.lock().await {
             Err(StoreError::NoSpace)
         } else {
@@ -1257,6 +1263,13 @@ impl LoadTree for TestStorage {
         reference: &BlobDigest,
     ) -> std::result::Result<DelayedHashedTree, LoadError> {
         self.inner.load_tree(reference).await
+    }
+
+    async fn load_tree_v2(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
+        self.inner.load_tree_v2(reference).await
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {

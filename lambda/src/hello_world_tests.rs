@@ -38,7 +38,7 @@ async fn hello_world() {
     let main_result = evaluate(&call_main, &*storage, &*storage, &None, &None)
         .await
         .unwrap();
-    let serialized_result = DeepTree::deserialize(&main_result, &*storage)
+    let serialized_result = DeepTree::deserialize(main_result.digest(), &*storage)
         .await
         .unwrap();
     let deserialized_result =

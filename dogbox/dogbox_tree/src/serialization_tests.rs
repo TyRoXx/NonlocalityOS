@@ -83,16 +83,16 @@ fn test_file_name_content_from() {
 #[test_log::test(tokio::test)]
 async fn test_serialize_directory_empty() {
     let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
-    let digest = serialize_directory(&BTreeMap::from([]), &storage)
+    let reference = serialize_directory(&BTreeMap::from([]), &storage)
         .await
         .unwrap();
     assert_eq!(1, storage.number_of_trees().await);
     assert_eq!(
-        BlobDigest::parse_hex_string(
+        &BlobDigest::parse_hex_string(
             "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
         )
         .unwrap(),
-        digest
+        reference.digest()
     );
 }
 
@@ -123,15 +123,17 @@ async fn test_deserialize_directory() {
             })
         })
         .collect();
-    let digest = serialize_directory(&original, &storage).await.unwrap();
+    let reference = serialize_directory(&original, &storage).await.unwrap();
     assert_eq!(9, storage.number_of_trees().await);
     assert_eq!(
-        BlobDigest::parse_hex_string(
+        &BlobDigest::parse_hex_string(
             "e5abae670a46da24d421474487f82466bcd0f7f097282a9a2b6804577c4827164035c713e11ad64732d350222a0b17088d8cfbee6aeadc2e6a1516488a34b66c"
         )
         .unwrap(),
-        digest
+        reference.digest()
     );
-    let deserialized = deserialize_directory(&storage, &digest).await.unwrap();
+    let deserialized = deserialize_directory(&storage, reference.digest())
+        .await
+        .unwrap();
     assert_eq!(original, deserialized);
 }
