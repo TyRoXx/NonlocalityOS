@@ -9,3 +9,4 @@
 /build_rs_cov.profraw
 /profile.json.gz
 .env
+/models
