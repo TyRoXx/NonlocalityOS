@@ -19,7 +19,7 @@
 
 ## Linux Mint / Ubuntu / Debian
 
-* `sudo apt install build-essential libssl-dev podman`
+* `sudo apt install build-essential libssl-dev podman clang`
 * restart your terminal
 
 # Tests
