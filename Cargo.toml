@@ -14,6 +14,7 @@ members=[
     "dogbox/dogbox_tree_editor",
     "dogbox/dogbox_dav_server",
     "fuzz",
+    "hello_llm",
 ]
 resolver="2"
 
