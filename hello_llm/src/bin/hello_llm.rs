@@ -5,13 +5,85 @@ use llama_cpp_2::{
     model::{params::LlamaModelParams, AddBos, LlamaModel},
     sampling::LlamaSampler,
 };
+use std::fs::File;
+use std::io::{self, Write, Read};
+use std::path::Path;
+
+/// Download Phi-3 Mini model if it doesn't exist
+fn ensure_model_exists(model_path: &str) -> io::Result<()> {
+    if Path::new(model_path).exists() {
+        println!("Model found at {}", model_path);
+        return Ok(());
+    }
+
+    println!("Model not found at {}", model_path);
+    println!("Attempting to download Phi-3 Mini (Q4_K_M quantized, ~2.3 GB)...");
+    println!("This may take a few minutes...\n");
+
+    // Phi-3 Mini 4K Instruct GGUF Q4_K_M from Hugging Face
+    let model_url = "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf";
+
+    // Create parent directory if it doesn't exist
+    if let Some(parent) = Path::new(model_path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Download the model
+    let mut response = ureq::get(model_url)
+        .call()
+        .map_err(|e| {
+            eprintln!("\nFailed to download model: {}", e);
+            eprintln!("\nPlease manually download a GGUF model file and place it at:");
+            eprintln!("  {}", model_path);
+            eprintln!("\nYou can download Phi-3 Mini from:");
+            eprintln!("  https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf");
+            eprintln!("\nOr use any other GGUF format model.");
+            io::Error::new(io::ErrorKind::Other, format!("Download failed: {}", e))
+        })?;
+
+    let total_size = response
+        .headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    let mut file = File::create(model_path)?;
+    let mut reader = response.body_mut().as_reader();
+    let mut buffer = [0; 8192];
+    let mut downloaded = 0u64;
+
+    loop {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..bytes_read])?;
+        downloaded += bytes_read as u64;
+
+        if total_size > 0 {
+            let progress = (downloaded as f64 / total_size as f64) * 100.0;
+            print!("\rProgress: {:.1}% ({} MB / {} MB)", 
+                   progress,
+                   downloaded / 1_048_576,
+                   total_size / 1_048_576);
+            io::stdout().flush()?;
+        }
+    }
+
+    println!("\n\nModel downloaded successfully to {}", model_path);
+    Ok(())
+}
 
 fn main() {
-    // Initialize the llama backend
-    let backend = LlamaBackend::init().expect("Failed to initialize llama backend");
-
     // Load the model from the specified path
     let model_path = "models/model.gguf";
+
+    // Ensure the model exists, download if necessary
+    ensure_model_exists(model_path).expect("Failed to ensure model exists");
+
+    // Initialize the llama backend
+    let backend = LlamaBackend::init().expect("Failed to initialize llama backend");
     let model_params = LlamaModelParams::default();
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
         .expect("Failed to load model");
