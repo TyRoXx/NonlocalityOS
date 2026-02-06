@@ -129,6 +129,9 @@ fn main() {
     // Generate tokens
     let mut response = String::new();
     let max_tokens = 100;
+    
+    // Track the position for new tokens (starts after the prompt)
+    let mut n_past = tokens.len() as i32;
 
     for _ in 0..max_tokens {
         // Sample the next token
@@ -148,11 +151,14 @@ fn main() {
             .expect("Failed to convert token to string");
         response.push_str(&token_str);
 
-        // Clear batch and add the new token
+        // Clear batch and add the new token with the correct position
         batch.clear();
         batch
-            .add(new_token, 0, &[0], true)
+            .add(new_token, n_past, &[0], true)
             .expect("Failed to add token to batch");
+        
+        // Increment position counter
+        n_past += 1;
 
         // Decode the new token
         ctx.decode(&mut batch).expect("Failed to decode batch");
