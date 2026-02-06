@@ -2,14 +2,13 @@ use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
-    model::{params::LlamaModelParams, LlamaModel, AddBos},
+    model::{params::LlamaModelParams, AddBos, LlamaModel},
     sampling::LlamaSampler,
 };
 
 fn main() {
     // Initialize the llama backend
-    let backend = LlamaBackend::init()
-        .expect("Failed to initialize llama backend");
+    let backend = LlamaBackend::init().expect("Failed to initialize llama backend");
 
     // Load the model from the specified path
     let model_path = "models/model.gguf";
@@ -25,7 +24,7 @@ fn main() {
 
     // The prompt we want to run
     let prompt = "In one short sentence, what is Rust?";
-    
+
     // Tokenize the prompt
     let tokens = model
         .str_to_token(prompt, AddBos::Always)
@@ -36,18 +35,18 @@ fn main() {
 
     // Create a batch and add tokens
     let mut batch = LlamaBatch::new(512, 1);
-    
+
     let last_index = tokens.len() - 1;
     for (i, token) in tokens.iter().enumerate() {
         // Only compute logits for the last token
         let is_last = i == last_index;
-        batch.add(*token, i as i32, &[0], is_last)
+        batch
+            .add(*token, i as i32, &[0], is_last)
             .expect("Failed to add token to batch");
     }
 
     // Decode the batch (process the prompt)
-    ctx.decode(&mut batch)
-        .expect("Failed to decode batch");
+    ctx.decode(&mut batch).expect("Failed to decode batch");
 
     // Create a simple greedy sampler
     let mut sampler = LlamaSampler::greedy();
@@ -58,11 +57,11 @@ fn main() {
     // Generate tokens
     let mut response = String::new();
     let max_tokens = 100;
-    
+
     for _ in 0..max_tokens {
         // Sample the next token
         let new_token = sampler.sample(&ctx, -1);
-        
+
         // Check if we've reached the end of generation
         if model.is_eog_token(new_token) {
             break;
@@ -79,12 +78,12 @@ fn main() {
 
         // Clear batch and add the new token
         batch.clear();
-        batch.add(new_token, 0, &[0], true)
+        batch
+            .add(new_token, 0, &[0], true)
             .expect("Failed to add token to batch");
 
         // Decode the new token
-        ctx.decode(&mut batch)
-            .expect("Failed to decode batch");
+        ctx.decode(&mut batch).expect("Failed to decode batch");
     }
 
     println!("{}", response.trim());
