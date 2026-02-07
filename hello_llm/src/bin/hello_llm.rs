@@ -38,7 +38,7 @@ fn ensure_model_exists(model_path: &str) -> io::Result<()> {
             eprintln!("\nYou can download Phi-3 Mini from:");
             eprintln!("  https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf");
             eprintln!("\nOr use any other GGUF format model.");
-            io::Error::new(io::ErrorKind::Other, format!("Download failed: {}", e))
+            io::Error::other(format!("Download failed: {}", e))
         })?;
 
     let total_size = response
