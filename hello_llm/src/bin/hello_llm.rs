@@ -6,7 +6,7 @@ use llama_cpp_2::{
     sampling::LlamaSampler,
 };
 use std::fs::File;
-use std::io::{self, Write, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 /// Download Phi-3 Mini model if it doesn't exist
@@ -29,17 +29,15 @@ fn ensure_model_exists(model_path: &str) -> io::Result<()> {
     }
 
     // Download the model
-    let mut response = ureq::get(model_url)
-        .call()
-        .map_err(|e| {
-            eprintln!("\nFailed to download model: {}", e);
-            eprintln!("\nPlease manually download a GGUF model file and place it at:");
-            eprintln!("  {}", model_path);
-            eprintln!("\nYou can download Phi-3 Mini from:");
-            eprintln!("  https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf");
-            eprintln!("\nOr use any other GGUF format model.");
-            io::Error::other(format!("Download failed: {}", e))
-        })?;
+    let mut response = ureq::get(model_url).call().map_err(|e| {
+        eprintln!("\nFailed to download model: {}", e);
+        eprintln!("\nPlease manually download a GGUF model file and place it at:");
+        eprintln!("  {}", model_path);
+        eprintln!("\nYou can download Phi-3 Mini from:");
+        eprintln!("  https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf");
+        eprintln!("\nOr use any other GGUF format model.");
+        io::Error::other(format!("Download failed: {}", e))
+    })?;
 
     let total_size = response
         .headers()
@@ -63,10 +61,12 @@ fn ensure_model_exists(model_path: &str) -> io::Result<()> {
 
         if total_size > 0 {
             let progress = (downloaded as f64 / total_size as f64) * 100.0;
-            print!("\rProgress: {:.1}% ({} MB / {} MB)", 
-                   progress,
-                   downloaded / 1_048_576,
-                   total_size / 1_048_576);
+            print!(
+                "\rProgress: {:.1}% ({} MB / {} MB)",
+                progress,
+                downloaded / 1_048_576,
+                total_size / 1_048_576
+            );
             io::stdout().flush()?;
         }
     }
@@ -129,7 +129,7 @@ fn main() {
     // Generate tokens
     let mut response = String::new();
     let max_tokens = 300;
-    
+
     // Track the position for new tokens (starts after the prompt)
     let mut n_past = tokens.len() as i32;
 
@@ -156,7 +156,7 @@ fn main() {
         batch
             .add(new_token, n_past, &[0], true)
             .expect("Failed to add token to batch");
-        
+
         // Increment position counter
         n_past += 1;
 
