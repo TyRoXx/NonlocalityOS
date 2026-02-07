@@ -128,7 +128,7 @@ fn main() {
 
     // Generate tokens
     let mut response = String::new();
-    let max_tokens = 100;
+    let max_tokens = 300;
     
     // Track the position for new tokens (starts after the prompt)
     let mut n_past = tokens.len() as i32;
