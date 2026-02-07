@@ -14,6 +14,8 @@ cargo run --bin hello_llm --release
 
 The program will automatically attempt to download Phi-3 Mini (Q4_K_M quantized, ~2.3 GB) from Hugging Face if `models/model.gguf` doesn't exist.
 
+**Security**: The downloaded file is verified using SHA256 hash (`8a83c7fb9049a9b2e92266fa7ad04933bb53aa1e85136b7b30f1b8000ff2edef`) to ensure integrity. If verification fails, the file is deleted and an error is returned.
+
 ### Manual Download (if automatic download fails)
 
 If the automatic download fails (e.g., no internet connection), you can manually download the model:
@@ -30,12 +32,13 @@ You can also use any other GGUF format model from sources like:
 
 The program:
 1. Checks if `models/model.gguf` exists, downloads Phi-3 Mini if not
-2. Initializes the llama backend
-3. Loads the model
-4. Creates a context with default parameters
-5. Runs the prompt: "In one short sentence, what is Rust?"
-6. Generates up to 100 tokens of response using greedy sampling
-7. Prints the response to stdout
+2. Verifies downloaded file integrity using SHA256 hash
+3. Initializes the llama backend
+4. Loads the model
+5. Creates a context with default parameters
+6. Runs the prompt: "In one short sentence, what is Rust?"
+7. Generates up to 100 tokens of response using greedy sampling
+8. Prints the response to stdout
 
 ## Implementation details
 
@@ -45,6 +48,7 @@ The program:
 - No GPU acceleration (CPU only)
 - Minimal error handling with `expect()` calls
 - Automatic model download with progress indicator
+- SHA256 hash verification for downloaded files
 
 ## Example output
 
