@@ -5,6 +5,7 @@ use llama_cpp_2::{
     model::{params::LlamaModelParams, AddBos, LlamaModel},
     sampling::LlamaSampler,
 };
+use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -19,6 +20,9 @@ fn ensure_model_exists(model_path: &str) -> io::Result<()> {
     println!("Model not found at {}", model_path);
     println!("Attempting to download Phi-3 Mini (Q4_K_M quantized, ~2.3 GB)...");
     println!("This may take a few minutes...\n");
+
+    // Expected SHA256 hash for Phi-3 Mini Q4_K_M
+    let expected_hash = "8a83c7fb9049a9b2e92266fa7ad04933bb53aa1e85136b7b30f1b8000ff2edef";
 
     // Phi-3 Mini 4K Instruct GGUF Q4_K_M from Hugging Face
     let model_url = "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf";
@@ -50,6 +54,7 @@ fn ensure_model_exists(model_path: &str) -> io::Result<()> {
     let mut reader = response.body_mut().as_reader();
     let mut buffer = [0; 8192];
     let mut downloaded = 0u64;
+    let mut hasher = Sha256::new();
 
     loop {
         let bytes_read = reader.read(&mut buffer)?;
@@ -57,6 +62,7 @@ fn ensure_model_exists(model_path: &str) -> io::Result<()> {
             break;
         }
         file.write_all(&buffer[..bytes_read])?;
+        hasher.update(&buffer[..bytes_read]);
         downloaded += bytes_read as u64;
 
         if total_size > 0 {
@@ -71,7 +77,25 @@ fn ensure_model_exists(model_path: &str) -> io::Result<()> {
         }
     }
 
+    // Compute the final hash
+    let hash_result = hasher.finalize();
+    let computed_hash = format!("{:x}", hash_result);
+
     println!("\n\nModel downloaded successfully to {}", model_path);
+    println!("Verifying SHA256 hash...");
+    println!("Computed: {}", computed_hash);
+    println!("Expected: {}", expected_hash);
+
+    if computed_hash != expected_hash {
+        // Delete the corrupted file
+        let _ = std::fs::remove_file(model_path);
+        return Err(io::Error::other(format!(
+            "Hash verification failed! Computed hash {} does not match expected hash {}. The downloaded file has been deleted.",
+            computed_hash, expected_hash
+        )));
+    }
+
+    println!("Hash verification successful!");
     Ok(())
 }
 
