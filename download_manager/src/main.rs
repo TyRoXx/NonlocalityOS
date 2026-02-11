@@ -528,9 +528,7 @@ async fn keep_downloading_urls_from_database(
                 }
                 for url in &urls {
                     match run_download_job(connection, download, url).await {
-                        Ok(_) => {
-                            info!("Download job completed successfully for URL: {}", url);
-                        }
+                        Ok(_) => {}
                         Err(e) => {
                             error!("Download job failed for URL: {}: {}", url, e);
                         }
