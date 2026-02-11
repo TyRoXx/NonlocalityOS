@@ -156,11 +156,11 @@ async fn download_with_yt_dlp(
             }
         } else {
             info!(
-                "Renaming {} to {}",
+                "Copying {} to {}",
                 created_file.display(),
                 output_directory_destination_file.display()
             );
-            std::fs::rename(&created_file, &output_directory_destination_file)?;
+            std::fs::copy(&created_file, &output_directory_destination_file)?;
             result.push(digest);
         }
     }
