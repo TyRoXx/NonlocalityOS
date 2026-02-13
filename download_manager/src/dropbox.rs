@@ -80,7 +80,10 @@ async fn authenticate(
 
 pub fn is_file_to_be_moved(name: &str) -> bool {
     let lower_case_name = name.to_lowercase();
-    lower_case_name.ends_with(".mp4") || lower_case_name.ends_with(".mov")
+    lower_case_name.ends_with(".mp4")
+        || lower_case_name.ends_with(".mov")
+        || lower_case_name.ends_with(".webm")
+        || lower_case_name.ends_with(".mkv")
 }
 
 pub fn join_dropbox_paths(left: &str, right: &str) -> String {
