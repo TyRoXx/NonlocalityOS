@@ -1,9 +1,8 @@
-use std::sync::Arc;
-
 use crate::{
-    storage::{LoadError, LoadTree, StoreError, StoreTree},
+    storage::{LoadError, LoadTree, StoreError, StoreTree, StrongReference},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeSerializationError},
 };
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DeepTreeChildren {
@@ -72,10 +71,10 @@ impl DeepTree {
                 return Err(LoadError::TreeNotFound(*root));
             }
         };
-        let blob = tree.tree().blob();
+        let blob = tree.hashed_tree().tree().blob();
         let mut references = Vec::new();
-        for reference in tree.tree().children().references() {
-            let deep_tree = Box::pin(DeepTree::deserialize(reference, load_tree)).await?;
+        for reference in tree.hashed_tree().tree().children().references() {
+            let deep_tree = Box::pin(DeepTree::deserialize(reference.digest(), load_tree)).await?;
             references.push(deep_tree);
         }
         Ok(DeepTree::new(
@@ -85,7 +84,10 @@ impl DeepTree {
         ))
     }
 
-    pub async fn serialize(&self, store_tree: &dyn StoreTree) -> Result<BlobDigest, StoreError> {
+    pub async fn serialize(
+        &self,
+        store_tree: &dyn StoreTree,
+    ) -> Result<StrongReference, StoreError> {
         let mut references = Vec::new();
         for reference in self.children().references() {
             references.push(Box::pin(reference.serialize(store_tree)).await?);

@@ -6,7 +6,11 @@ use astraea::in_memory_storage::InMemoryTreeStorage;
 use astraea::load_cache_storage::LoadCache;
 use astraea::sqlite_storage::SQLiteStorage;
 use astraea::storage::LoadStoreTree;
-use astraea::tree::{BlobDigest, TREE_BLOB_MAX_LENGTH};
+use astraea::tree::HashedTree;
+use astraea::tree::Tree;
+use astraea::tree::TreeBlob;
+use astraea::tree::TreeChildren;
+use astraea::tree::TREE_BLOB_MAX_LENGTH;
 use pretty_assertions::assert_eq;
 use pretty_assertions::assert_ne;
 use rand::rngs::SmallRng;
@@ -65,14 +69,22 @@ fn read_large_file<S: Fn() -> Arc<dyn LoadStoreTree + Send + Sync>>(
     runtime: Runtime,
 ) {
     let original_content: Vec<u8> = Vec::new();
-    let last_known_digest = BlobDigest::hash(&original_content);
+    let empty_file_reference = {
+        let storage = create_storage_for_iteration();
+        runtime
+            .block_on(storage.store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(original_content.clone())).unwrap(),
+                TreeChildren::empty(),
+            )))))
+            .unwrap()
+    };
     let last_known_digest_file_size = original_content.len();
     // you may want to increase this number for actual benchmarking
     let file_size_in_blocks = 5;
     let write_buffer_in_blocks = file_size_in_blocks;
     let mut buffer = OpenFileContentBuffer::from_data(
         original_content.clone(),
-        last_known_digest,
+        empty_file_reference,
         last_known_digest_file_size as u64,
         write_buffer_in_blocks,
     )
@@ -92,11 +104,12 @@ fn read_large_file<S: Fn() -> Arc<dyn LoadStoreTree + Send + Sync>>(
             .unwrap();
     }
     assert_eq!(file_size_in_bytes as u64, buffer.size());
-    {
-        let store_result = runtime.block_on(buffer.store_all(storage.clone()));
-        assert_eq!(Ok(StoreChanges::SomeChanges), store_result);
-    }
-    let (digest_status, size) = buffer.last_known_digest();
+    let store_result = runtime.block_on(buffer.store_all(storage.clone()));
+    let (digest_status, size, reference) = buffer.last_known_digest();
+    assert_eq!(
+        Ok(StoreChanges::SomeChanges(reference.clone())),
+        store_result
+    );
     assert!(digest_status.is_digest_up_to_date);
     assert_eq!(file_size_in_bytes as u64, size);
 
@@ -105,7 +118,7 @@ fn read_large_file<S: Fn() -> Arc<dyn LoadStoreTree + Send + Sync>>(
         if !is_buffer_hot {
             // reload from storage every time
             buffer = OpenFileContentBuffer::from_storage(
-                digest_status.last_known_digest,
+                reference.clone(),
                 size,
                 write_buffer_in_blocks,
             );

@@ -1472,53 +1472,55 @@ async fn test_copy_non_existing_file() {
 
 #[test_log::test(tokio::test)]
 async fn test_copy_directory() {
-    let clock_simulator = simulate_clock();
-    let content = "content";
-    let change_files = {
-        let clock_simulator = clock_simulator.clone();
-        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
-            Box::pin(async move {
-                clock_simulator.advance();
-                client.mkcol("dir").await.unwrap();
-                //  clock_simulator.advance();
-                client.put("dir/A.txt", content).await.unwrap();
-                //  clock_simulator.advance();
-                client.cp("dir", "dir2").await.unwrap();
-            })
-        }
-    };
-    let verify_changes = {
-        let clock_simulator = clock_simulator.clone();
-        move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+    for _ in 0..10 {
+        let clock_simulator = simulate_clock();
+        let content = "content";
+        let change_files = {
             let clock_simulator = clock_simulator.clone();
-            Box::pin(async move {
-                let expected_modified_time = clock_simulator.read();
-                let root_listed = client.list("", Depth::Number(1)).await.unwrap();
-                assert_eq!(3, root_listed.len());
-                expect_directory(&root_listed[0], "/", &expected_modified_time);
-                expect_directory(&root_listed[1], "/dir/", &expected_modified_time);
-                expect_directory(&root_listed[2], "/dir2/", &expected_modified_time);
-                for dir in ["/dir/", "/dir2/"] {
-                    let dir_listed = client.list(dir, Depth::Number(1)).await.unwrap();
-                    assert_eq!(2, dir_listed.len());
-                    expect_directory(&dir_listed[0], dir, &expected_modified_time);
-                    expect_file(
-                        &client,
-                        &dir_listed[1],
-                        &format!("{}A.txt", dir),
-                        content.as_bytes(),
-                        "text/plain",
-                        &expected_modified_time,
-                    )
-                    .await;
-                }
-            })
-        }
-    };
-    test_fresh_dav_server(
-        Some(Box::new(change_files)),
-        &verify_changes,
-        clock_simulator.clock(),
-    )
-    .await
+            move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+                Box::pin(async move {
+                    clock_simulator.advance();
+                    client.mkcol("dir").await.unwrap();
+                    //  clock_simulator.advance();
+                    client.put("dir/A.txt", content).await.unwrap();
+                    //  clock_simulator.advance();
+                    client.cp("dir", "dir2").await.unwrap();
+                })
+            }
+        };
+        let verify_changes = {
+            let clock_simulator = clock_simulator.clone();
+            move |client: Client| -> Pin<Box<dyn Future<Output = ()>>> {
+                let clock_simulator = clock_simulator.clone();
+                Box::pin(async move {
+                    let expected_modified_time = clock_simulator.read();
+                    let root_listed = client.list("", Depth::Number(1)).await.unwrap();
+                    assert_eq!(3, root_listed.len());
+                    expect_directory(&root_listed[0], "/", &expected_modified_time);
+                    expect_directory(&root_listed[1], "/dir/", &expected_modified_time);
+                    expect_directory(&root_listed[2], "/dir2/", &expected_modified_time);
+                    for dir in ["/dir/", "/dir2/"] {
+                        let dir_listed = client.list(dir, Depth::Number(1)).await.unwrap();
+                        assert_eq!(2, dir_listed.len());
+                        expect_directory(&dir_listed[0], dir, &expected_modified_time);
+                        expect_file(
+                            &client,
+                            &dir_listed[1],
+                            &format!("{}A.txt", dir),
+                            content.as_bytes(),
+                            "text/plain",
+                            &expected_modified_time,
+                        )
+                        .await;
+                    }
+                })
+            }
+        };
+        test_fresh_dav_server(
+            Some(Box::new(change_files)),
+            &verify_changes,
+            clock_simulator.clock(),
+        )
+        .await
+    }
 }

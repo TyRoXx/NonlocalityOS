@@ -3,7 +3,6 @@ use astraea::{in_memory_storage::InMemoryTreeStorage, storage::LoadTree};
 use pretty_assertions::assert_eq;
 use sorted_tree::prolly_tree_editable_node::{EditableLeafNode, EditableLoadedNode, SizeTracker};
 use std::collections::BTreeMap;
-use tokio::sync::Mutex;
 
 #[derive(Arbitrary, Debug)]
 struct TestCase {
@@ -17,18 +16,18 @@ async fn run_test_case(test_case: &TestCase) -> bool {
             None => return false,
         },
     );
-    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
-    let digest = node.save(&storage).await.unwrap();
+    let storage = InMemoryTreeStorage::empty();
+    let reference = node.save(&storage).await.unwrap();
 
     let mut size_tracker = SizeTracker::new();
     for (key, value) in test_case.entries.iter() {
         size_tracker.add_entry(key, value);
     }
 
-    let tree = storage.load_tree(&digest).await.unwrap();
+    let tree = storage.load_tree(reference.digest()).await.unwrap();
     let hashed_tree = tree.hash().unwrap();
     assert_eq!(
-        hashed_tree.tree().blob().len() as usize,
+        hashed_tree.hashed_tree().tree().blob().len() as usize,
         size_tracker.size()
     );
     true

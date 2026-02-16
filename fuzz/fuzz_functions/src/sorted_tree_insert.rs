@@ -1,7 +1,6 @@
 use arbitrary::Unstructured;
 use astraea::in_memory_storage::InMemoryTreeStorage;
 use std::collections::BTreeMap;
-use tokio::sync::Mutex;
 
 pub fn fuzz_function(data: &[u8]) -> bool {
     let mut unstructured = Unstructured::new(data);
@@ -13,37 +12,46 @@ pub fn fuzz_function(data: &[u8]) -> bool {
         .build()
         .unwrap()
         .block_on(async {
-            let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+            let storage = InMemoryTreeStorage::empty();
             let mut current_state = sorted_tree::sorted_tree::new_tree::<String, i64>(&storage)
                 .await
                 .expect("creating a new tree should succeed");
             let mut oracle = BTreeMap::new();
             for (key, _value) in entries.iter() {
-                let found =
-                    sorted_tree::sorted_tree::find::<String, i64>(&storage, &current_state, key)
-                        .await;
+                let found = sorted_tree::sorted_tree::find::<String, i64>(
+                    &storage,
+                    current_state.digest(),
+                    key,
+                )
+                .await;
                 assert_eq!(None, found);
             }
             for (key, value) in entries.iter() {
                 current_state = sorted_tree::sorted_tree::insert::<String, i64>(
                     &storage,
                     &storage,
-                    &current_state,
+                    current_state.digest(),
                     key.clone(),
                     *value,
                 )
                 .await
                 .expect("inserting key should succeed");
-                let found =
-                    sorted_tree::sorted_tree::find::<String, i64>(&storage, &current_state, key)
-                        .await;
+                let found = sorted_tree::sorted_tree::find::<String, i64>(
+                    &storage,
+                    current_state.digest(),
+                    key,
+                )
+                .await;
                 assert_eq!(Some(*value), found);
                 oracle.insert(key.clone(), *value);
             }
             for (key, value) in oracle.iter() {
-                let found =
-                    sorted_tree::sorted_tree::find::<String, i64>(&storage, &current_state, key)
-                        .await;
+                let found = sorted_tree::sorted_tree::find::<String, i64>(
+                    &storage,
+                    current_state.digest(),
+                    key,
+                )
+                .await;
                 assert_eq!(Some(*value), found);
             }
         });

@@ -201,7 +201,7 @@ async fn persist_root_on_change(
 ) {
     let mut number_of_no_changes_in_a_row: u64 = 0;
     let mut receiver = root.watch().await;
-    let mut previous_root_status: OpenDirectoryStatus = *receiver.borrow();
+    let mut previous_root_status: OpenDirectoryStatus = receiver.borrow().clone();
     loop {
         debug!("Waiting for root to change.");
         let maybe_changed = receiver.changed().await;
@@ -215,7 +215,7 @@ async fn persist_root_on_change(
             }
         }
 
-        let root_status = *receiver.borrow();
+        let root_status = receiver.borrow().clone();
         if previous_root_status == root_status {
             debug!("Root didn't change");
             number_of_no_changes_in_a_row += 1;
@@ -243,7 +243,9 @@ async fn persist_root_on_change(
                     let blob_storage_collect_garbage = blob_storage_collect_garbage.clone();
                     move || {
                         Handle::current().block_on(async move {
-                            blob_storage_commit.commit_changes().await.expect("TODO");
+                            let writes_committed =
+                                blob_storage_commit.commit_changes().await.expect("TODO");
+                            info!("Committed {} writes after root update", writes_committed);
                             let gc_stats = blob_storage_collect_garbage
                                 .collect_some_garbage()
                                 .await
@@ -251,6 +253,13 @@ async fn persist_root_on_change(
                             if gc_stats.trees_collected > 0 {
                                 info!("Garbage collected {} trees", gc_stats.trees_collected);
                             }
+                            // end the garbage collection transaction to avoid "database is locked" errors
+                            let writes_committed =
+                                blob_storage_commit.commit_changes().await.expect("TODO");
+                            info!(
+                                "Committed {} writes after garbage collection",
+                                writes_committed
+                            );
                         });
                     }
                 })
