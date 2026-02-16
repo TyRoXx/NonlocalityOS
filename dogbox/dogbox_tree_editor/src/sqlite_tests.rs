@@ -3,9 +3,11 @@ use crate::{
     CacheDropStats, FileCreationMode, NormalizedPath, OpenDirectory, OpenFileStats, TreeEditor,
 };
 use astraea::{
-    delayed_hashed_tree::DelayedHashedTree,
     in_memory_storage::InMemoryTreeStorage,
-    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree},
+    storage::{
+        LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree, StrongDelayedHashedTree,
+        StrongReference,
+    },
     tree::{BlobDigest, HashedTree},
 };
 use dogbox_tree::serialization::{DirectoryEntryKind, FileName};
@@ -717,7 +719,7 @@ async fn test_sync_directory() {
                 )
                 .unwrap();
             let digest_before_insert = handle
-                .block_on(async { *last_synced_digest.lock().await })
+                .block_on(async { last_synced_digest.lock().await.clone() })
                 .expect("Expected at least one directory sync");
             assert!(digest_before_insert.is_digest_up_to_date);
             {
@@ -730,7 +732,7 @@ async fn test_sync_directory() {
                 transaction.commit().unwrap();
             }
             let digest_after_insert = handle
-                .block_on(async { *last_synced_digest.lock().await })
+                .block_on(async { last_synced_digest.lock().await.clone() })
                 .expect("Last synced digest cannot disappear");
             assert!(digest_after_insert.is_digest_up_to_date);
             assert_ne!(digest_before_insert, digest_after_insert);
@@ -739,19 +741,19 @@ async fn test_sync_directory() {
                 transaction.commit().unwrap();
             }
             let digest_after_redundant_commit = handle
-                .block_on(async { *last_synced_digest.lock().await })
+                .block_on(async { last_synced_digest.lock().await.clone() })
                 .expect("Last synced digest cannot disappear");
             assert_eq!(digest_after_redundant_commit, digest_after_insert);
             connection.close().unwrap();
             let digest_after_close = handle
-                .block_on(async { *last_synced_digest.lock().await })
+                .block_on(async { last_synced_digest.lock().await.clone() })
                 .expect("Last synced digest cannot disappear");
             assert_eq!(digest_after_close, digest_after_insert);
             digest_after_insert
         });
         thread.await.unwrap()
     };
-    let final_commit_digest = {
+    let final_commit_reference = {
         let directory_status = directory.request_save().await.unwrap();
         assert_eq!(directory_status.directories_open_count, 1);
         assert_eq!(directory_status.directories_unsaved_count, 0);
@@ -782,7 +784,7 @@ async fn test_sync_directory() {
     let directory = OpenDirectory::load_directory(
         PathBuf::from(""),
         storage,
-        &final_commit_digest,
+        &final_commit_reference,
         clock(),
         clock,
         1,
@@ -1241,7 +1243,10 @@ impl TestStorage {
 
 #[async_trait::async_trait]
 impl StoreTree for TestStorage {
-    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_tree(
+        &self,
+        tree: &HashedTree,
+    ) -> std::result::Result<StrongReference, StoreError> {
         if *self.fail_on_write.lock().await {
             Err(StoreError::NoSpace)
         } else {
@@ -1255,7 +1260,7 @@ impl LoadTree for TestStorage {
     async fn load_tree(
         &self,
         reference: &BlobDigest,
-    ) -> std::result::Result<DelayedHashedTree, LoadError> {
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
         self.inner.load_tree(reference).await
     }
 

@@ -1390,15 +1390,19 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "astraea",
+ "bytes 1.11.1",
+ "dogbox_tree_editor",
  "lambda",
  "lambda_compiler",
  "postcard",
  "pretty_assertions",
  "rand 0.8.5",
+ "serde",
  "sorted_tree",
  "test-case",
  "test-log",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2449,18 +2453,13 @@ name = "nonlocality-fuzz"
 version = "0.0.0"
 dependencies = [
  "astraea",
- "bytes 1.11.1",
  "dogbox_tree",
- "dogbox_tree_editor",
  "fuzz_functions",
  "libfuzzer-sys",
  "postcard",
  "pretty_assertions",
- "rand 0.9.2",
- "serde",
  "tokio",
  "tokio-macros",
- "tracing",
 ]
 
 [[package]]

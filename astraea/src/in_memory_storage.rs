@@ -1,22 +1,38 @@
 use crate::{
     delayed_hashed_tree::DelayedHashedTree,
-    storage::{LoadError, LoadStoreTree, LoadTree, StoreError, StoreTree},
+    storage::{
+        CollectGarbage, GarbageCollectionStats, LoadError, LoadStoreTree, LoadTree, StoreError,
+        StoreTree, StrongDelayedHashedTree, StrongReference, StrongReferenceTrait,
+    },
     tree::{BlobDigest, HashedTree},
 };
 use async_trait::async_trait;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, Weak},
+};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
+struct InMemoryStrongReferenceImpl {}
+
+impl StrongReferenceTrait for InMemoryStrongReferenceImpl {}
+
+#[derive(Debug)]
+struct InMemoryTreeEntry {
+    tree: HashedTree,
+    strong_reference_impl: Weak<InMemoryStrongReferenceImpl>,
+    // just to keep them alive
+    _children: Vec<StrongReference>,
+}
+
+#[derive(Debug)]
 pub struct InMemoryTreeStorage {
-    reference_to_tree: Mutex<BTreeMap<BlobDigest, HashedTree>>,
+    // TODO: automatic garbage collection when the number of trees exceeds a certain threshold
+    reference_to_tree: Mutex<BTreeMap<BlobDigest, InMemoryTreeEntry>>,
 }
 
 impl InMemoryTreeStorage {
-    pub fn new(reference_to_tree: Mutex<BTreeMap<BlobDigest, HashedTree>>) -> InMemoryTreeStorage {
-        InMemoryTreeStorage { reference_to_tree }
-    }
-
     pub fn empty() -> InMemoryTreeStorage {
         Self {
             reference_to_tree: Mutex::new(BTreeMap::new()),
@@ -43,11 +59,47 @@ impl InMemoryTreeStorage {
 
 #[async_trait]
 impl StoreTree for InMemoryTreeStorage {
-    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_tree(
+        &self,
+        tree: &HashedTree,
+    ) -> std::result::Result<StrongReference, StoreError> {
+        let mut children = Vec::new();
+        for child_digest in tree.tree().children().references() {
+            let child_tree = match self.load_tree(child_digest.digest()).await {
+                Ok(success) => success,
+                Err(error) => return Err(StoreError::TreeMissing(error)),
+            };
+            children.push(child_tree.reference().clone());
+        }
         let mut lock = self.reference_to_tree.lock().await;
-        let reference = *tree.digest();
-        lock.entry(reference).or_insert_with(|| tree.clone());
-        Ok(reference)
+        let digest = *tree.digest();
+        let impl_ = match lock.entry(digest) {
+            std::collections::btree_map::Entry::Vacant(vacant_entry) => {
+                let impl_ = Arc::new(InMemoryStrongReferenceImpl {});
+                vacant_entry.insert(InMemoryTreeEntry {
+                    tree: tree.clone(),
+                    strong_reference_impl: Arc::<InMemoryStrongReferenceImpl>::downgrade(&impl_),
+                    _children: children,
+                });
+                impl_
+            }
+            std::collections::btree_map::Entry::Occupied(mut occupied_entry) => occupied_entry
+                .get()
+                .strong_reference_impl
+                .upgrade()
+                .unwrap_or_else(|| {
+                    let impl_ = Arc::new(InMemoryStrongReferenceImpl {});
+                    occupied_entry.insert(InMemoryTreeEntry {
+                        tree: occupied_entry.get().tree.clone(),
+                        strong_reference_impl: Arc::<InMemoryStrongReferenceImpl>::downgrade(
+                            &impl_,
+                        ),
+                        _children: children,
+                    });
+                    impl_
+                }),
+        };
+        Ok(StrongReference::new(Some(impl_), digest))
     }
 }
 
@@ -56,11 +108,20 @@ impl LoadTree for InMemoryTreeStorage {
     async fn load_tree(
         &self,
         reference: &BlobDigest,
-    ) -> std::result::Result<DelayedHashedTree, LoadError> {
-        let lock = self.reference_to_tree.lock().await;
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
+        let mut lock = self.reference_to_tree.lock().await;
         match lock.get(reference) {
-            Some(found) => Ok(DelayedHashedTree::immediate(found.clone())),
-            None => return Err(LoadError::TreeNotFound(*reference)),
+            Some(found) => match found.strong_reference_impl.upgrade() {
+                Some(impl_) => Ok(StrongDelayedHashedTree::new(
+                    StrongReference::new(Some(impl_), *reference),
+                    DelayedHashedTree::immediate(found.tree.clone()),
+                )),
+                None => {
+                    lock.remove(reference);
+                    Err(LoadError::TreeNotFound(*reference))
+                }
+            },
+            None => Err(LoadError::TreeNotFound(*reference)),
         }
     }
 
@@ -71,3 +132,19 @@ impl LoadTree for InMemoryTreeStorage {
 }
 
 impl LoadStoreTree for InMemoryTreeStorage {}
+
+#[async_trait]
+impl CollectGarbage for InMemoryTreeStorage {
+    async fn collect_some_garbage(
+        &self,
+    ) -> std::result::Result<GarbageCollectionStats, StoreError> {
+        let mut lock = self.reference_to_tree.lock().await;
+        let size_before = lock.len();
+        lock.retain(|_digest, entry| entry.strong_reference_impl.upgrade().is_some());
+        let size_after = lock.len();
+        let trees_collected = size_before - size_after;
+        Ok(GarbageCollectionStats {
+            trees_collected: trees_collected as u64,
+        })
+    }
+}

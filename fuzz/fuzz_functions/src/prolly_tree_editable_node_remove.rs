@@ -1,9 +1,12 @@
 use arbitrary::{Arbitrary, Unstructured};
-use astraea::{in_memory_storage::InMemoryTreeStorage, storage::LoadTree, tree::BlobDigest};
+use astraea::{
+    in_memory_storage::InMemoryTreeStorage,
+    storage::{LoadTree, StrongReference},
+    tree::BlobDigest,
+};
 use pretty_assertions::assert_eq;
-use sorted_tree::{prolly_tree_editable_node::EditableNode, sorted_tree::TreeReference};
+use sorted_tree::prolly_tree_editable_node::EditableNode;
 use std::collections::BTreeMap;
-use tokio::sync::Mutex;
 
 #[derive(Arbitrary, Debug)]
 enum MapOperation {
@@ -48,7 +51,7 @@ async fn execute_operations_on_prolly_tree(
     digest: &BlobDigest,
     operations: &[MapOperation],
     storage: &InMemoryTreeStorage,
-) -> BlobDigest {
+) -> StrongReference {
     let mut editable_node: EditableNode<u32, i64> =
         EditableNode::load(digest, storage).await.unwrap();
     let mut oracle = BTreeMap::new();
@@ -63,9 +66,9 @@ async fn execute_operations_on_prolly_tree(
                 oracle.remove(key);
             }
             MapOperation::Save => {
-                let saved_digest = editable_node.save(storage).await.unwrap();
+                let saved_reference = editable_node.save(storage).await.unwrap();
                 let reloaded_node: EditableNode<u32, i64> =
-                    EditableNode::Reference(TreeReference::new(saved_digest));
+                    EditableNode::Reference(saved_reference);
                 editable_node = reloaded_node;
             }
         }
@@ -106,8 +109,8 @@ async fn count_tree_node_count(root: &BlobDigest, storage: &InMemoryTreeStorage)
     let loaded = storage.load_tree(root).await.unwrap();
     let hashed = loaded.hash().unwrap();
     let mut sum = 1;
-    for child in hashed.tree().children().references() {
-        let child_count = Box::pin(count_tree_node_count(child, storage)).await;
+    for child in hashed.hashed_tree().tree().children().references() {
+        let child_count = Box::pin(count_tree_node_count(child.digest(), storage)).await;
         sum += child_count;
     }
     sum
@@ -134,14 +137,14 @@ async fn verify_prolly_trees_equal(
 async fn btree_map_to_digest(
     map: &BTreeMap<u32, i64>,
     storage: &InMemoryTreeStorage,
-) -> BlobDigest {
+) -> StrongReference {
     let mut editable_node: EditableNode<u32, i64> = EditableNode::new();
     for (key, value) in map.iter() {
         editable_node.insert(*key, *value, storage).await.unwrap();
     }
-    let digest = editable_node.save(storage).await.unwrap();
-    verify_prolly_tree_equality_to_map(&digest, map, storage).await;
-    digest
+    let reference = editable_node.save(storage).await.unwrap();
+    verify_prolly_tree_equality_to_map(reference.digest(), map, storage).await;
+    reference
 }
 
 async fn run_test_case(test_case: &TestCase) {
@@ -157,28 +160,43 @@ async fn run_test_case(test_case: &TestCase) {
         map
     };
     assert_eq!(final_map, test_case.after);
-    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::empty();
     let before_digest = btree_map_to_digest(&test_case.before, &storage).await;
     let operations_executed =
-        execute_operations_on_prolly_tree(&before_digest, &test_case.operations, &storage).await;
-    if test_case.operations.is_empty() {
-        verify_prolly_trees_equal(&before_digest, &operations_executed, &storage).await;
-    }
-    verify_prolly_tree_equality_to_map(&operations_executed, &intermediary_map, &storage).await;
-    let additional_operations_executed =
-        execute_operations_on_prolly_tree(&operations_executed, &additional_operations, &storage)
+        execute_operations_on_prolly_tree(before_digest.digest(), &test_case.operations, &storage)
             .await;
+    if test_case.operations.is_empty() {
+        verify_prolly_trees_equal(
+            before_digest.digest(),
+            operations_executed.digest(),
+            &storage,
+        )
+        .await;
+    }
+    verify_prolly_tree_equality_to_map(operations_executed.digest(), &intermediary_map, &storage)
+        .await;
+    let additional_operations_executed = execute_operations_on_prolly_tree(
+        operations_executed.digest(),
+        &additional_operations,
+        &storage,
+    )
+    .await;
     if additional_operations.is_empty() {
         verify_prolly_trees_equal(
-            &operations_executed,
-            &additional_operations_executed,
+            operations_executed.digest(),
+            additional_operations_executed.digest(),
             &storage,
         )
         .await;
     }
     let after_digest = btree_map_to_digest(&test_case.after, &storage).await;
-    verify_prolly_tree_equality_to_map(&after_digest, &final_map, &storage).await;
-    verify_prolly_trees_equal(&after_digest, &additional_operations_executed, &storage).await;
+    verify_prolly_tree_equality_to_map(after_digest.digest(), &final_map, &storage).await;
+    verify_prolly_trees_equal(
+        after_digest.digest(),
+        additional_operations_executed.digest(),
+        &storage,
+    )
+    .await;
 }
 
 pub fn fuzz_function(data: &[u8]) -> bool {

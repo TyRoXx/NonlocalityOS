@@ -1,19 +1,17 @@
 use crate::file_system::{DogBoxFileSystem, DogBoxOpenFile};
-use astraea::{in_memory_storage::InMemoryTreeStorage, tree::BlobDigest};
+use astraea::{
+    in_memory_storage::InMemoryTreeStorage,
+    storage::StoreTree,
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
+};
 use dav_server::{fakels::FakeLs, fs::DavFile, DavHandler};
 use dogbox_tree_editor::{OpenDirectory, OpenFile};
 use hyper::{body, server::conn::http1, Request};
 use hyper_util::rt::TokioIo;
 use pretty_assertions::assert_eq;
 use reqwest_dav::{Auth, ClientBuilder, Depth};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    convert::Infallible,
-    io::SeekFrom,
-    net::SocketAddr,
-    sync::Arc,
-};
-use tokio::{net::TcpListener, sync::Mutex};
+use std::{collections::BTreeSet, convert::Infallible, io::SeekFrom, net::SocketAddr, sync::Arc};
+use tokio::net::TcpListener;
 use tracing::info;
 
 fn test_clock() -> std::time::SystemTime {
@@ -22,7 +20,7 @@ fn test_clock() -> std::time::SystemTime {
 
 #[test_log::test(tokio::test)]
 async fn test_dav_access() {
-    let blob_storage = Arc::new(InMemoryTreeStorage::new(Mutex::new(BTreeMap::new())));
+    let blob_storage = Arc::new(InMemoryTreeStorage::empty());
     let dav_server = DavHandler::builder()
         .filesystem(Box::new(DogBoxFileSystem::new(
             dogbox_tree_editor::TreeEditor::new(
@@ -126,15 +124,21 @@ async fn test_dav_access() {
 
 #[test_log::test(tokio::test)]
 async fn test_seek_operations() {
-    let data = Vec::new();
-    let last_known_digest = BlobDigest::hash(&data);
-    let last_known_digest_file_size = data.len() as u64;
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let data = Vec::new();
+    let original_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(data.clone())).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let last_known_digest_file_size = data.len() as u64;
     {
         let handle = Arc::new(OpenFile::new(
             dogbox_tree_editor::OpenFileContentBuffer::from_data(
                 data,
-                last_known_digest,
+                original_reference.clone(),
                 last_known_digest_file_size,
                 1,
             )
@@ -174,20 +178,29 @@ async fn test_seek_operations() {
         );
         assert_eq!(0, file.seek(SeekFrom::Current(i64::MIN)).await.unwrap());
     }
-    assert_eq!(BTreeSet::new(), storage.digests().await);
+    assert_eq!(
+        BTreeSet::from([*original_reference.digest()]),
+        storage.digests().await
+    );
 }
 
 #[test_log::test(tokio::test)]
 async fn test_seek_and_write() {
-    let data = Vec::new();
-    let last_known_digest = BlobDigest::hash(&data);
-    let last_known_digest_file_size = data.len() as u64;
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let data = Vec::new();
+    let original_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(data.clone())).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let last_known_digest_file_size = data.len() as u64;
     {
         let handle = Arc::new(OpenFile::new(
             dogbox_tree_editor::OpenFileContentBuffer::from_data(
                 data,
-                last_known_digest,
+                original_reference,
                 last_known_digest_file_size,
                 1,
             )
@@ -253,14 +266,20 @@ async fn test_seek_and_write() {
 
 #[test_log::test(tokio::test)]
 async fn test_seek_beyond_the_end() {
-    let data = Vec::new();
-    let last_known_digest = BlobDigest::hash(&data);
-    let last_known_digest_file_size = data.len() as u64;
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let data = Vec::new();
+    let original_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(data.clone())).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let last_known_digest_file_size = data.len() as u64;
     let handle = Arc::new(OpenFile::new(
         dogbox_tree_editor::OpenFileContentBuffer::from_data(
             data,
-            last_known_digest,
+            original_reference,
             last_known_digest_file_size,
             1,
         )
@@ -318,15 +337,21 @@ async fn test_seek_beyond_the_end() {
 
 #[test_log::test(tokio::test)]
 async fn test_write_out_of_bounds() {
-    let data = Vec::new();
-    let last_known_digest = BlobDigest::hash(&data);
-    let last_known_digest_file_size = data.len() as u64;
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let data = Vec::new();
+    let original_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(data.clone())).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let last_known_digest_file_size = data.len() as u64;
     {
         let handle = Arc::new(OpenFile::new(
             dogbox_tree_editor::OpenFileContentBuffer::from_data(
                 data,
-                last_known_digest,
+                original_reference.clone(),
                 last_known_digest_file_size,
                 1,
             )
@@ -360,7 +385,10 @@ async fn test_write_out_of_bounds() {
             file.seek(SeekFrom::Current(0)).await.unwrap()
         );
         assert_eq!(last_known_digest_file_size, handle.size().await);
-        assert_eq!(BTreeSet::new(), storage.digests().await);
+        assert_eq!(
+            BTreeSet::from([*original_reference.digest()]),
+            storage.digests().await
+        );
 
         file.flush().await.unwrap();
         let expected_digests = BTreeSet::from_iter(

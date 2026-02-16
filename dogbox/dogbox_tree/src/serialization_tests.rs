@@ -4,11 +4,11 @@ use crate::serialization::{
 };
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
-    tree::{BlobDigest, TREE_MAX_CHILDREN},
+    storage::{StoreTree, StrongReference},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_MAX_CHILDREN},
 };
 use pretty_assertions::assert_eq;
-use std::collections::BTreeMap;
-use tokio::sync::Mutex;
+use std::{collections::BTreeMap, sync::Arc};
 
 #[test_log::test]
 fn test_file_name_content_from() {
@@ -82,30 +82,44 @@ fn test_file_name_content_from() {
 
 #[test_log::test(tokio::test)]
 async fn test_serialize_directory_empty() {
-    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
-    let digest = serialize_directory(&BTreeMap::from([]), &storage)
+    let storage = InMemoryTreeStorage::empty();
+    let reference = serialize_directory(&BTreeMap::from([]), &storage)
         .await
         .unwrap();
     assert_eq!(1, storage.number_of_trees().await);
     assert_eq!(
-        BlobDigest::parse_hex_string(
-            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
-        )
+        &BlobDigest::parse_hex_string(concat!(
+            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a27",
+            "01a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
+        ))
         .unwrap(),
-        digest
+        reference.digest()
     );
 }
 
 #[test_log::test(tokio::test)]
 async fn test_deserialize_directory() {
-    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::empty();
     // Directories can have more than TREE_MAX_CHILDREN entries now.
     let number_of_entries = TREE_MAX_CHILDREN as u32 + 10;
-    let original = (0..number_of_entries)
-        .map(|i: u32| {
+    let mut file_contents: Vec<(StrongReference, usize)> = Vec::new();
+    for i in 0..number_of_entries {
+        let content = bytes::Bytes::from_owner(i.to_be_bytes());
+        let size = content.len();
+        let reference = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(content).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
+        file_contents.push((reference, size));
+    }
+    let original: BTreeMap<FileName, (DirectoryEntryMetaData, StrongReference)> = file_contents
+        .into_iter()
+        .enumerate()
+        .map(|(i, (reference, size))| {
             (FileName::try_from(format!("{}", i)).unwrap(), {
-                let content = i.to_be_bytes();
-                let digest = BlobDigest::hash(&content);
                 let modified = std::time::SystemTime::UNIX_EPOCH
                     .checked_add(std::time::Duration::from_secs(i as u64))
                     .unwrap();
@@ -114,24 +128,26 @@ async fn test_deserialize_directory() {
                         if i.is_multiple_of(3) {
                             DirectoryEntryKind::Directory
                         } else {
-                            DirectoryEntryKind::File(content.len() as u64)
+                            DirectoryEntryKind::File(size as u64)
                         },
                         modified,
                     ),
-                    digest,
+                    reference,
                 )
             })
         })
         .collect();
-    let digest = serialize_directory(&original, &storage).await.unwrap();
-    assert_eq!(9, storage.number_of_trees().await);
+    let reference = serialize_directory(&original, &storage).await.unwrap();
+    assert_eq!(1019, storage.number_of_trees().await);
     assert_eq!(
-        BlobDigest::parse_hex_string(
-            "e5abae670a46da24d421474487f82466bcd0f7f097282a9a2b6804577c4827164035c713e11ad64732d350222a0b17088d8cfbee6aeadc2e6a1516488a34b66c"
+        &BlobDigest::parse_hex_string(
+            "61c5287b0b70a5c38501873bdc5006e90f7af87293a66b40e1006bb2025baed4efec75cae71dc3cb13b3f1d1cf512be447ea805652fedeacc8e2ad5d4cff8b8c"
         )
         .unwrap(),
-        digest
+        reference.digest()
     );
-    let deserialized = deserialize_directory(&storage, &digest).await.unwrap();
+    let deserialized = deserialize_directory(&storage, reference.digest())
+        .await
+        .unwrap();
     assert_eq!(original, deserialized);
 }

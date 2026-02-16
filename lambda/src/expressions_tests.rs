@@ -4,7 +4,9 @@ use crate::expressions::{
 };
 use astraea::{
     deep_tree::DeepTree,
-    tree::{BlobDigest, ReferenceIndex},
+    in_memory_storage::InMemoryTreeStorage,
+    storage::StoreTree,
+    tree::{HashedTree, ReferenceIndex, Tree, TreeBlob, TreeChildren},
 };
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
@@ -50,11 +52,18 @@ fn print_all_expression_types() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_print_expression_blob_digest() {
-    let blob_digest = BlobDigest(([0; 32], [0; 32]));
+async fn test_print_expression_strong_reference() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from("test 123")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let mut writer = String::new();
-    blob_digest.print(&mut writer, 0).unwrap();
-    assert_eq!("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", writer.as_str());
+    reference.print(&mut writer, 0).unwrap();
+    assert_eq!("9be8213097a391e7b693a99d6645d11297b72113314f5e9ef98704205a7c795e41819a670fb10a60b4ca6aa92b4abd8a50932503ec843df6c40219d49f08a623", writer.as_str());
 }
 
 #[test_log::test(tokio::test)]
@@ -67,10 +76,18 @@ async fn test_print_expression_reference_index() {
 
 #[test_log::test(tokio::test)]
 async fn print_shallow_expression() {
-    let expression = ShallowExpression::make_literal(BlobDigest(([0; 32], [0; 32])));
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from("test 123")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let expression = ShallowExpression::make_literal(reference);
     let mut writer = String::new();
     expression.print(&mut writer, 0).unwrap();
     assert_eq!(
-        "literal(BlobDigest(\"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\"))",
+        "literal(StrongReference(9be8213097a391e7b693a99d6645d11297b72113314f5e9ef98704205a7c795e41819a670fb10a60b4ca6aa92b4abd8a50932503ec843df6c40219d49f08a623))",
         writer.as_str());
 }

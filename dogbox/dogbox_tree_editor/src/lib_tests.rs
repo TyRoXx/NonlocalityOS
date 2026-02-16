@@ -5,13 +5,13 @@ use crate::{
     OpenFileContentBuffer, OpenFileContentBufferLoaded, OpenFileStats, OptimizedWriteBuffer,
     Prefetcher, StoreChanges, StreakDirection, TreeEditor, WallClock,
 };
-use astraea::delayed_hashed_tree::DelayedHashedTree;
 use astraea::in_memory_storage::InMemoryTreeStorage;
 use astraea::sqlite_storage::SQLiteStorage;
 use astraea::storage::{
-    CollectGarbage, GarbageCollectionStats, LoadError, LoadTree, StoreError, StoreTree, UpdateRoot,
+    CollectGarbage, GarbageCollectionStats, LoadError, LoadTree, StoreError, StoreTree,
+    StrongDelayedHashedTree, StrongHashedTree, StrongReference, UpdateRoot,
 };
-use astraea::tree::{calculate_reference, TreeChildren, TREE_MAX_CHILDREN};
+use astraea::tree::{TreeChildren, TREE_MAX_CHILDREN};
 use astraea::{
     storage::LoadStoreTree,
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
@@ -300,14 +300,22 @@ lazy_static! {
 
 #[test_log::test(tokio::test)]
 async fn test_open_directory_get_meta_data() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let modified = test_clock();
     let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
+    let content_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let directory = OpenDirectory::new(
         std::path::PathBuf::from("/"),
-        DigestStatus::new(*DUMMY_DIGEST, false),
+        DigestStatus::new(content_reference.clone(), false),
         BTreeMap::from([(
             FileName::try_from("test.txt".to_string()).unwrap(),
-            NamedEntry::NotOpen(expected, BlobDigest::hash(&[])),
+            NamedEntry::NotOpen(expected, content_reference),
         )]),
         Arc::new(NeverUsedStorage {}),
         modified,
@@ -326,12 +334,19 @@ async fn test_open_directory_nothing_happens() {
     let modified = test_clock();
     let expected = DirectoryEntryMetaData::new(DirectoryEntryKind::File(12), modified);
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let content_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let directory = OpenDirectory::new(
         std::path::PathBuf::from("/"),
-        DigestStatus::new(*DUMMY_DIGEST, false),
+        DigestStatus::new(content_reference.clone(), false),
         BTreeMap::from([(
             FileName::try_from("test.txt".to_string()).unwrap(),
-            NamedEntry::NotOpen(expected, BlobDigest::hash(&[])),
+            NamedEntry::NotOpen(expected, content_reference),
         )]),
         storage.clone(),
         modified,
@@ -342,18 +357,19 @@ async fn test_open_directory_nothing_happens() {
     let result =
         tokio::time::timeout(std::time::Duration::from_millis(10), receiver.changed()).await;
     assert_eq!("deadline has elapsed", format!("{}", result.unwrap_err()));
-    let status = *receiver.borrow();
+    let status = receiver.borrow().clone();
+    assert_eq!(
+        &BlobDigest::parse_hex_string(concat!(
+            "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+            "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+        ))
+        .unwrap(),
+        status.digest.last_known_digest.digest()
+    );
+    let expected_reference = status.digest.last_known_digest.clone();
     assert_eq!(
         OpenDirectoryStatus::new(
-            DigestStatus::new(
-                BlobDigest::new(&[
-                    104, 239, 112, 74, 159, 151, 115, 53, 77, 79, 0, 61, 0, 255, 60, 199, 108, 6,
-                    169, 103, 74, 159, 244, 189, 32, 88, 122, 64, 159, 105, 106, 157, 205, 186, 47,
-                    210, 169, 3, 196, 19, 48, 211, 86, 202, 96, 177, 113, 146, 195, 171, 48, 102,
-                    23, 244, 236, 205, 2, 38, 202, 233, 41, 2, 52, 27
-                ]),
-                false
-            ),
+            DigestStatus::new(expected_reference, false),
             1,
             0,
             OpenFileStats::new(0, 0, 0, 0, 0),
@@ -361,29 +377,29 @@ async fn test_open_directory_nothing_happens() {
         ),
         status
     );
-    assert_eq!(0, storage.number_of_trees().await);
+    assert_eq!(1, storage.number_of_trees().await);
 }
 
 #[test_log::test(tokio::test)]
 async fn test_open_directory_open_file() {
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_file_reference = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
     let directory = Arc::new(OpenDirectory::new(
         std::path::PathBuf::from("/"),
-        DigestStatus::new(*DUMMY_DIGEST, false),
+        DigestStatus::new(empty_file_reference.clone(), false),
         BTreeMap::new(),
-        storage.clone(),
+        storage,
         modified,
         Arc::new(test_clock),
         1,
     ));
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
-    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let open_file = directory
         .clone()
         .open_file(
             &file_name,
-            &empty_file_digest,
+            &empty_file_reference,
             FileCreationMode::create_new(),
         )
         .await
@@ -417,23 +433,23 @@ async fn test_open_directory_open_file() {
 #[test_log::test(tokio::test)]
 async fn test_open_directory_open_file_not_found() {
     let modified = test_clock();
-    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let storage: Arc<InMemoryTreeStorage> = Arc::new(InMemoryTreeStorage::empty());
+    let empty_file_reference = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
     let directory = Arc::new(OpenDirectory::new(
         std::path::PathBuf::from("/"),
-        DigestStatus::new(*DUMMY_DIGEST, false),
+        DigestStatus::new(empty_file_reference.clone(), false),
         BTreeMap::new(),
-        storage.clone(),
+        storage,
         modified,
         Arc::new(test_clock),
         1,
     ));
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
-    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     match directory
         .clone()
         .open_file(
             &file_name,
-            &empty_file_digest,
+            &empty_file_reference,
             FileCreationMode::open_existing(),
         )
         .await
@@ -476,9 +492,10 @@ async fn test_open_directory_drop_all_read_caches() {
     });
     let modified = clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_file_reference = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
     let directory = Arc::new(OpenDirectory::new(
         std::path::PathBuf::from("/"),
-        DigestStatus::new(*DUMMY_DIGEST, false),
+        DigestStatus::new(empty_file_reference.clone(), false),
         BTreeMap::new(),
         storage.clone(),
         modified,
@@ -490,7 +507,10 @@ async fn test_open_directory_drop_all_read_caches() {
     OpenDirectory::create_subdirectory(
         directory.clone(),
         subdirectory_name.clone(),
-        tree_editor.require_empty_directory_digest().await.unwrap(),
+        &tree_editor
+            .require_empty_directory_reference()
+            .await
+            .unwrap(),
     )
     .await
     .unwrap();
@@ -499,12 +519,11 @@ async fn test_open_directory_drop_all_read_caches() {
         .open_subdirectory(subdirectory_name)
         .await
         .unwrap();
-    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let open_file_a = subdirectory
         .clone()
         .open_file(
             &FileName::try_from("a.txt".to_string()).unwrap(),
-            &empty_file_digest,
+            &empty_file_reference,
             FileCreationMode::create_new(),
         )
         .await
@@ -514,7 +533,7 @@ async fn test_open_directory_drop_all_read_caches() {
         .clone()
         .open_file(
             &FileName::try_from("b.txt".to_string()).unwrap(),
-            &empty_file_digest,
+            &empty_file_reference,
             FileCreationMode::create_new(),
         )
         .await
@@ -579,9 +598,10 @@ async fn test_open_directory_drop_all_read_caches() {
 async fn test_read_directory_after_file_write() {
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_file_reference = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
     let directory = Arc::new(OpenDirectory::new(
         std::path::PathBuf::from("/"),
-        DigestStatus::new(*DUMMY_DIGEST, false),
+        DigestStatus::new(empty_file_reference.clone(), false),
         BTreeMap::new(),
         storage.clone(),
         modified,
@@ -589,12 +609,11 @@ async fn test_read_directory_after_file_write() {
         1,
     ));
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
-    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let opened = directory
         .clone()
         .open_file(
             &file_name,
-            &empty_file_digest,
+            &empty_file_reference,
             FileCreationMode::create_new(),
         )
         .await
@@ -623,16 +642,16 @@ async fn test_read_file_after_garbage_collection() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = Arc::new(SQLiteStorage::from(connection).unwrap());
+    let empty_file_reference = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
     let directory = Arc::new(OpenDirectory::new(
         std::path::PathBuf::from("/"),
-        DigestStatus::new(*DUMMY_DIGEST, false),
+        DigestStatus::new(empty_file_reference.clone(), false),
         BTreeMap::new(),
         storage.clone(),
         modified,
         Arc::new(test_clock),
         1,
     ));
-    let empty_file_digest = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
     let file_content = random_bytes(32, 123);
     {
@@ -640,7 +659,7 @@ async fn test_read_file_after_garbage_collection() {
             .clone()
             .open_file(
                 &file_name,
-                &empty_file_digest,
+                &empty_file_reference,
                 FileCreationMode::create_new(),
             )
             .await
@@ -662,7 +681,7 @@ async fn test_read_file_after_garbage_collection() {
         .clone()
         .open_file(
             &file_name,
-            &empty_file_digest,
+            &empty_file_reference,
             FileCreationMode::open_existing(),
         )
         .await
@@ -672,16 +691,18 @@ async fn test_read_file_after_garbage_collection() {
     // We remove the file and save the directory so that the open file is not reachable by name anymore.
     directory.remove(&file_name).await.unwrap();
     let directory_status = directory.request_save().await.unwrap();
+    let expected_reference = directory_status.digest.last_known_digest.clone();
+    assert_eq!(
+        &BlobDigest::parse_hex_string(concat!(
+            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a27",
+            "01a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
+        ))
+        .unwrap(),
+        expected_reference.digest()
+    );
     assert_eq!(
         &OpenDirectoryStatus::new(
-            DigestStatus::new(
-                BlobDigest::parse_hex_string(concat!(
-                    "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a27",
-                    "01a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
-                ))
-                .unwrap(),
-                true
-            ),
+            DigestStatus::new(expected_reference, true),
             1,
             0,
             OpenFileStats::new(0, 0, 0, 0, 0),
@@ -694,13 +715,14 @@ async fn test_read_file_after_garbage_collection() {
         .update_root("test", &directory_status.digest.last_known_digest)
         .await
         .unwrap();
+    drop(empty_file_reference);
     // Trigger garbage collection:
     assert_eq!(
         GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
     );
     assert_eq!(
-        GarbageCollectionStats { trees_collected: 2 },
+        GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
     );
     assert_eq!(
@@ -740,9 +762,10 @@ async fn test_read_file_after_garbage_collection() {
 async fn test_get_meta_data_after_file_write() {
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_file_reference = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
     let directory = Arc::new(OpenDirectory::new(
         std::path::PathBuf::from("/"),
-        DigestStatus::new(*DUMMY_DIGEST, false),
+        DigestStatus::new(empty_file_reference.clone(), false),
         BTreeMap::new(),
         storage.clone(),
         modified,
@@ -750,12 +773,11 @@ async fn test_get_meta_data_after_file_write() {
         1,
     ));
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
-    let empty_file_digest = TreeEditor::store_empty_file(storage).await.unwrap();
     let opened = directory
         .clone()
         .open_file(
             &file_name,
-            &empty_file_digest,
+            &empty_file_reference,
             FileCreationMode::create_new(),
         )
         .await
@@ -779,24 +801,25 @@ async fn test_get_meta_data_after_file_write() {
 pub struct DirectoryEntry {
     pub name: FileName,
     pub kind: DirectoryEntryKind,
-    pub digest: BlobDigest,
+    pub content: StrongReference,
 }
 
-fn open_directory_from_entries(
+async fn open_directory_from_entries(
     entries: Vec<DirectoryEntry>,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
 ) -> OpenDirectory {
     let modified = test_clock();
+    let empty_file_reference = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
     OpenDirectory::new(
         std::path::PathBuf::from("/"),
-        DigestStatus::new(*DUMMY_DIGEST, false),
+        DigestStatus::new(empty_file_reference.clone(), false),
         entries
             .iter()
             .map(|entry| {
                 (entry.name.clone(), {
                     NamedEntry::NotOpen(
                         DirectoryEntryMetaData::new(entry.kind, modified),
-                        entry.digest,
+                        entry.content.clone(),
                     )
                 })
             })
@@ -811,11 +834,9 @@ fn open_directory_from_entries(
 #[test_log::test(tokio::test)]
 async fn test_read_empty_root() {
     use futures::StreamExt;
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
-        Arc::new(open_directory_from_entries(
-            vec![],
-            Arc::new(NeverUsedStorage {}),
-        )),
+        Arc::new(open_directory_from_entries(vec![], storage).await),
         None,
     );
     let mut directory = editor
@@ -833,8 +854,8 @@ struct NeverUsedStorage {}
 impl LoadTree for NeverUsedStorage {
     async fn load_tree(
         &self,
-        _reference: &astraea::tree::BlobDigest,
-    ) -> std::result::Result<DelayedHashedTree, LoadError> {
+        _reference: &BlobDigest,
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
         panic!()
     }
 
@@ -848,7 +869,7 @@ impl StoreTree for NeverUsedStorage {
     async fn store_tree(
         &self,
         _tree: &HashedTree,
-    ) -> std::result::Result<astraea::tree::BlobDigest, StoreError> {
+    ) -> std::result::Result<StrongReference, StoreError> {
         panic!()
     }
 }
@@ -858,11 +879,9 @@ impl LoadStoreTree for NeverUsedStorage {}
 #[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_root() {
     let modified = test_clock();
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
-        Arc::new(open_directory_from_entries(
-            vec![],
-            Arc::new(NeverUsedStorage {}),
-        )),
+        Arc::new(open_directory_from_entries(vec![], storage).await),
         None,
     );
     let meta_data = editor
@@ -877,11 +896,9 @@ async fn test_get_meta_data_of_root() {
 
 #[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_non_normalized_path() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
-        Arc::new(open_directory_from_entries(
-            vec![],
-            Arc::new(NeverUsedStorage {}),
-        )),
+        Arc::new(open_directory_from_entries(vec![], storage).await),
         None,
     );
     let error = editor
@@ -898,11 +915,9 @@ async fn test_get_meta_data_of_non_normalized_path() {
 
 #[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_unknown_path() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
-        Arc::new(open_directory_from_entries(
-            vec![],
-            Arc::new(NeverUsedStorage {}),
-        )),
+        Arc::new(open_directory_from_entries(vec![], storage).await),
         None,
     );
     let error = editor
@@ -919,11 +934,9 @@ async fn test_get_meta_data_of_unknown_path() {
 
 #[test_log::test(tokio::test)]
 async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let editor = TreeEditor::new(
-        Arc::new(open_directory_from_entries(
-            vec![],
-            Arc::new(NeverUsedStorage {}),
-        )),
+        Arc::new(open_directory_from_entries(vec![], storage).await),
         None,
     );
     let error = editor
@@ -941,15 +954,26 @@ async fn test_get_meta_data_of_unknown_path_in_unknown_directory() {
 
 #[test_log::test(tokio::test)]
 async fn test_read_directory_on_closed_regular_file() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let content = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(b"TEST")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let editor = TreeEditor::new(
-        Arc::new(open_directory_from_entries(
-            vec![DirectoryEntry {
-                name: FileName::try_from("test.txt".to_string()).unwrap(),
-                kind: DirectoryEntryKind::File(4),
-                digest: BlobDigest::hash(b"TEST"),
-            }],
-            Arc::new(NeverUsedStorage {}),
-        )),
+        Arc::new(
+            open_directory_from_entries(
+                vec![DirectoryEntry {
+                    name: FileName::try_from("test.txt".to_string()).unwrap(),
+                    kind: DirectoryEntryKind::File(4),
+                    content,
+                }],
+                storage,
+            )
+            .await,
+        ),
         None,
     );
     let result = editor
@@ -968,15 +992,25 @@ async fn test_read_directory_on_closed_regular_file() {
 #[test_log::test(tokio::test)]
 async fn test_read_directory_on_open_regular_file() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let content = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(b"")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let editor = TreeEditor::new(
-        Arc::new(open_directory_from_entries(
-            vec![DirectoryEntry {
-                name: FileName::try_from("test.txt".to_string()).unwrap(),
-                kind: DirectoryEntryKind::File(0),
-                digest: BlobDigest::hash(b""),
-            }],
-            storage,
-        )),
+        Arc::new(
+            open_directory_from_entries(
+                vec![DirectoryEntry {
+                    name: FileName::try_from("test.txt".to_string()).unwrap(),
+                    kind: DirectoryEntryKind::File(0),
+                    content,
+                }],
+                storage,
+            )
+            .await,
+        ),
         None,
     );
     let _open_file = editor
@@ -1002,16 +1036,26 @@ async fn test_read_directory_on_open_regular_file() {
 #[test_log::test(tokio::test)]
 async fn test_open_file_on_directory() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let content = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(b"")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let name = FileName::try_from("test".to_string()).unwrap();
     let editor = TreeEditor::new(
-        Arc::new(open_directory_from_entries(
-            vec![DirectoryEntry {
-                name: name.clone(),
-                kind: DirectoryEntryKind::Directory,
-                digest: BlobDigest::hash(b""),
-            }],
-            storage,
-        )),
+        Arc::new(
+            open_directory_from_entries(
+                vec![DirectoryEntry {
+                    name: name.clone(),
+                    kind: DirectoryEntryKind::Directory,
+                    content,
+                }],
+                storage,
+            )
+            .await,
+        ),
         None,
     );
     match editor
@@ -1030,7 +1074,10 @@ async fn test_open_file_on_directory() {
 async fn test_open_file_not_found() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let name = FileName::try_from("test".to_string()).unwrap();
-    let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
+    let editor = TreeEditor::new(
+        Arc::new(open_directory_from_entries(vec![], storage).await),
+        None,
+    );
     match editor
         .open_file(
             NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
@@ -1050,7 +1097,10 @@ async fn test_create_directory() {
     use futures::StreamExt;
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
+    let editor = TreeEditor::new(
+        Arc::new(open_directory_from_entries(vec![], storage).await),
+        None,
+    );
     editor
         .create_directory(
             NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
@@ -1079,7 +1129,7 @@ async fn test_create_directory_again() {
     use futures::StreamExt;
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let root = Arc::new(open_directory_from_entries(vec![], storage));
+    let root = Arc::new(open_directory_from_entries(vec![], storage).await);
     let editor = TreeEditor::new(root.clone(), None);
     let path = NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap();
     editor.create_directory(path.clone()).await.unwrap();
@@ -1107,7 +1157,7 @@ async fn test_create_directory_over_existing_file() {
     use futures::StreamExt;
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let root = Arc::new(open_directory_from_entries(vec![], storage));
+    let root = Arc::new(open_directory_from_entries(vec![], storage).await);
     let editor = TreeEditor::new(root.clone(), None);
     let path = NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap();
     editor
@@ -1145,7 +1195,10 @@ async fn test_create_directory_over_existing_file() {
 async fn test_read_created_directory() {
     use futures::StreamExt;
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
+    let editor = TreeEditor::new(
+        Arc::new(open_directory_from_entries(vec![], storage).await),
+        None,
+    );
     editor
         .create_directory(
             NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
@@ -1167,7 +1220,10 @@ async fn test_nested_create_directory() {
     use futures::StreamExt;
     let modified = test_clock();
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let editor = TreeEditor::new(Arc::new(open_directory_from_entries(vec![], storage)), None);
+    let editor = TreeEditor::new(
+        Arc::new(open_directory_from_entries(vec![], storage).await),
+        None,
+    );
     editor
         .create_directory(
             NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
@@ -1237,14 +1293,14 @@ async fn test_open_file_content_buffer_loaded_resize_small() {
         TreeChildren::empty(),
     )));
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let last_known_digest = storage.store_tree(&hashed_tree).await.unwrap();
+    let last_known_reference = storage.store_tree(&hashed_tree).await.unwrap();
     let mut buffer = OpenFileContentBufferLoaded {
         size: 0,
         blocks: vec![OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
-            hashed_tree,
+            StrongHashedTree::new(last_known_reference.clone(), hashed_tree),
         ))],
         digest: DigestStatus {
-            last_known_digest,
+            last_known_digest: last_known_reference,
             is_digest_up_to_date: true,
         },
         last_known_digest_file_size: 0,
@@ -1259,22 +1315,28 @@ async fn test_open_file_content_buffer_loaded_resize_small() {
     buffer.store_cheap_blocks(storage.clone()).await.unwrap();
     // The resized block doesn't count as "cheap" because its digest has to be recalculated.
     assert_eq!(storage.number_of_trees().await, 1);
-    assert_eq!(
-        StoreChanges::SomeChanges,
-        buffer.store_all(storage.clone()).await.unwrap()
-    );
+    let store_changes = buffer.store_all(storage.clone()).await.unwrap();
     assert_eq!(storage.number_of_trees().await, 2);
-    let digest = buffer.last_known_digest();
+    let digest_status = buffer.last_known_digest();
     assert_eq!(
-        DigestStatus {
-            last_known_digest: BlobDigest::parse_hex_string(concat!(
-                "735a02ee9ca2990d0e4a464e2512dbc35f3d4d15addb0faa60813203b5dd5b01",
-                "e22f13ba911e23f629267dd39a1622c45288c3ff5d627cb85e7fb2519f0fd0c3"
-            ))
-            .unwrap(),
+        store_changes,
+        StoreChanges::SomeChanges(digest_status.last_known_digest.clone()),
+    );
+    let expected_reference = digest_status.last_known_digest.clone();
+    assert_eq!(
+        &BlobDigest::parse_hex_string(concat!(
+            "735a02ee9ca2990d0e4a464e2512dbc35f3d4d15addb0faa60813203b5dd5b01",
+            "e22f13ba911e23f629267dd39a1622c45288c3ff5d627cb85e7fb2519f0fd0c3"
+        ))
+        .unwrap(),
+        expected_reference.digest()
+    );
+    assert_eq!(
+        &DigestStatus {
+            last_known_digest: expected_reference,
             is_digest_up_to_date: true,
         },
-        digest
+        digest_status
     );
     // TODO: load again
 }
@@ -1286,14 +1348,14 @@ async fn test_open_file_content_buffer_loaded_resize_large() {
         TreeChildren::empty(),
     )));
     let storage = Arc::new(InMemoryTreeStorage::empty());
-    let last_known_digest = storage.store_tree(&hashed_tree).await.unwrap();
+    let last_known_reference = storage.store_tree(&hashed_tree).await.unwrap();
     let mut buffer = OpenFileContentBufferLoaded {
         size: 0,
         blocks: vec![OpenFileContentBlock::Loaded(LoadedBlock::KnownDigest(
-            hashed_tree,
+            StrongHashedTree::new(last_known_reference.clone(), hashed_tree),
         ))],
         digest: DigestStatus {
-            last_known_digest,
+            last_known_digest: last_known_reference,
             is_digest_up_to_date: true,
         },
         last_known_digest_file_size: 0,
@@ -1304,25 +1366,31 @@ async fn test_open_file_content_buffer_loaded_resize_large() {
     let new_size = (2 * (TREE_BLOB_MAX_LENGTH as u64)) + 1;
     buffer.resize(new_size, storage.clone()).await.unwrap();
     assert_eq!(buffer.size, new_size);
-    assert_eq!(storage.number_of_trees().await, 1);
+    assert_eq!(storage.number_of_trees().await, 2);
     buffer.store_cheap_blocks(storage.clone()).await.unwrap();
     assert_eq!(storage.number_of_trees().await, 2);
+    let store_changes = buffer.store_all(storage.clone()).await.unwrap();
+    let digest_status = buffer.last_known_digest();
     assert_eq!(
-        StoreChanges::SomeChanges,
-        buffer.store_all(storage.clone()).await.unwrap()
+        store_changes,
+        StoreChanges::SomeChanges(digest_status.last_known_digest.clone()),
     );
     assert_eq!(storage.number_of_trees().await, 4);
-    let digest = buffer.last_known_digest();
+    let expected_reference = digest_status.last_known_digest.clone();
     assert_eq!(
-        DigestStatus {
-            last_known_digest: BlobDigest::parse_hex_string(concat!(
-                "df68238269cfefdbbc288dc38fb26e54716bd06f2639a4b09505fe840ea33bd8",
-                "4ad74192dbc61eb97e612523524128b980450180ae7e36c690e56686c5fb0e7d"
-            ))
-            .unwrap(),
+        &BlobDigest::parse_hex_string(concat!(
+            "df68238269cfefdbbc288dc38fb26e54716bd06f2639a4b09505fe840ea33bd8",
+            "4ad74192dbc61eb97e612523524128b980450180ae7e36c690e56686c5fb0e7d"
+        ))
+        .unwrap(),
+        expected_reference.digest()
+    );
+    assert_eq!(
+        &DigestStatus {
+            last_known_digest: expected_reference,
             is_digest_up_to_date: true,
         },
-        digest
+        digest_status
     );
     // TODO: load again
 }
@@ -1429,15 +1497,19 @@ async fn optimized_write_buffer_full_blocks(
 
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_write_fill_zero_block() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let empty_data = Vec::new();
-    let last_known_digest = calculate_reference(&Tree::new(
-        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&empty_data[..])).unwrap(),
-        TreeChildren::empty(),
-    ));
+    let empty_file_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(empty_data.clone())).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let last_known_digest_file_size = empty_data.len();
     let mut buffer = OpenFileContentBuffer::from_data(
         empty_data,
-        last_known_digest,
+        empty_file_reference,
         last_known_digest_file_size as u64,
         1,
     )
@@ -1446,29 +1518,10 @@ async fn open_file_content_buffer_write_fill_zero_block() {
     let file_size = TREE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64;
     let write_position = file_size - write_data.len() as u64;
     let write_buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
-    let storage = Arc::new(InMemoryTreeStorage::empty());
     buffer
         .write(write_position, write_buffer, storage.clone())
         .await
         .unwrap();
-    let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
-        size: file_size,
-        blocks: vec![
-            OpenFileContentBlock::Loaded(crate::LoadedBlock::UnknownDigest(
-                vec![0; TREE_BLOB_MAX_LENGTH],
-            )),
-            OpenFileContentBlock::Loaded(crate::LoadedBlock::UnknownDigest(write_data.to_vec())),
-        ],
-        digest: crate::DigestStatus {
-            last_known_digest,
-            is_digest_up_to_date: false,
-        },
-        last_known_digest_file_size: last_known_digest_file_size as u64,
-        dirty_blocks: VecDeque::from([0, 1]),
-        write_buffer_in_blocks: 1,
-        prefetcher: Prefetcher::new(),
-    });
-    assert_eq!(expected_buffer, buffer);
     let expected_digests = BTreeSet::from_iter(
         [concat!(
             "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
@@ -1478,36 +1531,38 @@ async fn open_file_content_buffer_write_fill_zero_block() {
         .map(Option::unwrap),
     );
     assert_eq!(expected_digests, storage.digests().await);
-    let changes = buffer.store_all(storage).await.unwrap();
-    assert_eq!(StoreChanges::SomeChanges, changes);
+    let store_changes = buffer.store_all(storage).await.unwrap();
+    let (digest_status, size, reference) = buffer.last_known_digest();
+    assert_eq!(store_changes, StoreChanges::SomeChanges(reference));
+    let expected_reference = digest_status.last_known_digest.clone();
     assert_eq!(
-        (
-            DigestStatus::new(
-                BlobDigest::parse_hex_string(concat!(
-                    "f770468c4e5b38323c05f83229aadcb680a0c3fed112fffdbb7650bc92f26a7e",
-                    "e15e77fca5371b75463401b3bc2893c5aa667ff54d2aa4332ea445352697df99"
-                ))
-                .unwrap(),
-                true
-            ),
-            file_size
-        ),
-        buffer.last_known_digest()
+        &BlobDigest::parse_hex_string(concat!(
+            "f770468c4e5b38323c05f83229aadcb680a0c3fed112fffdbb7650bc92f26a7e",
+            "e15e77fca5371b75463401b3bc2893c5aa667ff54d2aa4332ea445352697df99"
+        ))
+        .unwrap(),
+        expected_reference.digest()
     );
+    assert_eq!(DigestStatus::new(expected_reference, true), digest_status);
+    assert_eq!(file_size, size);
 }
 
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_store_large_file() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let large_file_size = (TREE_BLOB_MAX_LENGTH as u64) * (TREE_MAX_CHILDREN as u64 + 1);
     let empty_data = Vec::new();
-    let last_known_digest = calculate_reference(&Tree::new(
-        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&empty_data[..])).unwrap(),
-        TreeChildren::empty(),
-    ));
+    let empty_file_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(empty_data.clone())).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let last_known_digest_file_size = empty_data.len();
     let mut buffer = OpenFileContentBuffer::from_data(
         empty_data,
-        last_known_digest,
+        empty_file_reference,
         last_known_digest_file_size as u64,
         1,
     )
@@ -1515,29 +1570,26 @@ async fn open_file_content_buffer_store_large_file() {
     let write_data = bytes::Bytes::from("a");
     let write_position = large_file_size - write_data.len() as u64;
     let write_buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
-    let storage = Arc::new(InMemoryTreeStorage::empty());
     buffer
         .write(write_position, write_buffer, storage.clone())
         .await
         .unwrap();
     assert_eq!(large_file_size, buffer.size());
-    assert_eq!(1, storage.number_of_trees().await);
-    let changes = buffer.store_all(storage).await.unwrap();
-    assert_eq!(StoreChanges::SomeChanges, changes);
+    assert_eq!(2, storage.number_of_trees().await);
+    let store_changes = buffer.store_all(storage).await.unwrap();
+    let (digest_status, size, reference) = buffer.last_known_digest();
+    assert_eq!(StoreChanges::SomeChanges(reference), store_changes);
+    let expected_reference = digest_status.last_known_digest.clone();
     assert_eq!(
-        (
-            DigestStatus::new(
-                BlobDigest::parse_hex_string(concat!(
-                    "d596e30061e719e97823ba69e5037747aaf2353d110a0dfc496407c658b828a4",
-                    "6d3f0cca0b80d8b46a20dbb7c956f9da11c2a9038c20e6dcae7bbd74b9bcc5c9"
-                ))
-                .unwrap(),
-                true
-            ),
-            large_file_size
-        ),
-        buffer.last_known_digest()
+        &BlobDigest::parse_hex_string(concat!(
+            "d596e30061e719e97823ba69e5037747aaf2353d110a0dfc496407c658b828a4",
+            "6d3f0cca0b80d8b46a20dbb7c956f9da11c2a9038c20e6dcae7bbd74b9bcc5c9"
+        ))
+        .unwrap(),
+        expected_reference.digest()
     );
+    assert_eq!(DigestStatus::new(expected_reference, true), digest_status);
+    assert_eq!(large_file_size, size);
 }
 
 fn random_bytes(len: usize, seed: u64) -> Vec<u8> {
@@ -1550,6 +1602,7 @@ fn random_bytes(len: usize, seed: u64) -> Vec<u8> {
 
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_overwrite_full_block() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let original_data = random_bytes(TREE_BLOB_MAX_LENGTH, 123);
     let last_known_digest_file_size = original_data.len();
     let write_data = bytes::Bytes::from(random_bytes(last_known_digest_file_size, 124));
@@ -1563,51 +1616,49 @@ async fn open_file_content_buffer_overwrite_full_block() {
         &write_data_digest,
     );
     assert_ne!(&original_data[..], &write_data[..]);
-    let last_known_digest = calculate_reference(&Tree::new(
-        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&original_data)).unwrap(),
-        TreeChildren::empty(),
-    ));
+    let original_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(original_data.clone())).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     assert_eq!(
         &BlobDigest::parse_hex_string(concat!(
             "c0b6004d4fbd33c339eee2c99f92af59b617aae8de8f0b3a213819246f94cca2",
             "b8305673ecbbfcd468d38433dd7c09f6dbc96df150993bb108f6155a78a2b4ac"
         ))
         .unwrap(),
-        &last_known_digest,
+        original_reference.digest(),
     );
     let mut buffer = OpenFileContentBuffer::from_data(
         original_data,
-        last_known_digest,
+        original_reference.clone(),
         last_known_digest_file_size as u64,
         1,
     )
     .unwrap();
     let write_position = 0_u64;
     let write_buffer = OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
-    let storage = Arc::new(InMemoryTreeStorage::empty());
     let _write_result: () = buffer
         .write(write_position, write_buffer, storage.clone())
         .await
         .unwrap();
-    let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
-        size: last_known_digest_file_size as u64,
-        blocks: vec![OpenFileContentBlock::Loaded(
-            crate::LoadedBlock::KnownDigest(HashedTree::from(Arc::new(Tree::new(
-                TreeBlob::try_from(write_data.clone()).unwrap(),
-                TreeChildren::empty(),
-            )))),
-        )],
-        digest: crate::DigestStatus {
-            last_known_digest,
-            is_digest_up_to_date: false,
-        },
-        last_known_digest_file_size: last_known_digest_file_size as u64,
-        dirty_blocks: VecDeque::from([0]),
-        write_buffer_in_blocks: 1,
-        prefetcher: Prefetcher::new(),
-    });
-    assert_eq!(expected_buffer, buffer);
-    let expected_digests = BTreeSet::from([last_known_digest]);
+    let block_tree = HashedTree::from(Arc::new(Tree::new(
+        TreeBlob::try_from(write_data.clone()).unwrap(),
+        TreeChildren::empty(),
+    )));
+    let block_reference = storage.store_tree(&block_tree).await.unwrap();
+    assert_eq!(
+        &BlobDigest::parse_hex_string(concat!(
+            "f0177c239d8d9abc953668618a673bd10102f022471afa48f2fb51643a65b646",
+            "14c65dc817c71872739ef3b6b8c64ab67f7437d64a25138c8aa359a001ef7812"
+        ))
+        .unwrap(),
+        block_reference.digest(),
+    );
+    let expected_digests =
+        BTreeSet::from([*original_reference.digest(), *block_reference.digest()]);
     assert_eq!(expected_digests, storage.digests().await);
 }
 
@@ -1618,12 +1669,19 @@ async fn open_file_content_buffer_overwrite_full_block() {
 #[test_case(200_000)]
 fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
     Runtime::new().unwrap().block_on(async {
+        let storage = Arc::new(InMemoryTreeStorage::empty());
         let original_content = random_bytes(TREE_BLOB_MAX_LENGTH, 123);
-        let last_known_digest = BlobDigest::hash(&original_content);
+        let original_reference = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(original_content.clone())).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
         let last_known_digest_file_size = original_content.len();
         let mut buffer = OpenFileContentBuffer::from_data(
             original_content.clone(),
-            last_known_digest,
+            original_reference,
             last_known_digest_file_size as u64,
             1,
         )
@@ -1631,7 +1689,6 @@ fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
         let write_data = bytes::Bytes::new();
         let write_buffer =
             OptimizedWriteBuffer::from_bytes(write_position, write_data.clone()).await;
-        let storage = Arc::new(InMemoryTreeStorage::empty());
         let _write_result: () = buffer
             .write(write_position, write_buffer, storage.clone())
             .await
@@ -1650,15 +1707,19 @@ fn open_file_content_buffer_write_zero_bytes(write_position: u64) {
 
 #[test_log::test(tokio::test)]
 async fn open_file_content_buffer_store() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
     let data = Vec::new();
-    let last_known_digest = calculate_reference(&Tree::new(
-        TreeBlob::try_from(bytes::Bytes::copy_from_slice(&data[..])).unwrap(),
-        TreeChildren::empty(),
-    ));
+    let original_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from(data.clone())).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     let last_known_digest_file_size = data.len();
     let mut buffer = OpenFileContentBuffer::from_data(
         data,
-        last_known_digest,
+        original_reference,
         last_known_digest_file_size as u64,
         1,
     )
@@ -1667,46 +1728,11 @@ async fn open_file_content_buffer_store() {
     let write_data = "a";
     let write_buffer =
         OptimizedWriteBuffer::from_bytes(write_position, bytes::Bytes::from(write_data)).await;
-    let storage = Arc::new(InMemoryTreeStorage::empty());
     let _write_result: () = buffer
         .write(write_position, write_buffer, storage.clone())
         .await
         .unwrap();
     buffer.store_all(storage.clone()).await.unwrap();
-    let expected_buffer = OpenFileContentBuffer::Loaded(crate::OpenFileContentBufferLoaded {
-        size: TREE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
-        blocks: vec![
-            OpenFileContentBlock::NotLoaded(
-                calculate_reference(&Tree::new(
-                    TreeBlob::try_from(bytes::Bytes::from(vec![0; TREE_BLOB_MAX_LENGTH])).unwrap(),
-                    TreeChildren::empty(),
-                )),
-                TREE_BLOB_MAX_LENGTH as u16,
-            ),
-            OpenFileContentBlock::NotLoaded(
-                calculate_reference(&Tree::new(
-                    TreeBlob::try_from(bytes::Bytes::copy_from_slice(write_data.as_bytes()))
-                        .unwrap(),
-                    TreeChildren::empty(),
-                )),
-                write_data.len() as u16,
-            ),
-        ],
-        digest: crate::DigestStatus {
-            last_known_digest: BlobDigest::parse_hex_string(concat!(
-                "f770468c4e5b38323c05f83229aadcb680a0c3fed112fffdbb7650bc92f26a7e",
-                "e15e77fca5371b75463401b3bc2893c5aa667ff54d2aa4332ea445352697df99"
-            ))
-            .unwrap(),
-            is_digest_up_to_date: true,
-        },
-        last_known_digest_file_size: TREE_BLOB_MAX_LENGTH as u64 + write_data.len() as u64,
-        dirty_blocks: VecDeque::new(),
-        write_buffer_in_blocks: 1,
-        prefetcher: Prefetcher::new(),
-    });
-    assert_eq!(expected_buffer, buffer);
-
     let expected_digests = BTreeSet::from_iter(
         [
             concat!(
@@ -1729,7 +1755,6 @@ async fn open_file_content_buffer_store() {
         .map(BlobDigest::parse_hex_string)
         .map(Option::unwrap),
     );
-
     assert_eq!(expected_digests, storage.digests().await);
 }
 
@@ -1783,18 +1808,24 @@ async fn check_open_file_content_buffer_all_zero(
 #[test_case(200_000)]
 fn open_file_content_buffer_sizes(size: usize) {
     Runtime::new().unwrap().block_on(async {
+        let storage = Arc::new(InMemoryTreeStorage::empty());
         let initial_content = Vec::new();
-        let last_known_digest = BlobDigest::hash(&initial_content);
+        let original_reference = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(initial_content.clone())).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
         let last_known_digest_file_size = initial_content.len();
         let mut buffer = OpenFileContentBuffer::from_data(
             initial_content,
-            last_known_digest,
+            original_reference,
             last_known_digest_file_size as u64,
             1,
         )
         .unwrap();
         let new_content = bytes::Bytes::from(random_bytes(size, 123));
-        let storage = Arc::new(InMemoryTreeStorage::empty());
         buffer
             .write(
                 0,
@@ -1812,12 +1843,19 @@ fn open_file_content_buffer_sizes(size: usize) {
 #[test_case(63_999)]
 fn open_file_content_buffer_write_completes_a_block(write_position: u16) {
     Runtime::new().unwrap().block_on(async {
+        let storage = Arc::new(InMemoryTreeStorage::empty());
         let original_content = random_bytes(write_position as usize, 123);
-        let last_known_digest = BlobDigest::hash(&original_content);
+        let original_reference = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(original_content.clone())).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
         let last_known_digest_file_size = original_content.len();
         let mut buffer = OpenFileContentBuffer::from_data(
             original_content.clone(),
-            last_known_digest,
+            original_reference,
             last_known_digest_file_size as u64,
             1,
         )
@@ -1827,7 +1865,6 @@ fn open_file_content_buffer_write_completes_a_block(write_position: u16) {
         let write_buffer =
             OptimizedWriteBuffer::from_bytes(write_position as u64, write_data.clone()).await;
         assert_eq!(write_size, write_buffer.prefix().len());
-        let storage = Arc::new(InMemoryTreeStorage::empty());
         let _write_result: () = buffer
             .write(write_position as u64, write_buffer, storage.clone())
             .await
@@ -1848,12 +1885,19 @@ fn open_file_content_buffer_write_completes_a_block(write_position: u16) {
 #[test_case(63_999)]
 fn open_file_content_buffer_write_creates_full_block_with_zero_fill(write_position: u16) {
     Runtime::new().unwrap().block_on(async {
+        let storage = Arc::new(InMemoryTreeStorage::empty());
         let original_content: Vec<u8> = std::iter::repeat_n(1u8, TREE_BLOB_MAX_LENGTH).collect();
-        let last_known_digest = BlobDigest::hash(&original_content);
+        let original_reference = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(original_content.clone())).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
         let last_known_digest_file_size = original_content.len();
         let mut buffer = OpenFileContentBuffer::from_data(
             original_content.clone(),
-            last_known_digest,
+            original_reference,
             last_known_digest_file_size as u64,
             1,
         )
@@ -1863,7 +1907,6 @@ fn open_file_content_buffer_write_creates_full_block_with_zero_fill(write_positi
         let write_buffer =
             OptimizedWriteBuffer::from_bytes(write_position as u64, write_data.clone()).await;
         assert_eq!(write_size, write_buffer.prefix().len());
-        let storage = Arc::new(InMemoryTreeStorage::empty());
         let _write_result: () = buffer
             .write(
                 original_content.len() as u64 + write_position as u64,
@@ -1896,11 +1939,17 @@ fn open_file_content_buffer_resize_grow(old_size: u64, new_size: u64) {
     Runtime::new().unwrap().block_on(async {
         let storage = Arc::new(InMemoryTreeStorage::empty());
         let original_content = random_bytes(old_size as usize, 123);
-        let last_known_digest = BlobDigest::hash(&original_content);
+        let original_reference = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(original_content.clone())).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
         let last_known_digest_file_size = original_content.len();
         let mut buffer = OpenFileContentBuffer::from_data(
             original_content.clone(),
-            last_known_digest,
+            original_reference,
             last_known_digest_file_size as u64,
             1,
         )
@@ -1935,11 +1984,17 @@ fn open_file_content_buffer_resize_shrink(old_size: u64, new_size: u64) {
     Runtime::new().unwrap().block_on(async {
         let storage = Arc::new(InMemoryTreeStorage::empty());
         let original_content = Vec::new();
-        let last_known_digest = BlobDigest::hash(&original_content);
+        let original_reference = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(original_content.clone())).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
         let last_known_digest_file_size = original_content.len();
         let mut buffer = OpenFileContentBuffer::from_data(
             original_content.clone(),
-            last_known_digest,
+            original_reference,
             last_known_digest_file_size as u64,
             1,
         )
@@ -1968,11 +2023,17 @@ fn open_file_content_buffer_resize_same(size: u64) {
     Runtime::new().unwrap().block_on(async {
         let storage = Arc::new(InMemoryTreeStorage::empty());
         let original_content = Vec::new();
-        let last_known_digest = BlobDigest::hash(&original_content);
+        let original_reference = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(bytes::Bytes::from(original_content.clone())).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
         let last_known_digest_file_size = original_content.len();
         let mut buffer = OpenFileContentBuffer::from_data(
             original_content.clone(),
-            last_known_digest,
+            original_reference,
             last_known_digest_file_size as u64,
             1,
         )

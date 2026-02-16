@@ -1,5 +1,5 @@
 use astraea::{
-    storage::{LoadTree, StoreError, StoreTree},
+    storage::{load_children, LoadError, LoadTree, StoreError, StoreTree, StrongReference},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TreeSerializationError},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -8,9 +8,10 @@ pub trait NodeValue {
     type Content: Serialize + DeserializeOwned;
 
     fn has_child(content: &Self::Content) -> bool;
-    fn from_content(content: Self::Content, child: &Option<BlobDigest>) -> Self;
+    // TODO: change to Option<&StrongReference>
+    fn from_content(content: Self::Content, child: &Option<StrongReference>) -> Self;
     fn to_content(&self) -> Self::Content;
-    fn get_reference(&self) -> Option<BlobDigest>;
+    fn get_reference(&self) -> Option<StrongReference>;
 }
 
 impl<T> NodeValue for T
@@ -23,7 +24,7 @@ where
         false
     }
 
-    fn from_content(content: Self::Content, child: &Option<BlobDigest>) -> Self {
+    fn from_content(content: Self::Content, child: &Option<StrongReference>) -> Self {
         assert!(child.is_none());
         content
     }
@@ -32,22 +33,22 @@ where
         self.clone()
     }
 
-    fn get_reference(&self) -> Option<BlobDigest> {
+    fn get_reference(&self) -> Option<StrongReference> {
         None
     }
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct TreeReference {
-    reference: BlobDigest,
+    reference: StrongReference,
 }
 
 impl TreeReference {
-    pub fn new(reference: BlobDigest) -> Self {
+    pub fn new(reference: StrongReference) -> Self {
         Self { reference }
     }
 
-    pub fn reference(&self) -> &BlobDigest {
+    pub fn reference(&self) -> &StrongReference {
         &self.reference
     }
 }
@@ -59,10 +60,10 @@ impl NodeValue for TreeReference {
         true
     }
 
-    fn from_content(_content: Self::Content, child: &Option<BlobDigest>) -> Self {
+    fn from_content(_content: Self::Content, child: &Option<StrongReference>) -> Self {
         match child {
             Some(reference) => TreeReference {
-                reference: *reference,
+                reference: reference.clone(),
             },
             None => todo!("node claims to have a child, but no reference is available"),
         }
@@ -70,8 +71,8 @@ impl NodeValue for TreeReference {
 
     fn to_content(&self) -> Self::Content {}
 
-    fn get_reference(&self) -> Option<BlobDigest> {
-        Some(self.reference)
+    fn get_reference(&self) -> Option<StrongReference> {
+        Some(self.reference.clone())
     }
 }
 
@@ -166,7 +167,7 @@ pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
     store_tree: &(dyn StoreTree + Send + Sync),
     node: &Node<Key, Value>,
     metadata: &bytes::Bytes,
-) -> Result<BlobDigest, StoreError> {
+) -> Result<StrongReference, StoreError> {
     let tree = match node_to_tree(node, metadata) {
         Ok(tree) => tree,
         Err(error) => return Err(StoreError::TreeSerializationError(error)),
@@ -177,17 +178,18 @@ pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
 }
 
 pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>(
-    tree: &Tree,
+    tree_blob: &TreeBlob,
+    children: &[StrongReference],
     metadata_to_skip: usize,
 ) -> Node<Key, Value> {
     let node = postcard::from_bytes::<SerializableNodeContent<Key, Value::Content>>(
-        tree.blob().as_slice().split_at(metadata_to_skip).1,
+        tree_blob.as_slice().split_at(metadata_to_skip).1,
     )
     .expect("this should always work");
     if !node.entries.is_sorted_by_key(|element| &element.0) {
         todo!("loaded node is not sorted");
     }
-    let mut reference_iter = tree.children().references().iter();
+    let mut reference_iter = children.iter();
     let result = Node {
         entries: node
             .entries
@@ -195,7 +197,7 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
             .map(|(key, content)| {
                 if Value::has_child(&content) {
                     let reference = match reference_iter.next() {
-                        Some(reference) => Some(*reference),
+                        Some(reference) => Some(reference.clone()),
                         None => todo!("node claims to have a child, but no reference is available"),
                     };
                     (key, Value::from_content(content, &reference))
@@ -212,9 +214,9 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
 }
 
 pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>(
-    load_tree: &dyn LoadTree,
+    load_tree: &(dyn LoadTree + Send + Sync),
     root: &BlobDigest,
-) -> Node<Key, Value> {
+) -> Result<Node<Key, Value>, LoadError> {
     let delayed_hashed_tree = match load_tree.load_tree(root).await {
         Ok(tree) => tree,
         Err(_) => todo!(),
@@ -223,12 +225,21 @@ pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue
         Some(tree) => tree,
         None => todo!(),
     };
-    node_from_tree::<Key, Value>(hashed_tree.tree(), 0)
+    let children = load_children(load_tree, hashed_tree.hashed_tree().tree())
+        .await?
+        .into_iter()
+        .map(|child| child.reference().clone())
+        .collect::<Vec<_>>();
+    Ok(node_from_tree::<Key, Value>(
+        hashed_tree.hashed_tree().tree().blob(),
+        &children,
+        0,
+    ))
 }
 
 pub async fn new_tree<Key: Serialize + Ord, Value: NodeValue>(
     store_tree: &(dyn StoreTree + Send + Sync),
-) -> Result<BlobDigest, StoreError> {
+) -> Result<StrongReference, StoreError> {
     let root = Node::<Key, Value> {
         entries: Vec::new(),
     };
@@ -241,8 +252,11 @@ pub async fn insert<Key: Serialize + DeserializeOwned + Ord + Clone, Value: Node
     root: &BlobDigest,
     key: Key,
     value: Value,
-) -> Result<BlobDigest, StoreError> {
-    let mut node = load_node::<Key, Value>(load_tree, root).await;
+) -> Result<StrongReference, StoreError> {
+    let mut node = match load_node::<Key, Value>(load_tree, root).await {
+        Ok(loaded) => loaded,
+        Err(_) => todo!(),
+    };
     node.insert(key, value);
     store_node(store_tree, &node, /*this function is only used by sorted_tree_tests, so we don't need the prolly_tree metadata*/ &bytes::Bytes::new()).await
 }
@@ -251,10 +265,13 @@ pub async fn find<
     Key: Serialize + DeserializeOwned + PartialEq + Ord + Clone,
     Value: NodeValue + Clone,
 >(
-    load_tree: &dyn LoadTree,
+    load_tree: &(dyn LoadTree + Send + Sync),
     root: &BlobDigest,
     key: &Key,
 ) -> Option<Value> {
-    let node = load_node::<Key, Value>(load_tree, root).await;
+    let node = match load_node::<Key, Value>(load_tree, root).await {
+        Ok(loaded) => loaded,
+        Err(_) => todo!(),
+    };
     node.find(key)
 }

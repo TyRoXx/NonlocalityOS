@@ -1,8 +1,7 @@
+use crate::storage::{LoadError, StrongReference};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_512};
 use std::{fmt::Display, sync::Arc};
-
-use crate::storage::LoadError;
 
 /// SHA3-512 hash. Supports Serde because we will need this type a lot in network protocols and file formats.
 #[derive(Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Clone, Copy, Hash)]
@@ -154,7 +153,7 @@ pub const TREE_MAX_CHILDREN: usize = 1000;
 
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
 pub struct TreeChildren {
-    references: Vec<BlobDigest>,
+    references: Vec<StrongReference>,
 }
 
 impl TreeChildren {
@@ -164,14 +163,14 @@ impl TreeChildren {
         }
     }
 
-    pub fn try_from(references: Vec<BlobDigest>) -> Option<TreeChildren> {
+    pub fn try_from(references: Vec<StrongReference>) -> Option<TreeChildren> {
         if references.len() > TREE_MAX_CHILDREN {
             return None;
         }
         Some(TreeChildren { references })
     }
 
-    pub fn references(&self) -> &[BlobDigest] {
+    pub fn references(&self) -> &[StrongReference] {
         &self.references
     }
 }
@@ -259,8 +258,8 @@ where
     hasher.update(referenced.blob.as_slice());
     hasher.update((referenced.children.references().len() as u64).to_be_bytes());
     for item in referenced.children.references() {
-        hasher.update(item.0 .0);
-        hasher.update(item.0 .1);
+        hasher.update(item.digest().0 .0);
+        hasher.update(item.digest().0 .1);
     }
     hasher.finalize()
 }
@@ -276,8 +275,8 @@ where
     hasher.update(referenced.blob.as_slice());
     hasher.update(&(referenced.children.references().len() as u64).to_be_bytes());
     for item in referenced.children.references() {
-        hasher.update(&item.0 .0);
-        hasher.update(&item.0 .1);
+        hasher.update(&item.digest().0 .0);
+        hasher.update(&item.digest().0 .1);
     }
     hasher.finalize_xof()
 }

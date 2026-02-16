@@ -40,9 +40,11 @@ async fn test_example_evaluation(
         DeepTree::deserialize(expected_result, storage)
             .await
             .unwrap(),
-        DeepTree::deserialize(&evaluated, storage).await.unwrap()
+        DeepTree::deserialize(evaluated.digest(), storage)
+            .await
+            .unwrap()
     );
-    assert_eq!(*expected_result, evaluated);
+    assert_eq!(expected_result, evaluated.digest());
 }
 
 fn test_example_formatting(source: &str) {
@@ -86,7 +88,7 @@ async fn test_hello_world() {
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -116,7 +118,7 @@ async fn test_integers() {
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -144,7 +146,7 @@ async fn test_lambda_captures() {
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -172,7 +174,7 @@ async fn test_lambda_parameters() {
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -200,7 +202,7 @@ async fn test_local_variables() {
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }
 
 #[test_log::test(tokio::test)]
@@ -228,5 +230,5 @@ async fn test_type_of() {
         ))))
         .await
         .unwrap();
-    test_example(&source, &storage, &expected_result).await;
+    test_example(&source, &storage, expected_result.digest()).await;
 }

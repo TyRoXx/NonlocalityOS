@@ -1,4 +1,5 @@
 extern crate test;
+use crate::storage::StrongReference;
 use crate::tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH};
 use crate::tree::{TreeChildren, TREE_MAX_CHILDREN};
 use pretty_assertions::assert_eq;
@@ -98,11 +99,11 @@ fn hashed_tree_from(
         TreeChildren::try_from(
             std::iter::repeat_n((), reference_count)
                 .map(|()| {
-                    BlobDigest::new(&{
+                    StrongReference::from_weak(BlobDigest::new(&{
                         let mut array: [u8; 64] = [0; 64];
                         small_rng.fill(&mut array);
                         array
-                    })
+                    }))
                 })
                 .collect(),
         )

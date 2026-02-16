@@ -25,9 +25,10 @@ const IRRELEVANT_SOURCE_LOCATION: SourceLocation = SourceLocation { line: 4, col
 async fn expect_evaluate_result(entry_point: &DeepExpression, expected_result: &DeepTree) {
     let storage = InMemoryTreeStorage::empty();
     let evaluate_result = DeepTree::deserialize(
-        &evaluate(entry_point, &storage, &storage, &None, &None)
+        evaluate(entry_point, &storage, &storage, &None, &None)
             .await
-            .unwrap(),
+            .unwrap()
+            .digest(),
         &storage,
     )
     .await

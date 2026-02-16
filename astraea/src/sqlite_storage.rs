@@ -2,14 +2,18 @@ use crate::{
     delayed_hashed_tree::DelayedHashedTree,
     storage::{
         CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadRoot, LoadStoreTree,
-        LoadTree, StoreError, StoreTree, UpdateRoot,
+        LoadTree, StoreError, StoreTree, StrongDelayedHashedTree, StrongReference,
+        StrongReferenceTrait, UpdateRoot,
     },
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
 use pretty_assertions::assert_eq;
 use rusqlite::OptionalExtension;
-use std::sync::Arc;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Weak},
+};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument};
 
@@ -19,10 +23,167 @@ struct TransactionStats {
 }
 
 #[derive(Debug)]
+struct SQLiteStrongReferenceImpl {}
+
+impl StrongReferenceTrait for SQLiteStrongReferenceImpl {}
+
+#[derive(Debug)]
+struct GarbageCollector {
+    additional_roots: BTreeMap<BlobDigest, (i64, Weak<SQLiteStrongReferenceImpl>)>,
+    last_gc_additional_roots_len: usize,
+    has_gc_new_tree_table: bool,
+}
+
+impl GarbageCollector {
+    fn new() -> Self {
+        Self {
+            additional_roots: BTreeMap::new(),
+            last_gc_additional_roots_len: 0,
+            has_gc_new_tree_table: false,
+        }
+    }
+
+    fn require_additional_root(
+        &mut self,
+        root: &BlobDigest,
+        root_tree_id: i64,
+        connection: &rusqlite::Connection,
+    ) -> rusqlite::Result<StrongReference> {
+        let result = self.require_additional_root_entry(root, root_tree_id)?;
+        self.check_automatic_collection(connection)?;
+        Ok(result)
+    }
+
+    fn require_additional_root_entry(
+        &mut self,
+        root: &BlobDigest,
+        root_tree_id: i64,
+    ) -> rusqlite::Result<StrongReference> {
+        match self.additional_roots.entry(*root) {
+            std::collections::btree_map::Entry::Vacant(vacant_entry) => {
+                let reference_counter = Arc::new(SQLiteStrongReferenceImpl {});
+                vacant_entry.insert((root_tree_id, Arc::downgrade(&reference_counter)));
+                Ok(StrongReference::new(Some(reference_counter), *root))
+            }
+            std::collections::btree_map::Entry::Occupied(mut occupied_entry) => {
+                match occupied_entry.get().1.upgrade() {
+                    Some(reference_counter) => {
+                        let existing_tree_id = occupied_entry.get().0;
+                        if existing_tree_id != root_tree_id {
+                            unreachable!("Inconsistency detected: The same root digest {} is associated with multiple tree IDs: existing tree ID {}, new tree ID {}", root, existing_tree_id, root_tree_id);
+                        }
+                        Ok(StrongReference::new(Some(reference_counter), *root))
+                    }
+                    None => {
+                        let reference_counter = Arc::new(SQLiteStrongReferenceImpl {});
+                        occupied_entry.insert((root_tree_id, Arc::downgrade(&reference_counter)));
+                        Ok(StrongReference::new(Some(reference_counter), *root))
+                    }
+                }
+            }
+        }
+    }
+
+    fn check_automatic_collection(
+        &mut self,
+        connection: &rusqlite::Connection,
+    ) -> rusqlite::Result<()> {
+        let additional_roots_len = self.additional_roots.len();
+        // Not sure what's a good minimum here.
+        let minimum_additional_roots_len_for_gc = 100;
+        if (additional_roots_len >= minimum_additional_roots_len_for_gc)
+            && (additional_roots_len > self.last_gc_additional_roots_len * 2)
+        {
+            info!("Automatic garbage collection triggered because the additional root count {} exceeded a threshold", additional_roots_len);
+            let stats = self.collect_garbage(connection)?;
+            info!(
+                "Automatic garbage collection collected {} trees",
+                stats.trees_collected
+            );
+            self.last_gc_additional_roots_len = self.additional_roots.len();
+        }
+        Ok(())
+    }
+
+    fn require_gc_new_tree_table(
+        &mut self,
+        connection: &rusqlite::Connection,
+    ) -> std::result::Result<(), rusqlite::Error> {
+        if self.has_gc_new_tree_table {
+            Ok(())
+        } else {
+            connection.execute(
+                // unfortunately, we cannot have a foreign key in a temp table
+                "CREATE TEMP TABLE gc_new_tree (
+                    id INTEGER PRIMARY KEY NOT NULL,
+                    tree_id INTEGER UNIQUE NOT NULL
+                ) STRICT",
+                (),
+            )?;
+            self.has_gc_new_tree_table = true;
+            Ok(())
+        }
+    }
+
+    #[instrument(skip_all)]
+    fn collect_garbage(
+        &mut self,
+        connection: &rusqlite::Connection,
+    ) -> rusqlite::Result<GarbageCollectionStats> {
+        self.require_gc_new_tree_table(connection)?;
+        connection.execute("DELETE FROM gc_new_tree", ())?;
+        {
+            let mut statement = connection
+                .prepare_cached("INSERT OR IGNORE INTO gc_new_tree (tree_id) VALUES (?1)")?;
+            let mut sql_error: Option<rusqlite::Error> = None;
+            self.additional_roots
+                .retain(|_, (tree_id, reference_counter)| {
+                    if reference_counter.upgrade().is_none() {
+                        // All StrongReferences have been dropped, so we can remove this additional root
+                        // and not consider the tree it pointed to as a root for GC purposes anymore
+                        return false;
+                    }
+                    if let Err(err) = statement.execute((*tree_id,)) {
+                        sql_error = Some(err);
+                    }
+                    true
+                });
+            if let Some(err) = sql_error {
+                return Err(err);
+            }
+        }
+        let deleted_trees = connection.execute(
+            "DELETE FROM tree
+        WHERE NOT EXISTS (
+            SELECT 1 FROM reference
+            WHERE reference.target = tree.digest
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM gc_new_tree
+            WHERE gc_new_tree.tree_id = tree.id
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM root
+            WHERE root.target = tree.digest
+        );",
+            (),
+        )?;
+        debug!(
+            "Garbage collection deleted {} unreferenced trees",
+            deleted_trees
+        );
+        self.last_gc_additional_roots_len = self.additional_roots.len();
+        Ok(GarbageCollectionStats {
+            trees_collected: deleted_trees as u64,
+        })
+    }
+}
+
+#[derive(Debug)]
 struct SQLiteState {
     connection: rusqlite::Connection,
     transaction: Option<TransactionStats>,
-    has_gc_new_tree_table: bool,
+    garbage_collector: GarbageCollector,
 }
 
 impl SQLiteState {
@@ -40,23 +201,6 @@ impl SQLiteState {
             }
         }
     }
-
-    fn require_gc_new_tree_table(&mut self) -> std::result::Result<(), rusqlite::Error> {
-        if self.has_gc_new_tree_table {
-            Ok(())
-        } else {
-            self.connection.execute(
-                // unfortunately, we cannot have a foreign key in a temp table
-                "CREATE TEMP TABLE gc_new_tree (
-                    id INTEGER PRIMARY KEY NOT NULL,
-                    tree_id INTEGER UNIQUE NOT NULL
-                ) STRICT",
-                (),
-            )?;
-            self.has_gc_new_tree_table = true;
-            Ok(())
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -71,7 +215,7 @@ impl SQLiteStorage {
             state: Mutex::new(SQLiteState {
                 connection,
                 transaction: None,
-                has_gc_new_tree_table: false,
+                garbage_collector: GarbageCollector::new(),
             }),
         })
     }
@@ -145,37 +289,46 @@ impl SQLiteStorage {
 #[async_trait]
 impl StoreTree for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn store_tree(&self, tree: &HashedTree) -> std::result::Result<BlobDigest, StoreError> {
+    async fn store_tree(
+        &self,
+        tree: &HashedTree,
+    ) -> std::result::Result<StrongReference, StoreError> {
         let mut state_locked = self.state.lock().await;
-        let reference = *tree.digest();
-        let origin_digest: [u8; 64] = reference.into();
+        let digest = *tree.digest();
+        let origin_digest: [u8; 64] = digest.into();
         {
-            let connection_locked = &state_locked.connection;
-            let mut statement = connection_locked
-                .prepare_cached("SELECT COUNT(*) FROM tree WHERE digest = ?")
-                .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
-            let existing_count: i64 = statement
-                .query_row(
+            let tree_id: Option<i64> = {
+                let connection_locked = &state_locked.connection;
+                let mut statement = connection_locked
+                    .prepare_cached("SELECT id FROM tree WHERE digest = ?")
+                    .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
+                match statement.query_row(
                     (&origin_digest,),
                     |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
-                )
-                .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
-            match existing_count {
-                0 => {}
-                1 => return Ok(reference),
-                _ => panic!(),
+                ) {
+                    Ok(id) => Some(id),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                    Err(error) => {
+                        return Err(StoreError::Rusqlite(format!("{}", &error)));
+                    }
+                }
+            };
+            if let Some(id) = tree_id {
+                let (connection_locked, garbage_collector) = {
+                    let state = &mut *state_locked;
+                    (&state.connection, &mut state.garbage_collector)
+                };
+                return garbage_collector
+                    .require_additional_root(tree.digest(), id, connection_locked)
+                    .map_err(|error| StoreError::Rusqlite(error.to_string()));
             }
         }
-
-        state_locked
-            .require_gc_new_tree_table()
-            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
 
         state_locked
             .require_transaction(1 + tree.tree().children().references().len() as u64)
             .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
 
-        let connection_locked = &state_locked.connection;
+        let connection_locked = &mut state_locked.connection;
 
         // Try to compress the blob, but only store compressed if it's beneficial
         let original_blob = tree.tree().blob().as_slice();
@@ -190,76 +343,97 @@ impl StoreTree for SQLiteStorage {
             (original_blob, 0)
         };
 
-        {
-            let mut statement = connection_locked
-                .prepare_cached(
-                    "INSERT INTO tree (digest, tree_blob, is_compressed) VALUES (?1, ?2, ?3)",
-                )
-                .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
-            let rows_inserted = statement
-                .execute((&origin_digest, blob_to_store, &is_compressed))
-                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
-            assert_eq!(1, rows_inserted);
-        }
-
         let tree_id: i64 = {
-            let mut statement = connection_locked
-                .prepare_cached("SELECT id FROM tree WHERE digest = ?1")
+            // The SAVEPOINT ensures that the trees and references stay consistent even if something fails here.
+            let save_point = connection_locked
+                .savepoint()
                 .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
-            statement
-                .query_row(
-                    (&origin_digest,),
-                    |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
-                )
-                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?
-        };
 
-        if !tree.tree().children().references().is_empty() {
-            let inserted_tree_rowid = connection_locked.last_insert_rowid();
-            let mut statement = connection_locked
-                .prepare_cached(
-                    "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",
-                )
-                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
-            for (index, reference) in tree.tree().children().references().iter().enumerate() {
-                let target_digest: [u8; 64] = (*reference).into();
+            {
+                let mut statement = save_point
+                    .prepare_cached(
+                        "INSERT INTO tree (digest, tree_blob, is_compressed) VALUES (?1, ?2, ?3)",
+                    )
+                    .map_err(|error| StoreError::Rusqlite(format!("{}", &error)))?;
                 let rows_inserted = statement
-                    .execute((
-                        &inserted_tree_rowid,
-                        u32::try_from(index).expect("A child index won't be too large"),
-                        &target_digest,
-                    ))
+                    .execute((&origin_digest, blob_to_store, &is_compressed))
                     .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
                 assert_eq!(1, rows_inserted);
             }
-        }
 
-        let mut statement = connection_locked
-            .prepare_cached("INSERT OR IGNORE INTO gc_new_tree (tree_id) VALUES (?1)")
-            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
-        let rows_inserted = statement
-            .execute((&tree_id,))
-            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
-        assert!(rows_inserted <= 1);
+            let tree_id: i64 = {
+                let mut statement = save_point
+                    .prepare_cached("SELECT id FROM tree WHERE digest = ?1")
+                    .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
+                statement
+                    .query_row(
+                        (&origin_digest,),
+                        |row| -> rusqlite::Result<_, rusqlite::Error> { row.get(0) },
+                    )
+                    .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?
+            };
 
-        Ok(reference)
+            if !tree.tree().children().references().is_empty() {
+                let inserted_tree_rowid = save_point.last_insert_rowid();
+                let mut statement = save_point
+                    .prepare_cached(
+                        "INSERT INTO reference (origin, zero_based_index, target) SELECT ?1, ?2, ?3 FROM tree WHERE tree.digest = ?3",
+                    )
+                    .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
+                for (index, reference) in tree.tree().children().references().iter().enumerate() {
+                    let target_digest: [u8; 64] = (*reference.digest()).into();
+                    let rows_inserted = statement
+                        .execute((
+                            &inserted_tree_rowid,
+                            u32::try_from(index).expect("A child index won't be too large"),
+                            &target_digest,
+                        ))
+                        .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
+                    match rows_inserted {
+                        0 => {
+                            return Err(StoreError::TreeMissing(LoadError::TreeNotFound(
+                                *reference.digest(),
+                            )))
+                        }
+                        1 => {}
+                        _ =>
+                            return Err(StoreError::CorruptedStorage(
+                                "Multiple rows inserted into reference table for a single child reference, which should be impossible due to the UNIQUE constraint".to_string())),
+                    }
+                }
+            }
+
+            save_point
+                .commit()
+                .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
+            tree_id
+        };
+
+        let (connection_locked, garbage_collector) = {
+            let state = &mut *state_locked;
+            (&state.connection, &mut state.garbage_collector)
+        };
+        garbage_collector
+            .require_additional_root(&digest, tree_id, connection_locked)
+            .map_err(|error| StoreError::Rusqlite(error.to_string()))
     }
 }
 
-#[async_trait]
-impl LoadTree for SQLiteStorage {
-    //#[instrument(skip_all)]
-    async fn load_tree(
-        &self,
-        reference: &BlobDigest,
-    ) -> std::result::Result<DelayedHashedTree, LoadError> {
-        let state_locked = self.state.lock().await;
-        let connection_locked = &state_locked.connection;
+async fn load_tree_impl(
+    state: &tokio::sync::Mutex<SQLiteState>,
+    reference: &BlobDigest,
+) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
+    let mut state_locked = state.lock().await;
+    let (tree_blob, child_digests, root_reference) = {
+        let (connection_locked, garbage_collector) = {
+            let state = &mut *state_locked;
+            (&state.connection, &mut state.garbage_collector)
+        };
         let digest: [u8; 64] = (*reference).into();
         let mut statement = connection_locked
             .prepare_cached("SELECT id, tree_blob, is_compressed FROM tree WHERE digest = ?1")
             .map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
-        let (id, decompressed_data) =
+        let (tree_id, decompressed_data) =
             match statement.query_row((&digest,), |row| -> rusqlite::Result<_> {
                 let id: i64 = row.get(0)?;
                 let tree_blob_raw: Vec<u8> = row.get(1)?;
@@ -269,50 +443,59 @@ impl LoadTree for SQLiteStorage {
                     1 => match lz4_flex::decompress_size_prepended(&tree_blob_raw) {
                         Ok(data) => data,
                         Err(error) => {
-                            error!("Failed to decompress tree blob: {error:?}");
-                            return Err(rusqlite::Error::InvalidQuery);
+                            let message =
+                                format!("Failed to decompress tree blob using lz4: {error:?}");
+                            return Ok(Err(LoadError::Inconsistency(*reference, message)));
                         }
                     },
                     0 => tree_blob_raw,
                     _ => {
-                        error!("Invalid is_compressed value: {is_compressed}, expected 0 or 1");
-                        return Err(rusqlite::Error::InvalidQuery);
+                        let message = format!(
+                            "Invalid is_compressed value: {is_compressed}, expected 0 or 1"
+                        );
+                        return Ok(Err(LoadError::Inconsistency(*reference, message)));
                     }
                 };
-                Ok((id, decompressed_data))
+                Ok(Ok((id, decompressed_data)))
             }) {
-                Ok(tuple) => tuple,
+                Ok(maybe_tuple) => maybe_tuple?,
                 Err(rusqlite::Error::QueryReturnedNoRows) => {
                     error!("No tree found for digest {reference} in the database.");
                     return Err(LoadError::TreeNotFound(*reference));
                 }
-                Err(error) => {
-                    error!("Error loading tree from the database: {error:?}");
-                    return Err(LoadError::Rusqlite(format!("{}", &error)));
+                Err(sql_error) => {
+                    error!("Error loading tree from the database: {sql_error:?}");
+                    return Err(LoadError::Rusqlite(format!("{}", &sql_error)));
                 }
             };
+        // Keep the parent alive while we load the children to prevent it from being garbage collected in the middle of loading.
+        let root_reference = garbage_collector
+            .require_additional_root(reference, tree_id, connection_locked)
+            .map_err(|error| LoadError::Rusqlite(error.to_string()))?;
         let tree_blob = TreeBlob::try_from(decompressed_data.into())
             .map_err(|error| LoadError::Deserialization(*reference, error))?;
         let mut statement = connection_locked
-            .prepare_cached(concat!(
-                "SELECT zero_based_index, target FROM reference",
-                " WHERE origin = ? ORDER BY zero_based_index ASC"
-            ))
-            .map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
-        let results = statement
-            .query_map([&id], |row| {
+        .prepare_cached(concat!(
+            "SELECT reference.zero_based_index, reference.target, tree.id FROM reference, tree",
+            " WHERE reference.origin = ? AND reference.target = tree.digest ORDER BY reference.zero_based_index ASC"
+        ))
+        .map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
+        let child_results = statement
+            .query_map([&tree_id], |row| {
                 let index: i64 = row.get(0)?;
                 let target: [u8; 64] = row.get(1)?;
-                Ok((index, BlobDigest::new(&target)))
+                let child_tree_id: i64 = row.get(2)?;
+                Ok((index, BlobDigest::new(&target), child_tree_id))
             })
             .map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
-        let references: Vec<crate::tree::BlobDigest> = results
+        let child_digests: Vec<(BlobDigest, i64)> = child_results
             .enumerate()
             .map(|(expected_index, maybe_tuple)| {
                 let tuple =
                     maybe_tuple.map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
                 let target = tuple.1;
                 let actual_index = tuple.0;
+                let child_tree_id = tuple.2;
                 if expected_index as i64 != actual_index {
                     return Err(LoadError::Inconsistency(
                         *reference,
@@ -322,22 +505,42 @@ impl LoadTree for SQLiteStorage {
                         ),
                     ));
                 }
-                Ok(target)
+                Ok((target, child_tree_id))
             })
             .try_collect()?;
-        let child_count = references.len();
-        let children = match TreeChildren::try_from(references) {
-            Some(children) => children,
-            None => {
-                let message = format!("Tree has too many children: {}", child_count);
-                error!("{}", message);
-                return Err(LoadError::Inconsistency(*reference, message));
-            }
+        (tree_blob, child_digests, root_reference)
+    };
+    let mut child_references = Vec::new();
+    for (child_digest, child_tree_id) in child_digests {
+        let (connection_locked, garbage_collector) = {
+            let state = &mut *state_locked;
+            (&state.connection, &mut state.garbage_collector)
         };
-        Ok(DelayedHashedTree::delayed(
-            Arc::new(Tree::new(tree_blob, children)),
-            *reference,
-        ))
+        let child_reference = garbage_collector
+            .require_additional_root(&child_digest, child_tree_id, connection_locked)
+            .map_err(|error| LoadError::Rusqlite(error.to_string()))?;
+        child_references.push(child_reference);
+    }
+    let child_count = child_references.len();
+    let children = match TreeChildren::try_from(child_references) {
+        Some(children) => children,
+        None => {
+            let message = format!("Tree has too many children: {}", child_count);
+            error!("{}", message);
+            return Err(LoadError::Inconsistency(*reference, message));
+        }
+    };
+    let tree = DelayedHashedTree::delayed(Arc::new(Tree::new(tree_blob, children)), *reference);
+    Ok(StrongDelayedHashedTree::new(root_reference, tree))
+}
+
+#[async_trait]
+impl LoadTree for SQLiteStorage {
+    async fn load_tree(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
+        load_tree_impl(&self.state, reference).await
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
@@ -368,7 +571,7 @@ impl UpdateRoot for SQLiteStorage {
     async fn update_root(
         &self,
         name: &str,
-        target: &BlobDigest,
+        target: &StrongReference,
     ) -> std::result::Result<(), StoreError> {
         info!("Update root {} to {}", name, target);
         let mut state_locked = self.state.lock().await;
@@ -376,7 +579,21 @@ impl UpdateRoot for SQLiteStorage {
             .require_transaction(1)
             .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         let connection_locked = &state_locked.connection;
-        let target_array: [u8; 64] = (*target).into();
+        let target_array: [u8; 64] = (*target.digest()).into();
+        let _tree_id = match connection_locked.query_row(
+            "SELECT id FROM tree WHERE digest = ?1",
+            (&target_array,),
+            |row| -> rusqlite::Result<i64> { row.get(0) },
+        ) {
+            Ok(id) => id,
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                return Err(StoreError::TreeMissing(LoadError::TreeNotFound(
+                    *target.digest(),
+                )))
+            }
+            Err(err) => return Err(StoreError::Rusqlite(format!("{}", &err))),
+        };
+        // TODO: use tree_id as target in the query
         connection_locked.execute(
             "INSERT INTO root (name, target) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET target = ?2;",
             (&name, &target_array),
@@ -386,49 +603,16 @@ impl UpdateRoot for SQLiteStorage {
     }
 }
 
-#[instrument(skip_all)]
-fn collect_garbage(connection: &rusqlite::Connection) -> rusqlite::Result<GarbageCollectionStats> {
-    let deleted_trees = connection.execute(
-        "DELETE FROM tree
-        WHERE NOT EXISTS (
-            SELECT 1 FROM reference
-            WHERE reference.target = tree.digest
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM gc_new_tree
-            WHERE gc_new_tree.tree_id = tree.id
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM root
-            WHERE root.target = tree.digest
-        );",
-        (),
-    )?;
-    let deleted_new_trees = connection.execute("DELETE FROM gc_new_tree;", ())?;
-    debug!(
-        "Garbage collection deleted {} unreferenced trees (using {} new tree entries)",
-        deleted_trees, deleted_new_trees
-    );
-    Ok(GarbageCollectionStats {
-        trees_collected: deleted_trees as u64,
-    })
-}
-
 #[async_trait]
 impl CollectGarbage for SQLiteStorage {
     async fn collect_some_garbage(
         &self,
     ) -> std::result::Result<GarbageCollectionStats, StoreError> {
         let mut state_locked = self.state.lock().await;
-        state_locked
-            .require_gc_new_tree_table()
-            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
-        let connection_locked = &state_locked.connection;
-        // TODO: rework the transaction handling here
-        let stats = collect_garbage(connection_locked)
-            .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
-        state_locked
-            .require_transaction(stats.trees_collected)
+        let state_borrowed: &mut SQLiteState = &mut state_locked;
+        let stats = state_borrowed
+            .garbage_collector
+            .collect_garbage(&state_borrowed.connection)
             .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
         Ok(stats)
     }
@@ -437,28 +621,44 @@ impl CollectGarbage for SQLiteStorage {
 #[async_trait]
 impl LoadRoot for SQLiteStorage {
     //#[instrument(skip_all)]
-    async fn load_root(&self, name: &str) -> std::result::Result<Option<BlobDigest>, LoadError> {
-        let state_locked = self.state.lock().await;
+    async fn load_root(
+        &self,
+        name: &str,
+    ) -> std::result::Result<Option<StrongReference>, LoadError> {
+        let mut state_locked = self.state.lock().await;
         let connection_locked = &state_locked.connection;
-        let target: Option<BlobDigest> = connection_locked
+        let target: Option<(BlobDigest, i64)> = connection_locked
             .query_row(
-                "SELECT target FROM root WHERE name = ?1",
+                "SELECT root.target, tree.id FROM root, tree WHERE root.name = ?1 AND root.target = tree.digest",
                 (&name,),
                 |row| -> rusqlite::Result<_> {
                     let target = row.get(0)?;
-                    Ok(BlobDigest::new(&target))
+                    let tree_id: i64 = row.get(1)?;
+                    Ok((BlobDigest::new(&target), tree_id))
                 },
             )
             .optional()
             .map_err(|err| LoadError::Rusqlite(format!("{}", &err)))?;
-        Ok(target)
+        match target {
+            Some((digest, tree_id)) => {
+                let (connection_locked, garbage_collector) = {
+                    let state = &mut *state_locked;
+                    (&state.connection, &mut state.garbage_collector)
+                };
+                let reference = garbage_collector
+                    .require_additional_root(&digest, tree_id, connection_locked)
+                    .map_err(|error| LoadError::Rusqlite(error.to_string()))?;
+                Ok(Some(reference))
+            }
+            None => Ok(None),
+        }
     }
 }
 
 #[async_trait]
 impl CommitChanges for SQLiteStorage {
     #[instrument(skip_all)]
-    async fn commit_changes(&self) -> Result<(), StoreError> {
+    async fn commit_changes(&self) -> Result<u64, StoreError> {
         let mut state_locked = self.state.lock().await;
         match state_locked.transaction {
             Some(ref stats) => {
@@ -467,10 +667,11 @@ impl CommitChanges for SQLiteStorage {
                     .connection
                     .execute("COMMIT;", ())
                     .map_err(|err| StoreError::Rusqlite(format!("{}", &err)))?;
+                let writes = stats.writes;
                 state_locked.transaction = None;
-                Ok(())
+                Ok(writes)
             }
-            None => Ok(()),
+            None => Ok(0),
         }
     }
 }

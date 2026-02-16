@@ -2,12 +2,8 @@ use arbitrary::{Arbitrary, Unstructured};
 use astraea::{in_memory_storage::InMemoryTreeStorage, tree::BlobDigest};
 use pretty_assertions::assert_eq;
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
-use sorted_tree::{
-    prolly_tree_editable_node::{EditableNode, IntegrityCheckResult},
-    sorted_tree::TreeReference,
-};
+use sorted_tree::prolly_tree_editable_node::{EditableNode, IntegrityCheckResult};
 use std::collections::BTreeMap;
-use tokio::sync::Mutex;
 
 type UniqueInsertions = BTreeMap<u32, i64>;
 type InsertionBatches = Vec<UniqueInsertions>;
@@ -24,7 +20,7 @@ fn randomize_insertion_order(seed: u8, insertion_batches: &InsertionBatches) -> 
 }
 
 async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
-    let storage = InMemoryTreeStorage::new(Mutex::new(BTreeMap::new()));
+    let storage = InMemoryTreeStorage::empty();
     let mut editable_node: EditableNode<u32, i64> = EditableNode::new();
     let mut oracle = BTreeMap::new();
     for (key, _value) in insertions.iter() {
@@ -74,14 +70,14 @@ async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
     let final_count = editable_node.count(&storage).await.unwrap();
     assert_eq!(oracle.len() as u64, final_count);
     assert_eq!(0, storage.number_of_trees().await);
-    let digest = editable_node.save(&storage).await.unwrap();
+    let reference = editable_node.save(&storage).await.unwrap();
     let number_of_trees = storage.number_of_trees().await;
     assert!(number_of_trees >= 1);
     // TODO: find a better upper bound
     assert!(number_of_trees <= 1000);
 
     // test loading from storage
-    editable_node = EditableNode::Reference(TreeReference::new(digest));
+    editable_node = EditableNode::Reference(reference.clone());
     for (key, value) in oracle.iter() {
         let found = editable_node.find(key, &storage).await.unwrap();
         assert_eq!(Some(*value), found);
@@ -91,9 +87,9 @@ async fn insert_one_at_a_time(insertions: &[(u32, i64)]) -> BlobDigest {
         editable_node.count(&storage).await.unwrap()
     );
     let saved_again = editable_node.save(&storage).await.unwrap();
-    assert_eq!(saved_again, digest);
+    assert_eq!(saved_again.digest(), reference.digest());
 
-    digest
+    *reference.digest()
 }
 
 #[derive(Arbitrary, Debug)]
