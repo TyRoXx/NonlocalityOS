@@ -1,4 +1,5 @@
 use astraea::{
+    in_memory_storage::InMemoryTreeStorage,
     storage::{
         CommitChanges, LoadError, LoadTree, StoreError, StoreTree, StrongDelayedHashedTree,
         StrongReference,
@@ -9,14 +10,19 @@ use async_trait::async_trait;
 
 pub trait StorageShard: LoadTree + StoreTree + CommitChanges {}
 
+impl StorageShard for InMemoryTreeStorage {}
+
 #[derive(Debug)]
 pub struct ShardedStorage {
     shards: Vec<Box<dyn StorageShard + Send + Sync>>,
 }
 
 impl ShardedStorage {
-    pub fn new(shards: Vec<Box<dyn StorageShard + Send + Sync>>) -> Self {
-        Self { shards }
+    pub fn try_from(shards: Vec<Box<dyn StorageShard + Send + Sync>>) -> Option<Self> {
+        if shards.is_empty() {
+            return None;
+        }
+        Some(Self { shards })
     }
 }
 
