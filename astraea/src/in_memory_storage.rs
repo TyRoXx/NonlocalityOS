@@ -1,8 +1,8 @@
 use crate::{
     delayed_hashed_tree::DelayedHashedTree,
     storage::{
-        CollectGarbage, GarbageCollectionStats, LoadError, LoadStoreTree, LoadTree, StoreError,
-        StoreTree, StrongDelayedHashedTree, StrongReference, StrongReferenceTrait,
+        CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadStoreTree, LoadTree,
+        StoreError, StoreTree, StrongDelayedHashedTree, StrongReference, StrongReferenceTrait,
     },
     tree::{BlobDigest, HashedTree},
 };
@@ -146,5 +146,12 @@ impl CollectGarbage for InMemoryTreeStorage {
         Ok(GarbageCollectionStats {
             trees_collected: trees_collected as u64,
         })
+    }
+}
+
+#[async_trait]
+impl CommitChanges for InMemoryTreeStorage {
+    async fn commit_changes(&self) -> Result<u64, StoreError> {
+        Ok(0)
     }
 }
