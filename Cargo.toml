@@ -3,6 +3,7 @@ members=[
     "astra",
     "nonlocality_build_utils",
     "astraea",
+    "sharded_storage",
     "sorted_tree",
     "lambda",
     "lambda_compiler",
