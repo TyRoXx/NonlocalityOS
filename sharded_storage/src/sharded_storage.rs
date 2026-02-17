@@ -1,26 +1,37 @@
 use astraea::{
     storage::{
-        CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadRoot, LoadTree,
-        StoreError, StoreTree, StrongDelayedHashedTree, StrongReference, UpdateRoot,
+        CommitChanges, LoadError, LoadTree, StoreError, StoreTree, StrongDelayedHashedTree,
+        StrongReference,
     },
     tree::{BlobDigest, HashedTree},
 };
 use async_trait::async_trait;
 
-#[async_trait]
-pub trait StorageShard {
-    async fn load_tree(
-        &self,
-        reference: &BlobDigest,
-    ) -> std::result::Result<StrongDelayedHashedTree, LoadError>;
-    async fn store_tree(
-        &self,
-        tree: &HashedTree,
-    ) -> std::result::Result<StrongReference, StoreError>;
-}
+pub trait StorageShard: LoadTree + StoreTree + CommitChanges {}
 
 #[derive(Debug)]
-pub struct ShardedStorage {}
+pub struct ShardedStorage {
+    shards: Vec<Box<dyn StorageShard + Send + Sync>>,
+}
+
+impl ShardedStorage {
+    pub fn new(shards: Vec<Box<dyn StorageShard + Send + Sync>>) -> Self {
+        Self { shards }
+    }
+}
+
+fn get_shard_index(reference: &BlobDigest, shard_count: usize) -> usize {
+    let simplified_digest = u64::from_be_bytes(
+        reference
+            .0
+             .1
+            .split_at(24)
+            .1
+            .try_into()
+            .expect("There are enough bytes in the array"),
+    );
+    (simplified_digest % (shard_count as u64)) as usize
+}
 
 #[async_trait]
 impl LoadTree for ShardedStorage {
@@ -28,11 +39,16 @@ impl LoadTree for ShardedStorage {
         &self,
         reference: &BlobDigest,
     ) -> std::result::Result<StrongDelayedHashedTree, LoadError> {
-        unimplemented!()
+        let shard_index = get_shard_index(reference, self.shards.len());
+        self.shards[shard_index].load_tree(reference).await
     }
 
     async fn approximate_tree_count(&self) -> std::result::Result<u64, StoreError> {
-        unimplemented!()
+        let mut total = 0;
+        for shard in &self.shards {
+            total += shard.approximate_tree_count().await?;
+        }
+        Ok(total)
     }
 }
 
@@ -42,43 +58,18 @@ impl StoreTree for ShardedStorage {
         &self,
         tree: &HashedTree,
     ) -> std::result::Result<StrongReference, StoreError> {
-        unimplemented!()
-    }
-}
-
-#[async_trait]
-impl UpdateRoot for ShardedStorage {
-    async fn update_root(
-        &self,
-        name: &str,
-        target: &StrongReference,
-    ) -> std::result::Result<(), StoreError> {
-        unimplemented!()
-    }
-}
-
-#[async_trait]
-impl LoadRoot for ShardedStorage {
-    async fn load_root(
-        &self,
-        name: &str,
-    ) -> std::result::Result<Option<StrongReference>, LoadError> {
-        unimplemented!()
-    }
-}
-
-#[async_trait]
-impl CollectGarbage for ShardedStorage {
-    async fn collect_some_garbage(
-        &self,
-    ) -> std::result::Result<GarbageCollectionStats, StoreError> {
-        unimplemented!()
+        let shard_index = get_shard_index(&tree.digest(), self.shards.len());
+        self.shards[shard_index].store_tree(tree).await
     }
 }
 
 #[async_trait]
 impl CommitChanges for ShardedStorage {
     async fn commit_changes(&self) -> Result<u64, StoreError> {
-        unimplemented!()
+        let mut total = 0;
+        for shard in &self.shards {
+            total += shard.commit_changes().await?;
+        }
+        Ok(total)
     }
 }
