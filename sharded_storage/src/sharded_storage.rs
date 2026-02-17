@@ -7,6 +7,18 @@ use astraea::{
 };
 use async_trait::async_trait;
 
+#[async_trait]
+pub trait StorageShard {
+    async fn load_tree(
+        &self,
+        reference: &BlobDigest,
+    ) -> std::result::Result<StrongDelayedHashedTree, LoadError>;
+    async fn store_tree(
+        &self,
+        tree: &HashedTree,
+    ) -> std::result::Result<StrongReference, StoreError>;
+}
+
 #[derive(Debug)]
 pub struct ShardedStorage {}
 
