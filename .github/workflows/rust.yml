@@ -28,8 +28,8 @@ jobs:
         task: [ cargo_test, cargo_lint, cargo_fuzz ]
 
     env:
-      SCCACHE_VERSION: "v0.13.0"
-      SCCACHE_FILENAME: "sccache-v0.13.0-x86_64-unknown-linux-musl.tar.gz"
+      SCCACHE_VERSION: "v0.14.0"
+      SCCACHE_FILENAME: "sccache-v0.14.0-x86_64-unknown-linux-musl.tar.gz"
 
     steps:
     - uses: actions/checkout@v4
