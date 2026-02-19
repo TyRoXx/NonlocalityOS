@@ -95,11 +95,112 @@ pub fn join_dropbox_paths(left: &str, right: &str) -> String {
     result
 }
 
-async fn move_file(dropbox_client: &UserAuthDefaultClient, from_path: String, into_path: String) {
+async fn get_file_content_hash(
+    dropbox_client: &UserAuthDefaultClient,
+    file_path: &str,
+) -> Option<String> {
+    let metadata = match files::get_metadata(
+        dropbox_client,
+        &files::GetMetadataArg::new(file_path.to_string()).with_include_deleted(true),
+    )
+    .await
+    {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            error!("Error getting metadata for {}: {error}", file_path);
+            return None;
+        }
+    };
+    let file_metadata = match metadata {
+        files::Metadata::File(file_metadata) => file_metadata,
+        files::Metadata::Folder(folder_metadata) => {
+            error!(
+                "Expected file but got folder for path {}: {:?}",
+                file_path, folder_metadata
+            );
+            return None;
+        }
+        files::Metadata::Deleted(deleted_metadata) => {
+            error!(
+                "Expected file but got deleted entry for path {}: {:?}",
+                file_path, deleted_metadata
+            );
+            return None;
+        }
+    };
+    let content_hash = match file_metadata.content_hash {
+        Some(digest) => digest,
+        None => {
+            error!(
+                "File metadata does not contain content hash for {}",
+                file_path
+            );
+            return None;
+        }
+    };
+    Some(content_hash)
+}
+
+async fn handle_move_file_error(
+    dropbox_client: &UserAuthDefaultClient,
+    from_path: &str,
+    into_path: &str,
+) {
+    let (from_content_hash_result, into_content_hash_result) = tokio::join!(
+        get_file_content_hash(dropbox_client, from_path),
+        get_file_content_hash(dropbox_client, into_path)
+    );
+    let from_content_hash = match from_content_hash_result {
+        Some(hash) => hash,
+        None => {
+            error!(
+                "Could not get content hash for source file {}, cannot handle move error",
+                from_path
+            );
+            return;
+        }
+    };
+    let into_content_hash = match into_content_hash_result {
+        Some(hash) => hash,
+        None => {
+            error!(
+                "Could not get content hash for destination file {}, cannot handle move error",
+                into_path
+            );
+            return;
+        }
+    };
+    if from_content_hash == into_content_hash {
+        info!(
+            "Source and destination files have the same content hash ({}), deleting the source file {}.",
+            from_content_hash, from_path
+        );
+        match files::delete_v2(
+            dropbox_client,
+            &files::DeleteArg::new(from_path.to_string()),
+        )
+        .await
+        {
+            Ok(result) => {
+                info!("Source file deleted successfully: {:?}", result);
+            }
+            Err(e) => {
+                error!("Error deleting source file: {e}");
+            }
+        }
+    } else {
+        error!(
+            "Source and destination files have different content hashes ({} vs {}). Cannot ignore the move error.",
+            from_content_hash, into_content_hash
+        );
+    }
+}
+
+async fn move_file(dropbox_client: &UserAuthDefaultClient, from_path: &str, into_path: &str) {
     info!("Moving file from {} to {}", from_path, into_path);
     match files::move_v2(
         dropbox_client,
-        &files::RelocationArg::new(from_path, into_path),
+        &files::RelocationArg::new(from_path.to_string(), into_path.to_string()),
     )
     .await
     {
@@ -107,7 +208,8 @@ async fn move_file(dropbox_client: &UserAuthDefaultClient, from_path: String, in
             info!("File moved successfully: {:?}", result);
         }
         Err(e) => {
-            error!("Error moving file: {e}");
+            warn!("Error moving file: {e}");
+            handle_move_file_error(dropbox_client, from_path, into_path).await;
         }
     }
 }
@@ -145,8 +247,8 @@ async fn move_files(
                     if is_file_to_be_moved(&entry.name) {
                         move_file(
                             dropbox_client,
-                            join_dropbox_paths(from_directory, &entry.name),
-                            join_dropbox_paths(into_directory, &entry.name),
+                            &join_dropbox_paths(from_directory, &entry.name),
+                            &join_dropbox_paths(into_directory, &entry.name),
                         )
                         .await;
                     } else {
