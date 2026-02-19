@@ -80,7 +80,7 @@ async fn download_with_yt_dlp(
     cmd.arg("-o");
     // We don't use %(uploader) here because %(title) already contains the uploader on some sites like Twitter.
     cmd.arg(format!(
-        "{}/%(title).100B %(upload_date)s [%(webpage_url_domain)s %(id)s].%(ext)s",
+        "{}/%(title).90B %(upload_date)s [%(webpage_url_domain)s %(id)s].%(ext)s",
         temp_dir.path().display()
     ));
 
