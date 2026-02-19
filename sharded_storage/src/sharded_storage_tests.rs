@@ -20,6 +20,6 @@ async fn test_store_and_load() {
         ))))
         .await
         .unwrap();
-    let result = storage.load_tree(&reference.digest()).await.unwrap();
+    let result = storage.load_tree(reference.digest()).await.unwrap();
     assert_eq!(result.reference().digest(), reference.digest());
 }
