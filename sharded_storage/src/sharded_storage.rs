@@ -64,7 +64,7 @@ impl StoreTree for ShardedStorage {
         &self,
         tree: &HashedTree,
     ) -> std::result::Result<StrongReference, StoreError> {
-        let shard_index = get_shard_index(&tree.digest(), self.shards.len());
+        let shard_index = get_shard_index(tree.digest(), self.shards.len());
         self.shards[shard_index].store_tree(tree).await
     }
 }
