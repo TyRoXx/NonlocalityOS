@@ -2,7 +2,7 @@ use crate::{
     dropbox::Dropbox,
     is_relevant_change_to_url_input_file, keep_reading_url_input_file,
     load_downloaded_urls_from_database, load_undownloaded_urls_from_database,
-    make_database_file_name, make_url_input_file_path, prepare_database,
+    make_database_file_name, make_url_input_file_path, prepare_database, record_download_attempt,
     record_failed_download_attempt, run_application, run_download_job, run_main_loop,
     set_download_job_digests, split_config_directory_path_in_dropbox,
     start_watching_url_input_file, store_urls_in_database,
@@ -19,12 +19,12 @@ fn test_upgrade_schema() {
     let connection =
         rusqlite::Connection::open_in_memory().expect("Failed to open in-memory database");
     // Call upgrade_schema multiple times to ensure it can be called repeatedly without error after the first successful upgrade.
-    for _ in 0..2 {
+    for _ in 0..3 {
         upgrade_schema(&connection).expect("Failed to upgrade schema");
         let user_version = connection
             .query_row("PRAGMA user_version;", [], |row| row.get::<_, i32>(0))
             .expect("Failed to get user_version from database");
-        assert_eq!(2, user_version);
+        assert_eq!(3, user_version);
     }
 }
 
@@ -118,49 +118,6 @@ fn test_load_undownloaded_urls_from_database() {
 }
 
 #[test_log::test]
-fn test_load_undownloaded_urls_from_database_max_fail_count() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
-    let mut connection = prepare_database(temp_dir.path()).expect("Failed to prepare database");
-    assert_eq!(
-        Vec::<String>::new(),
-        load_undownloaded_urls_from_database(&mut connection).unwrap()
-    );
-    assert_eq!(
-        3,
-        store_urls_in_database(
-            // inserted out of order
-            vec![
-                "http://example.com/file4".to_string(),
-                "http://example.com/file2".to_string(),
-                "http://example.com/file3".to_string(),
-            ],
-            &mut connection
-        )
-        .unwrap()
-    );
-    assert!(record_failed_download_attempt(&mut connection, "http://example.com/file2").unwrap());
-    assert_eq!(
-        // loaded in order
-        vec![
-            // the failed job is excluded
-            "http://example.com/file3".to_string(),
-            "http://example.com/file4".to_string(),
-        ],
-        load_undownloaded_urls_from_database(&mut connection).unwrap()
-    );
-    assert_eq!(
-        // loaded in order
-        vec![
-            // the failed job is included
-            "http://example.com/file2".to_string(),
-            "http://example.com/file3".to_string(),
-            "http://example.com/file4".to_string(),
-        ],
-        load_undownloaded_urls_from_database(&mut connection).unwrap()
-    );
-}
-
-#[test_log::test]
 fn test_record_failed_download_attempt() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
     let mut connection = prepare_database(temp_dir.path()).expect("Failed to prepare database");
@@ -202,7 +159,58 @@ fn test_record_failed_download_attempt() {
     assert_eq!(
         // loaded in order
         vec![
-            // the failed job is excluded
+            // the failed job is not excluded because remaining_attempts is not 0 yet
+            "http://example.com/file2".to_string(),
+            "http://example.com/file3".to_string(),
+            "http://example.com/file4".to_string(),
+        ],
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
+    );
+}
+
+#[test_log::test]
+fn test_record_download_attempt() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+    let mut connection = prepare_database(temp_dir.path()).expect("Failed to prepare database");
+    assert!(!record_failed_download_attempt(&mut connection, "http://example.com/file2").unwrap());
+    assert_eq!(
+        Vec::<String>::new(),
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
+    );
+    assert_eq!(
+        3,
+        store_urls_in_database(
+            vec![
+                "http://example.com/file2".to_string(),
+                "http://example.com/file3".to_string(),
+                "http://example.com/file4".to_string(),
+            ],
+            &mut connection
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        vec![
+            "http://example.com/file2".to_string(),
+            "http://example.com/file3".to_string(),
+            "http://example.com/file4".to_string(),
+        ],
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
+    );
+    assert!(!record_download_attempt(&mut connection, "http://example.com/file1").unwrap());
+    assert_eq!(
+        vec![
+            "http://example.com/file2".to_string(),
+            "http://example.com/file3".to_string(),
+            "http://example.com/file4".to_string(),
+        ],
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
+    );
+    assert!(record_download_attempt(&mut connection, "http://example.com/file2").unwrap());
+    assert_eq!(
+        // loaded in order
+        vec![
+            // the attempted job is excluded
             "http://example.com/file3".to_string(),
             "http://example.com/file4".to_string(),
         ],
