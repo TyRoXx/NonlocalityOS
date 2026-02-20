@@ -635,6 +635,14 @@ impl HandleTelegramBotRequests for TelegramBotRequestHandler {
             None
         }
     }
+
+    async fn list_failed_downloads(&self) -> Vec<String> {
+        todo!()
+    }
+
+    async fn retry_failed_downloads(&self) -> (usize, usize) {
+        todo!()
+    }
 }
 
 async fn run_application(

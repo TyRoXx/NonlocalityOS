@@ -64,6 +64,14 @@ impl HandleTelegramBotRequests for FakeHandleRequests {
             ),
         }
     }
+
+    async fn list_failed_downloads(&self) -> Vec<String> {
+        todo!()
+    }
+
+    async fn retry_failed_downloads(&self) -> (usize, usize) {
+        todo!()
+    }
 }
 
 #[test_log::test(tokio::test)]
