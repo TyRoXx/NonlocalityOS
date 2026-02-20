@@ -1,10 +1,10 @@
 use crate::{
     dropbox::Dropbox,
-    is_relevant_change_to_url_input_file, keep_adding_download_job_urls_from_telegram_bot,
-    keep_reading_url_input_file, load_downloaded_urls_from_database,
-    load_undownloaded_urls_from_database, make_database_file_name, make_url_input_file_path,
-    prepare_database, record_failed_download_attempt, run_application, run_download_job,
-    run_main_loop, set_download_job_digests, split_config_directory_path_in_dropbox,
+    is_relevant_change_to_url_input_file, keep_reading_url_input_file,
+    load_downloaded_urls_from_database, load_undownloaded_urls_from_database,
+    make_database_file_name, make_url_input_file_path, prepare_database,
+    record_failed_download_attempt, run_application, run_download_job, run_main_loop,
+    set_download_job_digests, split_config_directory_path_in_dropbox,
     start_watching_url_input_file, store_urls_in_database,
     telegram_bot::{HandleTelegramBotRequests, TelegramBot},
     upgrade_schema, Download, SetDownloadJobDigestOutcome,
@@ -675,45 +675,6 @@ async fn test_keep_reading_url_input_file() {
     }
     // there must be a database change event now
     database_change_receiver.changed().await.unwrap();
-}
-
-#[test_log::test(tokio::test)]
-async fn test_keep_adding_download_job_urls_from_telegram_bot() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
-    let database_dir = temp_dir.path().join("database");
-    std::fs::create_dir_all(&database_dir).expect("Failed to create database directory");
-    let mut connection1 = prepare_database(&database_dir).expect("Failed to prepare database");
-    let (telegram_bot_download_job_url_sender, telegram_bot_download_job_url_receiver) =
-        tokio::sync::mpsc::channel(1);
-    let (database_change_sender, mut database_change_receiver) = tokio::sync::watch::channel(());
-    let url_to_add = "http://example.com";
-    let telegram_bot_simulator = async {
-        telegram_bot_download_job_url_sender
-            .send(url_to_add.to_string())
-            .await
-            .expect("Failed to send download job URL from telegram bot simulator");
-        // there must be a database change event now
-        database_change_receiver.changed().await.unwrap();
-    };
-    tokio::select! {
-        _ = keep_adding_download_job_urls_from_telegram_bot(
-            telegram_bot_download_job_url_receiver,
-            database_change_sender,
-            &mut connection1
-        ) => {
-            panic!("keep_adding_download_job_urls_from_telegram_bot should not return");
-        }
-        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-            panic!("Timeout");
-        }
-        _ = telegram_bot_simulator => {
-            // success
-        }
-    }
-    let mut connection2 = prepare_database(&database_dir).expect("Failed to prepare database");
-    let undownloaded_urls =
-        load_undownloaded_urls_from_database(&mut connection2, u32::MAX).unwrap();
-    assert_eq!(vec![url_to_add.to_string()], undownloaded_urls);
 }
 
 struct FakeDownload {

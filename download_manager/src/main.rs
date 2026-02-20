@@ -445,33 +445,6 @@ async fn keep_reading_url_input_file(
     }
 }
 
-pub async fn keep_adding_download_job_urls_from_telegram_bot(
-    mut download_job_url_receiver: tokio::sync::mpsc::Receiver<String>,
-    database_change_event_sender: tokio::sync::watch::Sender<()>,
-    connection: &mut rusqlite::Connection,
-) {
-    while let Some(url) = download_job_url_receiver.recv().await {
-        info!("Received URL from Telegram bot: {}", url);
-        match store_urls_in_database(vec![url], connection) {
-            Ok(_) => {
-                info!("Stored URL from Telegram bot in database");
-                match database_change_event_sender.send(()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Failed to send database change event: {e}");
-                        // A broken channel is not recoverable.
-                        break;
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to store URL from Telegram bot in database: {e}");
-                // A database write error is potentially recoverable, so we don't break here.
-            }
-        }
-    }
-}
-
 #[async_trait::async_trait]
 trait Download {
     async fn download(&self, url: &str) -> Result<Vec<BlobDigest>, Box<dyn std::error::Error>>;
