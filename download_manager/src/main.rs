@@ -146,6 +146,24 @@ fn load_downloaded_urls_from_database(
     Ok(urls)
 }
 
+fn load_failed_urls_from_database(
+    connection: &mut rusqlite::Connection,
+) -> rusqlite::Result<Vec<(String, u32)>> {
+    let mut statement = connection.prepare(
+        "SELECT url, fail_count FROM download_job WHERE fail_count > 0 AND NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id) ORDER BY url ASC",
+    )?;
+    let url_iter = statement.query_map([], |row| {
+        let url = row.get::<_, String>(0)?;
+        let fail_count = row.get::<_, u32>(1)?;
+        Ok((url, fail_count))
+    })?;
+    let mut urls = Vec::new();
+    for url_result in url_iter {
+        urls.push(url_result?);
+    }
+    Ok(urls)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum SetDownloadJobDigestOutcome {
     Success,
@@ -626,8 +644,19 @@ impl HandleTelegramBotRequests for TelegramBotRequestHandler {
         }
     }
 
-    async fn list_failed_downloads(&self) -> Vec<String> {
-        todo!()
+    async fn list_failed_downloads(&self) -> Vec<(String, u32)> {
+        info!("Received request to list failed downloads from Telegram bot");
+        let mut connection = self.connection.lock().await;
+        match load_failed_urls_from_database(&mut *connection) {
+            Ok(urls) => {
+                info!("Loaded {} failed URLs from database", urls.len());
+                urls
+            }
+            Err(e) => {
+                error!("Failed to load failed URLs from database: {}", e);
+                todo!()
+            }
+        }
     }
 
     async fn retry_failed_downloads(&self) -> (usize, usize) {

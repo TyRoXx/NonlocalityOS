@@ -12,7 +12,7 @@ use tracing::{info, warn};
 #[async_trait::async_trait]
 pub trait HandleTelegramBotRequests {
     async fn add_download_job(&self, url: &str) -> Option<String>;
-    async fn list_failed_downloads(&self) -> Vec<String>;
+    async fn list_failed_downloads(&self) -> Vec<(String, u32)>;
     async fn retry_failed_downloads(&self) -> (usize, usize);
 }
 
@@ -145,7 +145,14 @@ pub async fn process_callback_query(
             if failed.is_empty() {
                 "No failed downloads.".to_string()
             } else {
-                format!("Failed downloads:\n{}", failed.join("\n"))
+                format!(
+                    "Failed downloads:\n{}",
+                    failed
+                        .iter()
+                        .map(|(url, fail_count)| format!("{} ({} failures)", url, fail_count))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
             }
         }
         Some(ACTION_RETRY_FAILED) => {

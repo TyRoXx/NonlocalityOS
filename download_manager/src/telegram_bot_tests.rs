@@ -65,7 +65,7 @@ impl HandleTelegramBotRequests for FakeHandleRequests {
         }
     }
 
-    async fn list_failed_downloads(&self) -> Vec<String> {
+    async fn list_failed_downloads(&self) -> Vec<(String, u32)> {
         todo!()
     }
 
