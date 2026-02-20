@@ -791,6 +791,17 @@ async fn test_run_download_job_download_fails() {
     );
 }
 
+struct FakeTelegramBot {}
+
+#[async_trait::async_trait]
+impl TelegramBot for FakeTelegramBot {
+    async fn run(&self, _handle_requests: Arc<dyn HandleTelegramBotRequests + Send + Sync>) {
+        info!("FakeTelegramBot run called");
+        // block effectively forever
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
+}
+
 #[test_log::test(tokio::test)]
 async fn test_run_main_loop() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
@@ -799,8 +810,7 @@ async fn test_run_main_loop() {
     let url_input_file_path = working_directory.join("urls.txt");
     let (url_input_file_event_sender, url_input_file_event_receiver) =
         tokio::sync::watch::channel(());
-    let (_telegram_bot_download_job_url_sender, telegram_bot_download_job_url_receiver) =
-        tokio::sync::mpsc::channel(1);
+    let telegram_bot = FakeTelegramBot {};
     let digest = BlobDigest::hash(b"test data");
     let download = FakeDownload {
         result_digests: vec![digest],
@@ -830,7 +840,7 @@ async fn test_run_main_loop() {
             &working_directory,
             &url_input_file_path,
             url_input_file_event_receiver,
-            telegram_bot_download_job_url_receiver,
+            &telegram_bot,
             &download,
             &retry_delay
         ) => {
@@ -839,17 +849,6 @@ async fn test_run_main_loop() {
         _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
             panic!("Timeout");
         }
-    }
-}
-
-struct FakeTelegramBot {}
-
-#[async_trait::async_trait]
-impl TelegramBot for FakeTelegramBot {
-    async fn run(&self, _handle_requests: Arc<dyn HandleTelegramBotRequests + Send + Sync>) {
-        info!("FakeTelegramBot run called");
-        // block effectively forever
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
 }
 

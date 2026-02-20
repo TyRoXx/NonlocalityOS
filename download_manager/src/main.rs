@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
     thread::{self, JoinHandle},
 };
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 #[cfg(test)]
@@ -569,7 +570,7 @@ async fn run_main_loop(
     config_directory: &std::path::Path,
     url_input_file_path: &std::path::Path,
     url_input_file_event_receiver: tokio::sync::watch::Receiver<()>,
-    telegram_bot_download_job_url_receiver: tokio::sync::mpsc::Receiver<String>,
+    telegram_bot: &dyn TelegramBot,
     download: &dyn Download,
     retry_delay: &std::time::Duration,
 ) {
@@ -580,7 +581,7 @@ async fn run_main_loop(
             std::process::exit(1);
         }
     };
-    let mut database_connection2 = match prepare_database(config_directory) {
+    let database_connection2 = match prepare_database(config_directory) {
         Ok(conn) => conn,
         Err(e) => {
             error!("Failed to prepare database: {e}");
@@ -595,6 +596,10 @@ async fn run_main_loop(
         }
     };
     let (database_change_sender, database_change_receiver) = tokio::sync::watch::channel::<()>(());
+    let telegram_bot_request_handler = Arc::new(TelegramBotRequestHandler {
+        database_change_event_sender: database_change_sender.clone(),
+        connection: Arc::new(Mutex::new(database_connection2)),
+    });
     tokio::join!(
         keep_reading_url_input_file(
             url_input_file_path,
@@ -603,11 +608,7 @@ async fn run_main_loop(
             &mut database_connection1,
             retry_delay
         ),
-        keep_adding_download_job_urls_from_telegram_bot(
-            telegram_bot_download_job_url_receiver,
-            database_change_sender,
-            &mut database_connection2,
-        ),
+        telegram_bot.run(telegram_bot_request_handler),
         keep_downloading_urls_from_database(
             database_change_receiver,
             &mut database_connection3,
@@ -621,18 +622,34 @@ fn make_url_input_file_path(config_directory: &std::path::Path) -> std::path::Pa
 }
 
 struct TelegramBotRequestHandler {
-    download_job_url_sender: tokio::sync::mpsc::Sender<String>,
+    database_change_event_sender: tokio::sync::watch::Sender<()>,
+    connection: Arc<Mutex<rusqlite::Connection>>,
 }
 
 #[async_trait::async_trait]
 impl HandleTelegramBotRequests for TelegramBotRequestHandler {
     async fn add_download_job(&self, url: &str) -> Option<String> {
-        if let Err(e) = self.download_job_url_sender.send(url.to_string()).await {
-            let message = format!("Failed to send download job URL to mpsc queue: {e}");
-            error!("{}", message);
-            Some(message)
-        } else {
-            None
+        info!("Received URL from Telegram bot: {}", url);
+        let mut connection = self.connection.lock().await;
+        match store_urls_in_database(vec![url.to_string()], &mut *connection) {
+            Ok(_) => {
+                info!("Stored URL from Telegram bot in database");
+                match self.database_change_event_sender.send(()) {
+                    Ok(_) => None,
+                    Err(e) => {
+                        let message = format!("Failed to send database change event: {e}");
+                        error!("{}", message);
+                        // A broken channel is not recoverable.
+                        Some(message)
+                    }
+                }
+            }
+            Err(e) => {
+                let message = format!("Failed to store URL from Telegram bot in database: {e}");
+                error!("{}", message);
+                // A database write error is potentially recoverable, so we don't break here.
+                Some(message)
+            }
         }
     }
 
@@ -682,26 +699,16 @@ async fn run_application(
                 return Err(e.into());
             }
         };
-    let (telegram_bot_download_job_url_sender, telegram_bot_download_job_url_receiver) =
-        tokio::sync::mpsc::channel(
-            /*too much queueing would obscure valuable performance feedback to the user*/ 1,
-        );
-    let telegram_bot_request_handler = Arc::new(TelegramBotRequestHandler {
-        download_job_url_sender: telegram_bot_download_job_url_sender,
-    });
     tokio::select! {
         _ =  run_main_loop(
                 config_directory,
                 &url_input_file_path,
                 url_input_file_event_receiver,
-                telegram_bot_download_job_url_receiver,
+                telegram_bot,
                 download,
                 retry_delay,
             ) => {
             error!("Main loop has exited unexpectedly");
-        }
-        _ = telegram_bot.run(telegram_bot_request_handler) => {
-            error!("Telegram bot has exited unexpectedly");
         }
         _ = dropbox.keep_moving_files() => {
             error!("Dropbox file mover has exited unexpectedly");

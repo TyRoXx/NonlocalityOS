@@ -190,7 +190,7 @@ impl TeloxideTelegramBot {
                         )
                         .await?;
 
-                        bot.send_message(chat_id, "Actions: ")
+                        bot.send_message(chat_id, "Actions:")
                             .reply_markup(action_keyboard())
                             .await?;
                         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
