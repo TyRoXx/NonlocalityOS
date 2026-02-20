@@ -28,15 +28,8 @@ debug = false
 # Strange observation: Setting strip to false explicitly makes the binaries larger than not setting strip at all.
 #strip = false
 
-# opt-levels "s" and "z" didn't appear to make the binaries smaller compared to 3.
-# https://doc.rust-lang.org/cargo/reference/profiles.html#opt-level
-opt-level = 3
-
-# LTO made the nonlocality_host binary significantly smaller (1.2 MB -> 944 KB), but linking became multiple times slower.
-# https://llvm.org/docs/LinkTimeOptimization.html
-lto = false
-
 # Reducing codegen-units to 1 reduces the nonlocality_host binary size from 1.2 MB to 1 MB.
 # "By default, Cargo specifies 16 parallel codegen units for release builds. This improves compile times, but prevents some optimizations."
 # https://github.com/johnthagen/min-sized-rust?tab=readme-ov-file#reduce-parallel-code-generation-units-to-increase-optimization
-codegen-units = 1
+# 2026-02-22: commented out "codegen-units = 1" because release builds were really slow, and the default is much faster
+#codegen-units = 1
