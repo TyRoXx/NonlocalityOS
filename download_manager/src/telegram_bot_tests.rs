@@ -69,7 +69,7 @@ impl HandleTelegramBotRequests for FakeHandleRequests {
         todo!()
     }
 
-    async fn retry_failed_downloads(&self) -> (usize, usize) {
+    async fn retry_failed_downloads(&self) -> Option<u64> {
         todo!()
     }
 }

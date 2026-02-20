@@ -13,7 +13,7 @@ use tracing::{info, warn};
 pub trait HandleTelegramBotRequests {
     async fn add_download_job(&self, url: &str) -> Option<String>;
     async fn list_failed_downloads(&self) -> Vec<(String, u32)>;
-    async fn retry_failed_downloads(&self) -> (usize, usize);
+    async fn retry_failed_downloads(&self) -> Option<u64>;
 }
 
 #[async_trait::async_trait]
@@ -155,10 +155,10 @@ pub async fn process_callback_query(
                 )
             }
         }
-        Some(ACTION_RETRY_FAILED) => {
-            let (queued, failed) = handle_requests.retry_failed_downloads().await;
-            format!("Retry summary: {} queued, {} still failing", queued, failed)
-        }
+        Some(ACTION_RETRY_FAILED) => match handle_requests.retry_failed_downloads().await {
+            Some(retried_count) => format!("Retrying {} failed downloads.", retried_count),
+            None => "Failed to retry failed downloads.".to_string(),
+        },
         _ => "Unknown action.".to_string(),
     };
 

@@ -34,7 +34,7 @@ mod dropbox_tests;
 fn upgrade_schema(
     connection: &rusqlite::Connection,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    for _ in 0..3 {
+    for _ in 0..4 {
         let user_version =
             connection.query_row("PRAGMA user_version;", [], |row| row.get::<_, i32>(0))?;
         match user_version {
@@ -76,6 +76,17 @@ fn upgrade_schema(
                 assert_eq!(0, connection.execute("PRAGMA user_version = 2;", ())?);
             }
             2 => {
+                // Add column download_job.remaining_attempts to support retries after reaching the max fail count.
+                assert_eq!(
+                    0,
+                    connection.execute(
+                        "ALTER TABLE download_job ADD COLUMN remaining_attempts INTEGER NOT NULL DEFAULT 1",
+                        ()
+                    )?
+                );
+                assert_eq!(0, connection.execute("PRAGMA user_version = 3;", ())?);
+            }
+            3 => {
                 // Future migrations go here
                 return Ok(());
             }
@@ -110,16 +121,15 @@ fn store_urls_in_database(
 
 fn load_undownloaded_urls_from_database(
     connection: &mut rusqlite::Connection,
-    max_fail_count: u32,
 ) -> rusqlite::Result<Vec<String>> {
     let mut statement = connection.prepare(concat!(
         "SELECT url ",
         "FROM download_job ",
-        "WHERE fail_count <= ?1 ",
+        "WHERE remaining_attempts > 0 ",
         "    AND NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id) ",
         "ORDER BY url ASC"
     ))?;
-    let url_iter = statement.query_map([(max_fail_count)], |row| row.get::<_, String>(0))?;
+    let url_iter = statement.query_map((), |row| row.get::<_, String>(0))?;
     let mut urls = Vec::new();
     for url_result in url_iter {
         urls.push(url_result?);
@@ -225,6 +235,17 @@ fn set_download_job_digests(
     Ok(SetDownloadJobDigestOutcome::Success)
 }
 
+fn record_download_attempt(
+    connection: &mut rusqlite::Connection,
+    url: &str,
+) -> rusqlite::Result<bool> {
+    let rows_updated = connection.execute(
+        "UPDATE download_job SET remaining_attempts = remaining_attempts - 1 WHERE url = ?1 AND remaining_attempts > 0",
+        rusqlite::params![url],
+    )?;
+    Ok(rows_updated > 0)
+}
+
 fn record_failed_download_attempt(
     connection: &mut rusqlite::Connection,
     url: &str,
@@ -234,6 +255,32 @@ fn record_failed_download_attempt(
         rusqlite::params![url],
     )?;
     Ok(rows_updated > 0)
+}
+
+fn attempt_failed_downloads_once_more(connection: &mut rusqlite::Connection) -> Option<u64> {
+    let rows_updated = connection.execute(
+        concat!(
+            "UPDATE download_job SET remaining_attempts = 1 WHERE remaining_attempts = 0 AND ",
+            "NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id)"
+        ),
+        (),
+    );
+    match rows_updated {
+        Ok(count) => {
+            info!(
+                "Reset remaining_attempts for {} failed download jobs",
+                count
+            );
+            Some(count as u64)
+        }
+        Err(e) => {
+            error!(
+                "Failed to reset remaining_attempts for failed download jobs: {}",
+                e
+            );
+            None
+        }
+    }
 }
 
 fn make_database_file_name(config_directory: &std::path::Path) -> std::path::PathBuf {
@@ -474,6 +521,7 @@ async fn run_download_job(
     url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting download job for URL: {}", url);
+    record_download_attempt(connection, url)?;
     match download.download(url).await {
         Ok(digests) => {
             info!("Download job completed successfully for URL: {}", url);
@@ -511,8 +559,7 @@ async fn keep_downloading_urls_from_database(
     download: &dyn Download,
 ) {
     loop {
-        const MAX_FAIL_COUNT: u32 = 5;
-        match load_undownloaded_urls_from_database(connection, MAX_FAIL_COUNT) {
+        match load_undownloaded_urls_from_database(connection) {
             Ok(urls) => {
                 info!("Loaded {} undownloaded URLs from database", urls.len());
                 for url in &urls {
@@ -659,8 +706,23 @@ impl HandleTelegramBotRequests for TelegramBotRequestHandler {
         }
     }
 
-    async fn retry_failed_downloads(&self) -> (usize, usize) {
-        todo!()
+    async fn retry_failed_downloads(&self) -> Option<u64> {
+        info!("Received request to retry failed downloads from Telegram bot");
+        let mut connection = self.connection.lock().await;
+        match attempt_failed_downloads_once_more(&mut *connection) {
+            Some(count) => {
+                match self.database_change_event_sender.send(()) {
+                    Ok(_) => Some(count),
+                    Err(e) => {
+                        let message = format!("Failed to send database change event: {e}");
+                        error!("{}", message);
+                        // A broken channel is not recoverable.
+                        None
+                    }
+                }
+            }
+            None => None,
+        }
     }
 }
 
