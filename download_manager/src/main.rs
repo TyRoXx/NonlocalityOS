@@ -669,7 +669,7 @@ impl HandleTelegramBotRequests for TelegramBotRequestHandler {
     async fn add_download_job(&self, url: &str) -> Option<String> {
         info!("Received URL from Telegram bot: {}", url);
         let mut connection = self.connection.lock().await;
-        match store_urls_in_database(vec![url.to_string()], &mut *connection) {
+        match store_urls_in_database(vec![url.to_string()], &mut connection) {
             Ok(_) => {
                 info!("Stored URL from Telegram bot in database");
                 match self.database_change_event_sender.send(()) {
@@ -694,7 +694,7 @@ impl HandleTelegramBotRequests for TelegramBotRequestHandler {
     async fn list_failed_downloads(&self) -> Vec<(String, u32)> {
         info!("Received request to list failed downloads from Telegram bot");
         let mut connection = self.connection.lock().await;
-        match load_failed_urls_from_database(&mut *connection) {
+        match load_failed_urls_from_database(&mut connection) {
             Ok(urls) => {
                 info!("Loaded {} failed URLs from database", urls.len());
                 urls
@@ -709,7 +709,7 @@ impl HandleTelegramBotRequests for TelegramBotRequestHandler {
     async fn retry_failed_downloads(&self) -> Option<u64> {
         info!("Received request to retry failed downloads from Telegram bot");
         let mut connection = self.connection.lock().await;
-        match attempt_failed_downloads_once_more(&mut *connection) {
+        match attempt_failed_downloads_once_more(&mut connection) {
             Some(count) => {
                 match self.database_change_event_sender.send(()) {
                     Ok(_) => Some(count),
