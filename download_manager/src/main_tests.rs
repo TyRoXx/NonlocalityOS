@@ -1,10 +1,10 @@
 use crate::{
     dropbox::Dropbox,
-    is_relevant_change_to_url_input_file, keep_adding_download_job_urls_from_telegram_bot,
-    keep_reading_url_input_file, load_downloaded_urls_from_database,
-    load_undownloaded_urls_from_database, make_database_file_name, make_url_input_file_path,
-    prepare_database, record_failed_download_attempt, run_application, run_download_job,
-    run_main_loop, set_download_job_digests, split_config_directory_path_in_dropbox,
+    is_relevant_change_to_url_input_file, keep_reading_url_input_file,
+    load_downloaded_urls_from_database, load_undownloaded_urls_from_database,
+    make_database_file_name, make_url_input_file_path, prepare_database, record_download_attempt,
+    record_failed_download_attempt, run_application, run_download_job, run_main_loop,
+    set_download_job_digests, split_config_directory_path_in_dropbox,
     start_watching_url_input_file, store_urls_in_database,
     telegram_bot::{HandleTelegramBotRequests, TelegramBot},
     upgrade_schema, Download, SetDownloadJobDigestOutcome,
@@ -19,12 +19,12 @@ fn test_upgrade_schema() {
     let connection =
         rusqlite::Connection::open_in_memory().expect("Failed to open in-memory database");
     // Call upgrade_schema multiple times to ensure it can be called repeatedly without error after the first successful upgrade.
-    for _ in 0..2 {
+    for _ in 0..3 {
         upgrade_schema(&connection).expect("Failed to upgrade schema");
         let user_version = connection
             .query_row("PRAGMA user_version;", [], |row| row.get::<_, i32>(0))
             .expect("Failed to get user_version from database");
-        assert_eq!(2, user_version);
+        assert_eq!(3, user_version);
     }
 }
 
@@ -68,7 +68,7 @@ fn test_store_urls_in_database() {
         crate::store_urls_in_database(urls.clone(), &mut connection)
             .expect("Failed to store URLs in database")
     );
-    let stored_urls = load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap();
+    let stored_urls = load_undownloaded_urls_from_database(&mut connection).unwrap();
     assert_eq!(stored_urls, urls);
 }
 
@@ -78,7 +78,7 @@ fn test_load_undownloaded_urls_from_database() {
     let mut connection = prepare_database(temp_dir.path()).expect("Failed to prepare database");
     assert_eq!(
         Vec::<String>::new(),
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     assert_eq!(
         1,
@@ -90,7 +90,7 @@ fn test_load_undownloaded_urls_from_database() {
     );
     assert_eq!(
         vec!["http://example.com/file1".to_string()],
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     assert_eq!(
         3,
@@ -113,50 +113,7 @@ fn test_load_undownloaded_urls_from_database() {
             "http://example.com/file3".to_string(),
             "http://example.com/file4".to_string(),
         ],
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
-    );
-}
-
-#[test_log::test]
-fn test_load_undownloaded_urls_from_database_max_fail_count() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
-    let mut connection = prepare_database(temp_dir.path()).expect("Failed to prepare database");
-    assert_eq!(
-        Vec::<String>::new(),
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
-    );
-    assert_eq!(
-        3,
-        store_urls_in_database(
-            // inserted out of order
-            vec![
-                "http://example.com/file4".to_string(),
-                "http://example.com/file2".to_string(),
-                "http://example.com/file3".to_string(),
-            ],
-            &mut connection
-        )
-        .unwrap()
-    );
-    assert!(record_failed_download_attempt(&mut connection, "http://example.com/file2").unwrap());
-    assert_eq!(
-        // loaded in order
-        vec![
-            // the failed job is excluded
-            "http://example.com/file3".to_string(),
-            "http://example.com/file4".to_string(),
-        ],
-        load_undownloaded_urls_from_database(&mut connection, 0).unwrap()
-    );
-    assert_eq!(
-        // loaded in order
-        vec![
-            // the failed job is included
-            "http://example.com/file2".to_string(),
-            "http://example.com/file3".to_string(),
-            "http://example.com/file4".to_string(),
-        ],
-        load_undownloaded_urls_from_database(&mut connection, 1).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
 }
 
@@ -167,7 +124,7 @@ fn test_record_failed_download_attempt() {
     assert!(!record_failed_download_attempt(&mut connection, "http://example.com/file2").unwrap());
     assert_eq!(
         Vec::<String>::new(),
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     assert_eq!(
         3,
@@ -187,7 +144,7 @@ fn test_record_failed_download_attempt() {
             "http://example.com/file3".to_string(),
             "http://example.com/file4".to_string(),
         ],
-        load_undownloaded_urls_from_database(&mut connection, 0).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     assert!(!record_failed_download_attempt(&mut connection, "http://example.com/file1").unwrap());
     assert_eq!(
@@ -196,17 +153,68 @@ fn test_record_failed_download_attempt() {
             "http://example.com/file3".to_string(),
             "http://example.com/file4".to_string(),
         ],
-        load_undownloaded_urls_from_database(&mut connection, 0).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     assert!(record_failed_download_attempt(&mut connection, "http://example.com/file2").unwrap());
     assert_eq!(
         // loaded in order
         vec![
-            // the failed job is excluded
+            // the failed job is not excluded because remaining_attempts is not 0 yet
+            "http://example.com/file2".to_string(),
             "http://example.com/file3".to_string(),
             "http://example.com/file4".to_string(),
         ],
-        load_undownloaded_urls_from_database(&mut connection, 0).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
+    );
+}
+
+#[test_log::test]
+fn test_record_download_attempt() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+    let mut connection = prepare_database(temp_dir.path()).expect("Failed to prepare database");
+    assert!(!record_failed_download_attempt(&mut connection, "http://example.com/file2").unwrap());
+    assert_eq!(
+        Vec::<String>::new(),
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
+    );
+    assert_eq!(
+        3,
+        store_urls_in_database(
+            vec![
+                "http://example.com/file2".to_string(),
+                "http://example.com/file3".to_string(),
+                "http://example.com/file4".to_string(),
+            ],
+            &mut connection
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        vec![
+            "http://example.com/file2".to_string(),
+            "http://example.com/file3".to_string(),
+            "http://example.com/file4".to_string(),
+        ],
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
+    );
+    assert!(!record_download_attempt(&mut connection, "http://example.com/file1").unwrap());
+    assert_eq!(
+        vec![
+            "http://example.com/file2".to_string(),
+            "http://example.com/file3".to_string(),
+            "http://example.com/file4".to_string(),
+        ],
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
+    );
+    assert!(record_download_attempt(&mut connection, "http://example.com/file2").unwrap());
+    assert_eq!(
+        // loaded in order
+        vec![
+            // the attempted job is excluded
+            "http://example.com/file3".to_string(),
+            "http://example.com/file4".to_string(),
+        ],
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
 }
 
@@ -226,7 +234,7 @@ fn test_set_download_job_digests_1() {
     );
     assert_eq!(
         vec![url.to_string()],
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     assert_eq!(
         SetDownloadJobDigestOutcome::Success,
@@ -234,7 +242,7 @@ fn test_set_download_job_digests_1() {
     );
     assert_eq!(
         Vec::<String>::new(),
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
 }
 
@@ -257,7 +265,7 @@ fn test_set_download_job_digests_2() {
     );
     assert_eq!(
         vec![url.to_string()],
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     assert_eq!(
         SetDownloadJobDigestOutcome::Success,
@@ -265,7 +273,7 @@ fn test_set_download_job_digests_2() {
     );
     assert_eq!(
         Vec::<String>::new(),
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
 }
 
@@ -281,7 +289,7 @@ fn test_set_download_job_digests_repeat() {
     );
     assert_eq!(
         vec![url.to_string()],
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     assert_eq!(
         SetDownloadJobDigestOutcome::Success,
@@ -289,7 +297,7 @@ fn test_set_download_job_digests_repeat() {
     );
     assert_eq!(
         Vec::<String>::new(),
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
     assert_eq!(
         SetDownloadJobDigestOutcome::Success,
@@ -297,7 +305,7 @@ fn test_set_download_job_digests_repeat() {
     );
     assert_eq!(
         Vec::<String>::new(),
-        load_undownloaded_urls_from_database(&mut connection, u32::MAX).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
 }
 
@@ -651,7 +659,7 @@ async fn test_keep_reading_url_input_file() {
             .expect("Failed to write test file");
         sender.send(()).expect("Failed to send initial signal");
         loop {
-            let urls = load_undownloaded_urls_from_database(&mut connection1, u32::MAX).unwrap();
+            let urls = load_undownloaded_urls_from_database(&mut connection1).unwrap();
             if !urls.is_empty() {
                 assert_eq!(urls, vec!["http://example.com".to_string()]);
                 break;
@@ -675,45 +683,6 @@ async fn test_keep_reading_url_input_file() {
     }
     // there must be a database change event now
     database_change_receiver.changed().await.unwrap();
-}
-
-#[test_log::test(tokio::test)]
-async fn test_keep_adding_download_job_urls_from_telegram_bot() {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
-    let database_dir = temp_dir.path().join("database");
-    std::fs::create_dir_all(&database_dir).expect("Failed to create database directory");
-    let mut connection1 = prepare_database(&database_dir).expect("Failed to prepare database");
-    let (telegram_bot_download_job_url_sender, telegram_bot_download_job_url_receiver) =
-        tokio::sync::mpsc::channel(1);
-    let (database_change_sender, mut database_change_receiver) = tokio::sync::watch::channel(());
-    let url_to_add = "http://example.com";
-    let telegram_bot_simulator = async {
-        telegram_bot_download_job_url_sender
-            .send(url_to_add.to_string())
-            .await
-            .expect("Failed to send download job URL from telegram bot simulator");
-        // there must be a database change event now
-        database_change_receiver.changed().await.unwrap();
-    };
-    tokio::select! {
-        _ = keep_adding_download_job_urls_from_telegram_bot(
-            telegram_bot_download_job_url_receiver,
-            database_change_sender,
-            &mut connection1
-        ) => {
-            panic!("keep_adding_download_job_urls_from_telegram_bot should not return");
-        }
-        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-            panic!("Timeout");
-        }
-        _ = telegram_bot_simulator => {
-            // success
-        }
-    }
-    let mut connection2 = prepare_database(&database_dir).expect("Failed to prepare database");
-    let undownloaded_urls =
-        load_undownloaded_urls_from_database(&mut connection2, u32::MAX).unwrap();
-    assert_eq!(vec![url_to_add.to_string()], undownloaded_urls);
 }
 
 struct FakeDownload {
@@ -787,8 +756,19 @@ async fn test_run_download_job_download_fails() {
         .unwrap();
     assert_eq!(
         Vec::<String>::new(),
-        load_undownloaded_urls_from_database(&mut connection, 0).unwrap()
+        load_undownloaded_urls_from_database(&mut connection).unwrap()
     );
+}
+
+struct FakeTelegramBot {}
+
+#[async_trait::async_trait]
+impl TelegramBot for FakeTelegramBot {
+    async fn run(&self, _handle_requests: Arc<dyn HandleTelegramBotRequests + Send + Sync>) {
+        info!("FakeTelegramBot run called");
+        // block effectively forever
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
 }
 
 #[test_log::test(tokio::test)]
@@ -799,8 +779,7 @@ async fn test_run_main_loop() {
     let url_input_file_path = working_directory.join("urls.txt");
     let (url_input_file_event_sender, url_input_file_event_receiver) =
         tokio::sync::watch::channel(());
-    let (_telegram_bot_download_job_url_sender, telegram_bot_download_job_url_receiver) =
-        tokio::sync::mpsc::channel(1);
+    let telegram_bot = FakeTelegramBot {};
     let digest = BlobDigest::hash(b"test data");
     let download = FakeDownload {
         result_digests: vec![digest],
@@ -830,7 +809,7 @@ async fn test_run_main_loop() {
             &working_directory,
             &url_input_file_path,
             url_input_file_event_receiver,
-            telegram_bot_download_job_url_receiver,
+            &telegram_bot,
             &download,
             &retry_delay
         ) => {
@@ -839,17 +818,6 @@ async fn test_run_main_loop() {
         _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
             panic!("Timeout");
         }
-    }
-}
-
-struct FakeTelegramBot {}
-
-#[async_trait::async_trait]
-impl TelegramBot for FakeTelegramBot {
-    async fn run(&self, _handle_requests: Arc<dyn HandleTelegramBotRequests + Send + Sync>) {
-        info!("FakeTelegramBot run called");
-        // block effectively forever
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
 }
 
