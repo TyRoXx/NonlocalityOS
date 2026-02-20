@@ -1,9 +1,10 @@
 use crate::telegram_bot::{
-    process_message_impl, split_message_into_urls, HandleTelegramBotRequests,
+    is_authorized_user, process_message_impl, split_message_into_urls, HandleTelegramBotRequests,
     ProcessMessageResultingAction,
 };
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
+use teloxide::types::User;
 use tokio::sync::Mutex;
 
 #[test_log::test]
@@ -63,6 +64,14 @@ impl HandleTelegramBotRequests for FakeHandleRequests {
                 url
             ),
         }
+    }
+
+    async fn list_failed_downloads(&self) -> Result<Vec<(String, u32)>, String> {
+        todo!()
+    }
+
+    async fn retry_failed_downloads(&self) -> Option<u64> {
+        todo!()
     }
 }
 
@@ -136,4 +145,36 @@ async fn test_process_message_impl_failure() {
         )
     );
     handle_requests.assert_complete().await;
+}
+
+#[test_log::test]
+fn test_is_authorized_user() {
+    let allowed_user = teloxide::types::UserId(123);
+    assert!(is_authorized_user(
+        &Some(User {
+            id: allowed_user,
+            username: None,
+            first_name: "".to_string(),
+            last_name: None,
+            is_bot: false,
+            language_code: None,
+            added_to_attachment_menu: false,
+            is_premium: false,
+        }),
+        &allowed_user
+    ));
+    assert!(!is_authorized_user(
+        &Some(User {
+            id: teloxide::types::UserId(456),
+            username: None,
+            first_name: "".to_string(),
+            last_name: None,
+            is_bot: false,
+            language_code: None,
+            added_to_attachment_menu: false,
+            is_premium: false,
+        }),
+        &allowed_user
+    ));
+    assert!(!is_authorized_user(&None, &allowed_user));
 }

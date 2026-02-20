@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
     thread::{self, JoinHandle},
 };
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 #[cfg(test)]
@@ -33,7 +34,7 @@ mod dropbox_tests;
 fn upgrade_schema(
     connection: &rusqlite::Connection,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    for _ in 0..3 {
+    for _ in 0..4 {
         let user_version =
             connection.query_row("PRAGMA user_version;", [], |row| row.get::<_, i32>(0))?;
         match user_version {
@@ -75,6 +76,17 @@ fn upgrade_schema(
                 assert_eq!(0, connection.execute("PRAGMA user_version = 2;", ())?);
             }
             2 => {
+                // Add column download_job.remaining_attempts to support retries after reaching the max fail count.
+                assert_eq!(
+                    0,
+                    connection.execute(
+                        "ALTER TABLE download_job ADD COLUMN remaining_attempts INTEGER NOT NULL DEFAULT 1",
+                        ()
+                    )?
+                );
+                assert_eq!(0, connection.execute("PRAGMA user_version = 3;", ())?);
+            }
+            3 => {
                 // Future migrations go here
                 return Ok(());
             }
@@ -109,16 +121,15 @@ fn store_urls_in_database(
 
 fn load_undownloaded_urls_from_database(
     connection: &mut rusqlite::Connection,
-    max_fail_count: u32,
 ) -> rusqlite::Result<Vec<String>> {
     let mut statement = connection.prepare(concat!(
         "SELECT url ",
         "FROM download_job ",
-        "WHERE fail_count <= ?1 ",
+        "WHERE remaining_attempts > 0 ",
         "    AND NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id) ",
         "ORDER BY url ASC"
     ))?;
-    let url_iter = statement.query_map([(max_fail_count)], |row| row.get::<_, String>(0))?;
+    let url_iter = statement.query_map((), |row| row.get::<_, String>(0))?;
     let mut urls = Vec::new();
     for url_result in url_iter {
         urls.push(url_result?);
@@ -141,6 +152,24 @@ fn load_downloaded_urls_from_database(
     for url_result in url_iter {
         let (url, digest) = url_result?;
         urls.push((url, BlobDigest::new(&digest)));
+    }
+    Ok(urls)
+}
+
+fn load_failed_urls_from_database(
+    connection: &mut rusqlite::Connection,
+) -> rusqlite::Result<Vec<(String, u32)>> {
+    let mut statement = connection.prepare(
+        "SELECT url, fail_count FROM download_job WHERE fail_count > 0 AND NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id) ORDER BY url ASC",
+    )?;
+    let url_iter = statement.query_map([], |row| {
+        let url = row.get::<_, String>(0)?;
+        let fail_count = row.get::<_, u32>(1)?;
+        Ok((url, fail_count))
+    })?;
+    let mut urls = Vec::new();
+    for url_result in url_iter {
+        urls.push(url_result?);
     }
     Ok(urls)
 }
@@ -206,6 +235,17 @@ fn set_download_job_digests(
     Ok(SetDownloadJobDigestOutcome::Success)
 }
 
+fn record_download_attempt(
+    connection: &mut rusqlite::Connection,
+    url: &str,
+) -> rusqlite::Result<bool> {
+    let rows_updated = connection.execute(
+        "UPDATE download_job SET remaining_attempts = remaining_attempts - 1 WHERE url = ?1 AND remaining_attempts > 0",
+        rusqlite::params![url],
+    )?;
+    Ok(rows_updated > 0)
+}
+
 fn record_failed_download_attempt(
     connection: &mut rusqlite::Connection,
     url: &str,
@@ -215,6 +255,32 @@ fn record_failed_download_attempt(
         rusqlite::params![url],
     )?;
     Ok(rows_updated > 0)
+}
+
+fn attempt_failed_downloads_once_more(connection: &mut rusqlite::Connection) -> Option<u64> {
+    let rows_updated = connection.execute(
+        concat!(
+            "UPDATE download_job SET remaining_attempts = 1 WHERE remaining_attempts = 0 AND ",
+            "NOT EXISTS (SELECT 1 FROM result_file WHERE download_job_id = download_job.id)"
+        ),
+        (),
+    );
+    match rows_updated {
+        Ok(count) => {
+            info!(
+                "Reset remaining_attempts for {} failed download jobs",
+                count
+            );
+            Some(count as u64)
+        }
+        Err(e) => {
+            error!(
+                "Failed to reset remaining_attempts for failed download jobs: {}",
+                e
+            );
+            None
+        }
+    }
 }
 
 fn make_database_file_name(config_directory: &std::path::Path) -> std::path::PathBuf {
@@ -444,33 +510,6 @@ async fn keep_reading_url_input_file(
     }
 }
 
-pub async fn keep_adding_download_job_urls_from_telegram_bot(
-    mut download_job_url_receiver: tokio::sync::mpsc::Receiver<String>,
-    database_change_event_sender: tokio::sync::watch::Sender<()>,
-    connection: &mut rusqlite::Connection,
-) {
-    while let Some(url) = download_job_url_receiver.recv().await {
-        info!("Received URL from Telegram bot: {}", url);
-        match store_urls_in_database(vec![url], connection) {
-            Ok(_) => {
-                info!("Stored URL from Telegram bot in database");
-                match database_change_event_sender.send(()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Failed to send database change event: {e}");
-                        // A broken channel is not recoverable.
-                        break;
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to store URL from Telegram bot in database: {e}");
-                // A database write error is potentially recoverable, so we don't break here.
-            }
-        }
-    }
-}
-
 #[async_trait::async_trait]
 trait Download {
     async fn download(&self, url: &str) -> Result<Vec<BlobDigest>, Box<dyn std::error::Error>>;
@@ -482,6 +521,18 @@ async fn run_download_job(
     url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting download job for URL: {}", url);
+    match record_download_attempt(connection, url)? {
+        true => {
+            info!("Recorded download attempt for URL: {}", url);
+        }
+        false => {
+            return Err(format!(
+            "No remaining attempts for URL, or URL is not in the database: {}; skipping download",
+            url
+        )
+            .into())
+        }
+    }
     match download.download(url).await {
         Ok(digests) => {
             info!("Download job completed successfully for URL: {}", url);
@@ -519,8 +570,7 @@ async fn keep_downloading_urls_from_database(
     download: &dyn Download,
 ) {
     loop {
-        const MAX_FAIL_COUNT: u32 = 5;
-        match load_undownloaded_urls_from_database(connection, MAX_FAIL_COUNT) {
+        match load_undownloaded_urls_from_database(connection) {
             Ok(urls) => {
                 info!("Loaded {} undownloaded URLs from database", urls.len());
                 for url in &urls {
@@ -569,7 +619,7 @@ async fn run_main_loop(
     config_directory: &std::path::Path,
     url_input_file_path: &std::path::Path,
     url_input_file_event_receiver: tokio::sync::watch::Receiver<()>,
-    telegram_bot_download_job_url_receiver: tokio::sync::mpsc::Receiver<String>,
+    telegram_bot: &dyn TelegramBot,
     download: &dyn Download,
     retry_delay: &std::time::Duration,
 ) {
@@ -580,7 +630,7 @@ async fn run_main_loop(
             std::process::exit(1);
         }
     };
-    let mut database_connection2 = match prepare_database(config_directory) {
+    let database_connection2 = match prepare_database(config_directory) {
         Ok(conn) => conn,
         Err(e) => {
             error!("Failed to prepare database: {e}");
@@ -595,6 +645,10 @@ async fn run_main_loop(
         }
     };
     let (database_change_sender, database_change_receiver) = tokio::sync::watch::channel::<()>(());
+    let telegram_bot_request_handler = Arc::new(TelegramBotRequestHandler {
+        database_change_event_sender: database_change_sender.clone(),
+        connection: Arc::new(Mutex::new(database_connection2)),
+    });
     tokio::join!(
         keep_reading_url_input_file(
             url_input_file_path,
@@ -603,11 +657,7 @@ async fn run_main_loop(
             &mut database_connection1,
             retry_delay
         ),
-        keep_adding_download_job_urls_from_telegram_bot(
-            telegram_bot_download_job_url_receiver,
-            database_change_sender,
-            &mut database_connection2,
-        ),
+        telegram_bot.run(telegram_bot_request_handler),
         keep_downloading_urls_from_database(
             database_change_receiver,
             &mut database_connection3,
@@ -621,18 +671,69 @@ fn make_url_input_file_path(config_directory: &std::path::Path) -> std::path::Pa
 }
 
 struct TelegramBotRequestHandler {
-    download_job_url_sender: tokio::sync::mpsc::Sender<String>,
+    database_change_event_sender: tokio::sync::watch::Sender<()>,
+    connection: Arc<Mutex<rusqlite::Connection>>,
 }
 
 #[async_trait::async_trait]
 impl HandleTelegramBotRequests for TelegramBotRequestHandler {
     async fn add_download_job(&self, url: &str) -> Option<String> {
-        if let Err(e) = self.download_job_url_sender.send(url.to_string()).await {
-            let message = format!("Failed to send download job URL to mpsc queue: {e}");
-            error!("{}", message);
-            Some(message)
-        } else {
-            None
+        info!("Received URL from Telegram bot: {}", url);
+        let mut connection = self.connection.lock().await;
+        match store_urls_in_database(vec![url.to_string()], &mut connection) {
+            Ok(_) => {
+                info!("Stored URL from Telegram bot in database");
+                match self.database_change_event_sender.send(()) {
+                    Ok(_) => None,
+                    Err(e) => {
+                        let message = format!("Failed to send database change event: {e}");
+                        error!("{}", message);
+                        // A broken channel is not recoverable.
+                        Some(message)
+                    }
+                }
+            }
+            Err(e) => {
+                let message = format!("Failed to store URL from Telegram bot in database: {e}");
+                error!("{}", message);
+                // A database write error is potentially recoverable, so we don't break here.
+                Some(message)
+            }
+        }
+    }
+
+    async fn list_failed_downloads(&self) -> Result<Vec<(String, u32)>, String> {
+        info!("Received request to list failed downloads from Telegram bot");
+        let mut connection = self.connection.lock().await;
+        match load_failed_urls_from_database(&mut connection) {
+            Ok(urls) => {
+                info!("Loaded {} failed URLs from database", urls.len());
+                Ok(urls)
+            }
+            Err(e) => {
+                let message = format!("Failed to load failed URLs from database: {}", e);
+                error!("{}", message);
+                Err(message)
+            }
+        }
+    }
+
+    async fn retry_failed_downloads(&self) -> Option<u64> {
+        info!("Received request to retry failed downloads from Telegram bot");
+        let mut connection = self.connection.lock().await;
+        match attempt_failed_downloads_once_more(&mut connection) {
+            Some(count) => {
+                match self.database_change_event_sender.send(()) {
+                    Ok(_) => Some(count),
+                    Err(e) => {
+                        let message = format!("Failed to send database change event: {e}");
+                        error!("{}", message);
+                        // A broken channel is not recoverable.
+                        None
+                    }
+                }
+            }
+            None => None,
         }
     }
 }
@@ -674,26 +775,16 @@ async fn run_application(
                 return Err(e.into());
             }
         };
-    let (telegram_bot_download_job_url_sender, telegram_bot_download_job_url_receiver) =
-        tokio::sync::mpsc::channel(
-            /*too much queueing would obscure valuable performance feedback to the user*/ 1,
-        );
-    let telegram_bot_request_handler = Arc::new(TelegramBotRequestHandler {
-        download_job_url_sender: telegram_bot_download_job_url_sender,
-    });
     tokio::select! {
         _ =  run_main_loop(
                 config_directory,
                 &url_input_file_path,
                 url_input_file_event_receiver,
-                telegram_bot_download_job_url_receiver,
+                telegram_bot,
                 download,
                 retry_delay,
             ) => {
             error!("Main loop has exited unexpectedly");
-        }
-        _ = telegram_bot.run(telegram_bot_request_handler) => {
-            error!("Telegram bot has exited unexpectedly");
         }
         _ = dropbox.keep_moving_files() => {
             error!("Dropbox file mover has exited unexpectedly");
