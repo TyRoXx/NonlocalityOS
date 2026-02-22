@@ -1,6 +1,8 @@
 use crate::{
     dropbox::{join_dropbox_paths, RealDropbox},
-    telegram_bot::{HandleTelegramBotRequests, TelegramBot, TeloxideTelegramBot},
+    telegram_bot::{
+        AddDownloadJobOutcome, HandleTelegramBotRequests, TelegramBot, TeloxideTelegramBot,
+    },
 };
 use astraea::{sqlite_storage::SQLiteStorage, tree::BlobDigest};
 use notify::{RecommendedWatcher, Watcher};
@@ -677,27 +679,32 @@ struct TelegramBotRequestHandler {
 
 #[async_trait::async_trait]
 impl HandleTelegramBotRequests for TelegramBotRequestHandler {
-    async fn add_download_job(&self, url: &str) -> Option<String> {
+    async fn add_download_job(&self, url: &str) -> AddDownloadJobOutcome {
         info!("Received URL from Telegram bot: {}", url);
         let mut connection = self.connection.lock().await;
         match store_urls_in_database(vec![url.to_string()], &mut connection) {
-            Ok(_) => {
-                info!("Stored URL from Telegram bot in database");
-                match self.database_change_event_sender.send(()) {
-                    Ok(_) => None,
-                    Err(e) => {
-                        let message = format!("Failed to send database change event: {e}");
-                        error!("{}", message);
-                        // A broken channel is not recoverable.
-                        Some(message)
+            Ok(rows_inserted) => {
+                match rows_inserted {
+                    0 => AddDownloadJobOutcome::Duplicate,
+                    1 => {
+                        match self.database_change_event_sender.send(()) {
+                            Ok(_) => AddDownloadJobOutcome::New,
+                            Err(e) => {
+                                let message = format!("Failed to send database change event: {e}");
+                                error!("{}", message);
+                                // A broken channel is not recoverable.
+                                AddDownloadJobOutcome::Error(message)
+                            }
+                        }
                     }
+                    _ => unreachable!("One URL won't affect multiple rows"),
                 }
             }
             Err(e) => {
                 let message = format!("Failed to store URL from Telegram bot in database: {e}");
                 error!("{}", message);
                 // A database write error is potentially recoverable, so we don't break here.
-                Some(message)
+                AddDownloadJobOutcome::Error(message)
             }
         }
     }

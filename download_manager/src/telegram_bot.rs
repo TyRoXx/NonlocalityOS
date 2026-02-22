@@ -9,9 +9,16 @@ use teloxide::{
 };
 use tracing::{info, warn};
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum AddDownloadJobOutcome {
+    New,
+    Duplicate,
+    Error(String),
+}
+
 #[async_trait::async_trait]
 pub trait HandleTelegramBotRequests {
-    async fn add_download_job(&self, url: &str) -> Option<String>;
+    async fn add_download_job(&self, url: &str) -> AddDownloadJobOutcome;
     async fn list_failed_downloads(&self) -> Result<Vec<(String, u32)>, String>;
     async fn retry_failed_downloads(&self) -> Option<u64>;
 }
@@ -41,26 +48,30 @@ pub async fn process_message_impl(
     // Queue the oldest videos first.
     urls.sort();
     let mut response = String::new();
-    let mut success_count = 0;
+    let mut new_count = 0;
+    let mut duplicate_count = 0;
     let mut failure_count = 0;
     for url in urls {
-        let error = handle_requests.add_download_job(url).await;
-        match &error {
-            Some(message) => {
+        let outcome = handle_requests.add_download_job(url).await;
+        match outcome {
+            AddDownloadJobOutcome::New => {
+                new_count += 1;
+            }
+            AddDownloadJobOutcome::Duplicate => {
+                duplicate_count += 1;
+            }
+            AddDownloadJobOutcome::Error(message) => {
                 failure_count += 1;
                 response.push_str(&format!(
                     "Failed to queue download job for {}: {}\n",
                     url, message
                 ));
             }
-            None => {
-                success_count += 1;
-            }
         }
     }
     response.push_str(&format!(
-        "Summary: {} queued, {} failed to queue",
-        success_count, failure_count
+        "Summary: {} new URLs queued, {} duplicates ignored, {} failed to queue",
+        new_count, duplicate_count, failure_count
     ));
     Ok(ProcessMessageResultingAction::SendMessage(response))
 }
