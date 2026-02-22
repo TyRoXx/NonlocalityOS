@@ -4,6 +4,7 @@ use teloxide::{
     dptree,
     payloads::SendMessageSetters,
     prelude::{Dispatcher, Requester},
+    sugar::request::RequestLinkPreviewExt,
     types::{ChatId, Message, Update, User},
     Bot,
 };
@@ -176,6 +177,7 @@ pub async fn process_callback_query(
     };
 
     bot.send_message(*chat, response)
+        .disable_link_preview(true)
         .reply_markup(action_keyboard())
         .await?;
 
