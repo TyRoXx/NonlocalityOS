@@ -6,5 +6,6 @@ incremental = false
 
 [env]
 # Set environment variables for any process run by Cargo
+# LIBCLANG_PATH is set by build scripts (test.bat, etc.) to point to tools/clang+llvm-22.1.0-x86_64-pc-windows-msvc/bin
 #SCCACHE_ERROR_LOG = "C:/dev/NonlocalityOS/target/sccache_log.txt"
 #SCCACHE_LOG = "info"
