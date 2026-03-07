@@ -28,11 +28,7 @@ impl ShardedStorage {
 
 fn get_shard_index(reference: &BlobDigest, shard_count: usize) -> usize {
     let simplified_digest = u64::from_be_bytes(
-        reference
-            .0
-             .1
-            .split_at(24)
-            .1
+        reference.to_array()[56..64]
             .try_into()
             .expect("There are enough bytes in the array"),
     );
