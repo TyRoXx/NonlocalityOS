@@ -1049,8 +1049,11 @@ name = "dropbox_importer"
 version = "0.1.0"
 dependencies = [
  "astraea",
+ "bytes",
+ "dogbox_tree",
  "dogbox_tree_editor",
  "dropbox-sdk",
+ "futures",
  "test-case",
  "test-log",
  "tracing",

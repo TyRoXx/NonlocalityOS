@@ -150,6 +150,6 @@ pub async fn test_dropbox_importer(
             })
         },
         &BlobDigest::parse_hex_string(
-        "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2")
+        "d3d127891bdcd4dd2deceb39391d4f76f13f6fae0fd367c8b20e5eada53b5af25663706bc757215e339cc5ef49d7ac9231d367d1b8a8333778ae1bda765caf76")
         .unwrap()).await;
 }
