@@ -1,0 +1,19 @@
+[package]
+name = "system_tests"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+astraea = { path ="../astraea" }
+dropbox_importer = { path ="../dogbox/dropbox_importer" }
+tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "process", "io-util", "signal", "io-std"]}
+tracing-subscriber = "0"
+tracing = "0"
+pretty_assertions = "1"
+dotenv = "0"
+dropbox-sdk = {version = "0", features = ["async_routes", "default_async_client"]}
+
+[dev-dependencies]
+test-log = {version = "0", features = ["trace", "log", "color"]}

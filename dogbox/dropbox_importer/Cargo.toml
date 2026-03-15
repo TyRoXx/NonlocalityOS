@@ -1,0 +1,16 @@
+[package]
+name = "dropbox_importer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+astraea = { path ="../../astraea" }
+dogbox_tree_editor = { path ="../dogbox_tree_editor" }
+dropbox-sdk = {version = "0", features = ["async_routes", "default_async_client"]}
+tracing = "0"
+
+[dev-dependencies]
+test-case = "3"
+test-log = {version = "0", features = ["trace", "log", "color"]}
