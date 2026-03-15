@@ -1045,6 +1045,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dropbox_importer"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "async-trait",
+ "bytes",
+ "dogbox_tree",
+ "dogbox_tree_editor",
+ "dropbox-sdk",
+ "futures",
+ "hex",
+ "hex-literal",
+ "pretty_assertions",
+ "relative-path",
+ "sha2",
+ "test-case",
+ "test-log",
+ "tracing",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1592,6 +1613,12 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hex-literal"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e712f64ec3850b98572bffac52e2c6f282b29fe6c5fa6d42334b30be438d95c1"
 
 [[package]]
 name = "hippeus_parser_generator"
@@ -3872,6 +3899,25 @@ checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "system_tests"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "bytes",
+ "dogbox_tree",
+ "dogbox_tree_editor",
+ "dotenv",
+ "dropbox-sdk",
+ "dropbox_importer",
+ "futures",
+ "pretty_assertions",
+ "test-log",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

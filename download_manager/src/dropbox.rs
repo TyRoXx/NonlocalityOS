@@ -276,10 +276,7 @@ async fn move_files(
             }
         };
         if cursor != list_folder_result.cursor {
-            warn!(
-                "Cursor changed from {} to {}. Normally it doesn't change.",
-                cursor, list_folder_result.cursor
-            );
+            warn!("Dropbox list_folder_continue cursor changed. Normally it doesn't change.");
         }
         cursor = list_folder_result.cursor;
     }

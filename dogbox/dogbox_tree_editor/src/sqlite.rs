@@ -89,8 +89,28 @@ impl<const PAGE_SIZE: usize> Vfs for PagesVfs<PAGE_SIZE> {
             let creation_mode = match opts.access {
                 sqlite_vfs::OpenAccess::Read => FileCreationMode::open_existing(),
                 sqlite_vfs::OpenAccess::Write => FileCreationMode::open_existing(),
-                sqlite_vfs::OpenAccess::Create => FileCreationMode::create(),
-                sqlite_vfs::OpenAccess::CreateNew => FileCreationMode::create_new(),
+                sqlite_vfs::OpenAccess::Create => FileCreationMode::create(
+                    self.editor
+                        .require_empty_file_digest()
+                        .await
+                        .map_err(|err| {
+                            let message = format!("Failed to require_empty_file_digest: {err}");
+                            error!("{}", message);
+                            io::Error::other(message)
+                        })?,
+                    0,
+                ),
+                sqlite_vfs::OpenAccess::CreateNew => FileCreationMode::create_new(
+                    self.editor
+                        .require_empty_file_digest()
+                        .await
+                        .map_err(|err| {
+                            let message = format!("Failed to require_empty_file_digest: {err}");
+                            error!("{}", message);
+                            io::Error::other(message)
+                        })?,
+                    0,
+                ),
             };
             let open_file = self
                 .editor

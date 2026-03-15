@@ -468,32 +468,38 @@ impl OpenDirectoryStatus {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub struct FileCreationMode {
-    pub fail_if_exists: bool,
-    pub fail_if_not_exists: bool,
+#[derive(PartialEq, Debug, Clone)]
+pub enum FileCreationMode {
+    Create {
+        fail_if_exists: bool,
+        initial_content_reference: StrongReference,
+        initial_content_size: u64,
+    },
+    OpenExisting,
 }
 
 impl FileCreationMode {
-    pub fn create_new() -> Self {
-        Self {
+    pub fn create_new(
+        initial_content_reference: StrongReference,
+        initial_content_size: u64,
+    ) -> Self {
+        Self::Create {
             fail_if_exists: true,
-            fail_if_not_exists: false,
+            initial_content_reference,
+            initial_content_size,
         }
     }
 
-    pub fn create() -> Self {
-        Self {
+    pub fn create(initial_content_reference: StrongReference, initial_content_size: u64) -> Self {
+        Self::Create {
             fail_if_exists: false,
-            fail_if_not_exists: false,
+            initial_content_reference,
+            initial_content_size,
         }
     }
 
     pub fn open_existing() -> Self {
-        Self {
-            fail_if_exists: false,
-            fail_if_not_exists: true,
-        }
+        Self::OpenExisting
     }
 }
 
@@ -631,67 +637,75 @@ impl OpenDirectory {
     pub async fn open_file(
         self: Arc<OpenDirectory>,
         name: &FileName,
-        empty_file_reference: &StrongReference,
         creation_mode: FileCreationMode,
     ) -> Result<Arc<OpenFile>> {
         let mut state_locked = self.state.lock().await;
         state_locked.record_access((self.clock)());
         match state_locked.names.get_mut(name) {
             Some(found) => {
-                if creation_mode.fail_if_exists {
-                    Err(Error::FileAlreadyExists(name.clone()))
-                } else {
-                    match found {
-                        NamedEntry::NotOpen(meta_data, strong_reference) => match meta_data.kind {
-                            DirectoryEntryKind::Directory => {
-                                warn!(
-                                    "Cannot open directory {} (currently not open) as a regular file.",
-                                    &name
-                                );
-                                Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
-                            }
-                            DirectoryEntryKind::File(length) => {
-                                debug!(
-                                    "Opening file of size {} and content {} for reading.",
-                                    length, strong_reference
-                                );
-                                let open_file = Arc::new(OpenFile::new(
-                                    OpenFileContentBuffer::from_storage(
-                                        strong_reference.clone(),
-                                        length,
-                                        self.open_file_write_buffer_in_blocks,
-                                    ),
-                                    self.storage.clone(),
-                                    meta_data.modified,
-                                ));
-                                let receiver = open_file.watch().await;
-                                let mut new_entry =
-                                    NamedEntry::OpenRegularFile(open_file.clone(), receiver);
-                                self.clone().watch_new_entry(&mut new_entry);
-                                *found = new_entry;
-                                Ok(open_file)
-                            }
-                        },
-                        NamedEntry::OpenRegularFile(open_file, _) => Ok(open_file.clone()),
-                        NamedEntry::OpenSubdirectory(_, _) => {
+                if let FileCreationMode::Create {
+                    fail_if_exists,
+                    initial_content_reference: _,
+                    initial_content_size: _,
+                } = creation_mode
+                {
+                    if fail_if_exists {
+                        return Err(Error::FileAlreadyExists(name.clone()));
+                    }
+                }
+                match found {
+                    NamedEntry::NotOpen(meta_data, strong_reference) => match meta_data.kind {
+                        DirectoryEntryKind::Directory => {
                             warn!(
-                                "Cannot open directory {} (currently open) as a regular file.",
+                                "Cannot open directory {} (currently not open) as a regular file.",
                                 &name
                             );
                             Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
                         }
+                        DirectoryEntryKind::File(length) => {
+                            debug!(
+                                "Opening file of size {} and content {} for reading.",
+                                length, strong_reference
+                            );
+                            let open_file = Arc::new(OpenFile::new(
+                                OpenFileContentBuffer::from_storage(
+                                    strong_reference.clone(),
+                                    length,
+                                    self.open_file_write_buffer_in_blocks,
+                                ),
+                                self.storage.clone(),
+                                meta_data.modified,
+                            ));
+                            let receiver = open_file.watch().await;
+                            let mut new_entry =
+                                NamedEntry::OpenRegularFile(open_file.clone(), receiver);
+                            self.clone().watch_new_entry(&mut new_entry);
+                            *found = new_entry;
+                            Ok(open_file)
+                        }
+                    },
+                    NamedEntry::OpenRegularFile(open_file, _) => Ok(open_file.clone()),
+                    NamedEntry::OpenSubdirectory(_, _) => {
+                        warn!(
+                            "Cannot open directory {} (currently open) as a regular file.",
+                            &name
+                        );
+                        Err(Error::CannotOpenDirectoryAsRegularFile(name.clone()))
                     }
                 }
             }
-            None => {
-                if creation_mode.fail_if_not_exists {
-                    Err(Error::NotFound(name.clone()))
-                } else {
+            None => match creation_mode {
+                FileCreationMode::OpenExisting => Err(Error::NotFound(name.clone())),
+                FileCreationMode::Create {
+                    fail_if_exists: _,
+                    initial_content_reference,
+                    initial_content_size,
+                } => {
                     let modified = (self.clock)();
                     let open_file = Arc::new(OpenFile::new(
                         OpenFileContentBuffer::from_storage(
-                            empty_file_reference.clone(),
-                            0,
+                            initial_content_reference,
+                            initial_content_size,
                             self.open_file_write_buffer_in_blocks,
                         ),
                         self.storage.clone(),
@@ -712,7 +726,7 @@ impl OpenDirectory {
                     .await;
                     Ok(open_file)
                 }
-            }
+            },
         }
     }
 
@@ -786,7 +800,7 @@ impl OpenDirectory {
         )))
     }
 
-    async fn open_subdirectory(
+    pub async fn open_subdirectory(
         self: Arc<OpenDirectory>,
         name: FileName,
     ) -> Result<Arc<OpenDirectory>> {
@@ -2272,6 +2286,9 @@ pub enum OpenFileContentBuffer {
     Loaded(OpenFileContentBufferLoaded),
 }
 
+// about 13 MB
+pub const DEFAULT_WRITE_BUFFER_IN_BLOCKS: usize = 200;
+
 impl OpenFileContentBuffer {
     pub fn from_storage(
         reference: StrongReference,
@@ -3140,10 +3157,7 @@ impl TreeEditor {
                         Ok(opened) => opened,
                         Err(error) => return Err(error),
                     };
-                    let empty_file_reference = self.require_empty_file_digest().await?;
-                    directory
-                        .open_file(&file_name, &empty_file_reference, creation_mode)
-                        .await
+                    directory.open_file(&file_name, creation_mode).await
                 })
             }
         }
@@ -3186,7 +3200,7 @@ impl TreeEditor {
         }
     }
 
-    async fn require_empty_file_digest(&self) -> Result<StrongReference> {
+    pub async fn require_empty_file_digest(&self) -> Result<StrongReference> {
         let mut empty_file_reference_locked: MutexGuard<'_, Option<StrongReference>> =
             self.empty_file_reference.lock().await;
         match &*empty_file_reference_locked {

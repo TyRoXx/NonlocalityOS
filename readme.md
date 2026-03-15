@@ -24,7 +24,7 @@
 
 # Tests
 
-## Run tests once
+## Run unit/integration tests once
 
 * `cargo nextest run`
 
@@ -45,6 +45,16 @@
 ### Windows
 
 * `watch_cargo_tests.bat`
+
+## Run system tests
+
+### Linux
+
+* run `download_manager` and follow the instructions from the output to get Dropbox auth info
+* copy `.env.template` as `.env` in the root of the repository
+* put the Dropbox auth info into the respective variables in `.env`
+* `./system_tests.sh`
+* at the end you should either see `✓ System tests passed` or `✗ System tests failed` in the console output
 
 # Test coverage
 
