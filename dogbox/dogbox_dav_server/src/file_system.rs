@@ -384,15 +384,6 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         if options.append {
             todo!()
         }
-        let creation_mode = if options.create {
-            if options.create_new {
-                dogbox_tree_editor::FileCreationMode::create_new()
-            } else {
-                dogbox_tree_editor::FileCreationMode::create()
-            }
-        } else {
-            dogbox_tree_editor::FileCreationMode::open_existing()
-        };
         if options.checksum.is_some() {
             todo!()
         }
@@ -404,6 +395,22 @@ impl dav_server::fs::DavFileSystem for DogBoxFileSystem {
         Box::pin(async move {
             let converted_path = convert_path(path)?;
             let normalized_path = normalize_path(path)?;
+            let creation_mode = if options.create {
+                let empty_file_reference = match self.editor.require_empty_file_digest().await {
+                    Ok(success) => success,
+                    Err(error) => {
+                        error!("Could not get empty file digest: {}", error);
+                        return Err(FsError::GeneralFailure);
+                    }
+                };
+                if options.create_new {
+                    dogbox_tree_editor::FileCreationMode::create_new(empty_file_reference, 0)
+                } else {
+                    dogbox_tree_editor::FileCreationMode::create(empty_file_reference, 0)
+                }
+            } else {
+                dogbox_tree_editor::FileCreationMode::open_existing()
+            };
             let open_file = match self.editor.open_file(normalized_path, creation_mode).await {
                 Ok(success) => success,
                 Err(error) => {

@@ -161,10 +161,11 @@ async fn test_vfs_exists_cannot_open_file_as_directory() {
             .unwrap(),
     );
     let editor = TreeEditor::new(directory.clone(), None);
+    let empty_file_reference = editor.require_empty_file_digest().await.unwrap();
     editor
         .open_file(
             NormalizedPath::try_from(RelativePath::new("/test")).unwrap(),
-            FileCreationMode::create_new(),
+            FileCreationMode::create_new(empty_file_reference, 0),
         )
         .await
         .unwrap();

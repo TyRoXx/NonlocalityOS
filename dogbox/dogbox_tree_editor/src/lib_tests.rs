@@ -399,8 +399,7 @@ async fn test_open_directory_open_file() {
         .clone()
         .open_file(
             &file_name,
-            &empty_file_reference,
-            FileCreationMode::create_new(),
+            FileCreationMode::create_new(empty_file_reference, 0),
         )
         .await
         .unwrap();
@@ -447,11 +446,7 @@ async fn test_open_directory_open_file_not_found() {
     let file_name = FileName::try_from("test.txt".to_string()).unwrap();
     match directory
         .clone()
-        .open_file(
-            &file_name,
-            &empty_file_reference,
-            FileCreationMode::open_existing(),
-        )
+        .open_file(&file_name, FileCreationMode::open_existing())
         .await
     {
         Ok(_) => panic!("Unexpectedly opened non-existing file"),
@@ -523,8 +518,7 @@ async fn test_open_directory_drop_all_read_caches() {
         .clone()
         .open_file(
             &FileName::try_from("a.txt".to_string()).unwrap(),
-            &empty_file_reference,
-            FileCreationMode::create_new(),
+            FileCreationMode::create_new(empty_file_reference.clone(), 0),
         )
         .await
         .unwrap();
@@ -533,8 +527,7 @@ async fn test_open_directory_drop_all_read_caches() {
         .clone()
         .open_file(
             &FileName::try_from("b.txt".to_string()).unwrap(),
-            &empty_file_reference,
-            FileCreationMode::create_new(),
+            FileCreationMode::create_new(empty_file_reference, 0),
         )
         .await
         .unwrap();
@@ -613,8 +606,7 @@ async fn test_read_directory_after_file_write() {
         .clone()
         .open_file(
             &file_name,
-            &empty_file_reference,
-            FileCreationMode::create_new(),
+            FileCreationMode::create_new(empty_file_reference, 0),
         )
         .await
         .unwrap();
@@ -659,8 +651,7 @@ async fn test_read_file_after_garbage_collection() {
             .clone()
             .open_file(
                 &file_name,
-                &empty_file_reference,
-                FileCreationMode::create_new(),
+                FileCreationMode::create_new(empty_file_reference.clone(), 0),
             )
             .await
             .unwrap();
@@ -679,11 +670,7 @@ async fn test_read_file_after_garbage_collection() {
     // Reopen the file to load the content digests, but not the actual content trees.
     let opened_file = directory
         .clone()
-        .open_file(
-            &file_name,
-            &empty_file_reference,
-            FileCreationMode::open_existing(),
-        )
+        .open_file(&file_name, FileCreationMode::open_existing())
         .await
         .unwrap();
     let read_permission = opened_file.get_read_permission();
@@ -777,8 +764,7 @@ async fn test_get_meta_data_after_file_write() {
         .clone()
         .open_file(
             &file_name,
-            &empty_file_reference,
-            FileCreationMode::create_new(),
+            FileCreationMode::create_new(empty_file_reference, 0),
         )
         .await
         .unwrap();
@@ -1058,10 +1044,11 @@ async fn test_open_file_on_directory() {
         ),
         None,
     );
+    let empty_file_reference = editor.require_empty_file_digest().await.unwrap();
     match editor
         .open_file(
             NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap(),
-            FileCreationMode::create(),
+            FileCreationMode::create(empty_file_reference, 0),
         )
         .await
     {
@@ -1160,8 +1147,12 @@ async fn test_create_directory_over_existing_file() {
     let root = Arc::new(open_directory_from_entries(vec![], storage).await);
     let editor = TreeEditor::new(root.clone(), None);
     let path = NormalizedPath::try_from(relative_path::RelativePath::new("/test")).unwrap();
+    let empty_file_reference = editor.require_empty_file_digest().await.unwrap();
     editor
-        .open_file(path.clone(), FileCreationMode::create_new())
+        .open_file(
+            path.clone(),
+            FileCreationMode::create_new(empty_file_reference, 0),
+        )
         .await
         .unwrap();
     // create directory over existing file:

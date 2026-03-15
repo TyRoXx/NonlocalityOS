@@ -6,6 +6,7 @@ use astraea::{
 use dav_server::{fakels::FakeLs, DavHandler};
 use dogbox_tree_editor::{
     DigestStatus, OpenDirectory, OpenDirectoryStatus, OpenFileStats, WallClock,
+    DEFAULT_WRITE_BUFFER_IN_BLOCKS,
 };
 use file_system::DogBoxFileSystem;
 use hyper::{body, server::conn::http1, Request};
@@ -366,7 +367,7 @@ pub async fn run_dav_server(
     }
     let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);
     let root_name = "latest";
-    let open_file_write_buffer_in_blocks = 200;
+    let open_file_write_buffer_in_blocks = DEFAULT_WRITE_BUFFER_IN_BLOCKS;
     let root_path = std::path::PathBuf::from("/");
     let root: Arc<OpenDirectory> = match blob_storage_database.load_root(root_name).await? {
         Some(found) => {
