@@ -52,20 +52,17 @@ async fn clear_or_create_directory(
     }
 }
 
-pub async fn test_dropbox_importer(
-    dropbox_api_app_key: &str,
-    dropbox_oauth: &str,
+async fn verify_import(
+    dropbox_client: &UserAuthDefaultClient,
     dropbox_test_directory: &str,
+    expected_digest: &BlobDigest,
 ) {
-    let importer = dropbox_importer::DropboxImporter {};
-    let auth = Authorization::load(dropbox_api_app_key.to_string(), dropbox_oauth)
-        .expect("Failed to load Dropbox authorization");
-    let dropbox_client = UserAuthDefaultClient::new(auth);
     clear_or_create_directory(&dropbox_client, dropbox_test_directory)
         .await
         .expect("Failed to clear or create Dropbox test directory");
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let importer = dropbox_importer::DropboxImporter {};
     let open_directory = importer
         .import_directory(&dropbox_client, dropbox_test_directory, storage, clock)
         .await
@@ -75,10 +72,18 @@ pub async fn test_dropbox_importer(
         .await
         .expect("Failed to save imported directory");
     assert!(status.digest.is_digest_up_to_date);
-    assert_eq!(
-        &BlobDigest::parse_hex_string(
-            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2")
-            .unwrap(),
-        status.digest.last_known_digest.digest()
-    );
+    assert_eq!(expected_digest, status.digest.last_known_digest.digest());
+}
+
+pub async fn test_dropbox_importer(
+    dropbox_api_app_key: &str,
+    dropbox_oauth: &str,
+    dropbox_test_directory: &str,
+) {
+    let auth = Authorization::load(dropbox_api_app_key.to_string(), dropbox_oauth)
+        .expect("Failed to load Dropbox authorization");
+    let dropbox_client = UserAuthDefaultClient::new(auth);
+    verify_import(&dropbox_client, dropbox_test_directory, &BlobDigest::parse_hex_string(
+        "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a2701a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2")
+        .unwrap()).await;
 }
