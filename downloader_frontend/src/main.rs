@@ -47,7 +47,7 @@ fn App() -> impl IntoView {
                     .collect_view()
             }
         </ul>
-        <p>"Itmes in queue: " {move || state.get().items.len()}</p>
+        <p>"Items in queue: " {move || state.get().items.len()}</p>
         <form style="display: flex; gap: 1rem" 
             on:submit=move |ev| {
                 ev.prevent_default();
