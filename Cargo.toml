@@ -10,6 +10,7 @@ members=[
     "hippeus_parser_generator",
     "totp_example",
     "download_manager",
+    "download_manager_frontend",
     "dogbox/dogbox_tree",
     "dogbox/dogbox_tree_editor",
     "dogbox/dogbox_dav_server",

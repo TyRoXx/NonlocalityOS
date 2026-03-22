@@ -1,0 +1,12 @@
+[package]
+name = "download_manager_frontend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+console_error_panic_hook = "0"
+leptos = { version = "0", features = ["csr"] }
+leptos-use = {version= "0", default-features = false, features = ["storage", "docs"]}
+serde = { version = "1", features = ["derive"] }
+codee = "0"
+wasm-bindgen = "0"
