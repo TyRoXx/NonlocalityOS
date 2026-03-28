@@ -333,7 +333,21 @@ pub async fn test_dropbox_importer(
         .expect("Failed to load Dropbox authorization");
     let dropbox_client = Arc::new(UserAuthDefaultClient::new(auth));
 
-    verify_illegal_character_handling(&dropbox_client, dropbox_test_directory).await;
+    create_and_import_and_verify(
+        "Empty subdirectory",
+        &dropbox_client,
+        dropbox_test_directory,
+        BTreeMap::from([(
+            FileName::try_from("sub").unwrap(),
+            ExpectedDirectoryEntryKind::Directory,
+        )]),
+        &BlobDigest::parse_hex_string(concat!(
+            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a27",
+            "01a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
+        ))
+        .unwrap(),
+    )
+    .await;
 
     create_and_import_and_verify(
         "Empty directory",
@@ -385,4 +399,6 @@ pub async fn test_dropbox_importer(
         .unwrap(),
     )
     .await;
+
+    verify_illegal_character_handling(&dropbox_client, dropbox_test_directory).await;
 }

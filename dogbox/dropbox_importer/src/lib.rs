@@ -1,9 +1,10 @@
 use astraea::{storage::LoadStoreTree, tree::TREE_BLOB_MAX_LENGTH};
 use bytes::Bytes;
 use dogbox_tree::serialization::{FileName, FileNameError};
-use dogbox_tree_editor::{FileCreationMode, OpenDirectory, TreeEditor, WallClock};
+use dogbox_tree_editor::{FileCreationMode, NormalizedPath, OpenDirectory, TreeEditor, WallClock};
 use dropbox_sdk::{async_routes::files, default_async_client::UserAuthDefaultClient};
 use futures::io::AsyncReadExt;
+use relative_path::RelativePath;
 use std::{path::PathBuf, sync::Arc};
 use tracing::{error, info, warn};
 
@@ -115,98 +116,131 @@ async fn import_file(
     Ok(ImportFileOutcome::Success)
 }
 
-pub struct DropboxImporter {}
+enum ImportFolderOutcome {
+    Success,
+    UnsupportedFileName(FileNameError),
+}
 
-impl DropboxImporter {
-    pub async fn import_directory(
-        &self,
-        dropbox_client: &UserAuthDefaultClient,
-        from_directory: &str,
-        storage: Arc<dyn LoadStoreTree + Send + Sync>,
-        clock: WallClock,
-    ) -> std::io::Result<Arc<OpenDirectory>> {
-        let open_directory = Arc::new(
-            OpenDirectory::create_directory(
-                PathBuf::new(),
-                storage.clone(),
-                clock,
-                /*don't know which number would be good*/ 64,
-            )
-            .await
-            .expect("Failed to create root directory in storage"),
-        );
-        info!("Listing Dropbox directory {}", from_directory);
-        let mut list_folder_result = match files::list_folder(
+async fn import_folder(
+    dropbox_client: &UserAuthDefaultClient,
+    from_directory: &str,
+    metadata: &files::FolderMetadata,
+    into_directory: &Arc<OpenDirectory>,
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    clock: WallClock,
+) -> std::io::Result<ImportFolderOutcome> {
+    let relative_path = match NormalizedPath::try_from(RelativePath::new(metadata.name.as_str())) {
+        Ok(success) => success,
+        Err(e) => {
+            info!("Unsupported folder name {}: {e}", metadata.name);
+            return Ok(ImportFolderOutcome::UnsupportedFileName(e));
+        }
+    };
+    let open_subdirectory = import_directory(
+        dropbox_client,
+        &format!("{}/{}", from_directory, metadata.name),
+        storage,
+        clock,
+    )
+    .await?;
+    Ok(ImportFolderOutcome::Success)
+}
+
+pub async fn import_directory(
+    dropbox_client: &UserAuthDefaultClient,
+    from_directory: &str,
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    clock: WallClock,
+) -> std::io::Result<Arc<OpenDirectory>> {
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(
+            PathBuf::new(),
+            storage.clone(),
+            clock,
+            /*don't know which number would be good*/ 64,
+        )
+        .await
+        .expect("Failed to create root directory in storage"),
+    );
+    info!("Listing Dropbox directory {}", from_directory);
+    let mut list_folder_result = match files::list_folder(
+        dropbox_client,
+        &files::ListFolderArg::new(from_directory.to_string()).with_recursive(false),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(e) => {
+            error!("Error from list_folder: {e}");
+            todo!()
+        }
+    };
+    let mut cursor = list_folder_result.cursor;
+    loop {
+        info!("Directory entries: {}", list_folder_result.entries.len());
+        for entry in list_folder_result.entries {
+            match entry {
+                files::Metadata::Folder(entry) => {
+                    info!("Folder entry: {}", entry.name);
+                    import_folder(
+                        dropbox_client,
+                        from_directory,
+                        &entry,
+                        &open_directory,
+                        storage.clone(),
+                    )
+                    .await?;
+                }
+                files::Metadata::File(entry) => {
+                    info!("File entry: {}", entry.name);
+                    match import_file(
+                        dropbox_client,
+                        from_directory,
+                        &entry,
+                        &open_directory,
+                        storage.clone(),
+                    )
+                    .await?
+                    {
+                        ImportFileOutcome::Success => {
+                            info!("Successfully imported file {}", entry.name);
+                        }
+                        ImportFileOutcome::UnsupportedFileName(e) => {
+                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                            error!(
+                                "Skipping file {} due to unsupported file name: {e}",
+                                entry.name
+                            );
+                        }
+                    }
+                }
+                files::Metadata::Deleted(entry) => {
+                    info!("Ignoring deleted entry: {:?}", entry);
+                }
+            }
+        }
+        if !list_folder_result.has_more {
+            break;
+        }
+        list_folder_result = match files::list_folder_continue(
             dropbox_client,
-            &files::ListFolderArg::new(from_directory.to_string()).with_recursive(false),
+            &files::ListFolderContinueArg::new(cursor.clone()),
         )
         .await
         {
             Ok(result) => result,
             Err(e) => {
-                error!("Error from list_folder: {e}");
+                error!("Error from list_folder_continue: {e}");
                 todo!()
             }
         };
-        let mut cursor = list_folder_result.cursor;
-        loop {
-            info!("Directory entries: {}", list_folder_result.entries.len());
-            for entry in list_folder_result.entries {
-                match entry {
-                    files::Metadata::Folder(_entry) => {
-                        todo!()
-                    }
-                    files::Metadata::File(entry) => {
-                        info!("File entry: {}", entry.name);
-                        match import_file(
-                            dropbox_client,
-                            from_directory,
-                            &entry,
-                            &open_directory,
-                            storage.clone(),
-                        )
-                        .await?
-                        {
-                            ImportFileOutcome::Success => {
-                                info!("Successfully imported file {}", entry.name);
-                            }
-                            ImportFileOutcome::UnsupportedFileName(e) => {
-                                // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                                error!(
-                                    "Skipping file {} due to unsupported file name: {e}",
-                                    entry.name
-                                );
-                            }
-                        }
-                    }
-                    files::Metadata::Deleted(entry) => {
-                        info!("Ignoring deleted entry: {:?}", entry);
-                    }
-                }
-            }
-            if !list_folder_result.has_more {
-                break;
-            }
-            list_folder_result = match files::list_folder_continue(
-                dropbox_client,
-                &files::ListFolderContinueArg::new(cursor.clone()),
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(e) => {
-                    error!("Error from list_folder_continue: {e}");
-                    todo!()
-                }
-            };
-            if cursor != list_folder_result.cursor {
-                warn!(
-                    "Cursor changed from {} to {}. Normally it doesn't change.",
-                    cursor, list_folder_result.cursor
-                );
-            }
-            cursor = list_folder_result.cursor;
+        if cursor != list_folder_result.cursor {
+            warn!(
+                "Cursor changed from {} to {}. Normally it doesn't change.",
+                cursor, list_folder_result.cursor
+            );
         }
-        Ok(open_directory)
+        cursor = list_folder_result.cursor;
     }
+    Ok(open_directory)
 }
