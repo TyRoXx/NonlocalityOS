@@ -4,10 +4,14 @@ mod dropbox_importer_tests;
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     tracing_subscriber::fmt::init();
-    info!(
-        "Working directory: {}",
-        std::env::current_dir().unwrap().display()
-    );
+    let working_dir = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            error!("Failed to determine working directory: {e}");
+            std::process::exit(1);
+        }
+    };
+    info!("Working directory: {}", working_dir.display());
     match dotenv::dotenv() {
         Ok(_) => {}
         Err(e) => {
