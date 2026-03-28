@@ -3895,9 +3895,12 @@ version = "0.1.0"
 dependencies = [
  "astraea",
  "bytes",
+ "dogbox_tree",
+ "dogbox_tree_editor",
  "dotenv",
  "dropbox-sdk",
  "dropbox_importer",
+ "futures",
  "pretty_assertions",
  "test-log",
  "tokio",
