@@ -786,7 +786,7 @@ impl OpenDirectory {
         )))
     }
 
-    async fn open_subdirectory(
+    pub async fn open_subdirectory(
         self: Arc<OpenDirectory>,
         name: FileName,
     ) -> Result<Arc<OpenDirectory>> {

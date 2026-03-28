@@ -13,8 +13,10 @@ members=[
     "dogbox/dogbox_tree",
     "dogbox/dogbox_tree_editor",
     "dogbox/dogbox_dav_server",
+    "dogbox/dropbox_importer",
     "fuzz",
     "hello_llm",
+    "system_tests",
 ]
 resolver="2"
 

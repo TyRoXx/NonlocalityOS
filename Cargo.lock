@@ -1045,6 +1045,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "dropbox_importer"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "bytes",
+ "dogbox_tree",
+ "dogbox_tree_editor",
+ "dropbox-sdk",
+ "futures",
+ "relative-path",
+ "test-case",
+ "test-log",
+ "tracing",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3872,6 +3888,25 @@ checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "system_tests"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "bytes",
+ "dogbox_tree",
+ "dogbox_tree_editor",
+ "dotenv",
+ "dropbox-sdk",
+ "dropbox_importer",
+ "futures",
+ "pretty_assertions",
+ "test-log",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
