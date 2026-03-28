@@ -1,6 +1,6 @@
 use astraea::{storage::LoadStoreTree, tree::TREE_BLOB_MAX_LENGTH};
 use bytes::Bytes;
-use dogbox_tree::serialization::FileName;
+use dogbox_tree::serialization::{FileName, FileNameError};
 use dogbox_tree_editor::{FileCreationMode, OpenDirectory, TreeEditor, WallClock};
 use dropbox_sdk::{async_routes::files, default_async_client::UserAuthDefaultClient};
 use futures::io::AsyncReadExt;
@@ -9,20 +9,25 @@ use tracing::{error, info, warn};
 
 mod lib_tests;
 
+enum ImportFileOutcome {
+    Success,
+    UnsupportedFileName(FileNameError),
+}
+
 async fn import_file(
     dropbox_client: &UserAuthDefaultClient,
     from_directory: &str,
     metadata: &files::FileMetadata,
     into_directory: &Arc<OpenDirectory>,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
-) -> std::io::Result<()> {
-    let file_name = FileName::try_from(metadata.name.clone()).map_err(|e| {
-        error!("Unsupported file name {}: {e}", metadata.name);
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Invalid file name {}: {e}", metadata.name),
-        )
-    })?;
+) -> std::io::Result<ImportFileOutcome> {
+    let file_name = match FileName::try_from(metadata.name.clone()) {
+        Ok(success) => success,
+        Err(e) => {
+            info!("Unsupported file name {}: {e}", metadata.name);
+            return Ok(ImportFileOutcome::UnsupportedFileName(e));
+        }
+    };
     let empty_file_reference = TreeEditor::store_empty_file(storage.clone())
         .await
         .map_err(|e| {
@@ -111,7 +116,7 @@ async fn import_file(
             downloaded_until, file_size, metadata.name
         );
     }
-    Ok(())
+    Ok(ImportFileOutcome::Success)
 }
 
 pub struct DropboxImporter {}
@@ -157,14 +162,26 @@ impl DropboxImporter {
                     }
                     files::Metadata::File(entry) => {
                         info!("File entry: {}", entry.name);
-                        import_file(
+                        match import_file(
                             dropbox_client,
                             from_directory,
                             &entry,
                             &open_directory,
                             storage.clone(),
                         )
-                        .await?;
+                        .await?
+                        {
+                            ImportFileOutcome::Success => {
+                                info!("Successfully imported file {}", entry.name);
+                            }
+                            ImportFileOutcome::UnsupportedFileName(e) => {
+                                // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                                error!(
+                                    "Skipping file {} due to unsupported file name: {e}",
+                                    entry.name
+                                );
+                            }
+                        }
                     }
                     files::Metadata::Deleted(entry) => {
                         info!("Ignoring deleted entry: {:?}", entry);

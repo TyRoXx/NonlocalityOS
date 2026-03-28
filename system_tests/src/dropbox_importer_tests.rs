@@ -226,11 +226,11 @@ async fn create_and_import_and_verify(
         &dropbox_client,
         dropbox_test_directory,
         {
-            let several_files = entries.clone();
+            let entries = entries.clone();
             |client: Arc<UserAuthDefaultClient>, directory: &str| {
                 let directory = directory.to_string();
                 Box::pin(async move {
-                    create_directory_contents(&client, &directory, &several_files).await?;
+                    create_directory_contents(&client, &directory, &entries).await?;
                     Ok(())
                 })
             }
@@ -248,6 +248,56 @@ async fn create_and_import_and_verify(
     .await;
 }
 
+async fn verify_illegal_character_handling(
+    dropbox_client: &Arc<UserAuthDefaultClient>,
+    dropbox_test_directory: &str,
+) {
+    let expected_entries = BTreeMap::from([(
+        FileName::try_from("1.txt").unwrap(),
+        ExpectedDirectoryEntryKind::File(Bytes::from("Hello, world!")),
+    )]);
+    verify_import(
+        "Illegal character handling",
+        &dropbox_client,
+        dropbox_test_directory,
+        {
+            let expected_entries = expected_entries.clone();
+            |client: Arc<UserAuthDefaultClient>, directory: &str| {
+                let directory = directory.to_string();
+                Box::pin(async move {
+                    create_directory_contents(&client, &directory, &expected_entries).await?;
+                    create_file(
+                        &client,
+                        &directory,
+                        "illegal_in_dogbox_>.<",
+                        Bytes::from("test"),
+                    )
+                    .await?;
+                    Ok(())
+                })
+            }
+        },
+        |imported_directory: Arc<OpenDirectory>, empty_file_reference: &StrongReference| {
+            let empty_file_reference = empty_file_reference.clone();
+            Box::pin(async move {
+                assert_directory_contents(
+                    &imported_directory,
+                    &expected_entries,
+                    &empty_file_reference,
+                )
+                .await;
+                Ok(())
+            })
+        },
+        &BlobDigest::parse_hex_string(concat!(
+            "d3d127891bdcd4dd2deceb39391d4f76f13f6fae0fd367c8b20e5eada53b5af2",
+            "5663706bc757215e339cc5ef49d7ac9231d367d1b8a8333778ae1bda765caf76"
+        ))
+        .unwrap(),
+    )
+    .await;
+}
+
 pub async fn test_dropbox_importer(
     dropbox_api_app_key: &str,
     dropbox_oauth: &str,
@@ -256,6 +306,8 @@ pub async fn test_dropbox_importer(
     let auth = Authorization::load(dropbox_api_app_key.to_string(), dropbox_oauth)
         .expect("Failed to load Dropbox authorization");
     let dropbox_client = Arc::new(UserAuthDefaultClient::new(auth));
+
+    verify_illegal_character_handling(&dropbox_client, dropbox_test_directory).await;
 
     create_and_import_and_verify(
         "Empty directory",
