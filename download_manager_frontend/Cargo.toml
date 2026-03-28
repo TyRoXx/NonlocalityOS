@@ -1,0 +1,11 @@
+[package]
+name = "leptos-tutorial"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+console_error_panic_hook = "0.1.7"
+leptos = { version = "0.8.17", features = ["csr"] }
+leptos-use = {version= "0.16.3", default-features = false, features = ["storage", "docs"]}
+serde = "1.0"
+codee = "0.3"
