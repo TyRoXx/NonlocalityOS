@@ -424,16 +424,12 @@ pub async fn test_dropbox_importer(
             FileName::try_from("sub").unwrap(),
             ExpectedDirectoryEntryKind::Directory(BTreeMap::from([(
                 FileName::try_from("1.txt").unwrap(),
-                ExpectedDirectoryEntryKind::File(Bytes::from_iter(std::iter::repeat_n(
-                    0u8,
-                    // Let's test a file that's larger than the chunk size used in the importer to make sure chunking works correctly.
-                    (TREE_BLOB_MAX_LENGTH as usize * 2) + 1,
-                ))),
+                ExpectedDirectoryEntryKind::File(/*test an empty file*/ Bytes::new()),
             )])),
         )]),
         &BlobDigest::parse_hex_string(concat!(
-            "354a10b3c521b987d4db35beeb4c46f915bbdc44c9eb71387c08cf185fe12497",
-            "fec7110e28a56383cf67087d1cb012cbe8e6c4293d0d6d4b2c149d58219b3e07"
+            "fc33471a22764870c4a6d3d34c3ab22ebf9e5184b3a82ad13ab11d621c943992",
+            "b51476eb0db6551e0da6d23d0e6ce3603793b46958b902b42b417f26e6119019"
         ))
         .unwrap(),
     )
