@@ -1,27 +1,26 @@
+use codee::string::JsonSerdeCodec;
 use leptos::prelude::*;
 use leptos_use::storage::use_local_storage;
-use codee::string::JsonSerdeCodec;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
-struct Video{
-    pub url: String
+struct Video {
+    pub url: String,
 }
 impl Video {
     pub fn new(url: String) -> Video {
-        return Video{
-            url: url
-        };
+        Video { url: url };
     }
 }
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
 struct MyState {
-    pub items: Vec<Video>
+    pub items: Vec<Video>,
 }
 
 fn add_video(url: String, set_state: WriteSignal<MyState>) {
-    if url.len() > 0 {
-        let video = Video::new(url.clone());
+    let clean_url = url.trim();
+    if !clean_url.is_empty() {
+        let video = Video::new(clean_url.to_string());
         set_state.update(|list: &mut MyState| list.items.push(video));
     }
 }
@@ -62,8 +61,8 @@ fn App() -> impl IntoView {
                 set_text_value.set(String::new());
             }
         >
-            <input 
-                name="download_url" 
+            <input
+                name="download_url"
                 on:input:target=move |ev| set_text_value.set(ev.target().value())
                 prop:value={text_value}
                 required
@@ -74,7 +73,7 @@ fn App() -> impl IntoView {
                 "Download"
             </button>
         </form>
-    }
+    };
 }
 
 fn main() {
