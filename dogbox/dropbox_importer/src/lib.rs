@@ -178,6 +178,13 @@ async fn import_folder(
         empty_directory_reference,
     ))
     .await?;
+    open_subdirectory.request_save().await.map_err(|e| {
+        error!("Error saving subdirectory {}: {e}", metadata.name);
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to save subdirectory {}: {e}", metadata.name),
+        )
+    })?;
     Ok(ImportFolderOutcome::Success)
 }
 

@@ -208,16 +208,27 @@ async fn read_to_end(open_file: &OpenFile) -> std::io::Result<Bytes> {
     Ok(result)
 }
 
-async fn assert_directory_contents(
+async fn read_directory_recursively(
     open_directory: &Arc<OpenDirectory>,
-    expected_entries: &BTreeMap<FileName, ExpectedDirectoryEntryKind>,
     empty_file_reference: &StrongReference,
-) {
+) -> BTreeMap<FileName, ExpectedDirectoryEntryKind> {
     let mut directory_reader = open_directory.read().await;
     let mut entries = BTreeMap::new();
     while let Some(entry) = directory_reader.next().await {
         let kind = match entry.kind {
-            DirectoryEntryKind::Directory => ExpectedDirectoryEntryKind::Directory(todo!()),
+            DirectoryEntryKind::Directory => {
+                let open_subdirectory = open_directory
+                    .clone()
+                    .open_subdirectory(entry.name.clone())
+                    .await
+                    .expect("Failed to open subdirectory");
+                let sub_entries = Box::pin(read_directory_recursively(
+                    &open_subdirectory,
+                    empty_file_reference,
+                ))
+                .await;
+                ExpectedDirectoryEntryKind::Directory(sub_entries)
+            }
             DirectoryEntryKind::File(size) => {
                 let open_file = open_directory
                     .clone()
@@ -237,6 +248,15 @@ async fn assert_directory_contents(
         };
         entries.insert(entry.name.clone(), kind);
     }
+    entries
+}
+
+async fn assert_directory_contents(
+    open_directory: &Arc<OpenDirectory>,
+    expected_entries: &BTreeMap<FileName, ExpectedDirectoryEntryKind>,
+    empty_file_reference: &StrongReference,
+) {
+    let entries = read_directory_recursively(open_directory, empty_file_reference).await;
     assert_eq!(entries, *expected_entries);
 }
 
@@ -381,15 +401,12 @@ pub async fn test_dropbox_importer(
         &dropbox_client,
         dropbox_test_directory,
         BTreeMap::from([(
-            FileName::try_from("sub").unwrap(),
-            ExpectedDirectoryEntryKind::Directory(BTreeMap::from([(
-                FileName::try_from("1.txt").unwrap(),
-                ExpectedDirectoryEntryKind::File(Bytes::from_iter(std::iter::repeat_n(
-                    0u8,
-                    // Let's test a file that's larger than the chunk size used in the importer to make sure chunking works correctly.
-                    (TREE_BLOB_MAX_LENGTH as usize * 2) + 1,
-                ))),
-            )])),
+            FileName::try_from("1.txt").unwrap(),
+            ExpectedDirectoryEntryKind::File(Bytes::from_iter(std::iter::repeat_n(
+                0u8,
+                // Let's test a file that's larger than the chunk size used in the importer to make sure chunking works correctly.
+                (TREE_BLOB_MAX_LENGTH as usize * 2) + 1,
+            ))),
         )]),
         &BlobDigest::parse_hex_string(concat!(
             "06a969e16edb31e7d384d87af0c30e316122e9f3d616bec3a165cd5a24c86751",
@@ -404,16 +421,19 @@ pub async fn test_dropbox_importer(
         &dropbox_client,
         dropbox_test_directory,
         BTreeMap::from([(
-            FileName::try_from("1.txt").unwrap(),
-            ExpectedDirectoryEntryKind::File(Bytes::from_iter(std::iter::repeat_n(
-                0u8,
-                // Let's test a file that's larger than the chunk size used in the importer to make sure chunking works correctly.
-                (TREE_BLOB_MAX_LENGTH as usize * 2) + 1,
-            ))),
+            FileName::try_from("sub").unwrap(),
+            ExpectedDirectoryEntryKind::Directory(BTreeMap::from([(
+                FileName::try_from("1.txt").unwrap(),
+                ExpectedDirectoryEntryKind::File(Bytes::from_iter(std::iter::repeat_n(
+                    0u8,
+                    // Let's test a file that's larger than the chunk size used in the importer to make sure chunking works correctly.
+                    (TREE_BLOB_MAX_LENGTH as usize * 2) + 1,
+                ))),
+            )])),
         )]),
         &BlobDigest::parse_hex_string(concat!(
-            "06a969e16edb31e7d384d87af0c30e316122e9f3d616bec3a165cd5a24c86751",
-            "9355e54e8dc37530b1be8f512f2b917cb7e5142b3609ed01aea549b1270eb225"
+            "354a10b3c521b987d4db35beeb4c46f915bbdc44c9eb71387c08cf185fe12497",
+            "fec7110e28a56383cf67087d1cb012cbe8e6c4293d0d6d4b2c149d58219b3e07"
         ))
         .unwrap(),
     )

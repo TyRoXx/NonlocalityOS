@@ -3903,7 +3903,6 @@ dependencies = [
  "dropbox_importer",
  "futures",
  "pretty_assertions",
- "relative-path",
  "test-log",
  "tokio",
  "tracing",
