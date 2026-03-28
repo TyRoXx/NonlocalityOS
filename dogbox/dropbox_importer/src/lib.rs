@@ -225,7 +225,7 @@ async fn import_directory_impl(
                         }
                         ImportFolderOutcome::UnsupportedFileName(e) => {
                             // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                            error!(
+                            warn!(
                                 "Skipping folder {} due to unsupported folder name: {e}",
                                 entry.name
                             );
@@ -248,7 +248,7 @@ async fn import_directory_impl(
                         }
                         ImportFileOutcome::UnsupportedFileName(e) => {
                             // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                            error!(
+                            warn!(
                                 "Skipping file {} due to unsupported file name: {e}",
                                 entry.name
                             );
