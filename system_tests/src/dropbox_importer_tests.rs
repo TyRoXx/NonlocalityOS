@@ -33,8 +33,7 @@ async fn clear_or_create_directory(
             }
             _ => {
                 error!("Error deleting directory {}: {e}", path);
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(std::io::Error::other(
                     format!("Failed to delete directory {path}: {e}"),
                 ));
             }
@@ -52,8 +51,7 @@ async fn clear_or_create_directory(
         }
         Err(e) => {
             error!("Error creating directory {}: {e}", path);
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(std::io::Error::other(
                 format!("Failed to create directory {path}: {e}"),
             ))
         }
@@ -90,8 +88,7 @@ async fn create_file(
                 "Error creating file {}/{}: {e}",
                 dropbox_test_directory, file_name
             );
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(std::io::Error::other(
                 format!(
                     "Failed to create file {}/{}: {e}",
                     dropbox_test_directory, file_name
@@ -115,8 +112,7 @@ async fn create_directory_contents(
                     .await
                     .map_err(|e| {
                         error!("Error creating directory {}: {e}", path);
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
+                        std::io::Error::other(
                             format!("Failed to create directory {path}: {e}"),
                         )
                     })?;
@@ -155,7 +151,7 @@ async fn verify_import(
     expected_digest: &BlobDigest,
 ) {
     info!("\n==== verify_import: {} ====", test_case_name);
-    clear_or_create_directory(&dropbox_client, dropbox_test_directory)
+    clear_or_create_directory(dropbox_client, dropbox_test_directory)
         .await
         .expect("Failed to clear or create Dropbox test directory");
     set_up_test_directory(dropbox_client.clone(), dropbox_test_directory)
@@ -167,7 +163,7 @@ async fn verify_import(
         .expect("Storing an empty file should succeed");
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let open_directory =
-        dropbox_importer::import_directory(&dropbox_client, dropbox_test_directory, storage, clock)
+        dropbox_importer::import_directory(dropbox_client, dropbox_test_directory, storage, clock)
             .await
             .expect("Failed to import Dropbox directory");
     let status = open_directory
@@ -197,8 +193,7 @@ async fn read_to_end(open_file: &OpenFile) -> std::io::Result<Bytes> {
             .await
             .map_err(|e| {
                 error!("Error reading file at offset {}: {e}", total_bytes_read);
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                std::io::Error::other(
                     format!("Failed to read file at offset {}: {e}", total_bytes_read),
                 )
             })?;
@@ -269,7 +264,7 @@ async fn create_and_import_and_verify(
 ) {
     verify_import(
         test_case_name,
-        &dropbox_client,
+        dropbox_client,
         dropbox_test_directory,
         {
             let entries = entries.clone();
@@ -304,7 +299,7 @@ async fn verify_illegal_character_handling(
     )]);
     verify_import(
         "Illegal character handling",
-        &dropbox_client,
+        dropbox_client,
         dropbox_test_directory,
         {
             let expected_entries = expected_entries.clone();
@@ -328,8 +323,7 @@ async fn verify_illegal_character_handling(
                     .await
                     .map_err(|e| {
                         error!("Error creating directory {}: {e}", subdirectory_path);
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
+                        std::io::Error::other(
                             format!("Failed to create directory {subdirectory_path}: {e}"),
                         )
                     })?;
@@ -405,7 +399,7 @@ pub async fn test_dropbox_importer(
             ExpectedDirectoryEntryKind::File(Bytes::from_iter(std::iter::repeat_n(
                 0u8,
                 // Let's test a file that's larger than the chunk size used in the importer to make sure chunking works correctly.
-                (TREE_BLOB_MAX_LENGTH as usize * 2) + 1,
+                (TREE_BLOB_MAX_LENGTH * 2) + 1,
             ))),
         )]),
         &BlobDigest::parse_hex_string(concat!(
