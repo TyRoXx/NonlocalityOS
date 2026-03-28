@@ -7,6 +7,8 @@ use futures::io::AsyncReadExt;
 use std::{path::PathBuf, sync::Arc};
 use tracing::{error, info, warn};
 
+mod lib_tests;
+
 async fn import_file(
     dropbox_client: &UserAuthDefaultClient,
     from_directory: &str,
