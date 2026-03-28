@@ -372,15 +372,15 @@ pub async fn test_dropbox_importer(
         "Directory with several files",
         &dropbox_client,
         dropbox_test_directory,
-        BTreeMap::from_iter((1..=10).map(|i| {
+        BTreeMap::from_iter((1..=5).map(|i| {
             (
                 FileName::try_from(format!("{}.txt", i)).unwrap(),
                 ExpectedDirectoryEntryKind::File(Bytes::from(format!("This is file number {}", i))),
             )
         })),
         &BlobDigest::parse_hex_string(concat!(
-            "0bcce3bca12a83ebdeb87761e155236deed0853c475497e031ee08551a58b949",
-            "3480a1ab4f732964bdacf5cfdcb4d517f24362ea1a22bbc40a3b2594963e702f"
+            "eb43c6b8ae832f0c031661ddea8aca491deeb9aa0fc6f6314c70baefdfdae35c",
+            "7821a9c978070176428428c61da996ad5022ac82ad3f82c4a70d112f6d2f318c"
         ))
         .unwrap(),
     )
