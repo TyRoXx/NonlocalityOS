@@ -5,22 +5,22 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
 struct Video {
+    pub id: usize,
     pub url: String,
 }
-impl Video {
-    pub fn new(url: String) -> Video {
-        Video { url: url };
-    }
-}
+
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
 struct MyState {
     pub items: Vec<Video>,
 }
 
-fn add_video(url: String, set_state: WriteSignal<MyState>) {
+fn add_video(id: usize, url: String, set_state: WriteSignal<MyState>) {
     let clean_url = url.trim();
     if !clean_url.is_empty() {
-        let video = Video::new(clean_url.to_string());
+        let video = Video {
+            id,
+            url: clean_url.to_string(),
+        };
         set_state.update(|list: &mut MyState| list.items.push(video));
     }
 }
@@ -38,14 +38,14 @@ fn App() -> impl IntoView {
     return view! {
         <h1>Telegram Download Queue Manager</h1>
         <ul>
-            {// We need a function here to force it to re-render on every call.
-            move ||
-                state.get()
-                    .items
-                    .into_iter()
-                    .map(|video: Video| view!{<li> {video.url} </li>})
-                    .collect_view()
-            }
+            <For
+                // How to get the list of items to iterate over
+                each=move || state.get().items.into_iter()
+                // Generate a key (like an id for the dom for each element
+                key=move |video| video.id
+                // How to render a child
+                children=move |video: Video| view!{<li> {video.url} </li>}
+            />
         </ul>
         <p>"Items in queue: " {move || state.get().items.len()}</p>
         <form style="display: flex; gap: 1rem"
@@ -54,7 +54,7 @@ fn App() -> impl IntoView {
                 ev.prevent_default();
 
                 let value = text_value.get();
-                add_video(value, set_state);
+                add_video(state.get().items.len(), value, set_state);
 
                 // Set new value (independent of old value)
                 // If you want to have the new value be depending on the old one use `update`. See line 25
