@@ -214,6 +214,40 @@ async fn assert_directory_contents(
     assert_eq!(entries, *expected_entries);
 }
 
+async fn create_and_import_and_verify(
+    test_case_name: &str,
+    dropbox_client: &Arc<UserAuthDefaultClient>,
+    dropbox_test_directory: &str,
+    entries: BTreeMap<FileName, ExpectedDirectoryEntryKind>,
+    expected_digest: &BlobDigest,
+) {
+    verify_import(
+        test_case_name,
+        &dropbox_client,
+        dropbox_test_directory,
+        {
+            let several_files = entries.clone();
+            |client: Arc<UserAuthDefaultClient>, directory: &str| {
+                let directory = directory.to_string();
+                Box::pin(async move {
+                    create_directory_contents(&client, &directory, &several_files).await?;
+                    Ok(())
+                })
+            }
+        },
+        |imported_directory: Arc<OpenDirectory>, empty_file_reference: &StrongReference| {
+            let empty_file_reference = empty_file_reference.clone();
+            Box::pin(async move {
+                assert_directory_contents(&imported_directory, &entries, &empty_file_reference)
+                    .await;
+                Ok(())
+            })
+        },
+        expected_digest,
+    )
+    .await;
+}
+
 pub async fn test_dropbox_importer(
     dropbox_api_app_key: &str,
     dropbox_oauth: &str,
@@ -223,123 +257,52 @@ pub async fn test_dropbox_importer(
         .expect("Failed to load Dropbox authorization");
     let dropbox_client = Arc::new(UserAuthDefaultClient::new(auth));
 
-    {
-        let no_entries = BTreeMap::new();
-        verify_import(
-            "Empty directory",
-            &dropbox_client,
-            dropbox_test_directory,
-            {
-                let no_entries = no_entries.clone();
-                |client: Arc<UserAuthDefaultClient>, directory: &str| {
-                    let directory = directory.to_string();
-                    Box::pin(async move {
-                        create_directory_contents(&client, &directory, &no_entries).await?;
-                        Ok(())
-                    })
-                }
-            },
-            |imported_directory: Arc<OpenDirectory>, empty_file_reference: &StrongReference| {
-                let empty_file_reference = empty_file_reference.clone();
-                Box::pin(async move {
-                    assert_directory_contents(
-                        &imported_directory,
-                        &no_entries,
-                        &empty_file_reference,
-                    )
-                    .await;
-                    Ok(())
-                })
-            },
-            &BlobDigest::parse_hex_string(concat!(
-                "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a27",
-                "01a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
-            ))
-            .unwrap(),
-        )
-        .await;
-    }
+    create_and_import_and_verify(
+        "Empty directory",
+        &dropbox_client,
+        dropbox_test_directory,
+        BTreeMap::new(),
+        &BlobDigest::parse_hex_string(concat!(
+            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a27",
+            "01a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
+        ))
+        .unwrap(),
+    )
+    .await;
 
     const HELLO_WORLD_FILE_CONTENT: &str = "Hello, world!";
-    {
-        let one_file = BTreeMap::from([(
+
+    create_and_import_and_verify(
+        "Directory with one file",
+        &dropbox_client,
+        dropbox_test_directory,
+        BTreeMap::from([(
             FileName::try_from("1.txt").unwrap(),
             ExpectedDirectoryEntryKind::File(Bytes::from(HELLO_WORLD_FILE_CONTENT)),
-        )]);
-        verify_import(
-            "Directory with one file",
-            &dropbox_client,
-            dropbox_test_directory,
-            {
-                let one_file = one_file.clone();
-                |client: Arc<UserAuthDefaultClient>, directory: &str| {
-                    let directory = directory.to_string();
-                    Box::pin(async move {
-                        create_directory_contents(&client, &directory, &one_file).await?;
-                        Ok(())
-                    })
-                }
-            },
-            |imported_directory: Arc<OpenDirectory>, empty_file_reference: &StrongReference| {
-                let empty_file_reference = empty_file_reference.clone();
-                Box::pin(async move {
-                    assert_directory_contents(
-                        &imported_directory,
-                        &one_file,
-                        &empty_file_reference,
-                    )
-                    .await;
-                    Ok(())
-                })
-            },
-            &BlobDigest::parse_hex_string(concat!(
-                "d3d127891bdcd4dd2deceb39391d4f76f13f6fae0fd367c8b20e5eada53b5af2",
-                "5663706bc757215e339cc5ef49d7ac9231d367d1b8a8333778ae1bda765caf76"
-            ))
-            .unwrap(),
-        )
-        .await;
-    }
+        )]),
+        &BlobDigest::parse_hex_string(concat!(
+            "d3d127891bdcd4dd2deceb39391d4f76f13f6fae0fd367c8b20e5eada53b5af2",
+            "5663706bc757215e339cc5ef49d7ac9231d367d1b8a8333778ae1bda765caf76"
+        ))
+        .unwrap(),
+    )
+    .await;
 
-    {
-        let several_files = BTreeMap::from_iter((1..=10).map(|i| {
+    create_and_import_and_verify(
+        "Directory with several files",
+        &dropbox_client,
+        dropbox_test_directory,
+        BTreeMap::from_iter((1..=10).map(|i| {
             (
                 FileName::try_from(format!("{}.txt", i)).unwrap(),
                 ExpectedDirectoryEntryKind::File(Bytes::from(HELLO_WORLD_FILE_CONTENT)),
             )
-        }));
-        verify_import(
-            "Directory with several files",
-            &dropbox_client,
-            dropbox_test_directory,
-            {
-                let several_files = several_files.clone();
-                |client: Arc<UserAuthDefaultClient>, directory: &str| {
-                    let directory = directory.to_string();
-                    Box::pin(async move {
-                        create_directory_contents(&client, &directory, &several_files).await?;
-                        Ok(())
-                    })
-                }
-            },
-            |imported_directory: Arc<OpenDirectory>, empty_file_reference: &StrongReference| {
-                let empty_file_reference = empty_file_reference.clone();
-                Box::pin(async move {
-                    assert_directory_contents(
-                        &imported_directory,
-                        &several_files,
-                        &empty_file_reference,
-                    )
-                    .await;
-                    Ok(())
-                })
-            },
-            &BlobDigest::parse_hex_string(concat!(
-                "3e76abda096565975ed4a5db425a4c5fae376ffc943673830e90e24ec772b702",
-                "e8d88c01d86292f465cc59bbca8456392bbd1d692c34656eacc276a4810ce77d"
-            ))
-            .unwrap(),
-        )
-        .await;
-    }
+        })),
+        &BlobDigest::parse_hex_string(concat!(
+            "3e76abda096565975ed4a5db425a4c5fae376ffc943673830e90e24ec772b702",
+            "e8d88c01d86292f465cc59bbca8456392bbd1d692c34656eacc276a4810ce77d"
+        ))
+        .unwrap(),
+    )
+    .await;
 }
