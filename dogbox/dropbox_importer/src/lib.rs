@@ -1,4 +1,4 @@
-use astraea::storage::LoadStoreTree;
+use astraea::{storage::LoadStoreTree, tree::TREE_BLOB_MAX_LENGTH};
 use bytes::Bytes;
 use dogbox_tree::serialization::{FileName, FileNameError};
 use dogbox_tree_editor::{FileCreationMode, OpenDirectory, TreeEditor, WallClock};
@@ -71,30 +71,45 @@ async fn import_file(
     };
 
     assert_eq!(Some(file_size), response.content_length);
+    let mut total_bytes_read = 0;
     let mut stream = response.body.expect("Failed to get response body");
-    let mut buffer = Vec::new();
-    stream.read_to_end(&mut buffer).await.map_err(|e| {
-        error!("Error reading download stream for {}: {e}", metadata.name);
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "Failed to read download stream for file {}: {e}",
-                metadata.name
-            ),
-        )
-    })?;
-    assert_eq!(file_size, buffer.len() as u64);
-
-    open_file
-        .write_bytes(&write_permission, 0, Bytes::from(buffer))
-        .await
-        .map_err(|e| {
-            error!("Error writing to file {}: {e}", metadata.name);
+    loop {
+        let remaining_bytes = file_size - total_bytes_read;
+        if remaining_bytes == 0 {
+            break;
+        }
+        let chunk_size = std::cmp::min(
+            remaining_bytes,
+            /*use chunk size preferred by Dogbox for efficiency*/
+            TREE_BLOB_MAX_LENGTH as u64,
+        ) as usize;
+        let mut buffer = vec![0u8; chunk_size];
+        stream.read(&mut buffer).await.map_err(|e| {
+            error!("Error reading download stream for {}: {e}", metadata.name);
             std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("Failed to write to file {}: {e}", metadata.name),
+                format!(
+                    "Failed to read download stream for file {}: {e}",
+                    metadata.name
+                ),
             )
         })?;
+        assert_eq!(file_size, buffer.len() as u64);
+
+        let read_size = buffer.len() as u64;
+        open_file
+            .write_bytes(&write_permission, total_bytes_read, Bytes::from(buffer))
+            .await
+            .map_err(|e| {
+                error!("Error writing to file {}: {e}", metadata.name);
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to write to file {}: {e}", metadata.name),
+                )
+            })?;
+        total_bytes_read += read_size;
+        assert!(total_bytes_read <= file_size);
+    }
     info!("Downloaded {} bytes for {}", file_size, metadata.name);
     Ok(ImportFileOutcome::Success)
 }
