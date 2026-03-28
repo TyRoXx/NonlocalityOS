@@ -143,6 +143,37 @@ enum ExpectedDirectoryEntryKind {
     File(Bytes),
 }
 
+async fn create_directory_contents(
+    open_directory: &Arc<OpenDirectory>,
+    created_entries: &BTreeMap<FileName, ExpectedDirectoryEntryKind>,
+    empty_file_reference: &StrongReference,
+    empty_directory_reference: &StrongReference,
+) {
+    for (name, kind) in created_entries.iter() {
+        match kind {
+            ExpectedDirectoryEntryKind::Directory => {
+                open_directory
+                    .clone()
+                    .create_subdirectory(name.clone(), empty_directory_reference)
+                    .await
+                    .expect("Failed to create directory");
+            }
+            ExpectedDirectoryEntryKind::File(contents) => {
+                let open_file = open_directory
+                    .clone()
+                    .open_file(name, empty_file_reference, FileCreationMode::create_new())
+                    .await
+                    .expect("Failed to create file");
+                let write_permission = open_file.get_write_permission();
+                open_file
+                    .write_bytes(&write_permission, 0, contents.clone())
+                    .await
+                    .expect("Writing should succeed");
+            }
+        }
+    }
+}
+
 async fn assert_directory_contents(
     open_directory: &Arc<OpenDirectory>,
     expected_entries: &BTreeMap<FileName, ExpectedDirectoryEntryKind>,
@@ -250,6 +281,50 @@ pub async fn test_dropbox_importer(
         &BlobDigest::parse_hex_string(concat!(
             "d3d127891bdcd4dd2deceb39391d4f76f13f6fae0fd367c8b20e5eada53b5af2",
             "5663706bc757215e339cc5ef49d7ac9231d367d1b8a8333778ae1bda765caf76"
+        ))
+        .unwrap(),
+    )
+    .await;
+
+    verify_import(
+        "Directory with several files",
+        &dropbox_client,
+        dropbox_test_directory,
+        |client: Arc<UserAuthDefaultClient>, directory: &str| {
+            let directory = directory.to_string();
+            Box::pin(async move {
+                for i in 1..=10 {
+                    create_file(
+                        &client,
+                        &directory,
+                        &format!("{}.txt", i),
+                        Bytes::from(HELLO_WORLD_FILE_CONTENT),
+                    )
+                    .await?;
+                }
+                Ok(())
+            })
+        },
+        |imported_directory: Arc<OpenDirectory>, empty_file_reference: &StrongReference| {
+            let empty_file_reference = empty_file_reference.clone();
+            Box::pin(async move {
+                assert_directory_contents(
+                    &imported_directory,
+                    &BTreeMap::from_iter((1..=10).map(|i| {
+                        (
+                            FileName::try_from(format!("{}.txt", i)).unwrap(),
+                            ExpectedDirectoryEntryKind::File(Bytes::from(HELLO_WORLD_FILE_CONTENT)),
+                        )
+                    })),
+                    &empty_file_reference,
+                )
+                .await;
+                Ok(())
+            })
+        },
+        &BlobDigest::parse_hex_string(concat!(
+            "3e76abda096565975ed4a5db425a4c5fae376ffc943673830e90e24ec772b702",
+            "e8d88c01d86292f465cc59bbca8456392bbd1d692c34656eacc276a4810ce77d"
         ))
         .unwrap(),
     )
