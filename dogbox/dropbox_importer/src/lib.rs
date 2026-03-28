@@ -11,8 +11,6 @@ use relative_path::RelativePath;
 use std::{path::PathBuf, sync::Arc};
 use tracing::{error, info, warn};
 
-mod lib_tests;
-
 enum ImportFileOutcome {
     Success,
     UnsupportedFileName(FileNameError),
