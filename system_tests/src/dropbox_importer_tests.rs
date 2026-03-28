@@ -62,7 +62,7 @@ async fn clear_or_create_directory(
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum ExpectedDirectoryEntryKind {
-    Directory,
+    Directory(BTreeMap<FileName, ExpectedDirectoryEntryKind>),
     File(Bytes),
 }
 
@@ -108,7 +108,7 @@ async fn create_directory_contents(
 ) -> std::io::Result<()> {
     for (file_name, kind) in expected_entries {
         match kind {
-            ExpectedDirectoryEntryKind::Directory => {
+            ExpectedDirectoryEntryKind::Directory(entries) => {
                 let path = format!("{}/{}", dropbox_test_directory, file_name.as_str());
                 use dropbox_sdk::async_routes::files;
                 files::create_folder_v2(dropbox_client, &files::CreateFolderArg::new(path.clone()))
@@ -120,6 +120,7 @@ async fn create_directory_contents(
                             format!("Failed to create directory {path}: {e}"),
                         )
                     })?;
+                Box::pin(create_directory_contents(dropbox_client, &path, entries)).await?;
             }
             ExpectedDirectoryEntryKind::File(contents) => {
                 create_file(
@@ -216,7 +217,7 @@ async fn assert_directory_contents(
     let mut entries = BTreeMap::new();
     while let Some(entry) = directory_reader.next().await {
         let kind = match entry.kind {
-            DirectoryEntryKind::Directory => ExpectedDirectoryEntryKind::Directory,
+            DirectoryEntryKind::Directory => ExpectedDirectoryEntryKind::Directory(todo!()),
             DirectoryEntryKind::File(size) => {
                 let open_file = open_directory
                     .clone()
@@ -347,22 +348,6 @@ pub async fn test_dropbox_importer(
     let dropbox_client = Arc::new(UserAuthDefaultClient::new(auth));
 
     create_and_import_and_verify(
-        "Empty subdirectory",
-        &dropbox_client,
-        dropbox_test_directory,
-        BTreeMap::from([(
-            FileName::try_from("sub").unwrap(),
-            ExpectedDirectoryEntryKind::Directory,
-        )]),
-        &BlobDigest::parse_hex_string(concat!(
-            "b275ce35f86326429e948f66f69c42f78358c371c02761ad6628e963dcf6a1fe",
-            "7d8f8f87ed9cb78cdd2025f22b7c2262ef1b70ed69da7bcd032c91dc2831e9c8"
-        ))
-        .unwrap(),
-    )
-    .await;
-
-    create_and_import_and_verify(
         "Empty directory",
         &dropbox_client,
         dropbox_test_directory,
@@ -376,7 +361,46 @@ pub async fn test_dropbox_importer(
     .await;
 
     create_and_import_and_verify(
+        "Empty subdirectory",
+        &dropbox_client,
+        dropbox_test_directory,
+        BTreeMap::from([(
+            FileName::try_from("sub").unwrap(),
+            ExpectedDirectoryEntryKind::Directory(BTreeMap::new()),
+        )]),
+        &BlobDigest::parse_hex_string(concat!(
+            "b275ce35f86326429e948f66f69c42f78358c371c02761ad6628e963dcf6a1fe",
+            "7d8f8f87ed9cb78cdd2025f22b7c2262ef1b70ed69da7bcd032c91dc2831e9c8"
+        ))
+        .unwrap(),
+    )
+    .await;
+
+    create_and_import_and_verify(
         "Directory with one file",
+        &dropbox_client,
+        dropbox_test_directory,
+        BTreeMap::from([(
+            FileName::try_from("sub").unwrap(),
+            ExpectedDirectoryEntryKind::Directory(BTreeMap::from([(
+                FileName::try_from("1.txt").unwrap(),
+                ExpectedDirectoryEntryKind::File(Bytes::from_iter(std::iter::repeat_n(
+                    0u8,
+                    // Let's test a file that's larger than the chunk size used in the importer to make sure chunking works correctly.
+                    (TREE_BLOB_MAX_LENGTH as usize * 2) + 1,
+                ))),
+            )])),
+        )]),
+        &BlobDigest::parse_hex_string(concat!(
+            "06a969e16edb31e7d384d87af0c30e316122e9f3d616bec3a165cd5a24c86751",
+            "9355e54e8dc37530b1be8f512f2b917cb7e5142b3609ed01aea549b1270eb225"
+        ))
+        .unwrap(),
+    )
+    .await;
+
+    create_and_import_and_verify(
+        "Subdirectory with one file",
         &dropbox_client,
         dropbox_test_directory,
         BTreeMap::from([(
