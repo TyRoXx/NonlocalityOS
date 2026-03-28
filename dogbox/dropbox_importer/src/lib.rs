@@ -34,9 +34,10 @@ async fn import_file(
         .await
         .map_err(|e| {
             error!("Error storing empty file for {}: {e}", metadata.name);
-            std::io::Error::other(
-                format!("Failed to store empty file for {}: {e}", metadata.name),
-            )
+            std::io::Error::other(format!(
+                "Failed to store empty file for {}: {e}",
+                metadata.name
+            ))
         })?;
     let open_file = into_directory
         .clone()
@@ -48,9 +49,7 @@ async fn import_file(
         .await
         .map_err(|e| {
             error!("Error opening file {}: {e}", metadata.name);
-            std::io::Error::other(
-                format!("Failed to open file {}: {e}", metadata.name),
-            )
+            std::io::Error::other(format!("Failed to open file {}: {e}", metadata.name))
         })?;
     let write_permission = open_file.get_write_permission();
     // download the file from Dropbox in pieces:
@@ -63,9 +62,10 @@ async fn import_file(
         Ok(res) => res,
         Err(e) => {
             error!("Failed to start download for {}: {e}", metadata.name);
-            return Err(std::io::Error::other(
-                format!("Failed to download file {}: {e}", metadata.name),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Failed to download file {}: {e}",
+                metadata.name
+            )));
         }
     };
 
@@ -85,12 +85,10 @@ async fn import_file(
         let mut buffer = vec![0u8; chunk_size];
         stream.read(&mut buffer).await.map_err(|e| {
             error!("Error reading download stream for {}: {e}", metadata.name);
-            std::io::Error::other(
-                format!(
-                    "Failed to read download stream for file {}: {e}",
-                    metadata.name
-                ),
-            )
+            std::io::Error::other(format!(
+                "Failed to read download stream for file {}: {e}",
+                metadata.name
+            ))
         })?;
 
         let read_size = buffer.len() as u64;
@@ -100,9 +98,7 @@ async fn import_file(
             .await
             .map_err(|e| {
                 error!("Error writing to file {}: {e}", metadata.name);
-                std::io::Error::other(
-                    format!("Failed to write to file {}: {e}", metadata.name),
-                )
+                std::io::Error::other(format!("Failed to write to file {}: {e}", metadata.name))
             })?;
         total_bytes_read += read_size;
         assert!(total_bytes_read <= file_size);
@@ -146,9 +142,10 @@ async fn import_folder(
         .await
         .map_err(|e| {
             error!("Error creating subdirectory {}: {e}", metadata.name);
-            std::io::Error::other(
-                format!("Failed to create subdirectory {}: {e}", metadata.name),
-            )
+            std::io::Error::other(format!(
+                "Failed to create subdirectory {}: {e}",
+                metadata.name
+            ))
         })?;
     let open_subdirectory = into_directory
         .clone()
@@ -156,9 +153,10 @@ async fn import_folder(
         .await
         .map_err(|e| {
             error!("Error opening subdirectory {}: {e}", metadata.name);
-            std::io::Error::other(
-                format!("Failed to open subdirectory {}: {e}", metadata.name),
-            )
+            std::io::Error::other(format!(
+                "Failed to open subdirectory {}: {e}",
+                metadata.name
+            ))
         })?;
     Box::pin(import_directory_impl(
         dropbox_client,
@@ -171,9 +169,10 @@ async fn import_folder(
     .await?;
     open_subdirectory.request_save().await.map_err(|e| {
         error!("Error saving subdirectory {}: {e}", metadata.name);
-        std::io::Error::other(
-            format!("Failed to save subdirectory {}: {e}", metadata.name),
-        )
+        std::io::Error::other(format!(
+            "Failed to save subdirectory {}: {e}",
+            metadata.name
+        ))
     })?;
     Ok(ImportFolderOutcome::Success)
 }

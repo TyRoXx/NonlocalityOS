@@ -33,9 +33,9 @@ async fn clear_or_create_directory(
             }
             _ => {
                 error!("Error deleting directory {}: {e}", path);
-                return Err(std::io::Error::other(
-                    format!("Failed to delete directory {path}: {e}"),
-                ));
+                return Err(std::io::Error::other(format!(
+                    "Failed to delete directory {path}: {e}"
+                )));
             }
         },
     }
@@ -51,9 +51,9 @@ async fn clear_or_create_directory(
         }
         Err(e) => {
             error!("Error creating directory {}: {e}", path);
-            Err(std::io::Error::other(
-                format!("Failed to create directory {path}: {e}"),
-            ))
+            Err(std::io::Error::other(format!(
+                "Failed to create directory {path}: {e}"
+            )))
         }
     }
 }
@@ -88,12 +88,10 @@ async fn create_file(
                 "Error creating file {}/{}: {e}",
                 dropbox_test_directory, file_name
             );
-            Err(std::io::Error::other(
-                format!(
-                    "Failed to create file {}/{}: {e}",
-                    dropbox_test_directory, file_name
-                ),
-            ))
+            Err(std::io::Error::other(format!(
+                "Failed to create file {}/{}: {e}",
+                dropbox_test_directory, file_name
+            )))
         }
     }
 }
@@ -112,9 +110,7 @@ async fn create_directory_contents(
                     .await
                     .map_err(|e| {
                         error!("Error creating directory {}: {e}", path);
-                        std::io::Error::other(
-                            format!("Failed to create directory {path}: {e}"),
-                        )
+                        std::io::Error::other(format!("Failed to create directory {path}: {e}"))
                     })?;
                 Box::pin(create_directory_contents(dropbox_client, &path, entries)).await?;
             }
@@ -193,9 +189,10 @@ async fn read_to_end(open_file: &OpenFile) -> std::io::Result<Bytes> {
             .await
             .map_err(|e| {
                 error!("Error reading file at offset {}: {e}", total_bytes_read);
-                std::io::Error::other(
-                    format!("Failed to read file at offset {}: {e}", total_bytes_read),
-                )
+                std::io::Error::other(format!(
+                    "Failed to read file at offset {}: {e}",
+                    total_bytes_read
+                ))
             })?;
         total_bytes_read += buffer.len() as u64;
         result = [result, buffer].concat().into();
@@ -323,9 +320,9 @@ async fn verify_illegal_character_handling(
                     .await
                     .map_err(|e| {
                         error!("Error creating directory {}: {e}", subdirectory_path);
-                        std::io::Error::other(
-                            format!("Failed to create directory {subdirectory_path}: {e}"),
-                        )
+                        std::io::Error::other(format!(
+                            "Failed to create directory {subdirectory_path}: {e}"
+                        ))
                     })?;
                     Ok(())
                 })
