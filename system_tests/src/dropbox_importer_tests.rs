@@ -298,6 +298,20 @@ async fn verify_illegal_character_handling(
                         Bytes::from("test"),
                     )
                     .await?;
+                    let subdirectory_path = format!("{}/{}", directory, "|");
+                    use dropbox_sdk::async_routes::files;
+                    files::create_folder_v2(
+                        client.as_ref(),
+                        &files::CreateFolderArg::new(subdirectory_path.clone()),
+                    )
+                    .await
+                    .map_err(|e| {
+                        error!("Error creating directory {}: {e}", subdirectory_path);
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to create directory {subdirectory_path}: {e}"),
+                        )
+                    })?;
                     Ok(())
                 })
             }
