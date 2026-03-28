@@ -1,4 +1,7 @@
-use astraea::{storage::LoadStoreTree, tree::TREE_BLOB_MAX_LENGTH};
+use astraea::{
+    storage::{LoadStoreTree, StrongReference},
+    tree::TREE_BLOB_MAX_LENGTH,
+};
 use bytes::Bytes;
 use dogbox_tree::serialization::{FileName, FileNameError};
 use dogbox_tree_editor::{FileCreationMode, NormalizedPath, OpenDirectory, TreeEditor, WallClock};
@@ -128,7 +131,15 @@ async fn import_folder(
     into_directory: &Arc<OpenDirectory>,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
     clock: WallClock,
+    empty_directory_reference: &StrongReference,
 ) -> std::io::Result<ImportFolderOutcome> {
+    let folder_name = match FileName::try_from(metadata.name.clone()) {
+        Ok(success) => success,
+        Err(e) => {
+            info!("Unsupported folder name {}: {e}", metadata.name);
+            return Ok(ImportFolderOutcome::UnsupportedFileName(e));
+        }
+    };
     let relative_path = match NormalizedPath::try_from(RelativePath::new(metadata.name.as_str())) {
         Ok(success) => success,
         Err(e) => {
@@ -136,32 +147,48 @@ async fn import_folder(
             return Ok(ImportFolderOutcome::UnsupportedFileName(e));
         }
     };
-    let open_subdirectory = import_directory(
+    into_directory
+        .clone()
+        .create_subdirectory(folder_name, empty_directory_reference)
+        .await
+        .map_err(|e| {
+            error!("Error creating subdirectory {}: {e}", metadata.name);
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to create subdirectory {}: {e}", metadata.name),
+            )
+        })?;
+    let open_subdirectory = into_directory
+        .clone()
+        .open_directory(relative_path)
+        .await
+        .map_err(|e| {
+            error!("Error opening subdirectory {}: {e}", metadata.name);
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to open subdirectory {}: {e}", metadata.name),
+            )
+        })?;
+    Box::pin(import_directory_impl(
         dropbox_client,
         &format!("{}/{}", from_directory, metadata.name),
+        &open_subdirectory,
         storage,
         clock,
-    )
+        empty_directory_reference,
+    ))
     .await?;
     Ok(ImportFolderOutcome::Success)
 }
 
-pub async fn import_directory(
+async fn import_directory_impl(
     dropbox_client: &UserAuthDefaultClient,
     from_directory: &str,
+    into_directory: &Arc<OpenDirectory>,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
     clock: WallClock,
-) -> std::io::Result<Arc<OpenDirectory>> {
-    let open_directory = Arc::new(
-        OpenDirectory::create_directory(
-            PathBuf::new(),
-            storage.clone(),
-            clock,
-            /*don't know which number would be good*/ 64,
-        )
-        .await
-        .expect("Failed to create root directory in storage"),
-    );
+    empty_directory_reference: &StrongReference,
+) -> std::io::Result<()> {
     info!("Listing Dropbox directory {}", from_directory);
     let mut list_folder_result = match files::list_folder(
         dropbox_client,
@@ -182,14 +209,28 @@ pub async fn import_directory(
             match entry {
                 files::Metadata::Folder(entry) => {
                     info!("Folder entry: {}", entry.name);
-                    import_folder(
+                    match import_folder(
                         dropbox_client,
                         from_directory,
                         &entry,
-                        &open_directory,
+                        into_directory,
                         storage.clone(),
+                        clock.clone(),
+                        empty_directory_reference,
                     )
-                    .await?;
+                    .await?
+                    {
+                        ImportFolderOutcome::Success => {
+                            info!("Successfully imported folder {}", entry.name);
+                        }
+                        ImportFolderOutcome::UnsupportedFileName(e) => {
+                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                            error!(
+                                "Skipping folder {} due to unsupported folder name: {e}",
+                                entry.name
+                            );
+                        }
+                    }
                 }
                 files::Metadata::File(entry) => {
                     info!("File entry: {}", entry.name);
@@ -197,7 +238,7 @@ pub async fn import_directory(
                         dropbox_client,
                         from_directory,
                         &entry,
-                        &open_directory,
+                        into_directory,
                         storage.clone(),
                     )
                     .await?
@@ -242,5 +283,34 @@ pub async fn import_directory(
         }
         cursor = list_folder_result.cursor;
     }
+    Ok(())
+}
+
+pub async fn import_directory(
+    dropbox_client: &UserAuthDefaultClient,
+    from_directory: &str,
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    clock: WallClock,
+) -> std::io::Result<Arc<OpenDirectory>> {
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(
+            PathBuf::new(),
+            storage.clone(),
+            clock.clone(),
+            /*don't know which number would be good*/ 64,
+        )
+        .await
+        .expect("Failed to create root directory in storage"),
+    );
+    let empty_directory_reference = open_directory.latest_reference();
+    import_directory_impl(
+        dropbox_client,
+        from_directory,
+        &open_directory,
+        storage,
+        clock,
+        &empty_directory_reference,
+    )
+    .await?;
     Ok(open_directory)
 }

@@ -165,11 +165,10 @@ async fn verify_import(
         .await
         .expect("Storing an empty file should succeed");
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
-    let importer = dropbox_importer::DropboxImporter {};
-    let open_directory = importer
-        .import_directory(&dropbox_client, dropbox_test_directory, storage, clock)
-        .await
-        .expect("Failed to import Dropbox directory");
+    let open_directory =
+        dropbox_importer::import_directory(&dropbox_client, dropbox_test_directory, storage, clock)
+            .await
+            .expect("Failed to import Dropbox directory");
     let status = open_directory
         .request_save()
         .await
@@ -342,8 +341,8 @@ pub async fn test_dropbox_importer(
             ExpectedDirectoryEntryKind::Directory,
         )]),
         &BlobDigest::parse_hex_string(concat!(
-            "ddc92a915fca9a8ce7eebd29f715e8c6c7d58989090f98ae6d6073bbb04d7a27",
-            "01a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
+            "b275ce35f86326429e948f66f69c42f78358c371c02761ad6628e963dcf6a1fe",
+            "7d8f8f87ed9cb78cdd2025f22b7c2262ef1b70ed69da7bcd032c91dc2831e9c8"
         ))
         .unwrap(),
     )
