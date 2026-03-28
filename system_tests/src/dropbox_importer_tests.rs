@@ -1,7 +1,11 @@
-use astraea::{in_memory_storage::InMemoryTreeStorage, storage::StrongReference, tree::BlobDigest};
+use astraea::{
+    in_memory_storage::InMemoryTreeStorage,
+    storage::StrongReference,
+    tree::{BlobDigest, TREE_BLOB_MAX_LENGTH},
+};
 use bytes::Bytes;
 use dogbox_tree::serialization::{DirectoryEntryKind, FileName};
-use dogbox_tree_editor::{FileCreationMode, OpenDirectory, TreeEditor};
+use dogbox_tree_editor::{FileCreationMode, OpenDirectory, OpenFile, TreeEditor};
 use dropbox_sdk::{default_async_client::UserAuthDefaultClient, oauth2::Authorization};
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
@@ -177,6 +181,33 @@ async fn verify_import(
     assert_eq!(expected_digest, status.digest.last_known_digest.digest());
 }
 
+async fn read_to_end(open_file: &OpenFile) -> std::io::Result<Bytes> {
+    let read_permission = open_file.get_read_permission();
+    let file_size = open_file.size().await;
+    let mut total_bytes_read = 0u64;
+    let mut result = Bytes::new();
+    while total_bytes_read < file_size {
+        let bounded_size = usize::try_from(std::cmp::min(
+            file_size - total_bytes_read,
+            TREE_BLOB_MAX_LENGTH as u64,
+        ))
+        .unwrap();
+        let buffer = open_file
+            .read_bytes(&read_permission, total_bytes_read, bounded_size)
+            .await
+            .map_err(|e| {
+                error!("Error reading file at offset {}: {e}", total_bytes_read);
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to read file at offset {}: {e}", total_bytes_read),
+                )
+            })?;
+        total_bytes_read += buffer.len() as u64;
+        result = [result, buffer].concat().into();
+    }
+    Ok(result)
+}
+
 async fn assert_directory_contents(
     open_directory: &Arc<OpenDirectory>,
     expected_entries: &BTreeMap<FileName, ExpectedDirectoryEntryKind>,
@@ -198,14 +229,9 @@ async fn assert_directory_contents(
                     .await
                     .expect("Failed to open file");
                 assert_eq!(size, open_file.size().await);
-                let read_permission = open_file.get_read_permission();
-                // Let's not read files larger than 10 MiB in tests
-                let bounded_size = usize::try_from(std::cmp::min(size, 10 * 1024 * 1024)).unwrap();
-                let read_content = open_file
-                    .read_bytes(&read_permission, 0, bounded_size)
+                let read_content = read_to_end(&open_file)
                     .await
-                    .expect("Reading should succeed");
-                assert_eq!(size, read_content.len() as u64);
+                    .expect("Failed to read file content");
                 ExpectedDirectoryEntryKind::File(read_content)
             }
         };
@@ -328,11 +354,15 @@ pub async fn test_dropbox_importer(
         dropbox_test_directory,
         BTreeMap::from([(
             FileName::try_from("1.txt").unwrap(),
-            ExpectedDirectoryEntryKind::File(Bytes::from("Hello, world!")),
+            ExpectedDirectoryEntryKind::File(Bytes::from_iter(std::iter::repeat_n(
+                0u8,
+                // Let's test a file that's larger than the chunk size used in the importer to make sure chunking works correctly.
+                (TREE_BLOB_MAX_LENGTH as usize * 2) + 1,
+            ))),
         )]),
         &BlobDigest::parse_hex_string(concat!(
-            "d3d127891bdcd4dd2deceb39391d4f76f13f6fae0fd367c8b20e5eada53b5af2",
-            "5663706bc757215e339cc5ef49d7ac9231d367d1b8a8333778ae1bda765caf76"
+            "06a969e16edb31e7d384d87af0c30e316122e9f3d616bec3a165cd5a24c86751",
+            "9355e54e8dc37530b1be8f512f2b917cb7e5142b3609ed01aea549b1270eb225"
         ))
         .unwrap(),
     )

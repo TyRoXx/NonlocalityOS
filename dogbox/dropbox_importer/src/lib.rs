@@ -94,9 +94,9 @@ async fn import_file(
                 ),
             )
         })?;
-        assert_eq!(file_size, buffer.len() as u64);
 
         let read_size = buffer.len() as u64;
+        assert_eq!(chunk_size as u64, read_size);
         open_file
             .write_bytes(&write_permission, total_bytes_read, Bytes::from(buffer))
             .await
@@ -110,6 +110,7 @@ async fn import_file(
         total_bytes_read += read_size;
         assert!(total_bytes_read <= file_size);
     }
+    assert_eq!(file_size, open_file.size().await);
     info!("Downloaded {} bytes for {}", file_size, metadata.name);
     Ok(ImportFileOutcome::Success)
 }
