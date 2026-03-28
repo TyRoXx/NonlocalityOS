@@ -2597,6 +2597,7 @@ dependencies = [
 name = "leptos-tutorial"
 version = "0.1.0"
 dependencies = [
+ "codee",
  "console_error_panic_hook",
  "leptos",
  "leptos-use",

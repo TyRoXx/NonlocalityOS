@@ -2,6 +2,7 @@ Tauri Docs: https://book.leptos.dev/
 
 Installation
 ```bash
+rustup target add wasm32-unknown-unknown
 cargo install
 ```
 
