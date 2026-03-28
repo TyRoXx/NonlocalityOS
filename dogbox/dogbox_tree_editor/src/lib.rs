@@ -3149,7 +3149,7 @@ impl TreeEditor {
         }
     }
 
-    pub async fn require_empty_directory_reference(&self) -> Result<StrongReference> {
+    async fn require_empty_directory_reference(&self) -> Result<StrongReference> {
         let mut empty_directory_reference_locked = self.empty_directory_reference.lock().await;
         match &*empty_directory_reference_locked {
             Some(exists) => Ok(exists.clone()),
