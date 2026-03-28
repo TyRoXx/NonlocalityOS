@@ -1,4 +1,4 @@
-use astraea::{storage::LoadStoreTree, tree::TREE_BLOB_MAX_LENGTH};
+use astraea::storage::LoadStoreTree;
 use bytes::Bytes;
 use dogbox_tree::serialization::{FileName, FileNameError};
 use dogbox_tree_editor::{FileCreationMode, OpenDirectory, TreeEditor, WallClock};
@@ -58,64 +58,44 @@ async fn import_file(
     let dropbox_file_path = format!("{}/{}", from_directory, metadata.name);
     info!("Starting download for {}", dropbox_file_path);
     let download_arg = files::DownloadArg::new(dropbox_file_path).with_rev(metadata.rev.clone());
-    let mut downloaded_until = 0;
     let file_size = metadata.size;
-    loop {
-        let remaining = file_size - downloaded_until;
-        if remaining == 0 {
-            info!("Finished downloading file {}", metadata.name);
-            break;
+    let response = match files::download(dropbox_client, &download_arg, None, None).await {
+        Ok(res) => res,
+        Err(e) => {
+            error!("Failed to start download for {}: {e}", metadata.name);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to download file {}: {e}", metadata.name),
+            ));
         }
-        let piece = std::cmp::min(remaining, 64 * TREE_BLOB_MAX_LENGTH as u64);
-        let response = match files::download(
-            dropbox_client,
-            &download_arg,
-            Some(downloaded_until),
-            Some(downloaded_until + piece),
-        )
-        .await
-        {
-            Ok(res) => res,
-            Err(e) => {
-                error!("Failed to start download for {}: {e}", metadata.name);
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to download file {}: {e}", metadata.name),
-                ));
-            }
-        };
+    };
 
-        assert_eq!(Some(piece), response.content_length);
-        let mut stream = response.body.expect("Failed to get response body");
-        let mut buffer = Vec::new();
-        stream.read_to_end(&mut buffer).await.map_err(|e| {
-            error!("Error reading download stream for {}: {e}", metadata.name);
+    assert_eq!(Some(file_size), response.content_length);
+    let mut stream = response.body.expect("Failed to get response body");
+    let mut buffer = Vec::new();
+    stream.read_to_end(&mut buffer).await.map_err(|e| {
+        error!("Error reading download stream for {}: {e}", metadata.name);
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "Failed to read download stream for file {}: {e}",
+                metadata.name
+            ),
+        )
+    })?;
+    assert_eq!(file_size, buffer.len() as u64);
+
+    open_file
+        .write_bytes(&write_permission, 0, Bytes::from(buffer))
+        .await
+        .map_err(|e| {
+            error!("Error writing to file {}: {e}", metadata.name);
             std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!(
-                    "Failed to read download stream for file {}: {e}",
-                    metadata.name
-                ),
+                format!("Failed to write to file {}: {e}", metadata.name),
             )
         })?;
-        assert_eq!(piece, buffer.len() as u64);
-
-        open_file
-            .write_bytes(&write_permission, downloaded_until, Bytes::from(buffer))
-            .await
-            .map_err(|e| {
-                error!("Error writing to file {}: {e}", metadata.name);
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to write to file {}: {e}", metadata.name),
-                )
-            })?;
-        downloaded_until += piece;
-        info!(
-            "Downloaded {} / {} bytes for {}",
-            downloaded_until, file_size, metadata.name
-        );
-    }
+    info!("Downloaded {} bytes for {}", file_size, metadata.name);
     Ok(ImportFileOutcome::Success)
 }
 
