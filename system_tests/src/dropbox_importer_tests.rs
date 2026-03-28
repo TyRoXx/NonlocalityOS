@@ -270,15 +270,13 @@ pub async fn test_dropbox_importer(
     )
     .await;
 
-    const HELLO_WORLD_FILE_CONTENT: &str = "Hello, world!";
-
     create_and_import_and_verify(
         "Directory with one file",
         &dropbox_client,
         dropbox_test_directory,
         BTreeMap::from([(
             FileName::try_from("1.txt").unwrap(),
-            ExpectedDirectoryEntryKind::File(Bytes::from(HELLO_WORLD_FILE_CONTENT)),
+            ExpectedDirectoryEntryKind::File(Bytes::from("Hello, world!")),
         )]),
         &BlobDigest::parse_hex_string(concat!(
             "d3d127891bdcd4dd2deceb39391d4f76f13f6fae0fd367c8b20e5eada53b5af2",
@@ -295,12 +293,12 @@ pub async fn test_dropbox_importer(
         BTreeMap::from_iter((1..=10).map(|i| {
             (
                 FileName::try_from(format!("{}.txt", i)).unwrap(),
-                ExpectedDirectoryEntryKind::File(Bytes::from(HELLO_WORLD_FILE_CONTENT)),
+                ExpectedDirectoryEntryKind::File(Bytes::from(format!("This is file number {}", i))),
             )
         })),
         &BlobDigest::parse_hex_string(concat!(
-            "3e76abda096565975ed4a5db425a4c5fae376ffc943673830e90e24ec772b702",
-            "e8d88c01d86292f465cc59bbca8456392bbd1d692c34656eacc276a4810ce77d"
+            "0bcce3bca12a83ebdeb87761e155236deed0853c475497e031ee08551a58b949",
+            "3480a1ab4f732964bdacf5cfdcb4d517f24362ea1a22bbc40a3b2594963e702f"
         ))
         .unwrap(),
     )
