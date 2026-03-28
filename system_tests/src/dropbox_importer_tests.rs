@@ -1,7 +1,7 @@
-use astraea::{in_memory_storage::InMemoryTreeStorage, tree::BlobDigest};
+use astraea::{in_memory_storage::InMemoryTreeStorage, storage::StrongReference, tree::BlobDigest};
 use bytes::Bytes;
 use dogbox_tree::serialization::{DirectoryEntryKind, FileName};
-use dogbox_tree_editor::OpenDirectory;
+use dogbox_tree_editor::{FileCreationMode, OpenDirectory, TreeEditor};
 use dropbox_sdk::{default_async_client::UserAuthDefaultClient, oauth2::Authorization};
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
@@ -103,6 +103,7 @@ async fn verify_import(
     >,
     verify_imported_directory: fn(
         Arc<OpenDirectory>,
+        empty_file_reference: &StrongReference,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = std::io::Result<()>> + Send>,
     >,
@@ -116,6 +117,9 @@ async fn verify_import(
         .await
         .expect("Failed to set up Dropbox test directory");
     let storage = Arc::new(InMemoryTreeStorage::empty());
+    let empty_file_reference = TreeEditor::store_empty_file(storage.clone())
+        .await
+        .expect("Storing an empty file should succeed");
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let importer = dropbox_importer::DropboxImporter {};
     let open_directory = importer
@@ -126,21 +130,52 @@ async fn verify_import(
         .request_save()
         .await
         .expect("Failed to save imported directory");
-    verify_imported_directory(open_directory)
+    verify_imported_directory(open_directory, &empty_file_reference)
         .await
         .expect("Failed to verify imported directory");
     assert!(status.digest.is_digest_up_to_date);
     assert_eq!(expected_digest, status.digest.last_known_digest.digest());
 }
 
-async fn assert_directory_entries(
-    open_directory: &OpenDirectory,
-    expected_entries: &BTreeMap<FileName, DirectoryEntryKind>,
+#[derive(Debug, PartialEq, Eq)]
+enum ExpectedDirectoryEntryKind {
+    Directory,
+    File(Bytes),
+}
+
+async fn assert_directory_contents(
+    open_directory: &Arc<OpenDirectory>,
+    expected_entries: &BTreeMap<FileName, ExpectedDirectoryEntryKind>,
+    empty_file_reference: &StrongReference,
 ) {
     let mut directory_reader = open_directory.read().await;
     let mut entries = BTreeMap::new();
     while let Some(entry) = directory_reader.next().await {
-        entries.insert(entry.name.clone(), entry.kind);
+        let kind = match entry.kind {
+            DirectoryEntryKind::Directory => ExpectedDirectoryEntryKind::Directory,
+            DirectoryEntryKind::File(size) => {
+                let open_file = open_directory
+                    .clone()
+                    .open_file(
+                        &entry.name,
+                        empty_file_reference,
+                        FileCreationMode::open_existing(),
+                    )
+                    .await
+                    .expect("Failed to open file");
+                assert_eq!(size, open_file.size().await);
+                let read_permission = open_file.get_read_permission();
+                // Let's not read files larger than 10 MiB in tests
+                let bounded_size = usize::try_from(std::cmp::min(size, 10 * 1024 * 1024)).unwrap();
+                let read_content = open_file
+                    .read_bytes(&read_permission, 0, bounded_size)
+                    .await
+                    .expect("Reading should succeed");
+                assert_eq!(size, read_content.len() as u64);
+                ExpectedDirectoryEntryKind::File(read_content)
+            }
+        };
+        entries.insert(entry.name.clone(), kind);
     }
     assert_eq!(entries, *expected_entries);
 }
@@ -159,9 +194,15 @@ pub async fn test_dropbox_importer(
         &dropbox_client,
         dropbox_test_directory,
         |_client: Arc<UserAuthDefaultClient>, _directory: &str| Box::pin(async move { Ok(()) }),
-        |imported_directory: Arc<OpenDirectory>| {
+        |imported_directory: Arc<OpenDirectory>, empty_file_reference: &StrongReference| {
+            let empty_file_reference = empty_file_reference.clone();
             Box::pin(async move {
-                assert_directory_entries(&imported_directory, &BTreeMap::new()).await;
+                assert_directory_contents(
+                    &imported_directory,
+                    &BTreeMap::new(),
+                    &empty_file_reference,
+                )
+                .await;
                 Ok(())
             })
         },
@@ -191,14 +232,16 @@ pub async fn test_dropbox_importer(
                 Ok(())
             })
         },
-        |imported_directory: Arc<OpenDirectory>| {
+        |imported_directory: Arc<OpenDirectory>, empty_file_reference: &StrongReference| {
+            let empty_file_reference = empty_file_reference.clone();
             Box::pin(async move {
-                assert_directory_entries(
+                assert_directory_contents(
                     &imported_directory,
                     &BTreeMap::from([(
                         FileName::try_from("1.txt").unwrap(),
-                        DirectoryEntryKind::File(HELLO_WORLD_FILE_CONTENT.as_bytes().len() as u64),
+                        ExpectedDirectoryEntryKind::File(Bytes::from(HELLO_WORLD_FILE_CONTENT)),
                     )]),
+                    &empty_file_reference,
                 )
                 .await;
                 Ok(())
