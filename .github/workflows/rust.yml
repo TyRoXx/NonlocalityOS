@@ -134,9 +134,17 @@ jobs:
             ~/.rustup
           key: rust-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/rust-toolchain.toml') }}
 
+      # dtolnay/rust-toolchain requires an explicit `toolchain`; keep channel in sync via rust-toolchain.toml
+      - name: Parse rust-toolchain channel
+        id: rust_toolchain
+        run: |
+          channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust (wasm32 + toolchain from rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.rust_toolchain.outputs.channel }}
           targets: wasm32-unknown-unknown
 
       - name: Cache Cargo output (frontend)
