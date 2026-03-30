@@ -119,3 +119,43 @@ jobs:
 
     - name: sccache stats
       run: sccache --show-adv-stats
+
+  leptos_frontend:
+    name: Leptos frontend (wasm + trunk)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Rust toolset
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup
+          key: rust-wasm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/rust-toolchain.toml') }}
+
+      - name: Install Rust (wasm32 + toolchain from rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo output (frontend)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-leptos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml', 'download_manager_frontend/**') }}
+
+      - name: Install trunk
+        run: cargo install trunk --locked
+
+      - name: Unit tests (download manager frontend)
+        run: cargo test -p leptos-tutorial
+
+      - name: Trunk build
+        working-directory: download_manager_frontend
+        run: trunk build
