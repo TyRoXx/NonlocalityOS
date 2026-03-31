@@ -124,6 +124,9 @@ jobs:
     name: Leptos frontend (wasm + trunk)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # .cargo/config.toml sets build.rustc-wrapper = sccache; this job does not install sccache (unlike `build`).
+    env:
+      CARGO_BUILD_RUSTC_WRAPPER: ""
     steps:
       - uses: actions/checkout@v4
 
