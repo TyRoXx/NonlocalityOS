@@ -9,7 +9,7 @@ cargo install
 To run the webserver with hot reloading:
 ```bash
 # Installing trunk (if not already installed)
-cargo install trunk
+cargo install trunk --locked
 
 trunk serve --port 3000 --open
 ```
