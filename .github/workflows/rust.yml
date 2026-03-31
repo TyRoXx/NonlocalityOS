@@ -141,7 +141,7 @@ jobs:
           key: cargo-leptos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml', 'download_manager_frontend/**') }}
 
       - name: Install trunk
-        run: cargo install trunk --locked
+        run: cargo install trunk --locked --force
 
       - name: Unit tests (download manager frontend)
         run: cargo test -p leptos-tutorial
