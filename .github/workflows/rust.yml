@@ -129,9 +129,6 @@ jobs:
           toolchain: ${{ steps.rust_toolchain.outputs.channel }}
           targets: wasm32-unknown-unknown
 
-      - name: Install trunk
-        run: cargo install trunk --locked --force
-
       - name: Cache Cargo output (frontend)
         uses: actions/cache@v4
         with:
@@ -142,6 +139,14 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: cargo-leptos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml', 'download_manager_frontend/**') }}
+
+      - name: Install trunk (only if missing)
+        run: |
+          if command -v trunk >/dev/null 2>&1; then
+            echo "trunk already installed"
+          else
+            cargo install trunk --locked
+          fi
 
       - name: Unit tests (download manager frontend)
         run: cargo test -p leptos-tutorial
