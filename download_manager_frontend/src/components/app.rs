@@ -5,6 +5,11 @@ use leptos_use::storage::use_local_storage;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
+/// 1×1 red PNG (idle / no download).
+const THUMB_RED_PIXEL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+/// 1×1 gray PNG (download in progress).
+const THUMB_GRAY_PIXEL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AEj6PgMOAYFTNFy/AAAAAElFTkSuQmCC";
+
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
 struct Video {
     pub id: usize,
@@ -27,12 +32,22 @@ fn add_video(id: usize, name: String, url: String, set_state: WriteSignal<MyStat
             url: clean_url.to_string(),
         };
         set_state.update(|list: &mut MyState| {
-            if list.items.len() == 0 {
+            if list.items.is_empty() {
                 list.currently_downloading = Some(video.clone());
             }
             list.items.push(video)
         });
     }
+}
+
+fn remove_video(id: usize, set_state: WriteSignal<MyState>) {
+    set_state.update(|s: &mut MyState| {
+        let removed_current = s.currently_downloading.as_ref().is_some_and(|c| c.id == id);
+        s.items.retain(|v| v.id != id);
+        if removed_current {
+            s.currently_downloading = s.items.first().cloned();
+        }
+    });
 }
 
 fn submit_download(ev: SubmitEvent, state: Signal<MyState>, set_state: WriteSignal<MyState>) {
@@ -54,7 +69,15 @@ fn submit_download(ev: SubmitEvent, state: Signal<MyState>, set_state: WriteSign
     let name = data.get("download_name").as_string().unwrap_or_default();
     let url = data.get("download_url").as_string().unwrap_or_default();
 
-    add_video(state.get().items.len(), name, url, set_state);
+    let next_id = state
+        .get()
+        .items
+        .iter()
+        .map(|v| v.id)
+        .max()
+        .map(|m| m + 1)
+        .unwrap_or(0);
+    add_video(next_id, name, url, set_state);
     form.reset();
 }
 
@@ -65,15 +88,20 @@ pub fn App() -> impl IntoView {
     let (state, set_state, _) = use_local_storage::<MyState, JsonSerdeCodec>("my-state");
 
     // Render the view
-    return view! {
+    view! {
         <main class="flex flex-col gap-2 p-4">
         <h1 class="text-2xl font-bold">Telegram Download Queue Manager</h1>
             <div>
                 <h2 class="text-lg">"Currently downloading"</h2>
                 <div class="flex flex-row gap-2">
-                    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AEj6PgMOAYFTNFy/AAAAAElFTkSuQmCC" 
-                        alt="Video thumbnail" 
-                        class="w-20 h-20 aspect-square" />
+                    <img
+                        src=move || match state.get().currently_downloading {
+                            None => THUMB_RED_PIXEL,
+                            Some(_) => THUMB_GRAY_PIXEL,
+                        }
+                        alt="Video thumbnail"
+                        class="w-20 h-20 aspect-square"
+                    />
                     <div class="flex flex-col gap-2 grow">
                         {move || match state.get().currently_downloading {
                             None => view! {
@@ -93,20 +121,36 @@ pub fn App() -> impl IntoView {
 
             <div>
                 <h2 class="text-lg">"Next up in queue (" {move || state.get().items.len()} ")"</h2>
-                <ul class="list-disc list-inside">
+                <ul class="flex flex-col gap-1">
                     <For
                         // How to get the list of items to iterate over
                         each=move || state.get().items
                         // Generate a key (like an id for the dom for each element
                         key=move |video| video.id
                         // How to render a child
-                        children=move |video: Video| view!{
-                            <li> {video.name} <small class="pl-1 text-stone-500">{video.url}</small> </li>
+                        children=move |video: Video| {
+                            let id = video.id;
+                            view! {
+                                <li class="flex flex-row gap-2 items-center">
+                                    <button
+                                        type="button"
+                                        class="text-sm bg-stone-200 hover:bg-stone-300 p-1 rounded-md"
+                                        on:click=move |_| remove_video(id, set_state)
+                                    >
+                                        "❌"
+                                    </button>
+                                    <span class="grow">
+                                        {video.name}
+                                        <small class="pl-1 text-stone-500">{video.url}</small>
+                                    </span>
+
+                                </li>
+                            }
                         }
                     />
                 </ul>
             </div>
-        
+
             <div>
                 <form class="flex gap-2"
                     on:submit=move |ev: SubmitEvent| {
