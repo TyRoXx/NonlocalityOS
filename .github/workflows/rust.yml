@@ -152,3 +152,6 @@ jobs:
       - name: Trunk build
         working-directory: download_manager_frontend
         run: trunk build
+
+      - name: sccache stats
+        run: sccache --show-adv-stats
