@@ -1,8 +1,9 @@
-use crate::dropbox_content_hash::DropboxContentHasher;
+use crate::{dropbox_content_hash::DropboxContentHasher, file_cache::FileCache};
 use astraea::{
     storage::{LoadStoreTree, StrongReference},
     tree::TREE_BLOB_MAX_LENGTH,
 };
+use async_stream::stream;
 use async_trait::async_trait;
 use bytes::Bytes;
 use dogbox_tree::serialization::{FileName, FileNameError};
@@ -11,10 +12,10 @@ use dogbox_tree_editor::{
     TreeEditor, WallClock, DEFAULT_WRITE_BUFFER_IN_BLOCKS,
 };
 use dropbox_sdk::{async_routes::files, default_async_client::UserAuthDefaultClient};
-use futures::io::AsyncReadExt;
+use futures::{io::AsyncReadExt, StreamExt};
 use relative_path::RelativePath;
 use sha2::Sha256;
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, pin::Pin, sync::Arc};
 use tracing::{error, info, warn};
 
 #[cfg(test)]
@@ -24,6 +25,11 @@ mod dropbox_content_hash;
 
 #[cfg(test)]
 mod dropbox_content_hash_tests;
+
+pub mod file_cache;
+
+#[cfg(test)]
+mod file_cache_tests;
 
 pub type Sha256Digest = sha2::digest::Output<Sha256>;
 
@@ -37,26 +43,47 @@ pub fn parse_sha256_hex(content_hash_string: &str) -> Option<Sha256Digest> {
     }
 }
 
-// TODO: an implementation with caching using dropbox_content_hash as the cache key
+pub struct DropboxFileMetaData {
+    content_hash: Option<String>,
+    rev: String,
+}
+
+pub enum DropboxFolderEntryKind {
+    File { metadata: DropboxFileMetaData },
+    Folder,
+}
+
+pub struct DropboxFolderEntry {
+    pub name: String,
+    pub kind: DropboxFolderEntryKind,
+}
+
 #[async_trait]
-pub trait DownloadDropboxFile {
-    async fn download_dropbox_file(
+pub trait DropboxApi {
+    async fn download_file(
         &self,
-        dropbox_client: &UserAuthDefaultClient,
         dropbox_file_path: &str,
         dropbox_file_rev: &files::Rev,
         dropbox_content_hash: &Sha256Digest,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)>;
+
+    async fn list_folder(
+        &self,
+        dropbox_folder_path: &str,
+    ) -> std::io::Result<
+        Pin<Box<dyn futures::Stream<Item = std::io::Result<DropboxFolderEntry>> + Send>>,
+    >;
 }
 
-pub struct NonCachingDropboxFileDownloader;
+pub struct RealDropboxApi {
+    pub dropbox_client: Arc<UserAuthDefaultClient>,
+}
 
 #[async_trait]
-impl DownloadDropboxFile for NonCachingDropboxFileDownloader {
-    async fn download_dropbox_file(
+impl DropboxApi for RealDropboxApi {
+    async fn download_file(
         &self,
-        dropbox_client: &UserAuthDefaultClient,
         dropbox_file_path: &str,
         dropbox_file_rev: &files::Rev,
         dropbox_content_hash: &Sha256Digest,
@@ -67,15 +94,16 @@ impl DownloadDropboxFile for NonCachingDropboxFileDownloader {
         info!("Starting download for {}", dropbox_file_path);
         let download_arg = files::DownloadArg::new(dropbox_file_path.to_string())
             .with_rev(dropbox_file_rev.clone());
-        let response = match files::download(dropbox_client, &download_arg, None, None).await {
-            Ok(res) => res,
-            Err(e) => {
-                return Err(std::io::Error::other(format!(
-                    "Failed to download file {}: {e}",
-                    dropbox_file_path
-                )));
-            }
-        };
+        let response =
+            match files::download(self.dropbox_client.as_ref(), &download_arg, None, None).await {
+                Ok(res) => res,
+                Err(e) => {
+                    return Err(std::io::Error::other(format!(
+                        "Failed to download file {}: {e}",
+                        dropbox_file_path
+                    )));
+                }
+            };
 
         let file_size = match response.content_length {
             Some(size) => size,
@@ -186,6 +214,78 @@ impl DownloadDropboxFile for NonCachingDropboxFileDownloader {
         assert!(digest_status.is_digest_up_to_date);
         Ok((reference, file_size))
     }
+
+    async fn list_folder(
+        &self,
+        dropbox_folder_path: &str,
+    ) -> std::io::Result<
+        Pin<Box<dyn futures::Stream<Item = std::io::Result<DropboxFolderEntry>> + Send>>,
+    > {
+        let dropbox_client = self.dropbox_client.clone();
+        let dropbox_folder_path = dropbox_folder_path.to_string();
+        let mut list_folder_result = match files::list_folder(
+            dropbox_client.as_ref(),
+            &files::ListFolderArg::new(dropbox_folder_path.clone()).with_recursive(false),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                return Err(std::io::Error::other(format!(
+                    "Failed to list_folder {}: {e}",
+                    dropbox_folder_path
+                )));
+            }
+        };
+        Ok(Box::pin(stream! {
+            let mut cursor = list_folder_result.cursor;
+            loop {
+                info!("Directory entries: {}", list_folder_result.entries.len());
+                for entry in list_folder_result.entries {
+                    match entry {
+                        files::Metadata::Folder(entry) => {
+                            info!("Folder entry: {}", entry.name);
+                            yield Ok(DropboxFolderEntry { name: entry.name, kind: DropboxFolderEntryKind::Folder });
+                        }
+                        files::Metadata::File(entry) => {
+                            info!("File entry: {}", entry.name);
+                            yield Ok(DropboxFolderEntry { name: entry.name, kind: DropboxFolderEntryKind::File {
+                                metadata: DropboxFileMetaData {
+                                content_hash: entry.content_hash,
+                                rev: entry.rev,
+                            }}});
+                        }
+                        files::Metadata::Deleted(entry) => {
+                            info!("Ignoring deleted entry: {:?}", entry);
+                        }
+                    }
+                }
+                if !list_folder_result.has_more {
+                    break;
+                }
+                list_folder_result = match files::list_folder_continue(
+                    dropbox_client.as_ref(),
+                    &files::ListFolderContinueArg::new(cursor.clone()),
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(e) => {
+                        error!("Error from list_folder_continue: {e}");
+                        yield Err(std::io::Error::other(format!(
+                            "Failed to list_folder_continue {}: {e}",
+                            dropbox_folder_path
+                        )));
+                        break;
+                    }
+                };
+                if cursor != list_folder_result.cursor {
+                    warn!("Dropbox list_folder_continue cursor changed. Normally it doesn't change.");
+                }
+                cursor = list_folder_result.cursor;
+            }
+        }))
+    }
 }
 
 enum ImportFileOutcome {
@@ -206,21 +306,22 @@ pub fn join_dropbox_path(parent: &str, child: &str) -> String {
 }
 
 async fn import_file(
-    dropbox_client: &UserAuthDefaultClient,
     from_directory: &str,
-    metadata: &files::FileMetadata,
+    file_name_raw: &str,
+    metadata: &DropboxFileMetaData,
     into_directory: &Arc<OpenDirectory>,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
-    download: &dyn DownloadDropboxFile,
+    dropbox_api: &(dyn DropboxApi + Send + Sync),
+    download_cache: &dyn FileCache,
 ) -> std::io::Result<ImportFileOutcome> {
-    let file_name = match FileName::try_from(metadata.name.clone()) {
+    let file_name = match FileName::try_from(file_name_raw) {
         Ok(success) => success,
         Err(e) => {
-            info!("Unsupported file name {}: {e}", metadata.name);
+            info!("Unsupported file name {}: {e}", file_name_raw);
             return Ok(ImportFileOutcome::UnsupportedFileName(e));
         }
     };
-    let dropbox_file_path = join_dropbox_path(from_directory, &metadata.name);
+    let dropbox_file_path = join_dropbox_path(from_directory, file_name_raw);
     let content_hash: Sha256Digest = match &metadata.content_hash {
         Some(content_hash_string) => match parse_sha256_hex(content_hash_string) {
             Some(hash) => hash,
@@ -239,18 +340,28 @@ async fn import_file(
             return Ok(ImportFileOutcome::MissingContentHash);
         }
     };
-    let (content_reference, content_size) = download
-        .download_dropbox_file(
-            dropbox_client,
-            &dropbox_file_path,
-            &metadata.rev,
-            &content_hash,
-            storage.clone(),
-        )
+    let (content_reference, content_size) = download_cache
+        .require(&content_hash, {
+            let dropbox_file_path = dropbox_file_path.clone();
+            let dropbox_file_rev = metadata.rev.clone();
+            let storage = storage.clone();
+            Box::new(move || {
+                Box::pin(async move {
+                    dropbox_api
+                        .download_file(
+                            &dropbox_file_path,
+                            &dropbox_file_rev,
+                            &content_hash,
+                            storage,
+                        )
+                        .await
+                })
+            })
+        })
         .await
         .map_err(|e| {
-            error!("Error downloading {}: {e}", metadata.name);
-            std::io::Error::other(format!("Failed to download {}: {e}", metadata.name))
+            error!("Error downloading {}: {e}", dropbox_file_path);
+            std::io::Error::other(format!("Failed to download {}: {e}", dropbox_file_path))
         })?;
     let open_file = into_directory
         .clone()
@@ -260,12 +371,12 @@ async fn import_file(
         )
         .await
         .map_err(|e| {
-            error!("Error opening file {}: {e}", metadata.name);
-            std::io::Error::other(format!("Failed to open file {}: {e}", metadata.name))
+            error!("Error opening file {}: {e}", file_name);
+            std::io::Error::other(format!("Failed to open file {}: {e}", file_name))
         })?;
     open_file.request_save().await.map_err(|e| {
-        error!("Error saving file {}: {e}", metadata.name);
-        std::io::Error::other(format!("Failed to save file {}: {e}", metadata.name))
+        error!("Error saving file {}: {e}", file_name);
+        std::io::Error::other(format!("Failed to save file {}: {e}", file_name))
     })?;
     Ok(ImportFileOutcome::Success)
 }
@@ -276,43 +387,42 @@ enum ImportFolderOutcome {
 }
 
 struct DropboxImporter<'t> {
-    dropbox_client: &'t UserAuthDefaultClient,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
     empty_directory_reference: &'t StrongReference,
-    download: &'t dyn DownloadDropboxFile,
+    dropbox_api: &'t (dyn DropboxApi + Send + Sync),
+    download_cache: &'t dyn FileCache,
 }
 
 impl<'t> DropboxImporter<'t> {
     async fn import_folder(
         &self,
         from_directory: &str,
-        metadata: &files::FolderMetadata,
+        folder_name_raw: &str,
         into_directory: &Arc<OpenDirectory>,
     ) -> std::io::Result<ImportFolderOutcome> {
-        let folder_name = match FileName::try_from(metadata.name.clone()) {
+        let folder_name = match FileName::try_from(folder_name_raw) {
             Ok(success) => success,
             Err(e) => {
-                info!("Unsupported folder name {}: {e}", metadata.name);
+                info!("Unsupported folder name {}: {e}", folder_name_raw);
                 return Ok(ImportFolderOutcome::UnsupportedFileName(e));
             }
         };
-        let relative_path =
-            match NormalizedPath::try_from(RelativePath::new(metadata.name.as_str())) {
-                Ok(success) => success,
-                Err(e) => {
-                    info!("Unsupported folder name {}: {e}", metadata.name);
-                    return Ok(ImportFolderOutcome::UnsupportedFileName(e));
-                }
-            };
+        let relative_path = match NormalizedPath::try_from(RelativePath::new(folder_name_raw)) {
+            Ok(success) => success,
+            Err(e) => {
+                info!("Unsupported folder name {}: {e}", folder_name_raw);
+                return Ok(ImportFolderOutcome::UnsupportedFileName(e));
+            }
+        };
         into_directory
             .clone()
             .create_subdirectory(folder_name, self.empty_directory_reference)
             .await
             .map_err(|e| {
-                error!("Error creating subdirectory {}: {e}", metadata.name);
+                error!("Error creating subdirectory {}: {e}", folder_name_raw);
                 std::io::Error::other(format!(
                     "Failed to create subdirectory {}: {e}",
-                    metadata.name
+                    folder_name_raw
                 ))
             })?;
         let open_subdirectory = into_directory
@@ -320,14 +430,14 @@ impl<'t> DropboxImporter<'t> {
             .open_directory(relative_path)
             .await
             .map_err(|e| {
-                error!("Error opening subdirectory {}: {e}", metadata.name);
+                error!("Error opening subdirectory {}: {e}", folder_name_raw);
                 std::io::Error::other(format!(
                     "Failed to open subdirectory {}: {e}",
-                    metadata.name
+                    folder_name_raw
                 ))
             })?;
         Box::pin(self.import_directory_impl(
-            &join_dropbox_path(from_directory, &metadata.name),
+            &join_dropbox_path(from_directory, folder_name_raw),
             &open_subdirectory,
         ))
         .await?;
@@ -340,116 +450,76 @@ impl<'t> DropboxImporter<'t> {
         into_directory: &Arc<OpenDirectory>,
     ) -> std::io::Result<()> {
         info!("Listing Dropbox directory {}", from_directory);
-        let mut list_folder_result = match files::list_folder(
-            self.dropbox_client,
-            &files::ListFolderArg::new(from_directory.to_string()).with_recursive(false),
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(e) => {
-                return Err(std::io::Error::other(format!(
-                    "Failed to list_folder {}: {e}",
-                    from_directory
-                )));
-            }
-        };
-        let mut cursor = list_folder_result.cursor;
-        loop {
-            info!("Directory entries: {}", list_folder_result.entries.len());
-            for entry in list_folder_result.entries {
-                match entry {
-                    files::Metadata::Folder(entry) => {
-                        info!("Folder entry: {}", entry.name);
-                        match self
-                            .import_folder(from_directory, &entry, into_directory)
-                            .await?
-                        {
-                            ImportFolderOutcome::Success => {
-                                info!("Successfully imported folder {}", entry.name);
-                            }
-                            ImportFolderOutcome::UnsupportedFileName(e) => {
-                                // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                                warn!(
-                                    "Skipping folder {} due to unsupported folder name: {e}",
-                                    entry.name
-                                );
-                            }
-                        }
-                    }
-                    files::Metadata::File(entry) => {
-                        info!("File entry: {}", entry.name);
-                        match import_file(
-                            self.dropbox_client,
-                            from_directory,
-                            &entry,
-                            into_directory,
-                            self.storage.clone(),
-                            self.download,
-                        )
+        let mut folder_entries = self.dropbox_api.list_folder(from_directory).await?;
+        while let Some(entry_result) = folder_entries.next().await {
+            let entry = entry_result?;
+            match entry.kind {
+                DropboxFolderEntryKind::Folder => {
+                    info!("Folder entry: {}", entry.name);
+                    match self
+                        .import_folder(from_directory, &entry.name, into_directory)
                         .await?
-                        {
-                            ImportFileOutcome::Success => {
-                                info!("Successfully imported file {}", entry.name);
-                            }
-                            ImportFileOutcome::UnsupportedFileName(e) => {
-                                // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                                warn!(
-                                    "Skipping file {} due to unsupported file name: {e}",
-                                    entry.name
-                                );
-                            }
-                            ImportFileOutcome::MissingContentHash => {
-                                // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                                warn!("Skipping file {} due to missing content hash", entry.name);
-                            }
-                            ImportFileOutcome::InvalidContentHash(content_hash_string) => {
-                                // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                                warn!(
-                                    "Skipping file {} due to invalid content hash: {}",
-                                    entry.name, content_hash_string
-                                );
-                            }
+                    {
+                        ImportFolderOutcome::Success => {
+                            info!("Successfully imported folder {}", entry.name);
+                        }
+                        ImportFolderOutcome::UnsupportedFileName(e) => {
+                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                            warn!(
+                                "Skipping folder {} due to unsupported folder name: {e}",
+                                entry.name
+                            );
                         }
                     }
-                    files::Metadata::Deleted(entry) => {
-                        info!("Ignoring deleted entry: {:?}", entry);
+                }
+                DropboxFolderEntryKind::File { metadata } => {
+                    info!("File entry: {}", entry.name);
+                    match import_file(
+                        from_directory,
+                        &entry.name,
+                        &metadata,
+                        into_directory,
+                        self.storage.clone(),
+                        self.dropbox_api,
+                        self.download_cache,
+                    )
+                    .await?
+                    {
+                        ImportFileOutcome::Success => {
+                            info!("Successfully imported file {}", entry.name);
+                        }
+                        ImportFileOutcome::UnsupportedFileName(e) => {
+                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                            warn!(
+                                "Skipping file {} due to unsupported file name: {e}",
+                                entry.name
+                            );
+                        }
+                        ImportFileOutcome::MissingContentHash => {
+                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                            warn!("Skipping file {} due to missing content hash", entry.name);
+                        }
+                        ImportFileOutcome::InvalidContentHash(content_hash_string) => {
+                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                            warn!(
+                                "Skipping file {} due to invalid content hash: {}",
+                                entry.name, content_hash_string
+                            );
+                        }
                     }
                 }
             }
-            if !list_folder_result.has_more {
-                break;
-            }
-            list_folder_result = match files::list_folder_continue(
-                self.dropbox_client,
-                &files::ListFolderContinueArg::new(cursor.clone()),
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(e) => {
-                    error!("Error from list_folder_continue: {e}");
-                    return Err(std::io::Error::other(format!(
-                        "Failed to list_folder_continue {}: {e}",
-                        from_directory
-                    )));
-                }
-            };
-            if cursor != list_folder_result.cursor {
-                warn!("Dropbox list_folder_continue cursor changed. Normally it doesn't change.");
-            }
-            cursor = list_folder_result.cursor;
         }
         Ok(())
     }
 }
 
 pub async fn import_directory(
-    dropbox_client: &UserAuthDefaultClient,
     from_directory: &str,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
     clock: WallClock,
-    download: &dyn DownloadDropboxFile,
+    dropbox_api: &(dyn DropboxApi + Send + Sync),
+    download_cache: &dyn FileCache,
 ) -> std::io::Result<Arc<OpenDirectory>> {
     let open_directory = Arc::new(
         OpenDirectory::create_directory(
@@ -466,10 +536,10 @@ pub async fn import_directory(
     );
     let empty_directory_reference = open_directory.latest_reference();
     let importer = DropboxImporter {
-        dropbox_client,
         storage,
         empty_directory_reference: &empty_directory_reference,
-        download,
+        dropbox_api,
+        download_cache,
     };
     importer
         .import_directory_impl(from_directory, &open_directory)

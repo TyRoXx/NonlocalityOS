@@ -10,6 +10,7 @@ astraea = { path ="../astraea" }
 dogbox_tree = { path ="../dogbox/dogbox_tree" }
 dogbox_tree_editor = { path ="../dogbox/dogbox_tree_editor" }
 dropbox_importer = { path ="../dogbox/dropbox_importer" }
+sorted_tree = { path ="../sorted_tree" }
 tokio = {version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "process", "io-util", "signal", "io-std"]}
 tracing-subscriber = "0"
 tracing = "0"
