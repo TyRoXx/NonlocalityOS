@@ -1,6 +1,9 @@
 use crate::Download;
 use astraea::tree::BlobDigest;
-use std::process::{ExitStatus, Stdio};
+use std::{
+    io::Read,
+    process::{ExitStatus, Stdio},
+};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
@@ -51,7 +54,14 @@ pub fn hash_file(file_path: &std::path::Path) -> std::io::Result<BlobDigest> {
     use sha3::{Digest, Sha3_512};
     let mut file = std::fs::File::open(file_path)?;
     let mut hasher = Sha3_512::new();
-    std::io::copy(&mut file, &mut hasher)?;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
     let result = hasher.finalize();
     let mut digest_array = [0u8; 64];
     digest_array.copy_from_slice(&result);
