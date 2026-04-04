@@ -29,7 +29,7 @@ pub type Sha256Digest = sha2::digest::Output<Sha256>;
 
 pub fn parse_sha256_hex(content_hash_string: &str) -> Option<Sha256Digest> {
     match hex::decode(content_hash_string) {
-        Ok(success) => Sha256Digest::from_exact_iter(success.iter().copied()),
+        Ok(success) => Sha256Digest::try_from(&success[..]).ok(),
         Err(error) => {
             info!("Failed to decode hex string: {}", error);
             None
