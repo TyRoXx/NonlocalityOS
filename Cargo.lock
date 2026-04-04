@@ -1084,6 +1084,7 @@ name = "dropbox_importer"
 version = "0.1.0"
 dependencies = [
  "astraea",
+ "async-stream",
  "async-trait",
  "bytes",
  "dogbox_tree",
@@ -1095,8 +1096,10 @@ dependencies = [
  "pretty_assertions",
  "relative-path",
  "sha2 0.11.0",
+ "sorted_tree",
  "test-case",
  "test-log",
+ "tokio",
  "tracing",
 ]
 
@@ -3964,6 +3967,7 @@ dependencies = [
  "dropbox_importer",
  "futures",
  "pretty_assertions",
+ "sorted_tree",
  "test-log",
  "tokio",
  "tracing",
