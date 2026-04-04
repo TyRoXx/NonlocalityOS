@@ -183,5 +183,5 @@ pub fn App() -> impl IntoView {
                 </form>
             </div>
         </main>
-    };
+    }
 }
