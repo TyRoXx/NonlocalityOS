@@ -18,12 +18,12 @@ struct Video {
 }
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
-struct MyState {
+struct DownloadManagerData {
     pub items: Vec<Video>,
     pub currently_downloading: Option<Video>,
 }
 
-fn add_video(id: usize, name: String, url: String, set_state: WriteSignal<MyState>) {
+fn add_video(id: usize, name: String, url: String, set_state: WriteSignal<DownloadManagerData>) {
     let clean_url = url.trim();
     if !clean_url.is_empty() {
         let video = Video {
@@ -31,7 +31,7 @@ fn add_video(id: usize, name: String, url: String, set_state: WriteSignal<MyStat
             name,
             url: clean_url.to_string(),
         };
-        set_state.update(|list: &mut MyState| {
+        set_state.update(|list: &mut DownloadManagerData| {
             if list.items.is_empty() {
                 list.currently_downloading = Some(video.clone());
             }
@@ -40,8 +40,8 @@ fn add_video(id: usize, name: String, url: String, set_state: WriteSignal<MyStat
     }
 }
 
-fn remove_video(id: usize, set_state: WriteSignal<MyState>) {
-    set_state.update(|s: &mut MyState| {
+fn remove_video(id: usize, set_state: WriteSignal<DownloadManagerData>) {
+    set_state.update(|s: &mut DownloadManagerData| {
         let removed_current = s.currently_downloading.as_ref().is_some_and(|c| c.id == id);
         s.items.retain(|v| v.id != id);
         if removed_current {
@@ -50,7 +50,11 @@ fn remove_video(id: usize, set_state: WriteSignal<MyState>) {
     });
 }
 
-fn submit_download(ev: SubmitEvent, state: Signal<MyState>, set_state: WriteSignal<MyState>) {
+fn submit_download(
+    ev: SubmitEvent,
+    state: Signal<DownloadManagerData>,
+    set_state: WriteSignal<DownloadManagerData>,
+) {
     ev.prevent_default();
 
     // Get the form element
@@ -84,8 +88,9 @@ fn submit_download(ev: SubmitEvent, state: Signal<MyState>, set_state: WriteSign
 // https://book.leptos.dev/view/01_basic_component.html
 #[component]
 pub fn App() -> impl IntoView {
-    // Load values from the local storage key "my-state"
-    let (state, set_state, _) = use_local_storage::<MyState, JsonSerdeCodec>("my-state");
+    // Load values from the local storage key "download-manager:data"
+    let (download_manager_data, set_download_manager_data, _) =
+        use_local_storage::<DownloadManagerData, JsonSerdeCodec>("download-manager:data");
 
     // Render the view
     view! {
@@ -95,7 +100,7 @@ pub fn App() -> impl IntoView {
                 <h2 class="text-lg">"Currently downloading"</h2>
                 <div class="flex flex-row gap-2">
                     <img
-                        src=move || match state.get().currently_downloading {
+                        src=move || match download_manager_data.get().currently_downloading {
                             None => THUMB_RED_PIXEL,
                             Some(_) => THUMB_GRAY_PIXEL,
                         }
@@ -103,7 +108,7 @@ pub fn App() -> impl IntoView {
                         class="w-20 h-20 aspect-square"
                     />
                     <div class="flex flex-col gap-2 grow">
-                        {move || match state.get().currently_downloading {
+                        {move || match download_manager_data.get().currently_downloading {
                             None => view! {
                                 "No video currently downloading"
                             }
@@ -120,11 +125,11 @@ pub fn App() -> impl IntoView {
             </div>
 
             <div>
-                <h2 class="text-lg">"Next up in queue (" {move || state.get().items.len()} ")"</h2>
+                <h2 class="text-lg">"Next up in queue (" {move || download_manager_data.get().items.len()} ")"</h2>
                 <ul class="flex flex-col gap-1">
                     <For
                         // How to get the list of items to iterate over
-                        each=move || state.get().items
+                        each=move || download_manager_data.get().items
                         // Generate a key (like an id for the dom for each element
                         key=move |video| video.id
                         // How to render a child
@@ -135,7 +140,7 @@ pub fn App() -> impl IntoView {
                                     <button
                                         type="button"
                                         class="text-sm bg-stone-200 hover:bg-stone-300 p-1 rounded-md"
-                                        on:click=move |_| remove_video(id, set_state)
+                                        on:click=move |_| remove_video(id, set_download_manager_data)
                                         aria_label="Remove video from queue"
                                     >
                                         "❌"
@@ -155,7 +160,7 @@ pub fn App() -> impl IntoView {
             <div>
                 <form class="flex gap-2"
                     on:submit=move |ev: SubmitEvent| {
-                        submit_download(ev, state, set_state);
+                        submit_download(ev, download_manager_data, set_download_manager_data);
                     }
                 >
                     <label>

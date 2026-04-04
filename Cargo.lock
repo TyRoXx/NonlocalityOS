@@ -1220,6 +1220,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "download_manager_frontend"
+version = "0.1.0"
+dependencies = [
+ "codee",
+ "console_error_panic_hook",
+ "leptos",
+ "leptos-use",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "dptree"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2589,18 +2601,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm_split_helpers",
  "web-sys",
-]
-
-[[package]]
-name = "leptos-tutorial"
-version = "0.1.0"
-dependencies = [
- "codee",
- "console_error_panic_hook",
- "leptos",
- "leptos-use",
- "serde",
- "wasm-bindgen",
 ]
 
 [[package]]
