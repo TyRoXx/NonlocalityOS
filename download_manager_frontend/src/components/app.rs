@@ -136,6 +136,7 @@ pub fn App() -> impl IntoView {
                                         type="button"
                                         class="text-sm bg-stone-200 hover:bg-stone-300 p-1 rounded-md"
                                         on:click=move |_| remove_video(id, set_state)
+                                        aria_label="Remove video from queue"
                                     >
                                         "❌"
                                     </button>

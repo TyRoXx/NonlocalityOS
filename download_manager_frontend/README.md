@@ -1,13 +1,9 @@
 Tauri Docs: https://book.leptos.dev/
 
-Installation
-```bash
-rustup target add wasm32-unknown-unknown
-cargo install
-```
-
+## How to run
 To run the webserver with hot reloading:
 ```bash
+rustup target add wasm32-unknown-unknown
 # Installing trunk (if not already installed)
 cargo install trunk --locked
 

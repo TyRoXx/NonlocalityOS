@@ -12,6 +12,7 @@ env:
   SCCACHE_GHA_ENABLED: on
   SCCACHE_VERSION: "v0.14.0"
   SCCACHE_FILENAME: "sccache-v0.14.0-x86_64-unknown-linux-musl.tar.gz"
+  RUSTC_WRAPPER: sccache
   RUST_BACKTRACE: 1
 
 jobs:
@@ -124,7 +125,7 @@ jobs:
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust (wasm32 + toolchain from rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@v1.10
         with:
           toolchain: ${{ steps.rust_toolchain.outputs.channel }}
           targets: wasm32-unknown-unknown
