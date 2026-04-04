@@ -157,18 +157,24 @@ pub fn App() -> impl IntoView {
                         submit_download(ev, state, set_state);
                     }
                 >
-                    <input
-                        name="download_name"
-                        placeholder="Video Name"
-                        required
-                        class="border border-gray-300 rounded-md p-2"
-                    />
-                    <input
-                        name="download_url"
-                        placeholder="Video URL"
-                        required
-                        class="border border-gray-300 rounded-md p-2"
-                    />
+                    <label>
+                        Name:
+                        <input
+                            name="download_name"
+                            placeholder="Video Name"
+                            required
+                            class="border border-gray-300 rounded-md p-2"
+                        />
+                    </label>
+                    <label>
+                        Download URL
+                        <input
+                            name="download_url"
+                            placeholder="Video URL"
+                            required
+                            class="border border-gray-300 rounded-md p-2"
+                        />
+                    </label>
                     <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-md">
                         // For some reason we need a "string" here the docs also can't really explain it
                         // For rendering a rust value use: {value}

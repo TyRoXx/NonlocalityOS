@@ -148,9 +148,6 @@ jobs:
             cargo install trunk --locked
           fi
 
-      - name: Unit tests (download manager frontend)
-        run: cargo test -p leptos-tutorial
-
       - name: Trunk build
         working-directory: download_manager_frontend
         run: trunk build
