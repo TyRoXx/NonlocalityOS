@@ -1,4 +1,4 @@
-Tauri Docs: https://book.leptos.dev/
+Leptos Docs: https://book.leptos.dev/
 
 ## How to run
 To run the webserver with hot reloading:
