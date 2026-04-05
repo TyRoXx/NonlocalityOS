@@ -1,6 +1,8 @@
 mod components;
 use components::App;
 
+// test
+
 fn main() {
     // Adding a console hook to show rust stack trace in browser
     console_error_panic_hook::set_once();
