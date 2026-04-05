@@ -139,7 +139,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: cargo-leptos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml', 'download_manager_frontend/**') }}
+          key: cargo-leptos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml') }}
 
       - name: Install trunk (only if missing)
         run: |
