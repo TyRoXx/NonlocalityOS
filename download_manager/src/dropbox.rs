@@ -219,7 +219,6 @@ async fn move_files(
     from_directory: &str,
     into_directory: &str,
 ) -> Option<String> {
-    info!("Listing Dropbox directory {}", from_directory);
     let mut list_folder_result = match files::list_folder(
         dropbox_client,
         &files::ListFolderArg::new(from_directory.to_string()).with_recursive(false),
@@ -234,7 +233,15 @@ async fn move_files(
     };
     let mut cursor = list_folder_result.cursor;
     loop {
-        info!("Directory entries: {}", list_folder_result.entries.len());
+        if list_folder_result.entries.is_empty() {
+            info!("No entries found in {}, nothing to move", from_directory);
+            break;
+        }
+        info!(
+            "Processing a chunk of {} directory entries in {}",
+            list_folder_result.entries.len(),
+            from_directory
+        );
         for entry in list_folder_result.entries {
             match entry {
                 files::Metadata::Folder(entry) => {
@@ -300,7 +307,7 @@ async fn wait_for_changes(cursor: &str) {
         {
             Ok(result) => {
                 if result.changes {
-                    info!("Changes detected");
+                    debug!("Changes detected");
                     break;
                 } else {
                     debug!("No changes detected");
