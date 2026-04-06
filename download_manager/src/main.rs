@@ -574,11 +574,17 @@ async fn keep_downloading_urls_from_database(
     loop {
         match load_undownloaded_urls_from_database(connection) {
             Ok(urls) => {
-                info!("Loaded {} undownloaded URLs from database", urls.len());
+                info!("Loaded {} undownloaded URLs from the database", urls.len());
                 for url in &urls {
                     info!("Loaded URL from the database: {}", url);
                 }
-                for url in &urls {
+                for (index, url) in urls.iter().enumerate() {
+                    info!(
+                        "Starting download job for URL {} of {}: {}",
+                        index + 1,
+                        urls.len(),
+                        url
+                    );
                     match run_download_job(connection, download, url).await {
                         Ok(_) => {}
                         Err(e) => {
@@ -586,6 +592,10 @@ async fn keep_downloading_urls_from_database(
                         }
                     }
                 }
+                info!(
+                    "Finished processing {} undownloaded URLs from the database",
+                    urls.len()
+                );
                 match load_downloaded_urls_from_database(connection) {
                     Ok(urls) => {
                         info!("Total downloaded URLs: {}", urls.len());
@@ -594,17 +604,17 @@ async fn keep_downloading_urls_from_database(
                         }
                     }
                     Err(e) => {
-                        error!("Failed to load downloaded URLs from database: {}", e);
+                        error!("Failed to load downloaded URLs from the database: {}", e);
                     }
                 };
             }
             Err(e) => {
-                error!("Failed to load undownloaded URLs from database: {}", e);
+                error!("Failed to load undownloaded URLs from the database: {}", e);
             }
         }
         match database_change_event_receiver.changed().await {
             Ok(_) => {
-                info!("Detected change in database");
+                info!("Detected change in the database");
             }
             Err(e) => {
                 error!(
@@ -934,17 +944,18 @@ async fn main() {
     #[cfg(windows)]
     let exe_name = "yt-dlp.exe";
     let yt_dlp_executable_path = config_directory.join(exe_name);
-    match yt_dlp::prepare_yt_dlp(&yt_dlp_executable_path).await {
-        Ok(_) => {}
+    let deno_bin = match yt_dlp::prepare_yt_dlp(&yt_dlp_executable_path).await {
+        Ok(success) => success,
         Err(e) => {
             error!("Failed to prepare yt-dlp: {e}");
             std::process::exit(1);
         }
-    }
+    };
 
     let download = yt_dlp::YtDlpDownload {
         executable_path: yt_dlp_executable_path,
         output_directory,
+        deno_bin,
     };
     let retry_delay = std::time::Duration::from_millis(100);
     let telegram_bot = TeloxideTelegramBot {
