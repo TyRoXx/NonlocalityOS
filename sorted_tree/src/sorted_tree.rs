@@ -183,6 +183,7 @@ pub enum NodeDeserializationError {
     EntriesNotSorted,
     TooManyChildren,
     NotEnoughChildren,
+    DuplicateKeys,
 }
 
 impl std::fmt::Display for NodeDeserializationError {
@@ -204,6 +205,9 @@ impl std::fmt::Display for NodeDeserializationError {
                     "node has fewer children than expected based on its content"
                 )
             }
+            NodeDeserializationError::DuplicateKeys => {
+                write!(f, "node contains duplicate keys")
+            }
         }
     }
 }
@@ -223,8 +227,17 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
         return Err(NodeDeserializationError::EntriesNotSorted);
     }
     let mut reference_iter = children.iter();
-    let mut entries = Vec::new();
+    let mut entries: Vec<(Key, Value)> = Vec::new();
     for (key, content) in node.entries.into_iter() {
+        if !entries.is_empty() {
+            match entries.last().unwrap().0.cmp(&key) {
+                std::cmp::Ordering::Less => {}
+                std::cmp::Ordering::Equal => return Err(NodeDeserializationError::DuplicateKeys),
+                std::cmp::Ordering::Greater => {
+                    return Err(NodeDeserializationError::EntriesNotSorted)
+                }
+            }
+        }
         if Value::has_child(&content) {
             let reference = match reference_iter.next() {
                 Some(reference) => Some(reference.clone()),
