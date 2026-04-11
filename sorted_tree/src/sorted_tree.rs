@@ -182,6 +182,7 @@ pub enum NodeDeserializationError {
     PostcardError(postcard::Error),
     EntriesNotSorted,
     TooManyChildren,
+    NotEnoughChildren,
 }
 
 impl std::fmt::Display for NodeDeserializationError {
@@ -195,6 +196,12 @@ impl std::fmt::Display for NodeDeserializationError {
                 write!(
                     f,
                     "node has more children than expected based on its content"
+                )
+            }
+            NodeDeserializationError::NotEnoughChildren => {
+                write!(
+                    f,
+                    "node has fewer children than expected based on its content"
                 )
             }
         }
@@ -216,27 +223,22 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
         return Err(NodeDeserializationError::EntriesNotSorted);
     }
     let mut reference_iter = children.iter();
-    let result = Node {
-        entries: node
-            .entries
-            .into_iter()
-            .map(|(key, content)| {
-                if Value::has_child(&content) {
-                    let reference = match reference_iter.next() {
-                        Some(reference) => Some(reference.clone()),
-                        None => todo!("node claims to have a child, but no reference is available"),
-                    };
-                    (key, Value::from_content(content, &reference))
-                } else {
-                    (key, Value::from_content(content, &None))
-                }
-            })
-            .collect(),
-    };
+    let mut entries = Vec::new();
+    for (key, content) in node.entries.into_iter() {
+        if Value::has_child(&content) {
+            let reference = match reference_iter.next() {
+                Some(reference) => Some(reference.clone()),
+                None => return Err(NodeDeserializationError::NotEnoughChildren),
+            };
+            entries.push((key, Value::from_content(content, &reference)));
+        } else {
+            entries.push((key, Value::from_content(content, &None)));
+        }
+    }
     if reference_iter.next().is_some() {
         return Err(NodeDeserializationError::TooManyChildren);
     }
-    Ok(result)
+    Ok(Node { entries })
 }
 
 pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>(
