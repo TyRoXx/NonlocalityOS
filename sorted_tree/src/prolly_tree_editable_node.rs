@@ -148,14 +148,14 @@ pub async fn load_node<
             tree.blob(),
             &children,
             tree.blob().as_slice().len() - sorted_tree_data.len(),
-        );
+        )?;
         Ok(EitherNodeType::Leaf(node))
     } else {
         let node = sorted_tree::node_from_tree::<Key, TreeReference>(
             tree.blob(),
             &children,
             tree.blob().as_slice().len() - sorted_tree_data.len(),
-        );
+        )?;
         Ok(EitherNodeType::Internal(node))
     }
 }

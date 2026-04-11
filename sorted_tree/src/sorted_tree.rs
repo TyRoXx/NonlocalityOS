@@ -1,5 +1,5 @@
 use astraea::{
-    storage::{load_children, LoadError, LoadTree, StoreError, StoreTree, StrongReference},
+    storage::{load_children, LoadTree, StoreError, StoreTree, StrongReference},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TreeSerializationError},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -177,17 +177,43 @@ pub async fn store_node<Key: Serialize + Ord, Value: NodeValue>(
         .await
 }
 
+#[derive(Debug, Clone)]
+pub enum NodeDeserializationError {
+    PostcardError(postcard::Error),
+    EntriesNotSorted,
+    TooManyChildren,
+}
+
+impl std::fmt::Display for NodeDeserializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeDeserializationError::PostcardError(e) => write!(f, "postcard error: {}", e),
+            NodeDeserializationError::EntriesNotSorted => {
+                write!(f, "node entries are not sorted by key")
+            }
+            NodeDeserializationError::TooManyChildren => {
+                write!(
+                    f,
+                    "node has more children than expected based on its content"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for NodeDeserializationError {}
+
 pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>(
     tree_blob: &TreeBlob,
     children: &[StrongReference],
     metadata_to_skip: usize,
-) -> Node<Key, Value> {
+) -> Result<Node<Key, Value>, NodeDeserializationError> {
     let node = postcard::from_bytes::<SerializableNodeContent<Key, Value::Content>>(
         tree_blob.as_slice().split_at(metadata_to_skip).1,
     )
-    .expect("this should always work");
+    .map_err(|e| NodeDeserializationError::PostcardError(e))?;
     if !node.entries.is_sorted_by_key(|element| &element.0) {
-        todo!("loaded node is not sorted");
+        return Err(NodeDeserializationError::EntriesNotSorted);
     }
     let mut reference_iter = children.iter();
     let result = Node {
@@ -208,15 +234,15 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
             .collect(),
     };
     if reference_iter.next().is_some() {
-        todo!("more references available than expected")
+        return Err(NodeDeserializationError::TooManyChildren);
     }
-    result
+    Ok(result)
 }
 
 pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>(
     load_tree: &(dyn LoadTree + Send + Sync),
     root: &BlobDigest,
-) -> Result<Node<Key, Value>, LoadError> {
+) -> Result<Node<Key, Value>, Box<dyn std::error::Error>> {
     let delayed_hashed_tree = match load_tree.load_tree(root).await {
         Ok(tree) => tree,
         Err(_) => todo!(),
@@ -230,11 +256,8 @@ pub async fn load_node<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue
         .into_iter()
         .map(|child| child.reference().clone())
         .collect::<Vec<_>>();
-    Ok(node_from_tree::<Key, Value>(
-        hashed_tree.hashed_tree().tree().blob(),
-        &children,
-        0,
-    ))
+    node_from_tree::<Key, Value>(hashed_tree.hashed_tree().tree().blob(), &children, 0)
+        .map_err(|e| e.into())
 }
 
 pub async fn new_tree<Key: Serialize + Ord, Value: NodeValue>(
