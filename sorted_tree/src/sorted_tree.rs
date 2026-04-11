@@ -218,7 +218,7 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
     let node = postcard::from_bytes::<SerializableNodeContent<Key, Value::Content>>(
         tree_blob.as_slice().split_at(metadata_to_skip).1,
     )
-    .map_err(|e| NodeDeserializationError::PostcardError(e))?;
+    .map_err(NodeDeserializationError::PostcardError)?;
     if !node.entries.is_sorted_by_key(|element| &element.0) {
         return Err(NodeDeserializationError::EntriesNotSorted);
     }
