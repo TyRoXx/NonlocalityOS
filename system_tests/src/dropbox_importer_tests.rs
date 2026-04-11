@@ -5,7 +5,10 @@ use astraea::{
 use bytes::Bytes;
 use dogbox_tree::serialization::{DirectoryEntryKind, FileName};
 use dogbox_tree_editor::{FileCreationMode, OpenDirectory, OpenFile};
-use dropbox_importer::NonCachingDropboxFileDownloader;
+use dropbox_importer::{
+    file_cache::{PersistableFileCache, PersistableFileCacheEntry, Sha256CacheKey},
+    RealDropboxApi,
+};
 use dropbox_sdk::{default_async_client::UserAuthDefaultClient, oauth2::Authorization};
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
@@ -144,6 +147,7 @@ async fn verify_import(
         Box<dyn std::future::Future<Output = std::io::Result<()>> + Send>,
     >,
     expected_digest: &BlobDigest,
+    expected_file_cache_entries: u64,
 ) {
     info!("\n==== verify_import: {} ====", test_case_name);
     clear_or_create_directory(dropbox_client, dropbox_test_directory)
@@ -154,13 +158,21 @@ async fn verify_import(
         .expect("Failed to set up Dropbox test directory");
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
-    let dropbox_downloader = NonCachingDropboxFileDownloader {};
+    let dropbox_api = RealDropboxApi {
+        dropbox_client: dropbox_client.clone(),
+    };
+    // We do not reuse the cache across test runs because we want to test Dropbox API calls.
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256CacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let download_cache = PersistableFileCache::new(download_cache_tree, &*storage);
     let open_directory = dropbox_importer::import_directory(
-        dropbox_client,
         dropbox_test_directory,
-        storage,
+        storage.clone(),
         clock,
-        &dropbox_downloader,
+        &dropbox_api,
+        &download_cache,
     )
     .await
     .expect("Failed to import Dropbox directory");
@@ -173,6 +185,10 @@ async fn verify_import(
         .expect("Failed to verify imported directory");
     assert!(status.digest.is_digest_up_to_date);
     assert_eq!(expected_digest, status.digest.last_known_digest.digest());
+    assert_eq!(
+        download_cache.number_of_entries().await.unwrap(),
+        expected_file_cache_entries
+    );
 }
 
 async fn read_to_end(open_file: &OpenFile) -> std::io::Result<Bytes> {
@@ -256,6 +272,7 @@ async fn create_and_import_and_verify(
     dropbox_test_directory: &str,
     entries: BTreeMap<FileName, ExpectedDirectoryEntryKind>,
     expected_digest: &BlobDigest,
+    expected_file_cache_entries: u64,
 ) {
     verify_import(
         test_case_name,
@@ -278,6 +295,7 @@ async fn create_and_import_and_verify(
             })
         },
         expected_digest,
+        expected_file_cache_entries,
     )
     .await;
 }
@@ -335,6 +353,7 @@ async fn verify_illegal_character_handling(
             "5663706bc757215e339cc5ef49d7ac9231d367d1b8a8333778ae1bda765caf76"
         ))
         .unwrap(),
+        1,
     )
     .await;
 }
@@ -358,6 +377,7 @@ pub async fn test_dropbox_importer(
             "01a541d1d64871c4d8773bee38cec8cb3981e60d2c4916a1603d85a073de45c2"
         ))
         .unwrap(),
+        0,
     )
     .await;
 
@@ -374,6 +394,7 @@ pub async fn test_dropbox_importer(
             "7d8f8f87ed9cb78cdd2025f22b7c2262ef1b70ed69da7bcd032c91dc2831e9c8"
         ))
         .unwrap(),
+        0,
     )
     .await;
 
@@ -394,6 +415,7 @@ pub async fn test_dropbox_importer(
             "5cd78645b4d26a7420bbe8acaa8f7c1f5d3b2349b92f6e3ee0d159bc02f0decf"
         ))
         .unwrap(),
+        1,
     )
     .await;
 
@@ -413,11 +435,12 @@ pub async fn test_dropbox_importer(
             "b51476eb0db6551e0da6d23d0e6ce3603793b46958b902b42b417f26e6119019"
         ))
         .unwrap(),
+        1,
     )
     .await;
 
     create_and_import_and_verify(
-        "Directory with several files",
+        "Directory with several different files",
         &dropbox_client,
         dropbox_test_directory,
         BTreeMap::from_iter((1..=5).map(|i| {
@@ -431,6 +454,29 @@ pub async fn test_dropbox_importer(
             "7821a9c978070176428428c61da996ad5022ac82ad3f82c4a70d112f6d2f318c"
         ))
         .unwrap(),
+        5,
+    )
+    .await;
+
+    // test file download caching
+    create_and_import_and_verify(
+        "Directory with several equal files",
+        &dropbox_client,
+        dropbox_test_directory,
+        BTreeMap::from_iter((1..=3).map(|i| {
+            (
+                FileName::try_from(format!("{}.txt", i)).unwrap(),
+                ExpectedDirectoryEntryKind::File(Bytes::from(
+                    "This is the same content for all files",
+                )),
+            )
+        })),
+        &BlobDigest::parse_hex_string(concat!(
+            "c9c5fded1d6abccfa626ca711483e2fd6bb49fffab2a40d12ac2394f87d77820",
+            "5cd08bf9d2271af7eb7725d67bfb92e7eadb9237d2842b127146012651e9406b"
+        ))
+        .unwrap(),
+        1,
     )
     .await;
 

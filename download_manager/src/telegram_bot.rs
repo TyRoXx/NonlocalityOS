@@ -156,7 +156,8 @@ pub async fn process_callback_query(
                     "No failed downloads.".to_string()
                 } else {
                     format!(
-                        "Failed downloads:\n{}",
+                        "Failed downloads ({}):\n{}",
+                        failed.len(),
                         failed
                             .iter()
                             .map(|(url, fail_count)| format!("{} ({} failures)", url, fail_count))

@@ -2,6 +2,7 @@ use crate::Download;
 use astraea::tree::BlobDigest;
 use std::{
     io::Read,
+    path::PathBuf,
     process::{ExitStatus, Stdio},
 };
 use tokio::{
@@ -13,6 +14,7 @@ use tracing::{error, info};
 pub struct YtDlpDownload {
     pub executable_path: std::path::PathBuf,
     pub output_directory: std::path::PathBuf,
+    pub deno_bin: std::path::PathBuf,
 }
 
 async fn update_yt_dlp(
@@ -23,31 +25,77 @@ async fn update_yt_dlp(
     // nightly for the latest compatibility fixes
     cmd.arg("--update-to");
     cmd.arg("nightly");
-    cmd.stdout(Stdio::piped());
-    let mut child = cmd.spawn()?;
-    let stdout = child
-        .stdout
-        .take()
-        .expect("child did not have a handle to stdout");
-    let mut reader = BufReader::new(stdout).lines();
-    let (status_result, read_result): (std::io::Result<ExitStatus>, std::io::Result<()>) =
-        tokio::join!(child.wait(), async move {
-            while let Some(line) = reader.next_line().await? {
-                info!("yt-dlp: {}", line);
-            }
-            Ok(())
-        });
-    let status = status_result?;
-    info!("Child status was: {}", status);
-    if status.success() {
+    if run_and_log_command(cmd).await? {
         info!("yt-dlp updated successfully");
     } else {
-        let message = format!("yt-dlp exited with {status}");
+        let message = "yt-dlp update failed".to_string();
         error!("{message}");
         return Err(Box::from(message));
     }
-    read_result?;
     Ok(())
+}
+
+async fn install_deno() -> Result<(), Box<dyn std::error::Error>> {
+    // https://docs.deno.com/runtime/getting_started/installation/
+    let cmd = if cfg!(windows) {
+        let mut cmd = Command::new("powershell");
+        cmd.arg("-Command");
+        cmd.arg("irm https://deno.land/install.ps1 | iex");
+        cmd
+    } else {
+        let mut cmd = Command::new("bash");
+        cmd.arg("-c");
+        cmd.arg("curl -fsSL https://deno.land/install.sh | sh");
+        cmd
+    };
+    if run_and_log_command(cmd).await? {
+        info!("deno installed successfully");
+    } else {
+        let message = "deno installation failed".to_string();
+        error!("{message}");
+        return Err(Box::from(message));
+    }
+    Ok(())
+}
+
+async fn upgrade_deno(deno_bin: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::new(deno_bin);
+    cmd.arg("upgrade");
+    if run_and_log_command(cmd).await? {
+        info!("deno upgraded successfully");
+    } else {
+        let message = "deno upgrade failed".to_string();
+        error!("{message}");
+        return Err(Box::from(message));
+    }
+    Ok(())
+}
+
+async fn update_deno() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let user_home = match std::env::home_dir() {
+        Some(path) => path,
+        None => {
+            let message = "Failed to determine user home directory".to_string();
+            return Err(Box::from(message));
+        }
+    };
+    let deno_bin = user_home.join(format!(
+        ".deno/bin/{}",
+        if cfg!(windows) { "deno.exe" } else { "deno" }
+    ));
+    if !deno_bin.try_exists()? {
+        install_deno().await?;
+        if !deno_bin.try_exists()? {
+            let message = format!(
+                "deno was not found at {} after installation",
+                deno_bin.display()
+            );
+            return Err(Box::from(message));
+        }
+        // Run upgrade after installation as a quick sanity check that deno is working.
+    }
+    upgrade_deno(&deno_bin).await?;
+    Ok(deno_bin)
 }
 
 pub fn hash_file(file_path: &std::path::Path) -> std::io::Result<BlobDigest> {
@@ -68,60 +116,100 @@ pub fn hash_file(file_path: &std::path::Path) -> std::io::Result<BlobDigest> {
     Ok(BlobDigest::new(&digest_array))
 }
 
-async fn download_with_yt_dlp(
-    executable_path: &std::path::Path,
-    output_directory: &std::path::Path,
-    video_url: &str,
-) -> Result<Vec<BlobDigest>, Box<dyn std::error::Error>> {
-    // Let's hope the temp is on the same file system for renaming to work.
-    // We can't put temp under output_directory because yt-dlp.exe does not work in Dropbox on Windows (access denied errors).
-    let temp_dir = tempfile::tempdir()?;
-    let mut cmd = Command::new(executable_path);
-    cmd.arg("--no-overwrites");
-    cmd.arg("--no-mtime");
-    cmd.arg("--windows-filenames");
-    cmd.arg("--progress");
-    cmd.arg("--progress-delta");
-    cmd.arg("1" /*second*/);
-    cmd.arg("--newline");
-    cmd.arg("--cookies-from-browser");
-    cmd.arg("firefox");
-    cmd.arg(video_url);
-    cmd.arg("-o");
-    // We don't use %(uploader) here because %(title) already contains the uploader on some sites like Twitter.
-    cmd.arg(format!(
-        "{}/%(title).90B %(upload_date)s [%(webpage_url_domain)s %(id)s].%(ext)s",
-        temp_dir.path().display()
-    ));
-
+async fn run_and_log_command(mut cmd: Command) -> Result<bool, std::io::Error> {
     // Specify that we want the command's standard output piped back to us.
     // By default, standard input/output/error will be inherited from the
     // current process (for example, this means that standard input will
     // come from the keyboard and standard output/error will go directly to
     // the terminal if this process is invoked from the command line).
     cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
     let mut child = cmd.spawn()?;
     let stdout = child
         .stdout
         .take()
         .expect("child did not have a handle to stdout");
-    let mut reader = BufReader::new(stdout).lines();
-    let (status_result, read_result): (std::io::Result<ExitStatus>, std::io::Result<()>) =
-        tokio::join!(child.wait(), async move {
+    let stderr = child
+        .stderr
+        .take()
+        .expect("child did not have a handle to stderr");
+    let (status_result, stdout_result, stderr_result): (
+        std::io::Result<ExitStatus>,
+        std::io::Result<()>,
+        std::io::Result<()>,
+    ) = tokio::join!(
+        child.wait(),
+        async move {
+            let mut reader = BufReader::new(stdout).lines();
             while let Some(line) = reader.next_line().await? {
-                info!("yt-dlp: {}", line);
+                info!("{}", line);
             }
             Ok(())
-        });
+        },
+        async move {
+            let mut reader = BufReader::new(stderr).lines();
+            while let Some(line) = reader.next_line().await? {
+                // yt-dlp uses stderr a lot for verbose/debug output
+                info!("{}", line);
+            }
+            Ok(())
+        }
+    );
     let status = status_result?;
     info!("Child status was: {}", status);
-    if status.success() {
+    stdout_result?;
+    stderr_result?;
+    Ok(status.success())
+}
+
+async fn download_with_yt_dlp(
+    executable_path: &std::path::Path,
+    output_directory: &std::path::Path,
+    video_url: &str,
+    deno_bin: &std::path::Path,
+) -> Result<Vec<BlobDigest>, Box<dyn std::error::Error>> {
+    // Let's hope the temp is on the same file system for renaming to work.
+    // We can't put temp under output_directory because yt-dlp.exe does not work in Dropbox on Windows (access denied errors).
+    let temp_dir = tempfile::tempdir()?;
+    let mut cmd = Command::new(executable_path);
+    // sometimes useful for troubleshooting
+    cmd.arg("--verbose");
+    cmd.arg("--no-overwrites");
+    cmd.arg("--no-mtime");
+    cmd.arg("--windows-filenames");
+    cmd.arg("--progress");
+    cmd.arg("--progress-delta");
+    cmd.arg("5" /*second*/);
+    cmd.arg("--newline");
+    cmd.arg("--cookies-from-browser");
+    cmd.arg("firefox");
+    cmd.arg("-o");
+    // We don't use %(uploader) here because %(title) already contains the uploader on some sites like Twitter.
+    cmd.arg(format!(
+        "{}/%(title).90B %(upload_date)s [%(webpage_url_domain)s %(id)s].%(ext)s",
+        temp_dir.path().display()
+    ));
+    cmd.arg("--js-runtimes");
+    cmd.arg(format!("deno:{}", deno_bin.display()));
+    cmd.arg(video_url);
+
+    if run_and_log_command(cmd).await? {
         info!("yt-dlp completed successfully for URL: {}", video_url);
     } else {
-        error!("yt-dlp exited with {status} for URL: {}", video_url);
+        error!("yt-dlp failed for URL: {}", video_url);
+        #[cfg(windows)]
+        {
+            /* more complete error message:
+            ERROR: Unable to download video: [Errno 22] Invalid argument
+            Exception ignored in: <_io.TextIOWrapper name='<stdout>' mode='w' encoding='cp1252'>
+            OSError: [Errno 22] Invalid argument
+            */
+            info!(concat!(
+                "If you see an 'ERROR: Unable to download video: [Errno 22] Invalid argument' that also mentions 'cp1252', ",
+                "you may want to enable UTF-8 support: https://stackoverflow.com/a/57134096"));
+        }
         return Err(Box::from(format!("yt-dlp failed for URL: {}", video_url)));
     }
-    read_result?;
 
     let mut created_files = Vec::new();
     for entry_result in std::fs::read_dir(temp_dir.path())? {
@@ -180,13 +268,20 @@ async fn download_with_yt_dlp(
 #[async_trait::async_trait]
 impl Download for YtDlpDownload {
     async fn download(&self, url: &str) -> Result<Vec<BlobDigest>, Box<dyn std::error::Error>> {
-        download_with_yt_dlp(&self.executable_path, &self.output_directory, url).await
+        download_with_yt_dlp(
+            &self.executable_path,
+            &self.output_directory,
+            url,
+            &self.deno_bin,
+        )
+        .await
     }
 }
 
+// returns the path to the deno binary for later use
 pub async fn prepare_yt_dlp(
     yt_dlp_executable_path: &std::path::Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     if !yt_dlp_executable_path.exists() {
         return Err(Box::from(format!(
             "yt-dlp executable not found at {}. Please download from https://github.com/yt-dlp/yt-dlp/releases",
@@ -230,5 +325,7 @@ pub async fn prepare_yt_dlp(
             }
         };
     }
-    update_yt_dlp(yt_dlp_executable_path).await
+    update_yt_dlp(yt_dlp_executable_path).await?;
+    // deno is required for YouTube (https://github.com/yt-dlp/yt-dlp/wiki/EJS)
+    update_deno().await
 }
