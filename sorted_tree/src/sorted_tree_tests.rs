@@ -1,8 +1,11 @@
-use crate::sorted_tree::{find, insert, load_node, new_tree, node_to_tree, Node, TreeReference};
+use crate::sorted_tree::{
+    find, insert, load_node, new_tree, node_from_tree, node_to_tree, Node,
+    NodeDeserializationError, SerializableNodeContent, TreeReference,
+};
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
     storage::StoreTree,
-    tree::{HashedTree, Tree, TreeBlob, TreeChildren},
+    tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren},
 };
 use pretty_assertions::{assert_eq, assert_ne};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
@@ -397,6 +400,160 @@ async fn node_to_tree_with_child_references() {
         TreeChildren::try_from(vec![reference_1, reference_2]).unwrap(),
     );
     assert_eq!(expected, tree);
+}
+
+#[test_log::test]
+fn test_node_from_tree_success_empty() {
+    let blob = postcard::to_stdvec(&SerializableNodeContent::<u64, String>::new(vec![])).unwrap();
+    let node = node_from_tree::<u64, String>(
+        &TreeBlob::try_from(bytes::Bytes::from(blob)).unwrap(),
+        &[],
+        0,
+    )
+    .unwrap();
+    assert_eq!(&Vec::<(u64, String)>::new(), node.entries());
+}
+
+#[test_log::test]
+fn test_node_from_tree_success_flat() {
+    let blob = postcard::to_stdvec(&SerializableNodeContent::new(vec![
+        (1u64, "A".to_string()),
+        (2u64, "B".to_string()),
+    ]))
+    .unwrap();
+    let node = node_from_tree::<u64, String>(
+        &TreeBlob::try_from(bytes::Bytes::from(blob)).unwrap(),
+        &[],
+        0,
+    )
+    .unwrap();
+    assert_eq!(
+        &vec![(1u64, "A".to_string()), (2u64, "B".to_string())],
+        node.entries()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_node_from_tree_success_child() {
+    let storage = InMemoryTreeStorage::empty();
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(b"\x00")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let blob =
+        postcard::to_stdvec(&SerializableNodeContent::new(vec![(1u64, ()), (2u64, ())])).unwrap();
+    let node = node_from_tree::<u64, TreeReference>(
+        &TreeBlob::try_from(bytes::Bytes::from(blob)).unwrap(),
+        &[reference.clone(), reference.clone()],
+        0,
+    )
+    .unwrap();
+    assert_eq!(
+        node.entries(),
+        &vec![
+            (1u64, TreeReference::new(reference.clone())),
+            (2u64, TreeReference::new(reference))
+        ]
+    );
+}
+
+#[test_log::test]
+fn test_node_from_tree_entries_not_sorted() {
+    let blob = postcard::to_stdvec(&SerializableNodeContent::new(vec![
+        (2u64, "B".to_string()),
+        (1u64, "A".to_string()),
+    ]))
+    .unwrap();
+    assert_eq!(
+        Err(NodeDeserializationError::EntriesNotSorted),
+        node_from_tree::<u64, String>(
+            &TreeBlob::try_from(bytes::Bytes::from(blob)).unwrap(),
+            &[],
+            0,
+        )
+    );
+}
+
+#[test_log::test]
+fn test_node_from_tree_entries_duplicate() {
+    let blob = postcard::to_stdvec(&SerializableNodeContent::new(vec![
+        (1u64, "A".to_string()),
+        (1u64, "B".to_string()),
+    ]))
+    .unwrap();
+    assert_eq!(
+        Err(NodeDeserializationError::DuplicateKeys),
+        node_from_tree::<u64, String>(
+            &TreeBlob::try_from(bytes::Bytes::from(blob)).unwrap(),
+            &[],
+            0,
+        )
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_node_from_tree_not_enough_children() {
+    let storage = InMemoryTreeStorage::empty();
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(b"\x00")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let blob =
+        postcard::to_stdvec(&SerializableNodeContent::new(vec![(1u64, ()), (2u64, ())])).unwrap();
+    assert_eq!(
+        node_from_tree::<u64, TreeReference>(
+            &TreeBlob::try_from(bytes::Bytes::from(blob)).unwrap(),
+            // one child is missing here
+            &[reference],
+            0,
+        ),
+        Err(NodeDeserializationError::NotEnoughChildren)
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_node_from_tree_too_many_children() {
+    let storage = InMemoryTreeStorage::empty();
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(bytes::Bytes::from_static(b"\x00")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let blob =
+        postcard::to_stdvec(&SerializableNodeContent::new(vec![(1u64, ()), (2u64, ())])).unwrap();
+    assert_eq!(
+        node_from_tree::<u64, TreeReference>(
+            &TreeBlob::try_from(bytes::Bytes::from(blob)).unwrap(),
+            // one child is too much here
+            &[reference.clone(), reference.clone(), reference],
+            0,
+        ),
+        Err(NodeDeserializationError::TooManyChildren)
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_load_node_error() {
+    let storage = InMemoryTreeStorage::empty();
+    let digest = BlobDigest::parse_hex_string(concat!(
+        "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+        "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+    ))
+    .unwrap();
+    let error = load_node::<u64, String>(&storage, &digest)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        "TreeNotFound(BlobDigest(\"f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909\"))".to_string(),
+        error.to_string());
 }
 
 #[test_log::test(tokio::test)]
