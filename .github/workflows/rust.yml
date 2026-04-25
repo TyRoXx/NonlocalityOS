@@ -141,12 +141,18 @@ jobs:
             target/
           key: cargo-leptos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml') }}
 
-      - name: Install trunk (only if missing)
+      - name: Install trunk
         run: |
+          required_trunk_version="0.21.13"
           if command -v trunk >/dev/null 2>&1; then
-            echo "trunk already installed"
+            installed_trunk_version="$(trunk --version | awk '{print $2}')"
+            if [ "$installed_trunk_version" = "$required_trunk_version" ]; then
+              echo "trunk $installed_trunk_version already installed"
+            else
+              cargo install trunk --version "$required_trunk_version" --force
+            fi
           else
-            cargo install trunk --version 0.21.13
+            cargo install trunk --version "$required_trunk_version"
           fi
 
       - name: Trunk build
