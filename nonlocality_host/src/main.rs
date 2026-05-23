@@ -1,4 +1,3 @@
-#![feature(duration_constructors)]
 use crate::{
     dav_server::dav_server_main,
     operating_system::{file_exists, Directory, LinuxOperatingSystem, OperatingSystem},

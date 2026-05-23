@@ -69,7 +69,7 @@ fn test_read_input_success() {
             {
                 let element = &output[0];
                 let non_separator = element.as_ref().unwrap();
-                assert_eq!(&[b'a'][..], &non_separator[..]);
+                assert_eq!(b'a', non_separator[0]);
             }
             assert!(!has_extraneous_input);
         }

@@ -166,9 +166,7 @@ fn main() {
     let max_tokens = 300;
 
     // Track the position for new tokens (starts after the prompt)
-    let mut n_past = tokens.len() as i32;
-
-    for _ in 0..max_tokens {
+    for n_past in (tokens.len() as i32..).take(max_tokens) {
         // Sample the next token
         let new_token = sampler.sample(&ctx, -1);
 
@@ -191,9 +189,6 @@ fn main() {
         batch
             .add(new_token, n_past, &[0], true)
             .expect("Failed to add token to batch");
-
-        // Increment position counter
-        n_past += 1;
 
         // Decode the new token
         ctx.decode(&mut batch).expect("Failed to decode batch");

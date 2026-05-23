@@ -41,8 +41,9 @@ pub fn peek_next_non_whitespace_token<'t>(
 ) -> Option<&'t Token> {
     loop {
         let next = tokens.peek();
-        match next {
-            Some(token) => match token.content {
+        {
+            let token = next?;
+            match token.content {
                 TokenContent::Whitespace => {
                     tokens.next();
                     continue;
@@ -64,8 +65,7 @@ pub fn peek_next_non_whitespace_token<'t>(
                 | TokenContent::Comment(_)
                 | TokenContent::Integer(_, _)
                 | TokenContent::EndOfFile => return Some(token),
-            },
-            None => return None,
+            }
         }
     }
 }

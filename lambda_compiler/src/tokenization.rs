@@ -203,7 +203,7 @@ pub fn tokenize_default_syntax(source: &str) -> Option<Vec<Token>> {
     const ZERO: RegisterId = RegisterId(25);
     const TEN: RegisterId = RegisterId(26);
     lazy_static! {
-        static ref IDENTIFIER_CHARACTERS: Vec<RegisterValue> = (b'a'..=b'z').chain(b'A'..=b'Z').chain([b'_']).map(RegisterValue::Byte).collect();
+        static ref IDENTIFIER_CHARACTERS: Vec<RegisterValue> = (b'a'..=b'z').chain(b'A'..=b'Z').chain(*b"_").map(RegisterValue::Byte).collect();
         static ref INTEGER_CHARACTERS: Vec<RegisterValue> = (b'0'..=b'9').map(RegisterValue::Byte).collect();
         static ref COPY_SUBSEQUENT_INPUT_TO_OUTPUT: Parser = Parser::Sequence(vec![
                                     Parser::Copy{from: SUBSEQUENT_INPUT, to: OUTPUT_BYTE},

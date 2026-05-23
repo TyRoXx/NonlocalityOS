@@ -1467,7 +1467,7 @@ async fn optimized_write_buffer_full_blocks(
                 b'f',
                 full_block_count * TREE_BLOB_MAX_LENGTH,
             ))
-            .chain(suffix.clone().into_iter()),
+            .chain(suffix.clone()),
     );
     for block_index in [0, 100] {
         let write_position = (block_index * TREE_BLOB_MAX_LENGTH as u64) + position_in_block;
