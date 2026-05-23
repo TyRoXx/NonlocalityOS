@@ -64,23 +64,23 @@ fn calculate_digest_sha3_512(b: &mut Bencher) {
 
 #[bench]
 fn calculate_digest_shake_128(b: &mut Bencher) {
-    calculate_digest_extendable::<sha3::Shake128>(b);
+    calculate_digest_extendable::<shake::Shake128>(b);
 }
 
 #[bench]
 fn calculate_digest_shake_256(b: &mut Bencher) {
-    calculate_digest_extendable::<sha3::Shake256>(b);
+    calculate_digest_extendable::<shake::Shake256>(b);
 }
 
 /*
     #[bench]
     fn calculate_digest_turbo_shake_128(b: &mut Bencher) {
-        calculate_digest_extendable::<sha3::TurboShake128>(b);
+        calculate_digest_extendable::<shake::TurboShake128>(b);
     }
 
     #[bench]
     fn calculate_digest_turbo_shake_256(b: &mut Bencher) {
-        calculate_digest_extendable::<sha3::TurboShake256>(b);
+        calculate_digest_extendable::<shake::TurboShake256>(b);
     }
 */
 
