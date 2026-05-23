@@ -1,4 +1,4 @@
-use crate::{join_dropbox_path, parse_sha256_hex};
+use crate::dropbox_api::{join_dropbox_path, parse_sha256_hex};
 use hex_literal::hex;
 use pretty_assertions::assert_eq;
 

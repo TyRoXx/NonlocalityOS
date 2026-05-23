@@ -1,4 +1,4 @@
-use crate::Sha256Digest;
+use crate::dropbox_api::Sha256Digest;
 use astraea::storage::{LoadTree, StoreTree, StrongReference, UpdateRoot};
 use async_trait::async_trait;
 use tracing::info;
