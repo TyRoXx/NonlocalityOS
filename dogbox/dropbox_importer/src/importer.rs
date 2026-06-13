@@ -189,7 +189,7 @@ impl<'t> DropboxImporter<'t> {
         Ok(())
     }
 
-    async fn import_directory_entry(
+    pub async fn import_directory_entry(
         &self,
         from_directory: &str,
         entry: &DropboxFolderEntry,
@@ -221,7 +221,7 @@ impl<'t> DropboxImporter<'t> {
                 match import_file(
                     from_directory,
                     &entry.name,
-                    &metadata,
+                    metadata,
                     into_directory,
                     self.storage.clone(),
                     self.dropbox_api,
