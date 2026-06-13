@@ -1,6 +1,6 @@
 use crate::{
     dropbox_api::{
-        join_dropbox_path, parse_sha256_hex, DropboxApi, DropboxFileMetaData,
+        join_dropbox_path, parse_sha256_hex, DropboxApi, DropboxFileMetaData, DropboxFolderEntry,
         DropboxFolderEntryKind, Sha256Digest,
     },
     file_cache::FileCache,
@@ -183,63 +183,79 @@ impl<'t> DropboxImporter<'t> {
         let mut folder_entries = self.dropbox_api.list_folder(from_directory).await?;
         while let Some(entry_result) = folder_entries.next().await {
             let entry = entry_result?;
-            match entry.kind {
-                DropboxFolderEntryKind::Folder => {
-                    info!("Folder entry: {}", entry.name);
-                    match self
-                        .import_folder(from_directory, &entry.name, into_directory)
-                        .await?
-                    {
-                        ImportFolderOutcome::Success => {
-                            info!("Successfully imported folder {}", entry.name);
-                        }
-                        ImportFolderOutcome::UnsupportedFileName(e) => {
-                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                            warn!(
-                                "Skipping folder {} due to unsupported folder name: {e}",
-                                entry.name
-                            );
-                        }
+            self.import_directory_entry(from_directory, &entry, into_directory)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn import_directory_entry(
+        &self,
+        from_directory: &str,
+        entry: &DropboxFolderEntry,
+        into_directory: &Arc<OpenDirectory>,
+    ) -> std::io::Result<()> {
+        match &entry.kind {
+            DropboxFolderEntryKind::Folder => {
+                info!("Folder entry: {}", entry.name);
+                match self
+                    .import_folder(from_directory, &entry.name, into_directory)
+                    .await?
+                {
+                    ImportFolderOutcome::Success => {
+                        info!("Successfully imported folder {}", entry.name);
+                        Ok(())
+                    }
+                    ImportFolderOutcome::UnsupportedFileName(e) => {
+                        // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                        warn!(
+                            "Skipping folder {} due to unsupported folder name: {e}",
+                            entry.name
+                        );
+                        Ok(())
                     }
                 }
-                DropboxFolderEntryKind::File { metadata } => {
-                    info!("File entry: {}", entry.name);
-                    match import_file(
-                        from_directory,
-                        &entry.name,
-                        &metadata,
-                        into_directory,
-                        self.storage.clone(),
-                        self.dropbox_api,
-                        self.download_cache,
-                    )
-                    .await?
-                    {
-                        ImportFileOutcome::Success => {
-                            info!("Successfully imported file {}", entry.name);
-                        }
-                        ImportFileOutcome::UnsupportedFileName(e) => {
-                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                            warn!(
-                                "Skipping file {} due to unsupported file name: {e}",
-                                entry.name
-                            );
-                        }
-                        ImportFileOutcome::MissingContentHash => {
-                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                            warn!("Skipping file {} due to missing content hash", entry.name);
-                        }
-                        ImportFileOutcome::InvalidContentHash(content_hash_string) => {
-                            // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
-                            warn!(
-                                "Skipping file {} due to invalid content hash: {}",
-                                entry.name, content_hash_string
-                            );
-                        }
+            }
+            DropboxFolderEntryKind::File { metadata } => {
+                info!("File entry: {}", entry.name);
+                match import_file(
+                    from_directory,
+                    &entry.name,
+                    &metadata,
+                    into_directory,
+                    self.storage.clone(),
+                    self.dropbox_api,
+                    self.download_cache,
+                )
+                .await?
+                {
+                    ImportFileOutcome::Success => {
+                        info!("Successfully imported file {}", entry.name);
+                        Ok(())
+                    }
+                    ImportFileOutcome::UnsupportedFileName(e) => {
+                        // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                        warn!(
+                            "Skipping file {} due to unsupported file name: {e}",
+                            entry.name
+                        );
+                        Ok(())
+                    }
+                    ImportFileOutcome::MissingContentHash => {
+                        // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                        warn!("Skipping file {} due to missing content hash", entry.name);
+                        Ok(())
+                    }
+                    ImportFileOutcome::InvalidContentHash(content_hash_string) => {
+                        // TODO: return this information somehow to the caller so that they can decide what to do with it (e.g. show a warning to the user)
+                        warn!(
+                            "Skipping file {} due to invalid content hash: {}",
+                            entry.name, content_hash_string
+                        );
+                        Ok(())
                     }
                 }
             }
         }
-        Ok(())
     }
 }
