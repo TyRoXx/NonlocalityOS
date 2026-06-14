@@ -7,7 +7,7 @@ use dogbox_tree::serialization::{DirectoryEntryKind, FileName};
 use dogbox_tree_editor::{FileCreationMode, OpenDirectory, OpenFile};
 use dropbox_importer::{
     dropbox_api::RealDropboxApi,
-    file_cache::{PersistableFileCache, PersistableFileCacheEntry, Sha256CacheKey},
+    file_cache::{FileCacheMap, PersistableFileCacheEntry, Sha256CacheKey},
 };
 use dropbox_sdk::{default_async_client::UserAuthDefaultClient, oauth2::Authorization};
 use futures::StreamExt;
@@ -166,7 +166,7 @@ async fn verify_import(
         Sha256CacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = PersistableFileCache::new(download_cache_tree, &*storage);
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
     let open_directory = dropbox_importer::import_directory(
         dropbox_test_directory,
         storage.clone(),

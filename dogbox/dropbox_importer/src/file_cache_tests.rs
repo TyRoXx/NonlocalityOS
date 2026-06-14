@@ -1,4 +1,4 @@
-use crate::file_cache::{FileCache, PersistableFileCache, PersistentFileCache};
+use crate::file_cache::{FileCache, FileCacheMap, PersistentFileCacheMap};
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
     storage::{StoreError, StoreTree, StrongReference, UpdateRoot},
@@ -12,7 +12,7 @@ use std::{pin::Pin, sync::Arc};
 #[test_log::test(tokio::test)]
 async fn test_require_miss_and_hit() {
     let storage = InMemoryTreeStorage::empty();
-    let cache = PersistableFileCache::new(
+    let cache = FileCacheMap::new(
         sorted_tree::prolly_tree_editable_node::EditableNode::new(),
         &storage,
     );
@@ -66,7 +66,7 @@ async fn test_require_miss_and_hit() {
 #[test_log::test(tokio::test)]
 async fn test_download_error() {
     let storage = InMemoryTreeStorage::empty();
-    let cache = PersistableFileCache::new(
+    let cache = FileCacheMap::new(
         sorted_tree::prolly_tree_editable_node::EditableNode::new(),
         &storage,
     );
@@ -98,7 +98,7 @@ async fn test_download_error() {
 #[test_log::test(tokio::test)]
 async fn test_save_and_load_empty() {
     let storage = InMemoryTreeStorage::empty();
-    let original_cache = PersistableFileCache::new(
+    let original_cache = FileCacheMap::new(
         sorted_tree::prolly_tree_editable_node::EditableNode::new(),
         &storage,
     );
@@ -111,7 +111,7 @@ async fn test_save_and_load_empty() {
         ))
         .unwrap()
     );
-    let cache_loaded = PersistableFileCache::load(&cache_saved_reference, &storage)
+    let cache_loaded = FileCacheMap::load(&cache_saved_reference, &storage)
         .await
         .unwrap();
     assert_eq!(0, cache_loaded.number_of_entries().await.unwrap());
@@ -120,7 +120,7 @@ async fn test_save_and_load_empty() {
 #[test_log::test(tokio::test)]
 async fn test_save_and_load_non_empty() {
     let storage = InMemoryTreeStorage::empty();
-    let original_cache = PersistableFileCache::new(
+    let original_cache = FileCacheMap::new(
         sorted_tree::prolly_tree_editable_node::EditableNode::new(),
         &storage,
     );
@@ -167,7 +167,7 @@ async fn test_save_and_load_non_empty() {
         ))
         .unwrap()
     );
-    let cache_loaded = PersistableFileCache::load(&cache_saved_reference, &storage)
+    let cache_loaded = FileCacheMap::load(&cache_saved_reference, &storage)
         .await
         .unwrap();
     assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
@@ -218,8 +218,8 @@ impl UpdateRoot for PersistentSaveAndLoadNonEmptyUpdateRoot {
 async fn test_persistent_save_and_load_non_empty() {
     let storage = InMemoryTreeStorage::empty();
     let update_root = PersistentSaveAndLoadNonEmptyUpdateRoot::new();
-    let original_cache = PersistentFileCache::new(
-        PersistableFileCache::new(
+    let original_cache = PersistentFileCacheMap::new(
+        FileCacheMap::new(
             sorted_tree::prolly_tree_editable_node::EditableNode::new(),
             &storage,
         ),
@@ -271,8 +271,8 @@ async fn test_persistent_save_and_load_non_empty() {
         ))
         .unwrap()
     );
-    let cache_loaded = PersistentFileCache::new(
-        PersistableFileCache::load(&cache_saved_reference, &storage)
+    let cache_loaded = PersistentFileCacheMap::new(
+        FileCacheMap::load(&cache_saved_reference, &storage)
             .await
             .unwrap(),
         &storage,

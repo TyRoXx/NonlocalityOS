@@ -2,7 +2,7 @@ use crate::{
     dropbox_api::{
         DropboxApi, DropboxFileMetaData, DropboxFolderEntry, DropboxFolderEntryKind, Sha256Digest,
     },
-    file_cache::{PersistableFileCache, PersistableFileCacheEntry, Sha256CacheKey},
+    file_cache::{FileCacheMap, PersistableFileCacheEntry, Sha256CacheKey},
     importer::{import_file, DropboxImporter, ImportFileOutcome},
 };
 use astraea::{
@@ -51,9 +51,7 @@ impl DropboxApi for FailingDropboxApi {
         _dropbox_content_hash: &Sha256Digest,
         _storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)> {
-        Err(std::io::Error::other(
-            "Simulated download failure",
-        ))
+        Err(std::io::Error::other("Simulated download failure"))
     }
 
     async fn list_folder(
@@ -62,9 +60,7 @@ impl DropboxApi for FailingDropboxApi {
     ) -> std::io::Result<
         Pin<Box<dyn futures::Stream<Item = std::io::Result<DropboxFolderEntry>> + Send>>,
     > {
-        Err(std::io::Error::other(
-            "Simulated folder listing failure",
-        ))
+        Err(std::io::Error::other("Simulated folder listing failure"))
     }
 }
 
@@ -76,7 +72,7 @@ async fn test_import_file_missing_content_hash() {
         Sha256CacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = PersistableFileCache::new(download_cache_tree, &*storage);
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
     let original_content_reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
@@ -136,7 +132,7 @@ async fn test_import_directory_entry() {
         Sha256CacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = PersistableFileCache::new(download_cache_tree, &*storage);
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
     let original_content_reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
@@ -185,5 +181,7 @@ async fn test_import_directory_entry() {
         "Failed to download /file.txt: Simulated download failure"
     );
     let mut entries = open_directory.read().await;
-    if entries.next().await.is_some() { panic!("Unexpected directory entry") }
+    if entries.next().await.is_some() {
+        panic!("Unexpected directory entry")
+    }
 }
