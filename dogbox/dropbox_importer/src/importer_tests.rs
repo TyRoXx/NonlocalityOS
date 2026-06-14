@@ -1,7 +1,9 @@
 use crate::{
-    dropbox_api::{DropboxApi, DropboxFileMetaData, DropboxFolderEntry, Sha256Digest},
-    file_cache::{PersistableFileCache, PersistableFileCacheEntry, Sha256CacheKey},
-    importer::{import_file, ImportFileOutcome},
+    dropbox_api::{
+        DropboxApi, DropboxFileMetaData, DropboxFolderEntry, DropboxFolderEntryKind, Sha256Digest,
+    },
+    file_cache::{FileCacheMap, PersistableFileCacheEntry, Sha256CacheKey},
+    importer::{import_directory, import_file, DropboxImporter, ImportFileOutcome},
 };
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
@@ -11,12 +13,13 @@ use astraea::{
 use async_trait::async_trait;
 use dogbox_tree_editor::{DigestStatus, OpenDirectory, OpenDirectoryStatus, OpenFileStats};
 use dropbox_sdk::async_routes::files;
+use futures::StreamExt;
 use std::{collections::BTreeMap, pin::Pin, sync::Arc};
 
-struct FakeDropboxApi {}
+struct UnreachableDropboxApi {}
 
 #[async_trait]
-impl DropboxApi for FakeDropboxApi {
+impl DropboxApi for UnreachableDropboxApi {
     async fn download_file(
         &self,
         _dropbox_file_path: &str,
@@ -24,7 +27,7 @@ impl DropboxApi for FakeDropboxApi {
         _dropbox_content_hash: &Sha256Digest,
         _storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)> {
-        todo!()
+        unreachable!()
     }
 
     async fn list_folder(
@@ -33,7 +36,31 @@ impl DropboxApi for FakeDropboxApi {
     ) -> std::io::Result<
         Pin<Box<dyn futures::Stream<Item = std::io::Result<DropboxFolderEntry>> + Send>>,
     > {
-        todo!()
+        unreachable!()
+    }
+}
+
+struct FailingDropboxApi {}
+
+#[async_trait]
+impl DropboxApi for FailingDropboxApi {
+    async fn download_file(
+        &self,
+        _dropbox_file_path: &str,
+        _dropbox_file_rev: &files::Rev,
+        _dropbox_content_hash: &Sha256Digest,
+        _storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    ) -> std::io::Result<(StrongReference, u64)> {
+        Err(std::io::Error::other("Simulated download failure"))
+    }
+
+    async fn list_folder(
+        &self,
+        _dropbox_folder_path: &str,
+    ) -> std::io::Result<
+        Pin<Box<dyn futures::Stream<Item = std::io::Result<DropboxFolderEntry>> + Send>>,
+    > {
+        Err(std::io::Error::other("Simulated folder listing failure"))
     }
 }
 
@@ -45,7 +72,7 @@ async fn test_import_file_missing_content_hash() {
         Sha256CacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = PersistableFileCache::new(download_cache_tree, &*storage);
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
     let original_content_reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::empty(),
@@ -63,7 +90,7 @@ async fn test_import_file_missing_content_hash() {
         clock,
         1,
     ));
-    let dropbox_api = FakeDropboxApi {};
+    let dropbox_api = UnreachableDropboxApi {};
     let outcome = import_file(
         "/test",
         "file.txt",
@@ -95,4 +122,103 @@ async fn test_import_file_missing_content_hash() {
             modified,
         ),
     )
+}
+
+#[test_log::test(tokio::test)]
+async fn test_import_directory_entry_dropbox_failure() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256CacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let original_content_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let modified = clock();
+    let open_directory = Arc::new(OpenDirectory::new(
+        std::path::PathBuf::from("/"),
+        DigestStatus::new(original_content_reference.clone(), false),
+        BTreeMap::new(),
+        storage.clone(),
+        modified,
+        clock,
+        1,
+    ));
+    let dropbox_api = FailingDropboxApi {};
+    let importer = DropboxImporter::new(
+        storage.clone(),
+        &original_content_reference,
+        &dropbox_api,
+        &download_cache,
+    );
+    let error = importer
+        .import_directory_entry(
+            "/",
+            &DropboxFolderEntry {
+                name: "file.txt".to_string(),
+                kind: DropboxFolderEntryKind::File {
+                    metadata: DropboxFileMetaData {
+                        content_hash: Some(
+                            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+                                .to_string(),
+                        ),
+                        rev: "1".to_string(),
+                    },
+                },
+            },
+            &open_directory,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Failed to download /file.txt: Simulated download failure"
+    );
+    let mut entries = open_directory.read().await;
+    if entries.next().await.is_some() {
+        panic!("Unexpected directory entry")
+    }
+}
+
+#[test_log::test(tokio::test)]
+async fn test_import_directory_dropbox_failure() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256CacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let original_content_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let modified = clock();
+    let open_directory = Arc::new(OpenDirectory::new(
+        std::path::PathBuf::from("/"),
+        DigestStatus::new(original_content_reference.clone(), false),
+        BTreeMap::new(),
+        storage.clone(),
+        modified,
+        clock.clone(),
+        1,
+    ));
+    let dropbox_api = FailingDropboxApi {};
+    let error = import_directory("/", storage.clone(), clock, &dropbox_api, &download_cache)
+        .await
+        .unwrap_err();
+    assert_eq!(error.to_string(), "Simulated folder listing failure");
+    let mut entries = open_directory.read().await;
+    if entries.next().await.is_some() {
+        panic!("Unexpected directory entry")
+    }
 }
