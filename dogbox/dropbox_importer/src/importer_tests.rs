@@ -3,7 +3,7 @@ use crate::{
         DropboxApi, DropboxFileMetaData, DropboxFolderEntry, DropboxFolderEntryKind, Sha256Digest,
     },
     file_cache::{FileCacheMap, PersistableFileCacheEntry, Sha256CacheKey},
-    importer::{import_file, DropboxImporter, ImportFileOutcome},
+    importer::{import_directory, import_file, DropboxImporter, ImportFileOutcome},
 };
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
@@ -125,7 +125,7 @@ async fn test_import_file_missing_content_hash() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_import_directory_entry() {
+async fn test_import_directory_entry_dropbox_failure() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
@@ -180,6 +180,43 @@ async fn test_import_directory_entry() {
         error.to_string(),
         "Failed to download /file.txt: Simulated download failure"
     );
+    let mut entries = open_directory.read().await;
+    if entries.next().await.is_some() {
+        panic!("Unexpected directory entry")
+    }
+}
+
+#[test_log::test(tokio::test)]
+async fn test_import_directory_dropbox_failure() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256CacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let original_content_reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::empty(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let modified = clock();
+    let open_directory = Arc::new(OpenDirectory::new(
+        std::path::PathBuf::from("/"),
+        DigestStatus::new(original_content_reference.clone(), false),
+        BTreeMap::new(),
+        storage.clone(),
+        modified,
+        clock.clone(),
+        1,
+    ));
+    let dropbox_api = FailingDropboxApi {};
+    let error = import_directory("/", storage.clone(), clock, &dropbox_api, &download_cache)
+        .await
+        .unwrap_err();
+    assert_eq!(error.to_string(), "Simulated folder listing failure");
     let mut entries = open_directory.read().await;
     if entries.next().await.is_some() {
         panic!("Unexpected directory entry")

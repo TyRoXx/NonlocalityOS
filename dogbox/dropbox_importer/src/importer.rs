@@ -7,10 +7,12 @@ use crate::{
 };
 use astraea::storage::{LoadStoreTree, StrongReference};
 use dogbox_tree::serialization::{FileName, FileNameError};
-use dogbox_tree_editor::{FileCreationMode, NormalizedPath, OpenDirectory};
+use dogbox_tree_editor::{
+    FileCreationMode, NormalizedPath, OpenDirectory, WallClock, DEFAULT_WRITE_BUFFER_IN_BLOCKS,
+};
 use futures::StreamExt;
 use relative_path::RelativePath;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use tracing::{error, info, warn};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -258,4 +260,43 @@ impl<'t> DropboxImporter<'t> {
             }
         }
     }
+}
+
+pub async fn import_directory(
+    from_directory: &str,
+    storage: Arc<dyn LoadStoreTree + Send + Sync>,
+    clock: WallClock,
+    dropbox_api: &(dyn DropboxApi + Send + Sync),
+    download_cache: &dyn FileCache,
+) -> std::io::Result<Arc<OpenDirectory>> {
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(
+            PathBuf::new(),
+            storage.clone(),
+            clock.clone(),
+            DEFAULT_WRITE_BUFFER_IN_BLOCKS,
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to create root directory in storage: {e}");
+            std::io::Error::other(format!("Failed to create root directory in storage: {e}"))
+        })?,
+    );
+    let empty_directory_reference = open_directory.latest_reference();
+    let importer = DropboxImporter::new(
+        storage,
+        &empty_directory_reference,
+        dropbox_api,
+        download_cache,
+    );
+    importer
+        .import_directory_impl(from_directory, &open_directory)
+        .await?;
+    open_directory.request_save().await.map_err(|e| {
+        std::io::Error::other(format!(
+            "Failed to save directory imported from {}: {e}",
+            from_directory
+        ))
+    })?;
+    Ok(open_directory)
 }
