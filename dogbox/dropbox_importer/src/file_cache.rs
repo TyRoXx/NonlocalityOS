@@ -52,7 +52,7 @@ impl sorted_tree::sorted_tree::NodeValue for PersistableFileCacheEntry {
     }
 }
 
-pub struct PersistableFileCache<'a> {
+pub struct FileCacheMap<'a> {
     entries: tokio::sync::Mutex<
         sorted_tree::prolly_tree_editable_node::EditableNode<
             Sha256CacheKey,
@@ -62,7 +62,7 @@ pub struct PersistableFileCache<'a> {
     load_tree: &'a (dyn LoadTree + Send + Sync),
 }
 
-impl<'a> PersistableFileCache<'a> {
+impl<'a> FileCacheMap<'a> {
     pub fn new(
         entries: sorted_tree::prolly_tree_editable_node::EditableNode<
             Sha256CacheKey,
@@ -104,7 +104,7 @@ impl<'a> PersistableFileCache<'a> {
 }
 
 #[async_trait]
-impl FileCache for PersistableFileCache<'_> {
+impl FileCache for FileCacheMap<'_> {
     async fn require<'t>(
         &'t self,
         dropbox_content_hash: &Sha256Digest,
@@ -156,16 +156,16 @@ impl FileCache for PersistableFileCache<'_> {
     }
 }
 
-pub struct PersistentFileCache<'a> {
-    original_cache: PersistableFileCache<'a>,
+pub struct PersistentFileCacheMap<'a> {
+    original_cache: FileCacheMap<'a>,
     store_tree: &'a (dyn StoreTree + Send + Sync),
     update_root: &'a (dyn UpdateRoot + Send + Sync),
     root_name: String,
 }
 
-impl<'a> PersistentFileCache<'a> {
+impl<'a> PersistentFileCacheMap<'a> {
     pub fn new(
-        original_cache: PersistableFileCache<'a>,
+        original_cache: FileCacheMap<'a>,
         store_tree: &'a (dyn StoreTree + Send + Sync),
         update_root: &'a (dyn UpdateRoot + Send + Sync),
         root_name: String,
@@ -184,7 +184,7 @@ impl<'a> PersistentFileCache<'a> {
 }
 
 #[async_trait]
-impl FileCache for PersistentFileCache<'_> {
+impl FileCache for PersistentFileCacheMap<'_> {
     async fn require<'t>(
         &'t self,
         dropbox_content_hash: &Sha256Digest,
