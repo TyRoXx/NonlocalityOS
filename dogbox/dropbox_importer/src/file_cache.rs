@@ -23,6 +23,17 @@ pub trait FileCache: Send + Sync {
 
 pub type Sha256CacheKey = [u8; 32];
 
+pub type DownloadFileCallback<'a> = Box<
+    dyn FnOnce() -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
+                    + Send
+                    + 'a,
+            >,
+        > + Send
+        + 'a,
+>;
+
 #[derive(Debug, Clone)]
 pub struct PersistableFileCacheEntry {
     content_reference: StrongReference,
@@ -105,16 +116,7 @@ impl<'a> FileCacheMap<'a> {
     async fn require_impl(
         &'a self,
         dropbox_content_hash: &Sha256Digest,
-        download_file: Box<
-            dyn FnOnce() -> std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
-                            + Send
-                            + 'a,
-                    >,
-                > + Send
-                + 'a,
-        >,
+        download_file: DownloadFileCallback<'a>,
     ) -> std::io::Result<(StrongReference, u64)> {
         let cache_key: [u8; 32] = *dropbox_content_hash
             .as_array::<32>()
@@ -203,16 +205,7 @@ impl<'a> PersistentFileCacheMap<'a> {
     async fn require_impl(
         &'a self,
         dropbox_content_hash: &Sha256Digest,
-        download_file: Box<
-            dyn FnOnce() -> std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
-                            + Send
-                            + 'a,
-                    >,
-                > + Send
-                + 'a,
-        >,
+        download_file: DownloadFileCallback<'a>,
     ) -> std::io::Result<(StrongReference, u64)> {
         let success = self
             .original_cache
