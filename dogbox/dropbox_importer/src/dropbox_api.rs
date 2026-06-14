@@ -286,6 +286,7 @@ impl DropboxApi for RealDropboxApi {
         dropbox_content_hash: &Sha256Digest,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)> {
+        // We call this function because code coverage doesn't work for async_traits.
         download_file_impl(
             &self.dropbox_client,
             dropbox_file_path,
@@ -302,6 +303,7 @@ impl DropboxApi for RealDropboxApi {
     ) -> std::io::Result<
         Pin<Box<dyn futures::Stream<Item = std::io::Result<DropboxFolderEntry>> + Send>>,
     > {
+        // We call this function because code coverage doesn't work for async_traits.
         list_folder_impl(&self.dropbox_client, dropbox_folder_path).await
     }
 }

@@ -101,22 +101,19 @@ impl<'a> FileCacheMap<'a> {
     ) -> Result<StrongReference, Box<dyn std::error::Error>> {
         self.entries.lock().await.save(store_tree).await
     }
-}
 
-#[async_trait]
-impl FileCache for FileCacheMap<'_> {
-    async fn require<'t>(
-        &'t self,
+    async fn require_impl(
+        &'a self,
         dropbox_content_hash: &Sha256Digest,
         download_file: Box<
             dyn FnOnce() -> std::pin::Pin<
                     Box<
                         dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
                             + Send
-                            + 't,
+                            + 'a,
                     >,
                 > + Send
-                + 't,
+                + 'a,
         >,
     ) -> std::io::Result<(StrongReference, u64)> {
         let cache_key: [u8; 32] = *dropbox_content_hash
@@ -156,6 +153,27 @@ impl FileCache for FileCacheMap<'_> {
     }
 }
 
+#[async_trait]
+impl FileCache for FileCacheMap<'_> {
+    async fn require<'t>(
+        &'t self,
+        dropbox_content_hash: &Sha256Digest,
+        download_file: Box<
+            dyn FnOnce() -> std::pin::Pin<
+                    Box<
+                        dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
+                            + Send
+                            + 't,
+                    >,
+                > + Send
+                + 't,
+        >,
+    ) -> std::io::Result<(StrongReference, u64)> {
+        // We call this function because code coverage doesn't work for async_traits.
+        self.require_impl(dropbox_content_hash, download_file).await
+    }
+}
+
 pub struct PersistentFileCacheMap<'a> {
     original_cache: FileCacheMap<'a>,
     store_tree: &'a (dyn StoreTree + Send + Sync),
@@ -181,22 +199,19 @@ impl<'a> PersistentFileCacheMap<'a> {
     pub async fn number_of_entries(&self) -> Result<u64, Box<dyn std::error::Error>> {
         self.original_cache.number_of_entries().await
     }
-}
 
-#[async_trait]
-impl FileCache for PersistentFileCacheMap<'_> {
-    async fn require<'t>(
-        &'t self,
+    async fn require_impl(
+        &'a self,
         dropbox_content_hash: &Sha256Digest,
         download_file: Box<
             dyn FnOnce() -> std::pin::Pin<
                     Box<
                         dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
                             + Send
-                            + 't,
+                            + 'a,
                     >,
                 > + Send
-                + 't,
+                + 'a,
         >,
     ) -> std::io::Result<(StrongReference, u64)> {
         let success = self
@@ -220,5 +235,26 @@ impl FileCache for PersistentFileCacheMap<'_> {
                 ))
             })?;
         Ok(success)
+    }
+}
+
+#[async_trait]
+impl FileCache for PersistentFileCacheMap<'_> {
+    async fn require<'t>(
+        &'t self,
+        dropbox_content_hash: &Sha256Digest,
+        download_file: Box<
+            dyn FnOnce() -> std::pin::Pin<
+                    Box<
+                        dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
+                            + Send
+                            + 't,
+                    >,
+                > + Send
+                + 't,
+        >,
+    ) -> std::io::Result<(StrongReference, u64)> {
+        // We call this function because code coverage doesn't work for async_traits.
+        self.require_impl(dropbox_content_hash, download_file).await
     }
 }
