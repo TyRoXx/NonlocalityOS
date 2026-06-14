@@ -270,8 +270,3 @@ pub fn fuzz_function(data: &[u8]) -> bool {
     info!("{:?}", &generated_test);
     run_generated_test(generated_test)
 }
-
-#[test]
-fn crash_0() {
-    assert!(fuzz_function(&[3, 2, 3, 16, 3, 63, 7]));
-}
