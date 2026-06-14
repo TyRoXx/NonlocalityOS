@@ -1,5 +1,6 @@
 use crate::prolly_tree_editable_node::{
-    hash_key, EditableLeafNode, EditableNode, IntegrityCheckResult, Iterator,
+    hash_key, is_split_after_key, EditableLeafNode, EditableNode, IntegrityCheckResult, Iterator,
+    SizeTracker,
 };
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
@@ -403,6 +404,48 @@ async fn test_editable_leaf_node_new_allows_empty() {
     let result = EditableLeafNode::<i32, u32>::new(BTreeMap::new());
     assert!(result.entries().is_empty());
     assert!(!result.is_naturally_split());
+}
+
+fn expected_leaf_is_naturally_split(entries: &BTreeMap<u32, Vec<u8>>) -> bool {
+    let mut size_tracker = SizeTracker::new();
+    for (key, value) in entries.iter() {
+        size_tracker.add_entry(key, value);
+    }
+    is_split_after_key(
+        entries.keys().last().expect("leaf node is not empty"),
+        size_tracker.size(),
+    )
+}
+
+#[test_log::test(tokio::test)]
+async fn test_editable_leaf_node_is_naturally_split_updates_after_mutations() {
+    let mut leaf_node = EditableLeafNode::new(BTreeMap::from([
+        (1u32, vec![1u8; 350]),
+        (42u32, vec![2u8; 900]),
+    ]));
+
+    assert_eq!(
+        expected_leaf_is_naturally_split(leaf_node.entries()),
+        leaf_node.is_naturally_split()
+    );
+
+    leaf_node.insert(42u32, vec![3u8; 100]).await;
+    assert_eq!(
+        expected_leaf_is_naturally_split(leaf_node.entries()),
+        leaf_node.is_naturally_split()
+    );
+
+    leaf_node.insert(42u32, vec![4u8; 900]).await;
+    assert_eq!(
+        expected_leaf_is_naturally_split(leaf_node.entries()),
+        leaf_node.is_naturally_split()
+    );
+
+    leaf_node.remove(&1u32).await.unwrap();
+    assert_eq!(
+        expected_leaf_is_naturally_split(leaf_node.entries()),
+        leaf_node.is_naturally_split()
+    );
 }
 
 #[test_log::test(tokio::test)]

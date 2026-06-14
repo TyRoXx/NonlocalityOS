@@ -55,6 +55,12 @@ pub struct SizeTracker {
     total_element_size: usize,
 }
 
+fn serialized_entry_len<Key: Serialize, Value: Serialize>(key: &Key, value: &Value) -> usize {
+    postcard::to_stdvec(&(key, value))
+        .expect("serializing entry should succeed")
+        .len()
+}
+
 impl Default for SizeTracker {
     fn default() -> Self {
         Self::new()
@@ -70,10 +76,15 @@ impl SizeTracker {
     }
 
     pub fn add_entry<Key: Serialize, Value: Serialize>(&mut self, key: &Key, value: &Value) {
-        let entry_serialized: Vec<u8> =
-            postcard::to_stdvec(&(key, value)).expect("serializing entry should succeed");
         self.element_count += 1;
-        self.total_element_size += entry_serialized.len();
+        self.total_element_size += serialized_entry_len(key, value);
+    }
+
+    pub fn from_totals(element_count: usize, total_element_size: usize) -> Self {
+        SizeTracker {
+            element_count,
+            total_element_size,
+        }
     }
 
     pub fn size(&self) -> usize {
@@ -184,6 +195,7 @@ impl<
     pub fn new() -> Self {
         EditableNode::Loaded(EditableLoadedNode::Leaf(EditableLeafNode {
             entries: BTreeMap::new(),
+            total_element_size: 0,
         }))
     }
 
@@ -253,6 +265,7 @@ impl<
         if maybe_top_key.is_none() {
             *self = EditableNode::Loaded(EditableLoadedNode::Leaf(EditableLeafNode {
                 entries: BTreeMap::new(),
+                total_element_size: 0,
             }));
         } else {
             let loaded = self.require_loaded(load_tree).await?;
@@ -339,7 +352,7 @@ impl<
         match (loaded, other_loaded) {
             (EditableLoadedNode::Leaf(self_leaf), EditableLoadedNode::Leaf(other_leaf)) => {
                 for (key, value) in other_leaf.entries {
-                    self_leaf.entries.insert(key, value);
+                    self_leaf.upsert_entry(key, value);
                 }
                 let split_nodes = self_leaf.check_split();
                 Ok((
@@ -391,17 +404,25 @@ impl<
 #[derive(Debug, Clone)]
 pub struct EditableLeafNode<Key, Value> {
     entries: BTreeMap<Key, Value>,
+    total_element_size: usize,
 }
 
 impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone + NodeValue>
     EditableLeafNode<Key, Value>
 {
     pub fn new(entries: BTreeMap<Key, Value>) -> Self {
-        EditableLeafNode { entries }
+        let mut size_tracker = SizeTracker::new();
+        for (key, value) in entries.iter() {
+            size_tracker.add_entry(key, &value.to_content());
+        }
+        EditableLeafNode {
+            entries,
+            total_element_size: size_tracker.total_element_size,
+        }
     }
 
     pub async fn insert(&mut self, key: Key, value: Value) -> Vec<EditableLeafNode<Key, Value>> {
-        self.entries.insert(key, value);
+        self.upsert_entry(key, value);
         self.check_split()
     }
 
@@ -410,8 +431,35 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone + NodeValue>
         key: &Key,
     ) -> Result<(Option<Key>, Option<Value>), Box<dyn std::error::Error>> {
         let removed = self.entries.remove(key);
+        if let Some(removed_value) = removed.as_ref() {
+            let removed_entry_size = Self::entry_size(key, removed_value);
+            self.total_element_size = self
+                .total_element_size
+                .checked_sub(removed_entry_size)
+                .expect("removed entry size must not exceed tracked size");
+        }
         let top_key = self.top_key().cloned();
         Ok((top_key, removed))
+    }
+
+    fn entry_size(key: &Key, value: &Value) -> usize {
+        serialized_entry_len(key, &value.to_content())
+    }
+
+    fn upsert_entry(&mut self, key: Key, value: Value) {
+        let previous_entry_size = self
+            .entries
+            .get(&key)
+            .map(|previous_value| Self::entry_size(&key, previous_value));
+        let new_entry_size = Self::entry_size(&key, &value);
+        self.entries.insert(key, value);
+        if let Some(previous_entry_size) = previous_entry_size {
+            self.total_element_size = self
+                .total_element_size
+                .checked_sub(previous_entry_size)
+                .expect("existing entry size must not exceed tracked size");
+        }
+        self.total_element_size += new_entry_size;
     }
 
     fn check_split(&mut self) -> Vec<EditableLeafNode<Key, Value>> {
@@ -462,10 +510,7 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone + NodeValue>
         if self.entries.is_empty() {
             return false;
         }
-        let mut size_tracker = SizeTracker::new();
-        for entry in self.entries.iter() {
-            size_tracker.add_entry(entry.0, &entry.1.to_content());
-        }
+        let size_tracker = SizeTracker::from_totals(self.entries.len(), self.total_element_size);
         is_split_after_key(
             self.entries.keys().last().expect("leaf node is not empty"),
             size_tracker.size(),
