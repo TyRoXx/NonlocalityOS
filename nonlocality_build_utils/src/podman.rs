@@ -93,8 +93,10 @@ async fn test_podman() {
         .create(
             &podman_api::opts::ContainerCreateOpts::builder()
                 .image(&image_id)
-                // TODO: find a faster solution than sleeping for a fixed time
-                .command(["/usr/bin/sleep", "2"])
+                // Keep the container alive long enough for the test to run; using a finite sleep
+                // avoids leaving a permanently running container behind if the test panics before cleanup.
+                // When everything goes as expected, this test will kill the sleep process almost immediately.
+                .command(["/usr/bin/sleep", "3600"])
                 .build(),
         )
         .await
@@ -157,7 +159,9 @@ async fn test_podman() {
     container
         .delete(
             &podman_api::opts::ContainerDeleteOpts::builder()
+                // Kill the infinite sleep process.
                 .force(true)
+                .timeout(0)
                 .build(),
         )
         .await
