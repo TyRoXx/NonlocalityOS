@@ -863,9 +863,14 @@ async fn test_temp_table() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let directory = Arc::new(
-        OpenDirectory::create_directory(std::path::PathBuf::from(""), storage, clock, 1)
-            .await
-            .unwrap(),
+        OpenDirectory::create_directory(
+            std::path::PathBuf::from(""),
+            storage,
+            clock,
+            /*lower numbers make the test extremely slow for some reason*/ 500,
+        )
+        .await
+        .unwrap(),
     );
     let vfs_name = register_unique_vfs(
         TreeEditor::new(directory.clone(), None),
