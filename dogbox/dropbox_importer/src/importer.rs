@@ -126,7 +126,7 @@ impl<'t> DropboxImporter<'t> {
         }
     }
 
-    async fn import_folder(
+    async fn import_directory(
         &self,
         from_directory: &str,
         folder_name_raw: &str,
@@ -201,7 +201,7 @@ impl<'t> DropboxImporter<'t> {
             DropboxFolderEntryKind::Folder => {
                 info!("Folder entry: {}", entry.name);
                 match self
-                    .import_folder(from_directory, &entry.name, into_directory)
+                    .import_directory(from_directory, &entry.name, into_directory)
                     .await?
                 {
                     ImportFolderOutcome::Success => {
