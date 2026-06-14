@@ -85,7 +85,6 @@ async fn run_dav_server_instance<'t>(
         if let Some(change_files2) = change_files {
             change_files2(create_client(server_url.clone())).await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         info!("Verifying changes 1st time");
         verify_changes(create_client(server_url.clone())).await;
         // verify again to be extra sure this is deterministic
