@@ -10,8 +10,8 @@ env:
   CARGO_TERM_COLOR: always
   # https://github.com/mozilla/sccache/blob/main/docs/GHA.md
   SCCACHE_GHA_ENABLED: on
-  SCCACHE_VERSION: "v0.14.0"
-  SCCACHE_FILENAME: "sccache-v0.14.0-x86_64-unknown-linux-musl.tar.gz"
+  SCCACHE_VERSION: "v0.16.0"
+  SCCACHE_FILENAME: "sccache-v0.16.0-x86_64-unknown-linux-musl.tar.gz"
   RUSTC_WRAPPER: sccache
   RUST_BACKTRACE: 1
 
@@ -29,10 +29,6 @@ jobs:
       # https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations
       matrix:
         task: [ cargo_test, cargo_lint, cargo_fuzz ]
-
-    env:
-      SCCACHE_VERSION: "v0.15.0"
-      SCCACHE_FILENAME: "sccache-v0.15.0-x86_64-unknown-linux-musl.tar.gz"
 
     steps:
     - uses: actions/checkout@v4
