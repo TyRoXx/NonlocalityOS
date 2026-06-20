@@ -31,3 +31,12 @@ lz4_flex = "0"
 rand = { version = "0", features = [ "small_rng", "min_const_gen" ]}
 test-log = {version = "0", features = ["trace", "log", "color"]}
 shake = "0"
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "storage_benchmarks"
+harness = false
+
+[[bench]]
+name = "tree_benchmarks"
+harness = false

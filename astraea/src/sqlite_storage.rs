@@ -487,10 +487,10 @@ async fn load_tree_impl(
                 let child_tree_id: i64 = row.get(2)?;
                 Ok((index, BlobDigest::new(&target), child_tree_id))
             })
-            .map_err(|error| LoadError::Rusqlite(format!("{}", error)))?;
-        let child_digests: Vec<(BlobDigest, i64)> = child_results
-            .enumerate()
-            .map(|(expected_index, maybe_tuple)| {
+            .map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
+        let child_digests: Vec<(BlobDigest, i64)> = {
+            let mut result = Vec::new();
+            for (expected_index, maybe_tuple) in child_results.enumerate() {
                 let tuple =
                     maybe_tuple.map_err(|error| LoadError::Rusqlite(format!("{}", error)))?;
                 let target = tuple.1;
@@ -505,9 +505,10 @@ async fn load_tree_impl(
                         ),
                     ));
                 }
-                Ok((target, child_tree_id))
-            })
-            .try_collect()?;
+                result.push((target, child_tree_id));
+            }
+            result
+        };
         (tree_blob, child_digests, root_reference)
     };
     let mut child_references = Vec::new();

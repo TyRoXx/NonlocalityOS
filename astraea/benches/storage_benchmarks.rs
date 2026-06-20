@@ -1,17 +1,16 @@
-extern crate test;
-use crate::{
+use astraea::{
     sqlite_storage::SQLiteStorage,
     storage::{
         CollectGarbage, GarbageCollectionStats, LoadTree, StoreTree, StrongReference, UpdateRoot,
     },
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
+use criterion::{criterion_group, criterion_main, Bencher, Criterion, Throughput};
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
-use test::Bencher;
 use tokio::runtime::Runtime;
 
-fn sqlite_in_memory_store_tree_redundantly(b: &mut Bencher, tree_blob_size: usize) {
+fn sqlite_in_memory_store_tree_redundantly(c: &mut Criterion, tree_blob_size: usize) {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
@@ -20,27 +19,35 @@ fn sqlite_in_memory_store_tree_redundantly(b: &mut Bencher, tree_blob_size: usiz
         TreeChildren::empty(),
     )));
     let runtime = Runtime::new().unwrap();
-    b.iter(|| {
-        let reference = runtime.block_on(storage.store_tree(&stored_tree)).unwrap();
-        assert_eq!(stored_tree.digest(), reference.digest());
-        reference
-    });
-    b.bytes = tree_blob_size as u64;
+
+    let mut group = c.benchmark_group(format!(
+        "sqlite_in_memory_store_tree_redundantly {}",
+        tree_blob_size
+    ));
+    group.throughput(Throughput::Bytes(tree_blob_size as u64));
+    group.bench_function(
+        format!("sqlite_in_memory_store_tree_redundantly {}", tree_blob_size),
+        |b| {
+            b.iter(|| {
+                let reference = runtime.block_on(storage.store_tree(&stored_tree)).unwrap();
+                assert_eq!(stored_tree.digest(), reference.digest());
+                reference
+            })
+        },
+    );
+    group.finish();
 }
 
-#[bench]
-fn sqlite_in_memory_store_tree_redundantly_small(b: &mut Bencher) {
-    sqlite_in_memory_store_tree_redundantly(b, 100);
+fn sqlite_in_memory_store_tree_redundantly_small(c: &mut Criterion) {
+    sqlite_in_memory_store_tree_redundantly(c, 100);
 }
 
-#[bench]
-fn sqlite_in_memory_store_tree_redundantly_medium(b: &mut Bencher) {
-    sqlite_in_memory_store_tree_redundantly(b, TREE_BLOB_MAX_LENGTH / 2);
+fn sqlite_in_memory_store_tree_redundantly_medium(c: &mut Criterion) {
+    sqlite_in_memory_store_tree_redundantly(c, TREE_BLOB_MAX_LENGTH / 2);
 }
 
-#[bench]
-fn sqlite_in_memory_store_tree_redundantly_large(b: &mut Bencher) {
-    sqlite_in_memory_store_tree_redundantly(b, TREE_BLOB_MAX_LENGTH);
+fn sqlite_in_memory_store_tree_redundantly_large(c: &mut Criterion) {
+    sqlite_in_memory_store_tree_redundantly(c, TREE_BLOB_MAX_LENGTH);
 }
 
 async fn generate_random_trees<T: StoreTree>(
@@ -62,7 +69,6 @@ async fn generate_random_trees<T: StoreTree>(
     previous_reference
 }
 
-#[bench]
 fn generate_random_trees_1000(b: &mut Bencher) {
     let tree_count_in_database = 1000;
     let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
@@ -86,7 +92,7 @@ fn random_bytes(len: usize) -> Vec<u8> {
     (0..len).map(|_| small_rng.gen()).collect()
 }
 
-fn sqlite_in_memory_load_and_hash_tree(b: &mut Bencher, tree_count_in_database: u64) {
+fn sqlite_in_memory_load_and_hash_tree(c: &mut Criterion, tree_count_in_database: u64) {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::from(connection).unwrap();
@@ -112,30 +118,41 @@ fn sqlite_in_memory_load_and_hash_tree(b: &mut Bencher, tree_count_in_database: 
         .unwrap(),
         reference.digest()
     );
-    b.iter(|| {
-        let loaded = runtime
-            .block_on(storage.load_tree(reference.digest()))
-            .unwrap()
-            .hash()
-            .unwrap();
-        assert_eq!(&stored_tree, loaded.hashed_tree());
-        loaded
-    });
-    b.bytes = stored_tree.tree().blob().len() as u64;
+    let mut group = c.benchmark_group(format!(
+        "sqlite_in_memory_load_and_hash_tree {}",
+        tree_count_in_database
+    ));
+    group.throughput(Throughput::Bytes(stored_tree.tree().blob().len() as u64));
+    group.bench_function(
+        format!(
+            "sqlite_in_memory_load_and_hash_tree {}",
+            tree_count_in_database
+        ),
+        |b| {
+            b.iter(|| {
+                let loaded = runtime
+                    .block_on(storage.load_tree(reference.digest()))
+                    .unwrap()
+                    .hash()
+                    .unwrap();
+                assert_eq!(&stored_tree, loaded.hashed_tree());
+                loaded
+            })
+        },
+    );
+    group.finish();
     assert_eq!(
         Ok(tree_count_in_database + 1),
         runtime.block_on(storage.approximate_tree_count())
     );
 }
 
-#[bench]
-fn sqlite_in_memory_load_and_hash_tree_small_database(b: &mut Bencher) {
-    sqlite_in_memory_load_and_hash_tree(b, 0);
+fn sqlite_in_memory_load_and_hash_tree_small_database(c: &mut Criterion) {
+    sqlite_in_memory_load_and_hash_tree(c, 0);
 }
 
-#[bench]
-fn sqlite_in_memory_load_and_hash_tree_large_database(b: &mut Bencher) {
-    sqlite_in_memory_load_and_hash_tree(b, 10_000);
+fn sqlite_in_memory_load_and_hash_tree_large_database(c: &mut Criterion) {
+    sqlite_in_memory_load_and_hash_tree(c, 10_000);
 }
 
 fn collect_garbage_nothing_to_collect(b: &mut Bencher, tree_count_in_database: u32) {
@@ -172,17 +189,38 @@ fn collect_garbage_nothing_to_collect(b: &mut Bencher, tree_count_in_database: u
     });
 }
 
-#[bench]
 fn collect_garbage_nothing_to_collect_1(b: &mut Bencher) {
     collect_garbage_nothing_to_collect(b, 1);
 }
 
-#[bench]
 fn collect_garbage_nothing_to_collect_1_000(b: &mut Bencher) {
     collect_garbage_nothing_to_collect(b, 1_000);
 }
 
-#[bench]
 fn collect_garbage_nothing_to_collect_10_000(b: &mut Bencher) {
     collect_garbage_nothing_to_collect(b, 10_000);
 }
+
+fn criterion_benchmark(c: &mut Criterion) {
+    sqlite_in_memory_store_tree_redundantly_small(c);
+    sqlite_in_memory_store_tree_redundantly_medium(c);
+    sqlite_in_memory_store_tree_redundantly_large(c);
+    c.bench_function("generate_random_trees_1000", generate_random_trees_1000);
+    sqlite_in_memory_load_and_hash_tree_small_database(c);
+    sqlite_in_memory_load_and_hash_tree_large_database(c);
+    c.bench_function(
+        "collect_garbage_nothing_to_collect_1",
+        collect_garbage_nothing_to_collect_1,
+    );
+    c.bench_function(
+        "collect_garbage_nothing_to_collect_1_000",
+        collect_garbage_nothing_to_collect_1_000,
+    );
+    c.bench_function(
+        "collect_garbage_nothing_to_collect_10_000",
+        collect_garbage_nothing_to_collect_10_000,
+    );
+}
+
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);

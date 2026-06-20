@@ -1,7 +1,3 @@
-// The compiler warns about "#![feature(test)]" for no reason.
-#![allow(unused_features)]
-#![feature(test)]
-
 pub mod builtins;
 pub mod expressions;
 pub mod name;
