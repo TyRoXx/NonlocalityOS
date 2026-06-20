@@ -1362,7 +1362,7 @@ impl OpenDirectory {
     pub async fn drop_all_read_caches(&self) -> CacheDropStats {
         let mut state_locked = self.state.lock().await;
         let mut result = CacheDropStats::new(0, 0, 0, 0);
-        for (_name, entry) in state_locked.names.iter_mut() {
+        for entry in state_locked.names.values_mut() {
             result.add(&entry.drop_all_read_caches().await);
         }
         if result.files_and_directories_remaining_open == 0 {

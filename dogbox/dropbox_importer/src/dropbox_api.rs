@@ -46,9 +46,12 @@ async fn download_file_impl(
 ) -> std::io::Result<(StrongReference, u64)> {
     // download the file from Dropbox in pieces:
     // Start a download session for the file from Dropbox
-    info!("Starting download for {}", dropbox_file_path);
-    let download_arg =
-        files::DownloadArg::new(dropbox_file_path.to_string()).with_rev(dropbox_file_rev.clone());
+    info!(
+        "Starting download for {} (rev:{})",
+        dropbox_file_path, dropbox_file_rev
+    );
+    // https://www.dropbox.com/developers/documentation/http/documentation#files-download
+    let download_arg = files::DownloadArg::new(format!("rev:{}", dropbox_file_rev));
     let response = match files::download(dropbox_client.as_ref(), &download_arg, None, None).await {
         Ok(res) => res,
         Err(e) => {

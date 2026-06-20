@@ -40,7 +40,7 @@ pub async fn install_raspberry_pi_cpp_compiler(
         Err(error) => {
             progress_reporter.log(&format!(
                 "Could not download and unpack {}: {}",
-                &download_url, error
+                download_url, error
             ));
             None
         }

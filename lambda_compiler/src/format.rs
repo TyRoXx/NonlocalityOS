@@ -106,7 +106,7 @@ where
     W: std::fmt::Write,
 {
     match expression {
-        Expression::Identifier(name, _source_location) => write!(writer, "{}", &name.key),
+        Expression::Identifier(name, _source_location) => write!(writer, "{}", name.key),
         Expression::StringLiteral(content, _source_location) => {
             format_string_literal(content, writer)
         }
@@ -133,7 +133,7 @@ where
             value,
             body,
         } => {
-            write!(writer, "let {} = ", &name.key)?;
+            write!(writer, "let {} = ", name.key)?;
             format_expression(value, indentation_level, writer)?;
             break_line(indentation_level, writer)?;
             format_expression(body, indentation_level, writer)

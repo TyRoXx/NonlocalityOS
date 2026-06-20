@@ -139,7 +139,7 @@ fn enumerate_filesystem_recursively(
         } else {
             panic!(
                 "Unsupported file type {:?} in fake operating system: {}",
-                &file_type,
+                file_type,
                 entry.path().display()
             );
         };

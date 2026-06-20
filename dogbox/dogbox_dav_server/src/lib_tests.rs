@@ -359,7 +359,7 @@ async fn test_file_not_found() {
             {
                 let error = client.get("/test.txt").await.unwrap_err();
                 match error {
-                    reqwest_dav::Error::Reqwest(_) | reqwest_dav::Error::ReqwestDecode(_) | reqwest_dav::Error::MissingAuthContext => panic!("Unexpected error: {:?}", &error),
+                    reqwest_dav::Error::Reqwest(_) | reqwest_dav::Error::ReqwestDecode(_) | reqwest_dav::Error::MissingAuthContext => panic!("Unexpected error: {:?}", error),
                     reqwest_dav::Error::Decode(decode) => match decode {
                         reqwest_dav::DecodeError::DigestAuth(_) => panic!(),
                         reqwest_dav::DecodeError::NoAuthHeaderInResponse => panic!(),
