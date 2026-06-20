@@ -80,7 +80,7 @@ pub async fn run_process_with_error_only_output(
     let mut message = String::from("");
     writeln!(message, "Executable: {}", executable.display()).unwrap();
     writeln!(message, "Arguments: {}", arguments.join(" ")).unwrap();
-    writeln!(message, "Environment: {:?}", &environment_variables).unwrap();
+    writeln!(message, "Environment: {:?}", environment_variables).unwrap();
     writeln!(
         message,
         "Working directory: {}",
@@ -90,10 +90,10 @@ pub async fn run_process_with_error_only_output(
     writeln!(message, "Exit status: {}", output.status).unwrap();
     writeln!(message, "Standard output:").unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    writeln!(message, "{}", &stdout).unwrap();
+    writeln!(message, "{}", stdout).unwrap();
     writeln!(message, "Standard error:").unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
-    writeln!(message, "{}", &stderr).unwrap();
+    writeln!(message, "{}", stderr).unwrap();
     progress_reporter.log(&message);
     error!("{}", &message);
     Err(std::io::Error::other(format!(

@@ -47,7 +47,7 @@ impl std::fmt::Debug for BlobDigest {
 
 impl std::fmt::Display for BlobDigest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", &hex::encode(self.0 .0), &hex::encode(self.0 .1))
+        write!(f, "{}{}", hex::encode(self.0 .0), hex::encode(self.0 .1))
     }
 }
 

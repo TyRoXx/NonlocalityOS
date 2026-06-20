@@ -362,7 +362,7 @@ async fn test_remove_many() {
             }
         }
     }
-    for (key, _value) in expected_entries.iter() {
+    for key in expected_entries.keys() {
         let found = editable_node.find(key, &storage).await.unwrap();
         assert_eq!(None, found);
     }

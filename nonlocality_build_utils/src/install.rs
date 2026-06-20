@@ -272,7 +272,7 @@ async fn deploy_host_binary(
         // TODO: encode command line arguments correctly
         &format!(
             "/usr/bin/mv {} {}",
-            &remote_host_binary_next, &remote_host_binary
+            remote_host_binary_next, remote_host_binary
         ),
     )
     .await;

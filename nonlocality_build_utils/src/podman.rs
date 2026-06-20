@@ -176,7 +176,7 @@ async fn use_running_container(container: &Container) {
         let status = container_state.status;
         match status.as_deref() {
             Some("running") => {}
-            _ => panic!("Container has unexpected status: {:?}", &status),
+            _ => panic!("Container has unexpected status: {:?}", status),
         }
     }
     run_command(container, &["/usr/bin/which", "sleep"]).await;

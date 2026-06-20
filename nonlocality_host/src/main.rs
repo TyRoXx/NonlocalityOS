@@ -123,7 +123,7 @@ User=root
 [Install]
 WantedBy=multi-user.target
 "#,
-        &executable_argument, &nonlocality_directory_argument
+        executable_argument, nonlocality_directory_argument
     );
     let temporary_directory = operating_system
         .create_temporary_directory()
@@ -134,7 +134,7 @@ WantedBy=multi-user.target
     let mut temporary_file =
         std::fs::File::create_new(&temporary_file_path).expect("create temporary file");
     use std::io::Write;
-    write!(&mut temporary_file, "{}", &service_file_content)
+    write!(&mut temporary_file, "{}", service_file_content)
         .expect("write content of the service file");
     let systemd_service_directory = open_systemd_service_directory(operating_system).await?;
     let systemd_service_directory_path = systemd_service_directory.lock().await?;

@@ -19,7 +19,7 @@ impl ParserError {
 
 impl std::fmt::Display for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.message)
+        write!(f, "{}", self.message)
     }
 }
 
@@ -741,7 +741,7 @@ pub fn parse_expression_tolerantly<'t>(
         Ok(entry_point) => ParserOutput::new(Some(entry_point), errors),
         Err(error) => {
             errors.push(CompilerError::new(
-                format!("Parser error: {}", &error),
+                format!("Parser error: {}", error),
                 error.location,
             ));
             ParserOutput::new(None, errors)
