@@ -17,13 +17,13 @@ use astraea::{
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH},
 };
 use async_trait::async_trait;
+use derivative::Derivative;
 use dogbox_tree::serialization::{DirectoryEntryMetaData, FileName};
 use futures::StreamExt;
 use lazy_static::lazy_static;
 use pretty_assertions::assert_eq;
 use pretty_assertions::assert_ne;
 use std::collections::BTreeMap;
-use std::fmt::FormattingOptions;
 use std::time::SystemTime;
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -32,16 +32,20 @@ use std::{
 use test_case::{test_case, test_matrix};
 use tokio::runtime::Runtime;
 
+#[derive(Derivative)]
+#[derivative(Debug)]
+struct FormatWallClockHelper {
+    #[derivative(Debug(format_with = "format_wall_clock"))]
+    pub clock: WallClock,
+}
+
 #[test_log::test(test)]
 fn test_format_wall_clock() {
     let clock: WallClock = Arc::new(|| std::time::UNIX_EPOCH);
-    let mut buffer = String::new();
-    format_wall_clock(
-        &clock,
-        &mut std::fmt::Formatter::new(&mut buffer, FormattingOptions::default()),
-    )
-    .unwrap();
-    assert_eq!("WallClock", buffer);
+    assert_eq!(
+        "FormatWallClockHelper { clock: WallClock }",
+        format!("{:?}", FormatWallClockHelper { clock })
+    );
 }
 
 #[test_log::test(test)]

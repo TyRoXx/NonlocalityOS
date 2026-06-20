@@ -1,10 +1,3 @@
-// The compiler warns about "#![feature(test)]" for no reason.
-#![allow(unused_features)]
-#![feature(test)]
-#![feature(formatting_options)]
-#[cfg(test)]
-mod benchmarks;
-
 #[cfg(test)]
 mod lib_tests;
 

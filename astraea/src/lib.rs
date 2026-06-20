@@ -1,12 +1,4 @@
-// The compiler warns about "#![feature(test)]" for no reason.
-#![allow(unused_features)]
-#![feature(test)]
-#![feature(iterator_try_collect)]
-
 pub mod storage;
-
-#[cfg(test)]
-mod storage_benchmarks;
 
 pub mod deep_tree;
 
@@ -17,9 +9,6 @@ pub mod tree;
 
 #[cfg(test)]
 mod tree_tests;
-
-#[cfg(test)]
-mod tree_benchmarks;
 
 pub mod sqlite_storage;
 
