@@ -399,9 +399,10 @@ async fn test_save_reference() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_editable_leaf_node_create() {
-    let result = EditableLeafNode::<i32, u32>::create(BTreeMap::new());
-    assert!(result.is_none());
+async fn test_editable_leaf_node_new_allows_empty() {
+    let result = EditableLeafNode::<i32, u32>::new(BTreeMap::new());
+    assert!(result.entries().is_empty());
+    assert!(!result.is_naturally_split());
 }
 
 #[test_log::test(tokio::test)]

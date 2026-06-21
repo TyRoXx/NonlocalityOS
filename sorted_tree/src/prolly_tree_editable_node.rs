@@ -396,12 +396,8 @@ pub struct EditableLeafNode<Key, Value> {
 impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone + NodeValue>
     EditableLeafNode<Key, Value>
 {
-    pub fn create(entries: BTreeMap<Key, Value>) -> Option<Self> {
-        if entries.is_empty() {
-            None
-        } else {
-            Some(EditableLeafNode { entries })
-        }
+    pub fn new(entries: BTreeMap<Key, Value>) -> Self {
+        EditableLeafNode { entries }
     }
 
     pub async fn insert(&mut self, key: Key, value: Value) -> Vec<EditableLeafNode<Key, Value>> {
@@ -419,6 +415,7 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone + NodeValue>
     }
 
     fn check_split(&mut self) -> Vec<EditableLeafNode<Key, Value>> {
+        assert!(!self.entries.is_empty());
         let mut result = Vec::new();
         let mut current_node = BTreeMap::new();
         let mut current_node_size_tracker = SizeTracker::new();
@@ -426,19 +423,13 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone + NodeValue>
             current_node_size_tracker.add_entry(entry.0, &entry.1.to_content());
             current_node.insert(entry.0.clone(), entry.1.clone());
             if is_split_after_key(entry.0, current_node_size_tracker.size()) {
-                result.push(
-                    EditableLeafNode::create(current_node)
-                        .expect("Must succeed because list is not empty"),
-                );
+                result.push(EditableLeafNode::new(current_node));
                 current_node = BTreeMap::new();
                 current_node_size_tracker = SizeTracker::new();
             }
         }
         if !current_node.is_empty() {
-            result.push(
-                EditableLeafNode::create(current_node)
-                    .expect("Must succeed because list is not empty"),
-            );
+            result.push(EditableLeafNode::new(current_node));
         }
         *self = result.remove(0);
         result
@@ -468,6 +459,9 @@ impl<Key: std::cmp::Ord + Clone + Serialize, Value: Clone + NodeValue>
     }
 
     pub fn is_naturally_split(&self) -> bool {
+        if self.entries.is_empty() {
+            return false;
+        }
         let mut size_tracker = SizeTracker::new();
         for entry in self.entries.iter() {
             size_tracker.add_entry(entry.0, &entry.1.to_content());
@@ -745,7 +739,7 @@ impl<Key: Serialize + DeserializeOwned + Ord + Clone + Debug, Value: NodeValue +
                 for (key, value) in leaf_node.entries {
                     entries.insert(key, value);
                 }
-                EditableLoadedNode::Leaf(EditableLeafNode { entries })
+                EditableLoadedNode::Leaf(EditableLeafNode::new(entries))
             }
             EitherNodeType::Internal(internal_node) => {
                 let mut entries = BTreeMap::new();

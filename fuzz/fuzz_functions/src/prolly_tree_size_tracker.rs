@@ -10,12 +10,8 @@ struct TestCase {
 }
 
 async fn run_test_case(test_case: &TestCase) -> bool {
-    let mut node = EditableLoadedNode::Leaf(
-        match EditableLeafNode::<u32, i64>::create(test_case.entries.clone()) {
-            Some(node) => node,
-            None => return false,
-        },
-    );
+    let mut node =
+        EditableLoadedNode::Leaf(EditableLeafNode::<u32, i64>::new(test_case.entries.clone()));
     let storage = InMemoryTreeStorage::empty();
     let reference = node.save(&storage).await.unwrap();
 
@@ -49,7 +45,7 @@ pub fn fuzz_function(data: &[u8]) -> bool {
 #[test_log::test(tokio::test)]
 async fn test_empty() {
     assert!(
-        !run_test_case(&TestCase {
+        run_test_case(&TestCase {
             entries: BTreeMap::new(),
         })
         .await
