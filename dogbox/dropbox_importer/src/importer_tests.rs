@@ -20,7 +20,7 @@ use dogbox_tree_editor::{
 };
 use dropbox_sdk::async_routes::files;
 use futures::StreamExt;
-use relative_path::RelativePath;
+use relative_path::{RelativePath, RelativePathBuf};
 use std::{collections::BTreeMap, pin::Pin, sync::Arc};
 
 struct UnreachableDropboxApi {}
@@ -80,9 +80,67 @@ struct SucceedingDropboxApiDirectory {
     entries: BTreeMap<String, SucceedingDropboxApiDirectoryEntry>,
 }
 
+impl SucceedingDropboxApiDirectory {
+    pub fn new(entries: BTreeMap<String, SucceedingDropboxApiDirectoryEntry>) -> Self {
+        Self { entries }
+    }
+
+    pub fn list(&self, relative_path: &RelativePath) -> std::io::Result<Vec<DropboxFolderEntry>> {
+        if relative_path.components().count() == 0 {
+            Ok(self
+                .entries
+                .iter()
+                .map(|(name, entry)| {
+                    let kind = match entry {
+                        SucceedingDropboxApiDirectoryEntry::File(file_content) => {
+                            DropboxFolderEntryKind::File {
+                                metadata: DropboxFileMetaData {
+                                    content_hash: Some(format_dropbox_content_hash(&{
+                                        let mut hasher =
+                                            crate::dropbox_content_hash::DropboxContentHasher::new(
+                                            );
+                                        hasher.update(&file_content.content);
+                                        hasher.finalize()
+                                    })),
+                                    rev: file_content.rev.clone(),
+                                },
+                            }
+                        }
+                        SucceedingDropboxApiDirectoryEntry::Directory(_) => {
+                            DropboxFolderEntryKind::Folder
+                        }
+                    };
+                    DropboxFolderEntry {
+                        name: name.clone(),
+                        kind,
+                    }
+                })
+                .collect())
+        } else {
+            let first_component = relative_path.components().next().unwrap();
+            match self.entries.get(first_component.as_str()) {
+                Some(found) => match found {
+                    SucceedingDropboxApiDirectoryEntry::File(_) => {
+                        Err(std::io::Error::other("Path is a file, not a directory"))
+                    }
+                    SucceedingDropboxApiDirectoryEntry::Directory(subdirectory) => subdirectory
+                        .list(&relative_path.components().skip(1).fold(
+                            RelativePathBuf::new(),
+                            |mut path, component| {
+                                path.push(component);
+                                path
+                            },
+                        )),
+                },
+                None => Err(std::io::Error::other("Path not found")),
+            }
+        }
+    }
+}
+
 enum SucceedingDropboxApiDirectoryEntry {
     File(SucceedingDropboxApiFileContentWithRev),
-    Directory,
+    Directory(SucceedingDropboxApiDirectory),
 }
 
 struct SucceedingDropboxApi {
@@ -168,7 +226,7 @@ impl DropboxApi for SucceedingDropboxApi {
                     assert_eq!(size, file_content.content.len() as u64);
                     Ok((reference, size))
                 }
-                SucceedingDropboxApiDirectoryEntry::Directory => {
+                SucceedingDropboxApiDirectoryEntry::Directory(_) => {
                     Err(std::io::Error::other(format!(
                         "Expected file at path {}, but found a directory",
                         dropbox_file_path
@@ -188,36 +246,9 @@ impl DropboxApi for SucceedingDropboxApi {
     ) -> std::io::Result<
         Pin<Box<dyn futures::Stream<Item = std::io::Result<DropboxFolderEntry>> + Send>>,
     > {
-        // TODO: support subdirectories in the mock API
-        assert_eq!(dropbox_folder_path, "/");
-        let entries = self
-            .root
-            .entries
-            .iter()
-            .map(|(name, entry)| {
-                let kind = match entry {
-                    SucceedingDropboxApiDirectoryEntry::File(file_content) => {
-                        DropboxFolderEntryKind::File {
-                            metadata: DropboxFileMetaData {
-                                content_hash: Some(format_dropbox_content_hash(&{
-                                    let mut hasher =
-                                        crate::dropbox_content_hash::DropboxContentHasher::new();
-                                    hasher.update(&file_content.content);
-                                    hasher.finalize()
-                                })),
-                                rev: file_content.rev.clone(),
-                            },
-                        }
-                    }
-                    SucceedingDropboxApiDirectoryEntry::Directory => DropboxFolderEntryKind::Folder,
-                };
-                Ok(DropboxFolderEntry {
-                    name: name.clone(),
-                    kind,
-                })
-            })
-            .collect::<Vec<_>>();
-        let stream = futures::stream::iter(entries);
+        let relative_path = RelativePath::new(dropbox_folder_path);
+        let entries = self.root.list(&relative_path)?;
+        let stream = futures::stream::iter(entries.into_iter().map(Ok));
         Ok(Box::pin(stream))
     }
 }
@@ -291,27 +322,16 @@ async fn test_import_directory_entry_dropbox_failure() {
         PersistableFileCacheEntry,
     >::new();
     let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
-    let original_content_reference = storage
-        .store_tree(&HashedTree::from(Arc::new(Tree::new(
-            TreeBlob::empty(),
-            TreeChildren::empty(),
-        ))))
-        .await
-        .unwrap();
-    let modified = clock();
-    let open_directory = Arc::new(OpenDirectory::new(
-        std::path::PathBuf::from("/"),
-        DigestStatus::new(original_content_reference.clone(), false),
-        BTreeMap::new(),
-        storage.clone(),
-        modified,
-        clock,
-        1,
-    ));
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let empty_directory_reference = open_directory.latest_reference();
     let dropbox_api = FailingDropboxApi {};
     let importer = DropboxImporter::new(
         storage.clone(),
-        &original_content_reference,
+        &empty_directory_reference,
         &dropbox_api,
         &download_cache,
     );
@@ -353,23 +373,13 @@ async fn test_import_directory_entry_file_success() {
         PersistableFileCacheEntry,
     >::new();
     let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
-    let original_content_reference = storage
-        .store_tree(&HashedTree::from(Arc::new(Tree::new(
-            TreeBlob::empty(),
-            TreeChildren::empty(),
-        ))))
-        .await
-        .unwrap();
     let modified = clock();
-    let open_directory = Arc::new(OpenDirectory::new(
-        std::path::PathBuf::from("/"),
-        DigestStatus::new(original_content_reference.clone(), false),
-        BTreeMap::new(),
-        storage.clone(),
-        modified,
-        clock,
-        1,
-    ));
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let empty_directory_reference = open_directory.latest_reference();
     let content = b"Hello, world!";
     let rev = "1";
     let dropbox_api = SucceedingDropboxApi::new(SucceedingDropboxApiDirectory {
@@ -383,7 +393,7 @@ async fn test_import_directory_entry_file_success() {
     });
     let importer = DropboxImporter::new(
         storage.clone(),
-        &original_content_reference,
+        &empty_directory_reference,
         &dropbox_api,
         &download_cache,
     );
@@ -409,6 +419,56 @@ async fn test_import_directory_entry_file_success() {
     let expected_entries = [MutableDirectoryEntry::new(
         FileName::try_from("file.txt").unwrap(),
         DirectoryEntryKind::File(content.len() as u64),
+        modified,
+    )];
+    let actual_entries = open_directory.read().await.collect::<Vec<_>>().await;
+    assert_eq!(actual_entries, expected_entries);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_import_directory_entry_subdirectory_success() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256CacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let modified = clock();
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let empty_directory_reference = open_directory.latest_reference();
+    let dropbox_api = SucceedingDropboxApi::new(SucceedingDropboxApiDirectory {
+        entries: BTreeMap::from([(
+            "subdir".to_string(),
+            SucceedingDropboxApiDirectoryEntry::Directory(SucceedingDropboxApiDirectory::new(
+                BTreeMap::new(),
+            )),
+        )]),
+    });
+    let importer = DropboxImporter::new(
+        storage.clone(),
+        &empty_directory_reference,
+        &dropbox_api,
+        &download_cache,
+    );
+    importer
+        .import_directory_entry(
+            "/",
+            &DropboxFolderEntry {
+                name: "subdir".to_string(),
+                kind: DropboxFolderEntryKind::Folder,
+            },
+            &open_directory,
+        )
+        .await
+        .unwrap();
+    let expected_entries = [MutableDirectoryEntry::new(
+        FileName::try_from("subdir").unwrap(),
+        DirectoryEntryKind::Directory,
         modified,
     )];
     let actual_entries = open_directory.read().await.collect::<Vec<_>>().await;
