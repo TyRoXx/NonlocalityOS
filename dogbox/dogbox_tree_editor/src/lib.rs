@@ -11,6 +11,8 @@ pub mod sqlite;
 #[cfg(test)]
 mod sqlite_tests;
 
+pub mod expected_directory_entry_kind;
+
 use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use astraea::{
     storage::{LoadStoreTree, StoreError, StrongHashedTree, StrongReference},
