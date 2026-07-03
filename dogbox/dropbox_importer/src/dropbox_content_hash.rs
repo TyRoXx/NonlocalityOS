@@ -45,3 +45,7 @@ impl DropboxContentHasher {
         self.overall_hasher.finalize()
     }
 }
+
+pub fn format_dropbox_content_hash(hash: &sha2::digest::Output<Sha256>) -> String {
+    hex::encode(hash)
+}
