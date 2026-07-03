@@ -62,15 +62,12 @@ async fn download_file_impl(
         }
     };
 
-    let file_size = match response.content_length {
-        Some(size) => size,
-        None => {
-            return Err(std::io::Error::other(format!(
-                "Content length is missing for file {}",
-                dropbox_file_path
-            )));
-        }
-    };
+    info!(
+        "Download file content length: {:?}, result: {:?}",
+        response.content_length, response.result
+    );
+    // response.content_length is suddenly always None (2026-07-03) even though it had been Some before.
+    let file_size = response.result.size;
 
     let empty_file_reference = TreeEditor::store_empty_file(storage.clone())
         .await
