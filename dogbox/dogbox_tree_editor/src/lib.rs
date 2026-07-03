@@ -2378,6 +2378,7 @@ impl OpenFileContentBuffer {
         }
     }
 
+    // TODO: remove the StrongReference element because it is redundant with the DigestStatus
     pub fn last_known_digest(&self) -> (DigestStatus, u64, StrongReference) {
         match self {
             OpenFileContentBuffer::NotLoaded {

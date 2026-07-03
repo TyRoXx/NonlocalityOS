@@ -1,4 +1,4 @@
-use crate::dropbox_content_hash::DropboxContentHasher;
+use crate::dropbox_content_hash::{format_dropbox_content_hash, DropboxContentHasher};
 use hex_literal::hex;
 use pretty_assertions::assert_eq;
 use std::io::Read;
@@ -43,4 +43,16 @@ fn test_dropbox_content_hasher_large_file() {
     }
     let result = hasher.finalize();
     assert_eq!(expected, *result);
+}
+
+#[test_log::test]
+fn test_format_dropbox_content_hash() {
+    let data = b"hello world";
+    let mut hasher = DropboxContentHasher::new();
+    hasher.update(data);
+    let result = hasher.finalize();
+    assert_eq!(
+        "bc62d4b80d9e36da29c16c5d4d9f11731f36052c72401a76c23c0fb5a9b74423",
+        format_dropbox_content_hash(&result)
+    );
 }

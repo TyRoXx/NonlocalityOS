@@ -1,4 +1,4 @@
-use crate::dropbox_content_hash::DropboxContentHasher;
+use crate::dropbox_content_hash::{format_dropbox_content_hash, DropboxContentHasher};
 use astraea::{
     storage::{LoadStoreTree, StrongReference},
     tree::TREE_BLOB_MAX_LENGTH,
@@ -149,8 +149,8 @@ async fn download_file_impl(
         return Err(std::io::Error::other(format!(
             "Content hash mismatch for file {}: expected {}, got {}",
             dropbox_file_path,
-            hex::encode(dropbox_content_hash),
-            hex::encode(calculated_dropbox_content_hash)
+            format_dropbox_content_hash(dropbox_content_hash),
+            format_dropbox_content_hash(&calculated_dropbox_content_hash)
         )));
     }
 
