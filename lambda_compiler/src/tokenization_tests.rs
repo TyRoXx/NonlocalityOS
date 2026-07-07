@@ -10,6 +10,10 @@ fn test_tokenize_default_syntax(source: &str, expected_tokens: &[Token]) {
     assert_eq!(expected_tokens, &tokenized[..]);
 }
 
+fn test_tokenize_default_syntax_failure(source: &str) {
+    assert_eq!(None, tokenize_default_syntax(source));
+}
+
 #[test_log::test]
 fn test_tokenize_default_syntax_empty_source() {
     test_tokenize_default_syntax(
@@ -531,26 +535,12 @@ fn test_tokenize_default_syntax_string_longer() {
 
 #[test_log::test]
 fn test_tokenize_default_syntax_string_new_line() {
-    // TODO: perhaps we should disallow line breaks in string literals
-    test_tokenize_default_syntax(
-        "\"\n\"",
-        &[
-            Token {
-                content: TokenContent::Quotes("\n".to_string()),
-                location: SourceLocation { line: 0, column: 0 },
-            },
-            Token {
-                content: TokenContent::EndOfFile,
-                location: SourceLocation { line: 1, column: 1 },
-            },
-        ],
-    );
+    test_tokenize_default_syntax_failure("\"\n\"");
 }
 
 #[test_log::test]
 fn test_tokenize_default_syntax_string_carriage_return() {
-    // TODO: perhaps we should disallow line breaks in string literals
-    wellformed_quotes("\r", "\r");
+    test_tokenize_default_syntax_failure("\"\r\"");
 }
 
 #[test_log::test]
