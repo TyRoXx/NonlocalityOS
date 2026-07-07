@@ -8,8 +8,10 @@ pub trait NodeValue {
     type Content: Serialize + DeserializeOwned;
 
     fn has_child(content: &Self::Content) -> bool;
-    // TODO: change to Option<&StrongReference>
-    fn from_content(content: Self::Content, child: &Option<StrongReference>) -> Self;
+
+    // child is guaranteed to be Some if has_child returns true for the content, and guaranteed to be None if has_child returns false for the content.
+    fn from_content(content: Self::Content, child: &Option<&StrongReference>) -> Self;
+
     fn to_content(&self) -> Self::Content;
     fn get_reference(&self) -> Option<StrongReference>;
 }
@@ -24,7 +26,7 @@ where
         false
     }
 
-    fn from_content(content: Self::Content, child: &Option<StrongReference>) -> Self {
+    fn from_content(content: Self::Content, child: &Option<&StrongReference>) -> Self {
         assert!(child.is_none());
         content
     }
@@ -60,10 +62,10 @@ impl NodeValue for TreeReference {
         true
     }
 
-    fn from_content(_content: Self::Content, child: &Option<StrongReference>) -> Self {
+    fn from_content(_content: Self::Content, child: &Option<&StrongReference>) -> Self {
         match child {
             Some(reference) => TreeReference {
-                reference: reference.clone(),
+                reference: (*reference).clone(),
             },
             None => todo!("node claims to have a child, but no reference is available"),
         }
@@ -241,7 +243,7 @@ pub fn node_from_tree<Key: Serialize + DeserializeOwned + Ord, Value: NodeValue>
         }
         if Value::has_child(&content) {
             let reference = match reference_iter.next() {
-                Some(reference) => Some(reference.clone()),
+                Some(reference) => Some(reference),
                 None => return Err(NodeDeserializationError::NotEnoughChildren),
             };
             entries.push((key, Value::from_content(content, &reference)));

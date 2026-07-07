@@ -47,9 +47,9 @@ impl sorted_tree::sorted_tree::NodeValue for PersistableFileCacheEntry {
         true
     }
 
-    fn from_content(content: Self::Content, child: &Option<StrongReference>) -> Self {
+    fn from_content(content: Self::Content, child: &Option<&StrongReference>) -> Self {
         Self {
-            content_reference: child.clone().unwrap(),
+            content_reference: (*child.unwrap()).clone(),
             content_size: content,
         }
     }

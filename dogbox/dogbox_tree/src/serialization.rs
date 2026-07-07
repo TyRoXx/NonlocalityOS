@@ -160,11 +160,11 @@ impl sorted_tree::sorted_tree::NodeValue for DirectoryEntry {
         true
     }
 
-    fn from_content(content: Self::Content, child: &Option<StrongReference>) -> Self {
+    fn from_content(content: Self::Content, child: &Option<&StrongReference>) -> Self {
         match child {
             Some(reference) => DirectoryEntry {
                 meta: content,
-                child: sorted_tree::sorted_tree::TreeReference::new(reference.clone()),
+                child: sorted_tree::sorted_tree::TreeReference::new((*reference).clone()),
             },
             None => unreachable!("DirectoryEntry must have a child reference"),
         }
