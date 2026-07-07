@@ -255,6 +255,8 @@ pub fn tokenize_default_syntax(source: &str) -> Option<Vec<Token>> {
                                             default: Box::new(Parser::Fail),
                                         }
                                     ])),
+                                    (RegisterValue::Byte(b'\n'), Parser::Fail),
+                                    (RegisterValue::Byte(b'\r'), Parser::Fail),
                                 ]),
                                 default: Box::new(COPY_SUBSEQUENT_INPUT_TO_OUTPUT.clone()),
                             },
