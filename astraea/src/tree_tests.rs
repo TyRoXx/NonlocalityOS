@@ -1,13 +1,22 @@
 use std::sync::Arc;
 
 use crate::{
-    storage::StrongReference,
+    storage::{StrongReference, StrongReferenceTrait},
     tree::{
         calculate_reference, BlobDigest, HashedTree, ReferenceIndex, Tree, TreeBlob, TreeChildren,
         TreeDeserializationError, TreeSerializationError, TREE_BLOB_MAX_LENGTH,
     },
 };
 use pretty_assertions::assert_eq;
+
+/// Placeholder internals for tests that only need a stable digest-bearing strong reference.
+struct TestStrongReference;
+
+impl StrongReferenceTrait for TestStrongReference {}
+
+fn strong_reference(digest: BlobDigest) -> StrongReference {
+    StrongReference::new(Arc::new(TestStrongReference), digest)
+}
 
 #[test_log::test]
 fn blob_digest_parse_hex_string() {
@@ -119,10 +128,7 @@ fn test_calculate_reference_blob_yes_references_0() {
 fn test_calculate_reference_blob_no_references_1() {
     let tree = Arc::new(Tree::new(
         TreeBlob::empty(),
-        TreeChildren::try_from(vec![StrongReference::from_weak(BlobDigest((
-            [0u8; 32], [0u8; 32],
-        )))])
-        .unwrap(),
+        TreeChildren::try_from(vec![strong_reference(BlobDigest(([0u8; 32], [0u8; 32])))]).unwrap(),
     ));
     let reference = calculate_reference(&tree);
     assert_eq!(
@@ -135,10 +141,7 @@ fn test_calculate_reference_blob_no_references_1() {
 fn test_calculate_reference_blob_yes_references_1() {
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
-        TreeChildren::try_from(vec![StrongReference::from_weak(BlobDigest((
-            [0u8; 32], [0u8; 32],
-        )))])
-        .unwrap(),
+        TreeChildren::try_from(vec![strong_reference(BlobDigest(([0u8; 32], [0u8; 32])))]).unwrap(),
     ));
     let reference = calculate_reference(&tree);
     assert_eq!(
@@ -152,8 +155,8 @@ fn test_calculate_reference_blob_no_references_2() {
     let tree = Arc::new(Tree::new(
         TreeBlob::empty(),
         TreeChildren::try_from(vec![
-            StrongReference::from_weak(BlobDigest(([0u8; 32], [0u8; 32]))),
-            StrongReference::from_weak(BlobDigest(([1u8; 32], [1u8; 32]))),
+            strong_reference(BlobDigest(([0u8; 32], [0u8; 32]))),
+            strong_reference(BlobDigest(([1u8; 32], [1u8; 32]))),
         ])
         .unwrap(),
     ));
@@ -169,8 +172,8 @@ fn test_calculate_reference_blob_yes_references_2() {
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from("Hello, world!")).unwrap(),
         TreeChildren::try_from(vec![
-            StrongReference::from_weak(BlobDigest(([0u8; 32], [0u8; 32]))),
-            StrongReference::from_weak(BlobDigest(([1u8; 32], [1u8; 32]))),
+            strong_reference(BlobDigest(([0u8; 32], [0u8; 32]))),
+            strong_reference(BlobDigest(([1u8; 32], [1u8; 32]))),
         ])
         .unwrap(),
     ));

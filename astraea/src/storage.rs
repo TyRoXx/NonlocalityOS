@@ -43,25 +43,17 @@ pub trait StrongReferenceTrait {}
 
 #[derive(Clone)]
 pub struct StrongReference {
-    _internals: Option<Arc<dyn StrongReferenceTrait + Send + Sync>>,
+    _internals: Arc<dyn StrongReferenceTrait + Send + Sync>,
     digest: BlobDigest,
 }
 
 impl StrongReference {
     pub fn new(
-        internals: Option<Arc<dyn StrongReferenceTrait + Send + Sync>>,
+        internals: Arc<dyn StrongReferenceTrait + Send + Sync>,
         digest: BlobDigest,
     ) -> StrongReference {
         StrongReference {
             _internals: internals,
-            digest,
-        }
-    }
-
-    // TODO: remove this method
-    pub fn from_weak(digest: BlobDigest) -> StrongReference {
-        StrongReference {
-            _internals: None,
             digest,
         }
     }
