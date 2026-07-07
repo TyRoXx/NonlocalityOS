@@ -1,8 +1,7 @@
 use crate::{
     fake_operating_system::{FakeDirectoryEntry, FakeOperatingSystem, RunProcessFunction},
-    install,
     operating_system::OperatingSystem,
-    uninstall, SYSTEMD_SERVICES_DIRECTORY,
+    service::{install, uninstall, SYSTEMD_SERVICES_DIRECTORY},
 };
 use pretty_assertions::assert_eq;
 use std::{collections::BTreeMap, sync::Arc};
