@@ -365,6 +365,20 @@ pub async fn run_dav_server(
         }
         debug!("Created SQL schema in {}", &database_file_name.display());
     }
+
+    sqlite_connection.execute_batch("PRAGMA auto_vacuum = FULL;")?;
+    info!(
+        "Running VACUUM to reclaim space in {}",
+        &database_file_name.display()
+    );
+    // "To change auto-vacuum modes, first use the auto_vacuum pragma to set the new desired mode,
+    // then invoke the VACUUM command to reorganize the entire database file." (https://sqlite.org/pragma.html#pragma_auto_vacuum)
+    // TODO: Find a solution that doesn't block for several minutes if the database is dozens of GB in size.
+    sqlite_connection.execute_batch("VACUUM;")?;
+    info!("Vacuuming the WAL of {}", &database_file_name.display());
+    sqlite_connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+    info!("VACUUM completed");
+
     let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);
     let root_name = "latest";
     let open_file_write_buffer_in_blocks = DEFAULT_WRITE_BUFFER_IN_BLOCKS;

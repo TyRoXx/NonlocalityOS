@@ -155,6 +155,12 @@ async fn test_fresh_dav_server<'t>(
         )
         .await;
     }
+    let sqlite_connection = rusqlite::Connection::open(&database_file_name).unwrap();
+    let auto_vacuum_mode: i64 = sqlite_connection
+        .query_row("PRAGMA auto_vacuum;", [], |row| row.get(0))
+        .unwrap();
+    const SQLITE_AUTO_VACUUM_FULL: i64 = 1;
+    assert_eq!(SQLITE_AUTO_VACUUM_FULL, auto_vacuum_mode);
 
     // Start a new instance with the database from the first instance to check if the data was persisted correctly.
     info!("Second test server instance");
