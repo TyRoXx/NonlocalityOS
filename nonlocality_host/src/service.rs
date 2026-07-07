@@ -1,5 +1,4 @@
 use astraea::sqlite_storage::SQLiteStorage;
-use nonlocality_host::INSTALLED_DATABASE_FILE_NAME;
 use std::path::Path;
 use std::{ffi::OsStr, sync::Arc};
 use tracing::{error, info, warn};
@@ -8,6 +7,7 @@ use crate::operating_system::{file_exists, Directory, OperatingSystem};
 
 pub const SERVICE_FILE_NAME: &str = "nonlocalityos_host.service";
 pub const SYSTEMD_SERVICES_DIRECTORY: &str = "/etc/systemd/system";
+pub const INSTALLED_DATABASE_FILE_NAME: &str = "database.sqlite3";
 
 async fn open_systemd_service_directory(
     operating_system: &dyn OperatingSystem,

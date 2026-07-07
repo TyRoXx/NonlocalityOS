@@ -12,7 +12,6 @@ ssh2 = "0"
 dotenv = "0"
 relative-path = "2"
 nonlocality_build_utils = { path ="../nonlocality_build_utils" }
-nonlocality_host = { path ="../nonlocality_host" }
 astraea = { path ="../astraea" }
 serde = {version = "1", features = ["alloc"]}
 tempfile = "3"
