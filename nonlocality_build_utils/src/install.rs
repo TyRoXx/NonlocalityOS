@@ -9,6 +9,26 @@ fn to_std_path(linux_path: &relative_path::RelativePath) -> std::path::PathBuf {
     linux_path.to_path(std::path::Path::new("/"))
 }
 
+/// Quotes a single shell argument using POSIX single-quote rules so that it
+/// is safe to embed in a shell command string regardless of its contents.
+fn shell_quote(arg: &str) -> String {
+    format!("'{}'", arg.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+#[test_log::test]
+fn test_shell_quote() {
+    assert_eq!("'hello'", shell_quote("hello"));
+    assert_eq!(
+        "'/home/user/.nonlocality/binary'",
+        shell_quote("/home/user/.nonlocality/binary")
+    );
+    assert_eq!("'it'\\''s'", shell_quote("it's"));
+    assert_eq!("'path with spaces'", shell_quote("path with spaces"));
+    assert_eq!("'$HOME'", shell_quote("$HOME"));
+    assert_eq!("'`rm -rf /`'", shell_quote("`rm -rf /`"));
+}
+
 fn format_bytes(size: u64) -> String {
     const SIZE_OF_BYTE: f64 = 1_000.0;
     let units: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -76,7 +96,9 @@ fn upload_file(
     );
 
     let mut channel = session.channel_session().unwrap();
-    channel.exec(&format!("file {to}")).unwrap();
+    channel
+        .exec(&format!("file {}", shell_quote(to.as_str())))
+        .unwrap();
     let mut standard_output = String::new();
     std::io::Read::read_to_string(&mut channel, &mut standard_output)
         .expect("Tried to read standard output");
@@ -269,10 +291,10 @@ async fn deploy_host_binary(
     // Sftp.rename doesn't work (error "4", and it's impossible to find documentation on what "4" means).
     run_simple_ssh_command(
         &session,
-        // TODO: encode command line arguments correctly
         &format!(
             "/usr/bin/mv {} {}",
-            remote_host_binary_next, remote_host_binary
+            shell_quote(remote_host_binary_next.as_str()),
+            shell_quote(remote_host_binary.as_str())
         ),
     )
     .await;
@@ -307,8 +329,10 @@ pub async fn deploy(
     run_simple_ssh_command(
         &deployment_session.session,
         &format!(
-            "{} '{}' install '{}'",
-            sudo, deployment_session.remote_host_binary, deployment_session.nonlocality_dir
+            "{} {} install {}",
+            sudo,
+            shell_quote(deployment_session.remote_host_binary.as_str()),
+            shell_quote(deployment_session.nonlocality_dir.as_str())
         ),
     )
     .await;
@@ -339,8 +363,9 @@ pub async fn uninstall(
     run_simple_ssh_command(
         &deployment_session.session,
         &format!(
-            "{} '{}' uninstall",
-            sudo, deployment_session.remote_host_binary
+            "{} {} uninstall",
+            sudo,
+            shell_quote(deployment_session.remote_host_binary.as_str()),
         ),
     )
     .await;
