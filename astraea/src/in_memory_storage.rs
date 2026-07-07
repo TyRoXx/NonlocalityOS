@@ -99,7 +99,7 @@ impl StoreTree for InMemoryTreeStorage {
                     impl_
                 }),
         };
-        Ok(StrongReference::new(Some(impl_), digest))
+        Ok(StrongReference::new(impl_, digest))
     }
 }
 
@@ -113,7 +113,7 @@ impl LoadTree for InMemoryTreeStorage {
         match lock.get(reference) {
             Some(found) => match found.strong_reference_impl.upgrade() {
                 Some(impl_) => Ok(StrongDelayedHashedTree::new(
-                    StrongReference::new(Some(impl_), *reference),
+                    StrongReference::new(impl_, *reference),
                     DelayedHashedTree::immediate(found.tree.clone()),
                 )),
                 None => {

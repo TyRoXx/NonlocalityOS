@@ -1,4 +1,4 @@
-use astraea::storage::StrongReference;
+use astraea::storage::{StrongReference, StrongReferenceTrait};
 use astraea::tree::{BlobDigest, HashedTree, Tree, TreeBlob, TREE_BLOB_MAX_LENGTH};
 use astraea::tree::{TreeChildren, TREE_MAX_CHILDREN};
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
@@ -7,6 +7,15 @@ use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 use std::sync::Arc;
+
+/// Placeholder internals for benchmarks that only need a stable digest-bearing strong reference.
+struct BenchmarkStrongReference;
+
+impl StrongReferenceTrait for BenchmarkStrongReference {}
+
+fn strong_reference(digest: BlobDigest) -> StrongReference {
+    StrongReference::new(Arc::new(BenchmarkStrongReference), digest)
+}
 
 fn make_test_tree() -> Tree {
     let mut small_rng = SmallRng::seed_from_u64(123);
@@ -100,7 +109,7 @@ fn hashed_tree_from(
         TreeChildren::try_from(
             std::iter::repeat_n((), reference_count)
                 .map(|()| {
-                    StrongReference::from_weak(BlobDigest::new(&{
+                    strong_reference(BlobDigest::new(&{
                         let mut array: [u8; 64] = [0; 64];
                         small_rng.fill(&mut array);
                         array

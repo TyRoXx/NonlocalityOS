@@ -63,7 +63,7 @@ impl GarbageCollector {
             std::collections::btree_map::Entry::Vacant(vacant_entry) => {
                 let reference_counter = Arc::new(SQLiteStrongReferenceImpl {});
                 vacant_entry.insert((root_tree_id, Arc::downgrade(&reference_counter)));
-                Ok(StrongReference::new(Some(reference_counter), *root))
+                Ok(StrongReference::new(reference_counter, *root))
             }
             std::collections::btree_map::Entry::Occupied(mut occupied_entry) => {
                 match occupied_entry.get().1.upgrade() {
@@ -72,12 +72,12 @@ impl GarbageCollector {
                         if existing_tree_id != root_tree_id {
                             unreachable!("Inconsistency detected: The same root digest {} is associated with multiple tree IDs: existing tree ID {}, new tree ID {}", root, existing_tree_id, root_tree_id);
                         }
-                        Ok(StrongReference::new(Some(reference_counter), *root))
+                        Ok(StrongReference::new(reference_counter, *root))
                     }
                     None => {
                         let reference_counter = Arc::new(SQLiteStrongReferenceImpl {});
                         occupied_entry.insert((root_tree_id, Arc::downgrade(&reference_counter)));
-                        Ok(StrongReference::new(Some(reference_counter), *root))
+                        Ok(StrongReference::new(reference_counter, *root))
                     }
                 }
             }

@@ -1,12 +1,29 @@
 use crate::sorted_tree::{self, NodeValue, TreeReference};
 use astraea::{
-    storage::{load_children, LoadError, LoadTree, StoreError, StoreTree, StrongReference},
+    storage::{
+        load_children, LoadError, LoadTree, StoreError, StoreTree, StrongReference,
+        StrongReferenceTrait,
+    },
     tree::{BlobDigest, TREE_BLOB_MAX_LENGTH},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::hash::{BuildHasher, Hash};
+use std::sync::{Arc, LazyLock};
+
+struct PlaceholderStrongReference;
+
+impl StrongReferenceTrait for PlaceholderStrongReference {}
+
+// This digest value is only used to approximate serialized child-reference sizes during split
+// heuristics, so any fixed 64-byte digest is sufficient.
+static PLACEHOLDER_STRONG_REFERENCE: LazyLock<StrongReference> = LazyLock::new(|| {
+    StrongReference::new(
+        Arc::new(PlaceholderStrongReference),
+        BlobDigest::new(&[0; 64]),
+    )
+});
 
 #[derive(Debug, PartialEq)]
 pub enum IntegrityCheckResult {
@@ -672,8 +689,7 @@ impl<
         for entry in self.entries.iter() {
             current_node_size_tracker.add_entry(
                 entry.0,
-                &TreeReference::new(StrongReference::from_weak(BlobDigest::new(&[0; 64])))
-                    .to_content(),
+                &TreeReference::new(PLACEHOLDER_STRONG_REFERENCE.clone()).to_content(),
             );
             current_node.insert(entry.0.clone(), entry.1.clone());
             if is_split_after_key(entry.0, current_node_size_tracker.size()) {
@@ -760,8 +776,7 @@ impl<
         for entry in self.entries.iter() {
             size_tracker.add_entry(
                 entry.0,
-                &TreeReference::new(StrongReference::from_weak(BlobDigest::new(&[0; 64])))
-                    .to_content(),
+                &TreeReference::new(PLACEHOLDER_STRONG_REFERENCE.clone()).to_content(),
             );
         }
         is_split_after_key(last_key, size_tracker.size())
