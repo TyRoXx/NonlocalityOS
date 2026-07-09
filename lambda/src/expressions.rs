@@ -249,16 +249,15 @@ pub fn to_reference_expression(
     }
 }
 
-pub async fn deserialize_shallow(tree: &Tree) -> Result<ShallowExpression, ()> {
-    let reference_expression: ReferenceExpression = postcard::from_bytes(tree.blob().as_slice())
-        .unwrap(/*TODO*/);
+async fn deserialize_shallow(tree: &Tree) -> Result<ShallowExpression, postcard::Error> {
+    let reference_expression: ReferenceExpression = postcard::from_bytes(tree.blob().as_slice())?;
     reference_expression
         .map_child_expressions(
-            &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<StrongReference, ()>>>> {
+            &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<StrongReference, postcard::Error>>>> {
                 let child = tree.children().references()[child.0 as usize].clone();
                 Box::pin(async move { Ok(child) })
             },
-            &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<StrongReference, ()>>>> {
+            &|child: &ReferenceIndex| -> Pin<Box<dyn Future<Output = Result<StrongReference, postcard::Error>>>> {
                 let child = tree.children().references()[child.0 as usize].clone();
                 Box::pin(async move { Ok(child) })
             },
@@ -269,23 +268,30 @@ pub async fn deserialize_shallow(tree: &Tree) -> Result<ShallowExpression, ()> {
 pub async fn deserialize_recursively(
     root: &BlobDigest,
     load_tree: &(dyn LoadTree + Sync),
-) -> Result<DeepExpression, ()> {
+) -> Result<DeepExpression, postcard::Error> {
     let root_loaded = load_tree.load_tree(root).await.unwrap(/*TODO*/).hash().unwrap(/*TODO*/);
     let shallow = deserialize_shallow(root_loaded.hashed_tree().tree()).await?;
-    let deep = shallow
-        .map_child_expressions(
-            &|child: &StrongReference| -> Pin<Box<dyn Future<Output = Result<Arc<DeepExpression>, ()>>>> {
-                let child = child.clone();
-                Box::pin(async move { deserialize_recursively(child.digest(), load_tree)
-                    .await
-                    .map(Arc::new) })
-            },
-            &|child: &StrongReference| -> Pin<Box<dyn Future<Output = Result<DeepTree, ()>>>> {
-                let child = child.clone();
-                Box::pin(async move { Ok(DeepTree::deserialize(child.digest(), load_tree).await.unwrap(/*TODO*/)) })
-            },
-        )
-        .await?;
+    let deep =
+        shallow
+            .map_child_expressions(
+                &|child: &StrongReference| -> Pin<
+                    Box<dyn Future<Output = Result<Arc<DeepExpression>, postcard::Error>>>,
+                > {
+                    let child = child.clone();
+                    Box::pin(async move {
+                        deserialize_recursively(child.digest(), load_tree)
+                            .await
+                            .map(Arc::new)
+                    })
+                },
+                &|child: &StrongReference| -> Pin<Box<dyn Future<Output = Result<DeepTree, postcard::Error>>>> {
+                    let child = child.clone();
+                    Box::pin(async move {
+                        Ok(DeepTree::deserialize(child.digest(), load_tree).await.unwrap(/*TODO*/))
+                    })
+                },
+            )
+            .await?;
     Ok(DeepExpression(deep))
 }
 
@@ -401,8 +407,9 @@ impl Closure {
         };
         let environment_reference = &root_tree.children().references()[0];
         let body_reference = &root_tree.children().references()[1];
-        let body =
-            deserialize_recursively(body_reference.digest(), load_tree).await.unwrap(/*TODO*/);
+        let body = deserialize_recursively(body_reference.digest(), load_tree)
+            .await
+            .map_err(TreeDeserializationError::Postcard)?;
         Ok(Closure::new(environment_reference.clone(), Arc::new(body)))
     }
 }
