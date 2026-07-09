@@ -487,7 +487,7 @@ async fn load_tree_impl(
                 let child_tree_id: i64 = row.get(2)?;
                 Ok((index, BlobDigest::new(&target), child_tree_id))
             })
-            .map_err(|error| LoadError::Rusqlite(format!("{}", &error)))?;
+            .map_err(|error| LoadError::Rusqlite(format!("{}", error)))?;
         let child_digests: Vec<(BlobDigest, i64)> = {
             let mut result = Vec::new();
             for (expected_index, maybe_tuple) in child_results.enumerate() {
