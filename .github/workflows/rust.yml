@@ -31,7 +31,14 @@ jobs:
         task: [ cargo_test, cargo_lint, cargo_fuzz ]
 
     steps:
+    - name: Install apt dependencies
+      # libasound2-dev (ALSA) is required for rodio to work on Linux
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libasound2-dev
+
     - uses: actions/checkout@v4
+
     - name: Setup sccache
       uses: ./.github/actions/setup_sccache
       with:

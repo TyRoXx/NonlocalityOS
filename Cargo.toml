@@ -18,6 +18,7 @@ members=[
     "fuzz",
     "hello_llm",
     "system_tests",
+    "rodio_example",
 ]
 resolver="2"
 
