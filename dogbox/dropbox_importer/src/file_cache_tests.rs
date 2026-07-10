@@ -1,4 +1,6 @@
-use crate::file_cache::{FileCache, FileCacheMap, PersistentFileCacheMap};
+use crate::file_cache::{
+    FileCache, FileCacheMap, PersistentFileCacheMap, Sha256ChunkCacheKey, DEFAULT_CHUNK_SIZE,
+};
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
     storage::{StoreError, StoreTree, StrongReference, UpdateRoot},
@@ -12,9 +14,11 @@ use std::{pin::Pin, sync::Arc};
 #[test_log::test(tokio::test)]
 async fn test_require_miss_and_hit() {
     let storage = InMemoryTreeStorage::empty();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
     let cache = FileCacheMap::new(
         sorted_tree::prolly_tree_editable_node::EditableNode::new(),
         &storage,
+        chunk_size,
     );
     let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
@@ -24,7 +28,7 @@ async fn test_require_miss_and_hit() {
         .await
         .unwrap();
     let length = 0u64;
-    let dropbox_content_hash = [0u8; 32].into();
+    let chunk_cache_key = Sha256ChunkCacheKey::new([0u8; 32], 0);
     let download_file_counter = Arc::new(tokio::sync::Mutex::new(0));
     let make_download_file = || {
         let reference = reference.clone();
@@ -42,7 +46,7 @@ async fn test_require_miss_and_hit() {
     // cache miss
     {
         let (result_reference, result_length) = cache
-            .require(&dropbox_content_hash, make_download_file())
+            .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
         assert_eq!(result_reference, reference);
@@ -53,7 +57,7 @@ async fn test_require_miss_and_hit() {
     // cache hit
     {
         let (result_reference, result_length) = cache
-            .require(&dropbox_content_hash, make_download_file())
+            .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
         assert_eq!(result_reference, reference);
@@ -66,11 +70,13 @@ async fn test_require_miss_and_hit() {
 #[test_log::test(tokio::test)]
 async fn test_download_error() {
     let storage = InMemoryTreeStorage::empty();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
     let cache = FileCacheMap::new(
         sorted_tree::prolly_tree_editable_node::EditableNode::new(),
         &storage,
+        chunk_size,
     );
-    let dropbox_content_hash = [0u8; 32].into();
+    let chunk_cache_key = Sha256ChunkCacheKey::new([0u8; 32], 0);
     let download_file_counter = Arc::new(tokio::sync::Mutex::new(0));
     let make_download_file = || {
         let download_file_counter = download_file_counter.clone();
@@ -86,7 +92,7 @@ async fn test_download_error() {
     assert_eq!(0, *download_file_counter.lock().await);
     // download will fail
     let error = cache
-        .require(&dropbox_content_hash, make_download_file())
+        .require(&chunk_cache_key, make_download_file())
         .await
         .unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::Other);
@@ -98,9 +104,11 @@ async fn test_download_error() {
 #[test_log::test(tokio::test)]
 async fn test_save_and_load_empty() {
     let storage = InMemoryTreeStorage::empty();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
     let original_cache = FileCacheMap::new(
         sorted_tree::prolly_tree_editable_node::EditableNode::new(),
         &storage,
+        chunk_size,
     );
     let cache_saved_reference = original_cache.save(&storage).await.unwrap();
     assert_eq!(
@@ -111,7 +119,7 @@ async fn test_save_and_load_empty() {
         ))
         .unwrap()
     );
-    let cache_loaded = FileCacheMap::load(&cache_saved_reference, &storage)
+    let cache_loaded = FileCacheMap::load(&cache_saved_reference, &storage, chunk_size)
         .await
         .unwrap();
     assert_eq!(0, cache_loaded.number_of_entries().await.unwrap());
@@ -120,9 +128,11 @@ async fn test_save_and_load_empty() {
 #[test_log::test(tokio::test)]
 async fn test_save_and_load_non_empty() {
     let storage = InMemoryTreeStorage::empty();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
     let original_cache = FileCacheMap::new(
         sorted_tree::prolly_tree_editable_node::EditableNode::new(),
         &storage,
+        chunk_size,
     );
     let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
@@ -132,7 +142,7 @@ async fn test_save_and_load_non_empty() {
         .await
         .unwrap();
     let length = 0u64;
-    let dropbox_content_hash = [0u8; 32].into();
+    let chunk_cache_key = Sha256ChunkCacheKey::new([0u8; 32], 0);
     let download_file_counter = Arc::new(tokio::sync::Mutex::new(0));
     let make_download_file = || {
         let reference = reference.clone();
@@ -150,7 +160,7 @@ async fn test_save_and_load_non_empty() {
     // add a cache entry
     {
         let (result_reference, result_length) = original_cache
-            .require(&dropbox_content_hash, make_download_file())
+            .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
         assert_eq!(result_reference, reference);
@@ -162,19 +172,19 @@ async fn test_save_and_load_non_empty() {
     assert_eq!(
         cache_saved_reference.digest(),
         &BlobDigest::parse_hex_string(concat!(
-            "c60dd06756407b0172e88764989064e8d33c82b806857e4583f04d4a476a7db0",
-            "451386f53a924b79ee787d66b079c381257fbdb60b138a2a00dfda70943e054a"
+            "4b2bd26620b490261ff1e76b42d5504aa11f9bdfdaea670e871883460765b799",
+            "4df19e9dbb9661549e19755f76bd6b4bd1a4802454ddeca0e4da3a2ffc7474ae"
         ))
         .unwrap()
     );
-    let cache_loaded = FileCacheMap::load(&cache_saved_reference, &storage)
+    let cache_loaded = FileCacheMap::load(&cache_saved_reference, &storage, chunk_size)
         .await
         .unwrap();
     assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
     // the entry should still exist
     {
         let (result_reference, result_length) = cache_loaded
-            .require(&dropbox_content_hash, make_download_file())
+            .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
         assert_eq!(result_reference, reference);
@@ -218,10 +228,12 @@ impl UpdateRoot for PersistentSaveAndLoadNonEmptyUpdateRoot {
 async fn test_persistent_save_and_load_non_empty() {
     let storage = InMemoryTreeStorage::empty();
     let update_root = PersistentSaveAndLoadNonEmptyUpdateRoot::new();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
     let original_cache = PersistentFileCacheMap::new(
         FileCacheMap::new(
             sorted_tree::prolly_tree_editable_node::EditableNode::new(),
             &storage,
+            chunk_size,
         ),
         &storage,
         &update_root,
@@ -235,7 +247,7 @@ async fn test_persistent_save_and_load_non_empty() {
         .await
         .unwrap();
     let length = 0u64;
-    let dropbox_content_hash = [0u8; 32].into();
+    let chunk_cache_key = Sha256ChunkCacheKey::new([0u8; 32], 0);
     let download_file_counter = Arc::new(tokio::sync::Mutex::new(0));
     let make_download_file = || {
         let reference = reference.clone();
@@ -254,7 +266,7 @@ async fn test_persistent_save_and_load_non_empty() {
     // add a cache entry
     {
         let (result_reference, result_length) = original_cache
-            .require(&dropbox_content_hash, make_download_file())
+            .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
         assert_eq!(result_reference, reference);
@@ -266,13 +278,13 @@ async fn test_persistent_save_and_load_non_empty() {
     assert_eq!(
         cache_saved_reference.digest(),
         &BlobDigest::parse_hex_string(concat!(
-            "c60dd06756407b0172e88764989064e8d33c82b806857e4583f04d4a476a7db0",
-            "451386f53a924b79ee787d66b079c381257fbdb60b138a2a00dfda70943e054a"
+            "4b2bd26620b490261ff1e76b42d5504aa11f9bdfdaea670e871883460765b799",
+            "4df19e9dbb9661549e19755f76bd6b4bd1a4802454ddeca0e4da3a2ffc7474ae"
         ))
         .unwrap()
     );
     let cache_loaded = PersistentFileCacheMap::new(
-        FileCacheMap::load(&cache_saved_reference, &storage)
+        FileCacheMap::load(&cache_saved_reference, &storage, chunk_size)
             .await
             .unwrap(),
         &storage,
@@ -283,7 +295,7 @@ async fn test_persistent_save_and_load_non_empty() {
     // the entry should still exist
     {
         let (result_reference, result_length) = cache_loaded
-            .require(&dropbox_content_hash, make_download_file())
+            .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
         assert_eq!(result_reference, reference);

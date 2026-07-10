@@ -10,9 +10,9 @@ pub enum StoreError {
     NoSpace,
     Rusqlite(String),
     TreeSerializationError(TreeSerializationError),
-    Unrepresentable,
     TreeMissing(LoadError),
     CorruptedStorage(String),
+    Unrepresentable(String),
 }
 
 impl std::fmt::Display for StoreError {

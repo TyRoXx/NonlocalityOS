@@ -10,7 +10,7 @@ use dogbox_tree_editor::{
 };
 use dropbox_importer::{
     dropbox_api::RealDropboxApi,
-    file_cache::{FileCacheMap, PersistableFileCacheEntry, Sha256CacheKey},
+    file_cache::{FileCacheMap, PersistableFileCacheEntry, Sha256ChunkCacheKey},
     importer::import_directory,
 };
 use dropbox_sdk::{default_async_client::UserAuthDefaultClient, oauth2::Authorization};
@@ -128,6 +128,9 @@ async fn create_directory_contents(
     Ok(())
 }
 
+// Small chunk size so that we can test multi-chunk downloads in a reasonable amount of time.
+const SMALLER_CHUNK_SIZE: u64 = 2 * (TREE_BLOB_MAX_LENGTH as u64);
+
 async fn verify_import(
     test_case_name: &str,
     dropbox_client: &Arc<UserAuthDefaultClient>,
@@ -160,10 +163,11 @@ async fn verify_import(
     };
     // We do not reuse the cache across test runs because we want to test Dropbox API calls.
     let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
-        Sha256CacheKey,
+        Sha256ChunkCacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let chunk_size = SMALLER_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
     let open_directory = import_directory(
         dropbox_test_directory,
         storage.clone(),
@@ -280,6 +284,14 @@ async fn verify_illegal_character_handling(
     .await;
 }
 
+fn random_bytes(len: usize) -> Bytes {
+    use rand::rngs::SmallRng;
+    use rand::Rng;
+    use rand::SeedableRng;
+    let mut small_rng = SmallRng::seed_from_u64(123);
+    Bytes::from_iter((0..len).map(|_| small_rng.gen()))
+}
+
 pub async fn test_dropbox_importer(
     dropbox_api_app_key: &str,
     dropbox_oauth: &str,
@@ -321,23 +333,39 @@ pub async fn test_dropbox_importer(
     .await;
 
     create_and_import_and_verify(
-        "Directory with one file",
+        "Directory with one medium file",
         &dropbox_client,
         dropbox_test_directory,
         BTreeMap::from([(
             FileName::try_from("1.txt").unwrap(),
-            ExpectedDirectoryEntryKind::File(Bytes::from_iter(std::iter::repeat_n(
-                1u8,
-                // Let's test a file that's larger than the chunk size used in the importer to make sure chunking works correctly.
+            ExpectedDirectoryEntryKind::File(random_bytes(
+                // Let's test a file that's larger than one tree blob.
                 (TREE_BLOB_MAX_LENGTH * 2) + 1,
-            ))),
+            )),
         )]),
         &BlobDigest::parse_hex_string(concat!(
-            "3e11a1f58ecacc8f8323c8ce656de996dcf0c5b0620ab9eff74ab170f5243eb3",
-            "5cd78645b4d26a7420bbe8acaa8f7c1f5d3b2349b92f6e3ee0d159bc02f0decf"
+            "26a61f26302d919de0b46d7993b762c35e45f3b373340c94e1964a332f495bb7",
+            "32bfef97f8fa47396511abba4709d05c8ff6955ff41ada2a7edf3aab58988106"
         ))
         .unwrap(),
-        1,
+        2,
+    )
+    .await;
+
+    create_and_import_and_verify(
+        "Directory with one large file",
+        &dropbox_client,
+        dropbox_test_directory,
+        BTreeMap::from([(
+            FileName::try_from("1.txt").unwrap(),
+            ExpectedDirectoryEntryKind::File(random_bytes((SMALLER_CHUNK_SIZE as usize * 2) + 1)),
+        )]),
+        &BlobDigest::parse_hex_string(concat!(
+            "8c516cf5ec6bf00aac95f6c595330e398b4515d6d1a19b278c3bdca951cc6805",
+            "569b6efa9c9b73cace24d7d461b21bbdca6afee67de21eadf786b3eae24aad0b"
+        ))
+        .unwrap(),
+        3,
     )
     .await;
 
@@ -357,7 +385,7 @@ pub async fn test_dropbox_importer(
             "b51476eb0db6551e0da6d23d0e6ce3603793b46958b902b42b417f26e6119019"
         ))
         .unwrap(),
-        1,
+        0,
     )
     .await;
 

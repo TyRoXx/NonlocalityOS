@@ -8,6 +8,9 @@ use astraea::{
 use dogbox_tree::serialization::{DeserializationError, SegmentedBlob};
 use std::sync::Arc;
 
+// Used for storing the contents of regular files. Consistently use this constant so that the trees will be reproducible.
+pub const DEFAULT_MAX_CHILDREN_PER_TREE: usize = 20;
+
 pub async fn save_segmented_blob(
     segments: &[StrongReference],
     total_size_in_bytes: u64,
@@ -39,7 +42,19 @@ async fn save_segmented_blob_impl(
     assert!(max_children_per_tree >= 2);
     assert!(max_children_per_tree <= TREE_MAX_CHILDREN);
     match segments.len() {
-        0 => Err(StoreError::Unrepresentable),
+        // We just handle the zero segment case transparently by creating an empty tree. This is a bit of a hack, but it avoids having to special-case empty blobs elsewhere.
+        0 => {
+            if total_size_in_bytes != 0 {
+                return Err(StoreError::Unrepresentable(format!(
+                    "Cannot save segmented blob with 0 segments but non-zero size {}",
+                    total_size_in_bytes
+                )));
+            }
+            let reference = storage
+                .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+                .await?;
+            Ok(reference)
+        }
         1 => Ok(segments[0].clone()),
         _ => {
             if segments.len() > max_children_per_tree {
