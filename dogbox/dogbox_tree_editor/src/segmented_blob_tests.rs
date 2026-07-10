@@ -1,7 +1,7 @@
 use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
-    storage::{LoadTree, StoreTree},
+    storage::{LoadTree, StoreError, StoreTree},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
 };
 use dogbox_tree::serialization::SegmentedBlob;
@@ -12,10 +12,47 @@ use std::sync::Arc;
 async fn test_save_segmented_blob_0() {
     let storage = InMemoryTreeStorage::empty();
     let max_children_per_tree = 2;
-    let reference = save_segmented_blob(&[], 0, max_children_per_tree, &storage).await;
+    let reference = save_segmented_blob(&[], 0, max_children_per_tree, &storage)
+        .await
+        .unwrap();
     assert_eq!(
-        astraea::storage::StoreError::Unrepresentable,
-        reference.unwrap_err()
+        &BlobDigest::parse_hex_string(concat!(
+            "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+            "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+        ))
+        .unwrap(),
+        reference.digest()
+    );
+    assert_eq!(1, storage.number_of_trees().await);
+    let (loaded_segments, loaded_size) = load_segmented_blob(reference.digest(), &storage)
+        .await
+        .unwrap();
+    let expected_segment = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+        .await
+        .unwrap();
+    let expected_segments = vec![expected_segment];
+    assert_eq!(&expected_segments, &loaded_segments);
+    assert_eq!(0, loaded_size);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_save_segmented_blob_0_size_mismatch() {
+    let storage = InMemoryTreeStorage::empty();
+    let max_children_per_tree = 2;
+    let error = save_segmented_blob(
+        &[],
+        /*impossible size with zero segments*/ 1,
+        max_children_per_tree,
+        &storage,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        StoreError::Unrepresentable(
+            "Cannot save segmented blob with 0 segments but non-zero size 1".to_string()
+        ),
+        error
     );
     assert_eq!(0, storage.number_of_trees().await);
 }

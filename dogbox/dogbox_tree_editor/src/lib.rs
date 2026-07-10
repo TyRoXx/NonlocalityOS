@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod lib_tests;
 
-mod segmented_blob;
+pub mod segmented_blob;
 
 #[cfg(test)]
 mod segmented_blob_tests;
@@ -13,7 +13,9 @@ mod sqlite_tests;
 
 pub mod expected_directory_entry_kind;
 
-use crate::segmented_blob::{load_segmented_blob, save_segmented_blob};
+use crate::segmented_blob::{
+    load_segmented_blob, save_segmented_blob, DEFAULT_MAX_CHILDREN_PER_TREE,
+};
 use astraea::{
     storage::{LoadStoreTree, StoreError, StrongHashedTree, StrongReference},
     tree::{BlobDigest, HashedTree, Tree, TreeBlob, TreeChildren, TREE_BLOB_MAX_LENGTH},
@@ -2105,11 +2107,10 @@ impl OpenFileContentBufferLoaded {
         self.verify_integrity();
         self.dirty_blocks.clear();
         assert!(!blocks_stored.is_empty());
-        let max_children_per_tree = 20;
         let reference = save_segmented_blob(
             &blocks_stored,
             total_size_in_bytes,
-            max_children_per_tree,
+            DEFAULT_MAX_CHILDREN_PER_TREE,
             storage.as_ref(),
         )
         .await?;

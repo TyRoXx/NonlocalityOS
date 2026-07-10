@@ -1,4 +1,3 @@
-use crate::dropbox_content_hash::{format_dropbox_content_hash, DropboxContentHasher};
 use astraea::{
     storage::{LoadStoreTree, StrongReference},
     tree::TREE_BLOB_MAX_LENGTH,
@@ -37,22 +36,47 @@ pub fn join_dropbox_path(parent: &str, child: &str) -> String {
     }
 }
 
+pub fn calculate_range_end(offset: u64, length_to_download: u64) -> std::io::Result<u64> {
+    if length_to_download == 0 {
+        return Err(std::io::Error::other(
+            "Download range must be at least 1 byte long",
+        ));
+    }
+    offset
+        .checked_add(length_to_download)
+        .and_then(|end| end.checked_sub(1))
+        .ok_or_else(|| std::io::Error::other("Invalid download offset or length"))
+}
+
 async fn download_file_impl(
     dropbox_client: &Arc<UserAuthDefaultClient>,
     dropbox_file_path: &str,
-    dropbox_file_rev: &files::Rev,
-    dropbox_content_hash: &Sha256Digest,
+    download_request: &DownloadRequest,
     storage: Arc<dyn LoadStoreTree + Send + Sync>,
 ) -> std::io::Result<(StrongReference, u64)> {
     // download the file from Dropbox in pieces:
     // Start a download session for the file from Dropbox
     info!(
-        "Starting download for {} (rev:{})",
-        dropbox_file_path, dropbox_file_rev
+        "Starting download for {} (rev:{}) at offset {} for length {}",
+        dropbox_file_path,
+        download_request.dropbox_rev,
+        download_request.offset,
+        download_request.length_to_download
     );
     // https://www.dropbox.com/developers/documentation/http/documentation#files-download
-    let download_arg = files::DownloadArg::new(format!("rev:{}", dropbox_file_rev));
-    let response = match files::download(dropbox_client.as_ref(), &download_arg, None, None).await {
+    let download_arg = files::DownloadArg::new(format!("rev:{}", download_request.dropbox_rev));
+    // -1 because of HTTP Range (https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Range_requests)
+    // TODO: sanity check this calculation
+    let range_end =
+        calculate_range_end(download_request.offset, download_request.length_to_download)?;
+    let response = match files::download(
+        dropbox_client.as_ref(),
+        &download_arg,
+        Some(download_request.offset),
+        Some(range_end),
+    )
+    .await
+    {
         Ok(res) => res,
         Err(e) => {
             return Err(std::io::Error::other(format!(
@@ -66,9 +90,20 @@ async fn download_file_impl(
         "Download file content length: {:?}, result: {:?}",
         response.content_length, response.result
     );
-    // response.content_length is suddenly always None (2026-07-03) even though it had been Some before.
-    let file_size = response.result.size;
-
+    let download_size = download_request.length_to_download;
+    match &response.content_length {
+        // Just a sanity check.
+        Some(content_length) if download_size != *content_length => {
+            return Err(std::io::Error::other(format!(
+                "Content length mismatch for file {}: requested {}, got {}",
+                dropbox_file_path, download_size, content_length
+            )));
+        }
+        Some(_) => {}
+        None => {
+            // response.content_length is suddenly sometimes None (2026-07-03) even though it had been Some before.
+        }
+    }
     let empty_file_reference = TreeEditor::store_empty_file(storage.clone())
         .await
         .map_err(|e| {
@@ -82,7 +117,6 @@ async fn download_file_impl(
         size: 0,
         write_buffer_in_blocks: DEFAULT_WRITE_BUFFER_IN_BLOCKS,
     };
-    let mut dropbox_hasher = DropboxContentHasher::new();
     let mut total_bytes_read = 0;
     let mut stream = match response.body {
         Some(stream) => stream,
@@ -94,7 +128,7 @@ async fn download_file_impl(
         }
     };
     loop {
-        let remaining_bytes = file_size - total_bytes_read;
+        let remaining_bytes = download_size - total_bytes_read;
         if remaining_bytes == 0 {
             break;
         }
@@ -103,6 +137,7 @@ async fn download_file_impl(
             /*use chunk size preferred by Dogbox for efficiency*/
             TREE_BLOB_MAX_LENGTH as u64,
         ) as usize;
+        // TODO: read more at once for greater efficiency
         let mut buffer = vec![0u8; chunk_size];
         let bytes_read = stream.read(&mut buffer).await.map_err(|e| {
             std::io::Error::other(format!(
@@ -113,11 +148,9 @@ async fn download_file_impl(
         if bytes_read == 0 {
             return Err(std::io::Error::other(format!(
                     "Unexpected end of stream while downloading file {}: expected {} bytes, got {} bytes",
-                    dropbox_file_path, file_size, total_bytes_read)));
+                    dropbox_file_path, download_size, total_bytes_read)));
         }
         buffer.truncate(bytes_read);
-
-        dropbox_hasher.update(&buffer);
 
         let read_size = buffer.len() as u64;
         assert!(read_size <= chunk_size as u64);
@@ -136,23 +169,16 @@ async fn download_file_impl(
             })?;
 
         total_bytes_read += read_size;
-        assert!(total_bytes_read <= file_size);
+        assert!(total_bytes_read <= download_size);
     }
 
     // we should never break the loop unless the buffer is completely filled
-    assert_eq!(file_size, open_file_content_buffer.size());
+    assert_eq!(download_size, open_file_content_buffer.size());
 
-    info!("Downloaded {} bytes for {}", file_size, dropbox_file_path);
-
-    let calculated_dropbox_content_hash: Sha256Digest = dropbox_hasher.finalize();
-    if dropbox_content_hash != &calculated_dropbox_content_hash {
-        return Err(std::io::Error::other(format!(
-            "Content hash mismatch for file {}: expected {}, got {}",
-            dropbox_file_path,
-            format_dropbox_content_hash(dropbox_content_hash),
-            format_dropbox_content_hash(&calculated_dropbox_content_hash)
-        )));
-    }
+    info!(
+        "Downloaded {} bytes for {}",
+        download_size, dropbox_file_path
+    );
 
     open_file_content_buffer
         .store_all(storage)
@@ -164,9 +190,9 @@ async fn download_file_impl(
             ))
         })?;
     let (digest_status, size, reference) = open_file_content_buffer.last_known_digest();
-    assert_eq!(file_size, size);
+    assert_eq!(download_size, size);
     assert!(digest_status.is_digest_up_to_date);
-    Ok((reference, file_size))
+    Ok((reference, download_size))
 }
 
 async fn list_folder_impl(
@@ -206,6 +232,7 @@ async fn list_folder_impl(
                             metadata: DropboxFileMetaData {
                             content_hash: entry.content_hash,
                             rev: entry.rev,
+                            size: entry.size,
                         }}});
                     }
                     files::Metadata::Deleted(entry) => {
@@ -243,6 +270,7 @@ async fn list_folder_impl(
 pub struct DropboxFileMetaData {
     pub content_hash: Option<String>,
     pub rev: String,
+    pub size: u64,
 }
 
 pub enum DropboxFolderEntryKind {
@@ -255,13 +283,19 @@ pub struct DropboxFolderEntry {
     pub kind: DropboxFolderEntryKind,
 }
 
+pub struct DownloadRequest {
+    pub dropbox_rev: files::Rev,
+    pub dropbox_content_hash: Sha256Digest,
+    pub offset: u64,
+    pub length_to_download: u64,
+}
+
 #[async_trait]
 pub trait DropboxApi {
     async fn download_file(
         &self,
         dropbox_file_path: &str,
-        dropbox_file_rev: &files::Rev,
-        dropbox_content_hash: &Sha256Digest,
+        download_request: &DownloadRequest,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)>;
 
@@ -282,16 +316,14 @@ impl DropboxApi for RealDropboxApi {
     async fn download_file(
         &self,
         dropbox_file_path: &str,
-        dropbox_file_rev: &files::Rev,
-        dropbox_content_hash: &Sha256Digest,
+        download_request: &DownloadRequest,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)> {
         // We call this function because code coverage doesn't work for async_traits.
         download_file_impl(
             &self.dropbox_client,
             dropbox_file_path,
-            dropbox_file_rev,
-            dropbox_content_hash,
+            download_request,
             storage,
         )
         .await

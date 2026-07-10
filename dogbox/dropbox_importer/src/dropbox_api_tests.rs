@@ -1,4 +1,4 @@
-use crate::dropbox_api::{join_dropbox_path, parse_sha256_hex};
+use crate::dropbox_api::{calculate_range_end, join_dropbox_path, parse_sha256_hex};
 use hex_literal::hex;
 use pretty_assertions::assert_eq;
 
@@ -29,4 +29,33 @@ fn test_join_dropbox_path() {
     assert_eq!(join_dropbox_path("", "child"), "/child");
     assert_eq!(join_dropbox_path("", "/child"), "/child");
     assert_eq!(join_dropbox_path("", ""), "/");
+}
+
+#[test_log::test]
+fn test_calculate_range_end() {
+    assert_eq!(
+        "Download range must be at least 1 byte long",
+        calculate_range_end(0, 0).unwrap_err().to_string()
+    );
+    assert_eq!(
+        "Download range must be at least 1 byte long",
+        calculate_range_end(1, 0).unwrap_err().to_string()
+    );
+    assert_eq!(
+        "Download range must be at least 1 byte long",
+        calculate_range_end(u64::MAX, 0).unwrap_err().to_string()
+    );
+    assert_eq!(
+        "Invalid download offset or length",
+        calculate_range_end(u64::MAX, 1).unwrap_err().to_string()
+    );
+    assert_eq!(
+        "Invalid download offset or length",
+        calculate_range_end(1, u64::MAX).unwrap_err().to_string()
+    );
+    assert_eq!(0, calculate_range_end(0, 1).unwrap());
+    assert_eq!(2, calculate_range_end(1, 2).unwrap());
+    assert_eq!(299999, calculate_range_end(200000, 100000).unwrap());
+    assert_eq!(u64::MAX - 1, calculate_range_end(0, u64::MAX).unwrap());
+    assert_eq!(u64::MAX - 1, calculate_range_end(u64::MAX - 1, 1).unwrap());
 }

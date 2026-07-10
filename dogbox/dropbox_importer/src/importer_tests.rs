@@ -1,14 +1,18 @@
 use crate::{
     dropbox_api::{
-        DropboxApi, DropboxFileMetaData, DropboxFolderEntry, DropboxFolderEntryKind, Sha256Digest,
+        DownloadRequest, DropboxApi, DropboxFileMetaData, DropboxFolderEntry,
+        DropboxFolderEntryKind,
     },
     dropbox_content_hash::{format_dropbox_content_hash, DropboxContentHasher},
-    file_cache::{FileCacheMap, PersistableFileCacheEntry, Sha256CacheKey},
+    file_cache::{
+        FileCacheMap, PersistableFileCacheEntry, Sha256ChunkCacheKey, DEFAULT_CHUNK_SIZE,
+    },
     importer::{import_directory, import_file, DropboxImporter, ImportFileOutcome},
 };
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
     storage::{LoadStoreTree, StrongReference},
+    tree::TREE_BLOB_MAX_LENGTH,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -30,8 +34,7 @@ impl DropboxApi for UnreachableDropboxApi {
     async fn download_file(
         &self,
         _dropbox_file_path: &str,
-        _dropbox_file_rev: &files::Rev,
-        _dropbox_content_hash: &Sha256Digest,
+        _download_request: &DownloadRequest,
         _storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)> {
         unreachable!()
@@ -54,8 +57,7 @@ impl DropboxApi for FailingDropboxApi {
     async fn download_file(
         &self,
         _dropbox_file_path: &str,
-        _dropbox_file_rev: &files::Rev,
-        _dropbox_content_hash: &Sha256Digest,
+        _download_request: &DownloadRequest,
         _storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)> {
         Err(std::io::Error::other("Simulated download failure"))
@@ -72,7 +74,7 @@ impl DropboxApi for FailingDropboxApi {
 }
 
 struct SucceedingDropboxApiFileContentWithRev {
-    content: Vec<u8>,
+    content: Bytes,
     rev: files::Rev,
 }
 
@@ -89,8 +91,7 @@ impl SucceedingDropboxApiDirectory {
         &self,
         relative_path: &RelativePath,
         dropbox_file_path: &str,
-        dropbox_file_rev: &files::Rev,
-        dropbox_content_hash: &Sha256Digest,
+        download_request: &DownloadRequest,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)> {
         // TODO: support subdirectories in the mock API
@@ -109,15 +110,15 @@ impl SucceedingDropboxApiDirectory {
                             dropbox_file_path
                         )));
                     }
-                    assert_eq!(dropbox_file_rev, &file_content.rev);
+                    assert_eq!(download_request.dropbox_rev, file_content.rev);
                     let mut hasher = crate::dropbox_content_hash::DropboxContentHasher::new();
                     hasher.update(&file_content.content);
                     let calculated_dropbox_content_hash = hasher.finalize();
-                    if dropbox_content_hash != &calculated_dropbox_content_hash {
+                    if download_request.dropbox_content_hash != calculated_dropbox_content_hash {
                         return Err(std::io::Error::other(format!(
                             "Content hash mismatch for file {}: expected {}, got {}",
                             dropbox_file_path,
-                            format_dropbox_content_hash(dropbox_content_hash),
+                            format_dropbox_content_hash(&download_request.dropbox_content_hash),
                             format_dropbox_content_hash(&calculated_dropbox_content_hash)
                         )));
                     }
@@ -134,11 +135,15 @@ impl SucceedingDropboxApiDirectory {
                         size: 0,
                         write_buffer_in_blocks: DEFAULT_WRITE_BUFFER_IN_BLOCKS,
                     };
-                    let piece = OptimizedWriteBuffer::from_bytes(
-                        0,
-                        Bytes::from(file_content.content.clone()),
-                    )
-                    .await;
+                    let tail = file_content
+                        .content
+                        .clone()
+                        .split_off(download_request.offset as usize);
+                    let chunk = tail
+                        .clone()
+                        .split_to(download_request.length_to_download as usize);
+                    assert_eq!(chunk.len(), download_request.length_to_download as usize);
+                    let piece = OptimizedWriteBuffer::from_bytes(0, chunk).await;
                     open_file_content_buffer
                         .write(0, piece, storage.clone())
                         .await
@@ -160,7 +165,7 @@ impl SucceedingDropboxApiDirectory {
                     let (status, size, reference) = open_file_content_buffer.last_known_digest();
                     assert!(status.is_digest_up_to_date);
                     assert_eq!(status.last_known_digest.digest(), reference.digest());
-                    assert_eq!(size, file_content.content.len() as u64);
+                    assert_eq!(size, download_request.length_to_download);
                     Ok((reference, size))
                 }
                 SucceedingDropboxApiDirectoryEntry::Directory(subdirectory) => {
@@ -180,8 +185,7 @@ impl SucceedingDropboxApiDirectory {
                     Box::pin(subdirectory.download_file(
                         &sub_path,
                         dropbox_file_path,
-                        dropbox_file_rev,
-                        dropbox_content_hash,
+                        download_request,
                         storage,
                     ))
                     .await
@@ -215,6 +219,7 @@ impl SucceedingDropboxApiDirectory {
                                         hasher.finalize()
                                     })),
                                     rev: file_content.rev.clone(),
+                                    size: file_content.content.len() as u64,
                                 },
                             }
                         }
@@ -270,19 +275,12 @@ impl DropboxApi for SucceedingDropboxApi {
     async fn download_file(
         &self,
         dropbox_file_path: &str,
-        dropbox_file_rev: &files::Rev,
-        dropbox_content_hash: &Sha256Digest,
+        download_request: &DownloadRequest,
         storage: Arc<dyn LoadStoreTree + Send + Sync>,
     ) -> std::io::Result<(StrongReference, u64)> {
         let relative_path = RelativePath::new(dropbox_file_path);
         self.root
-            .download_file(
-                relative_path,
-                dropbox_file_path,
-                dropbox_file_rev,
-                dropbox_content_hash,
-                storage,
-            )
+            .download_file(relative_path, dropbox_file_path, download_request, storage)
             .await
     }
 
@@ -304,10 +302,11 @@ async fn test_import_file_missing_content_hash() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
-        Sha256CacheKey,
+        Sha256ChunkCacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
     let modified = clock();
     let open_directory = Arc::new(
         OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
@@ -321,6 +320,7 @@ async fn test_import_file_missing_content_hash() {
         &DropboxFileMetaData {
             content_hash: None,
             rev: "1".to_string(),
+            size: 0,
         },
         &open_directory,
         storage.clone(),
@@ -353,10 +353,11 @@ async fn test_import_directory_entry_dropbox_failure() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
-        Sha256CacheKey,
+        Sha256ChunkCacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
     let open_directory = Arc::new(
         OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
             .await
@@ -383,6 +384,7 @@ async fn test_import_directory_entry_dropbox_failure() {
                     metadata: DropboxFileMetaData {
                         content_hash: Some(content_hash),
                         rev: "1".to_string(),
+                        size: 1,
                     },
                 },
             },
@@ -392,7 +394,7 @@ async fn test_import_directory_entry_dropbox_failure() {
         .unwrap_err();
     assert_eq!(
         error.to_string(),
-        "Failed to download /file.txt: Simulated download failure"
+        "Failed to download chunk 0 of /file.txt: Simulated download failure"
     );
     let mut entries = open_directory.read().await;
     if entries.next().await.is_some() {
@@ -401,27 +403,28 @@ async fn test_import_directory_entry_dropbox_failure() {
 }
 
 #[test_log::test(tokio::test)]
-async fn test_import_directory_entry_file_success() {
+async fn test_import_directory_entry_file_success_small() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
-        Sha256CacheKey,
+        Sha256ChunkCacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
     let open_directory = Arc::new(
         OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
             .await
             .unwrap(),
     );
     let empty_directory_reference = open_directory.latest_reference();
-    let content = b"Hello, world!";
+    let content = Bytes::from_static(b"Hello, world!");
     let rev = "1";
     let dropbox_api = SucceedingDropboxApi::new(SucceedingDropboxApiDirectory {
         entries: BTreeMap::from([(
             "file.txt".to_string(),
             SucceedingDropboxApiDirectoryEntry::File(SucceedingDropboxApiFileContentWithRev {
-                content: content.to_vec(),
+                content: content.clone(),
                 rev: rev.to_string(),
             }),
         )]),
@@ -434,7 +437,7 @@ async fn test_import_directory_entry_file_success() {
     );
     let content_hash = format_dropbox_content_hash(&{
         let mut hasher = DropboxContentHasher::new();
-        hasher.update(content);
+        hasher.update(&content);
         hasher.finalize()
     });
     importer
@@ -446,6 +449,7 @@ async fn test_import_directory_entry_file_success() {
                     metadata: DropboxFileMetaData {
                         content_hash: Some(content_hash),
                         rev: rev.to_string(),
+                        size: content.len() as u64,
                     },
                 },
             },
@@ -457,7 +461,82 @@ async fn test_import_directory_entry_file_success() {
         &open_directory,
         &BTreeMap::from([(
             FileName::try_from("file.txt").unwrap(),
-            ExpectedDirectoryEntryKind::File(Bytes::from(content.to_vec())),
+            ExpectedDirectoryEntryKind::File(content),
+        )]),
+    )
+    .await;
+}
+
+fn random_bytes(len: usize) -> Bytes {
+    use rand::rngs::SmallRng;
+    use rand::Rng;
+    use rand::SeedableRng;
+    let mut small_rng = SmallRng::seed_from_u64(123);
+    Bytes::from_iter((0..len).map(|_| small_rng.gen()))
+}
+
+#[test_log::test(tokio::test)]
+async fn test_import_directory_entry_file_success_large() {
+    // Download a file that requires multiple file cache chunks.
+    // We keep the chunk size much smaller than the default to keep this test quick.
+    let chunk_size = (TREE_BLOB_MAX_LENGTH as u64) * 2;
+    let content = random_bytes((chunk_size * 2 + 1) as usize);
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256ChunkCacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let empty_directory_reference = open_directory.latest_reference();
+    let rev = "1";
+    let dropbox_api = SucceedingDropboxApi::new(SucceedingDropboxApiDirectory {
+        entries: BTreeMap::from([(
+            "file.txt".to_string(),
+            SucceedingDropboxApiDirectoryEntry::File(SucceedingDropboxApiFileContentWithRev {
+                content: content.clone(),
+                rev: rev.to_string(),
+            }),
+        )]),
+    });
+    let importer = DropboxImporter::new(
+        storage.clone(),
+        &empty_directory_reference,
+        &dropbox_api,
+        &download_cache,
+    );
+    let content_hash = format_dropbox_content_hash(&{
+        let mut hasher = DropboxContentHasher::new();
+        hasher.update(&content);
+        hasher.finalize()
+    });
+    importer
+        .import_directory_entry(
+            "/",
+            &DropboxFolderEntry {
+                name: "file.txt".to_string(),
+                kind: DropboxFolderEntryKind::File {
+                    metadata: DropboxFileMetaData {
+                        content_hash: Some(content_hash),
+                        rev: rev.to_string(),
+                        size: content.len() as u64,
+                    },
+                },
+            },
+            &open_directory,
+        )
+        .await
+        .unwrap();
+    assert_directory_contents(
+        &open_directory,
+        &BTreeMap::from([(
+            FileName::try_from("file.txt").unwrap(),
+            ExpectedDirectoryEntryKind::File(content),
         )]),
     )
     .await;
@@ -468,10 +547,11 @@ async fn test_import_directory_entry_subdirectory_success() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
-        Sha256CacheKey,
+        Sha256ChunkCacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
     let open_directory = Arc::new(
         OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
             .await
@@ -518,10 +598,11 @@ async fn test_import_directory_dropbox_failure() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
-        Sha256CacheKey,
+        Sha256ChunkCacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
     let open_directory = Arc::new(
         OpenDirectory::create_directory(
             std::path::PathBuf::from("/"),
@@ -548,18 +629,19 @@ async fn test_import_directory_simple_success() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
-        Sha256CacheKey,
+        Sha256ChunkCacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
-    let content = b"Hello, world!";
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
+    let content = Bytes::from_static(b"Hello, world!");
     let rev = "1";
     let dropbox_api = SucceedingDropboxApi::new(SucceedingDropboxApiDirectory {
         entries: BTreeMap::from([
             (
                 "file.txt".to_string(),
                 SucceedingDropboxApiDirectoryEntry::File(SucceedingDropboxApiFileContentWithRev {
-                    content: content.to_vec(),
+                    content: content.clone(),
                     rev: rev.to_string(),
                 }),
             ),
@@ -580,7 +662,7 @@ async fn test_import_directory_simple_success() {
         &BTreeMap::from([
             (
                 FileName::try_from("file.txt").unwrap(),
-                ExpectedDirectoryEntryKind::File(Bytes::from(content.to_vec())),
+                ExpectedDirectoryEntryKind::File(content),
             ),
             (
                 FileName::try_from("subdir").unwrap(),
@@ -596,16 +678,17 @@ async fn test_import_directory_recursive_success() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
     let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
-        Sha256CacheKey,
+        Sha256ChunkCacheKey,
         PersistableFileCacheEntry,
     >::new();
-    let download_cache = FileCacheMap::new(download_cache_tree, &*storage);
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
     let dropbox_api = SucceedingDropboxApi::new(SucceedingDropboxApiDirectory {
         entries: BTreeMap::from([
             (
                 "file.txt".to_string(),
                 SucceedingDropboxApiDirectoryEntry::File(SucceedingDropboxApiFileContentWithRev {
-                    content: b"Hello, world!".to_vec(),
+                    content: Bytes::from_static(b"Hello, world!"),
                     rev: "1".to_string(),
                 }),
             ),
@@ -620,7 +703,7 @@ async fn test_import_directory_recursive_success() {
                                     "c".to_string(),
                                     SucceedingDropboxApiDirectoryEntry::File(
                                         SucceedingDropboxApiFileContentWithRev {
-                                            content: b"Nested file content".to_vec(),
+                                            content: Bytes::from_static(b"Nested file content"),
                                             rev: "2".to_string(),
                                         },
                                     ),
