@@ -51,7 +51,7 @@ pub trait FileCache: Send + Sync {
     async fn require<'t>(
         &'t self,
         chunk_cache_key: &Sha256ChunkCacheKey,
-        download_file: Box<
+        download_file_chunk: Box<
             dyn FnOnce() -> std::pin::Pin<
                     Box<
                         dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
@@ -167,7 +167,7 @@ impl<'a> FileCacheMap<'a> {
     async fn require_impl(
         &'a self,
         chunk_cache_key: &Sha256ChunkCacheKey,
-        download_file: DownloadFileCallback<'a>,
+        download_file_chunk: DownloadFileCallback<'a>,
     ) -> std::io::Result<(StrongReference, u64)> {
         // TODO: don't hold the lock during the download
         let mut entries_locked = self.entries.lock().await;
@@ -184,7 +184,7 @@ impl<'a> FileCacheMap<'a> {
             }
             None => {
                 info!("Cache miss for chunk cache key {}", chunk_cache_key);
-                let (content_reference, content_size) = download_file().await?;
+                let (content_reference, content_size) = download_file_chunk().await?;
                 let new_entry = PersistableFileCacheEntry {
                     content_reference: content_reference.clone(),
                     content_size,
@@ -208,7 +208,7 @@ impl FileCache for FileCacheMap<'_> {
     async fn require<'t>(
         &'t self,
         chunk_cache_key: &Sha256ChunkCacheKey,
-        download_file: Box<
+        download_file_chunk: Box<
             dyn FnOnce() -> std::pin::Pin<
                     Box<
                         dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
@@ -220,7 +220,7 @@ impl FileCache for FileCacheMap<'_> {
         >,
     ) -> std::io::Result<(StrongReference, u64)> {
         // We call this function because code coverage doesn't work for async_traits.
-        self.require_impl(chunk_cache_key, download_file).await
+        self.require_impl(chunk_cache_key, download_file_chunk).await
     }
 
     fn chunk_size(&self) -> u64 {
@@ -257,11 +257,11 @@ impl<'a> PersistentFileCacheMap<'a> {
     async fn require_impl(
         &'a self,
         chunk_cache_key: &Sha256ChunkCacheKey,
-        download_file: DownloadFileCallback<'a>,
+        download_file_chunk: DownloadFileCallback<'a>,
     ) -> std::io::Result<(StrongReference, u64)> {
         let success = self
             .original_cache
-            .require(chunk_cache_key, download_file)
+            .require(chunk_cache_key, download_file_chunk)
             .await?;
         // TODO: only save and update root if the cache was modified (i.e. if it was a cache miss)
         let saved = self
@@ -288,7 +288,7 @@ impl FileCache for PersistentFileCacheMap<'_> {
     async fn require<'t>(
         &'t self,
         chunk_cache_key: &Sha256ChunkCacheKey,
-        download_file: Box<
+        download_file_chunk: Box<
             dyn FnOnce() -> std::pin::Pin<
                     Box<
                         dyn std::future::Future<Output = std::io::Result<(StrongReference, u64)>>
@@ -300,7 +300,7 @@ impl FileCache for PersistentFileCacheMap<'_> {
         >,
     ) -> std::io::Result<(StrongReference, u64)> {
         // We call this function because code coverage doesn't work for async_traits.
-        self.require_impl(chunk_cache_key, download_file).await
+        self.require_impl(chunk_cache_key, download_file_chunk).await
     }
 
     fn chunk_size(&self) -> u64 {
