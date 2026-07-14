@@ -88,7 +88,6 @@ async fn download_file_in_chunks(
                                 &dropbox_file_path,
                                 &DownloadRequest {
                                     dropbox_rev: dropbox_file_rev,
-                                    dropbox_content_hash: *content_hash,
                                     offset: downloaded_bytes,
                                     length_to_download: chunk_size,
                                 },
