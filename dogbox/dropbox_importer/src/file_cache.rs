@@ -220,7 +220,8 @@ impl FileCache for FileCacheMap<'_> {
         >,
     ) -> std::io::Result<(StrongReference, u64)> {
         // We call this function because code coverage doesn't work for async_traits.
-        self.require_impl(chunk_cache_key, download_file_chunk).await
+        self.require_impl(chunk_cache_key, download_file_chunk)
+            .await
     }
 
     fn chunk_size(&self) -> u64 {
@@ -300,7 +301,8 @@ impl FileCache for PersistentFileCacheMap<'_> {
         >,
     ) -> std::io::Result<(StrongReference, u64)> {
         // We call this function because code coverage doesn't work for async_traits.
-        self.require_impl(chunk_cache_key, download_file_chunk).await
+        self.require_impl(chunk_cache_key, download_file_chunk)
+            .await
     }
 
     fn chunk_size(&self) -> u64 {

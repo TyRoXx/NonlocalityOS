@@ -285,7 +285,6 @@ pub struct DropboxFolderEntry {
 
 pub struct DownloadRequest {
     pub dropbox_rev: files::Rev,
-    pub dropbox_content_hash: Sha256Digest,
     pub offset: u64,
     pub length_to_download: u64,
 }

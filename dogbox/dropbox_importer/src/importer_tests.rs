@@ -111,17 +111,6 @@ impl SucceedingDropboxApiDirectory {
                         )));
                     }
                     assert_eq!(download_request.dropbox_rev, file_content.rev);
-                    let mut hasher = crate::dropbox_content_hash::DropboxContentHasher::new();
-                    hasher.update(&file_content.content);
-                    let calculated_dropbox_content_hash = hasher.finalize();
-                    if download_request.dropbox_content_hash != calculated_dropbox_content_hash {
-                        return Err(std::io::Error::other(format!(
-                            "Content hash mismatch for file {}: expected {}, got {}",
-                            dropbox_file_path,
-                            format_dropbox_content_hash(&download_request.dropbox_content_hash),
-                            format_dropbox_content_hash(&calculated_dropbox_content_hash)
-                        )));
-                    }
                     let empty_file_reference = TreeEditor::store_empty_file(storage.clone())
                         .await
                         .map_err(|e| {
@@ -400,7 +389,6 @@ async fn test_import_file_content_hash_mismatch() {
     assert_eq!(
         error.to_string(),
         concat!(
-            "Failed to download chunk 0 of /file.txt: ",
             "Content hash mismatch for file /file.txt: expected ",
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, got ",
             "70bc18bef5ae66b72d1995f8db90a583a60d77b4066e4653f1cead613025861c"
@@ -422,7 +410,9 @@ async fn test_import_file_content_hash_mismatch() {
             modified,
         ),
     );
-    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
+    // The content hash can only be verified after assembling the cache chunks into a file,
+    // so the cache should still contain the downloaded chunk.
+    assert_eq!(1, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
