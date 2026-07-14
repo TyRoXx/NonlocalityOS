@@ -345,7 +345,8 @@ async fn test_import_file_missing_content_hash() {
             OpenFileStats::new(0, 0, 0, 0, 0),
             modified,
         ),
-    )
+    );
+    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -400,6 +401,7 @@ async fn test_import_directory_entry_dropbox_failure() {
     if entries.next().await.is_some() {
         panic!("Unexpected directory entry")
     }
+    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -465,6 +467,7 @@ async fn test_import_directory_entry_file_success_small() {
         )]),
     )
     .await;
+    assert_eq!(1, download_cache.number_of_entries().await.unwrap());
 }
 
 fn random_bytes(len: usize) -> Bytes {
@@ -540,6 +543,7 @@ async fn test_import_directory_entry_file_success_large() {
         )]),
     )
     .await;
+    assert_eq!(3, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -587,6 +591,7 @@ async fn test_import_directory_entry_file_unsupported_name() {
         .await
         .unwrap();
     assert_directory_contents(&open_directory, &BTreeMap::new()).await;
+    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -632,6 +637,7 @@ async fn test_import_directory_entry_file_missing_content_hash() {
         .await
         .unwrap();
     assert_directory_contents(&open_directory, &BTreeMap::new()).await;
+    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -677,6 +683,7 @@ async fn test_import_directory_entry_file_invalid_content_hash() {
         .await
         .unwrap();
     assert_directory_contents(&open_directory, &BTreeMap::new()).await;
+    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -728,6 +735,7 @@ async fn test_import_directory_entry_subdirectory_success() {
         )]),
     )
     .await;
+    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -759,6 +767,7 @@ async fn test_import_directory_dropbox_failure() {
     if entries.next().await.is_some() {
         panic!("Unexpected directory entry")
     }
+    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -797,6 +806,7 @@ async fn test_import_directory_entry_subdirectory_unsupported_name() {
         .await
         .unwrap();
     assert_directory_contents(&open_directory, &BTreeMap::new()).await;
+    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -846,6 +856,7 @@ async fn test_import_directory_simple_success() {
         ]),
     )
     .await;
+    assert_eq!(1, download_cache.number_of_entries().await.unwrap());
 }
 
 #[test_log::test(tokio::test)]
@@ -928,4 +939,5 @@ async fn test_import_directory_recursive_success() {
         ]),
     )
     .await;
+    assert_eq!(2, download_cache.number_of_entries().await.unwrap());
 }
