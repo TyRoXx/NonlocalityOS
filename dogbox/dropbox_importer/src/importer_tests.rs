@@ -350,6 +350,82 @@ async fn test_import_file_missing_content_hash() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_import_file_content_hash_mismatch() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256ChunkCacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
+    let modified = clock();
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let file_name = "file.txt";
+    let rev = "1";
+    let actual_content = Bytes::from_static(b"Hello");
+    let dropbox_api = SucceedingDropboxApi::new(SucceedingDropboxApiDirectory {
+        entries: BTreeMap::from([(
+            file_name.to_string(),
+            SucceedingDropboxApiDirectoryEntry::File(SucceedingDropboxApiFileContentWithRev {
+                content: actual_content.clone(),
+                rev: rev.to_string(),
+            }),
+        )]),
+    });
+    let content_hash = format_dropbox_content_hash(&{
+        let hasher = DropboxContentHasher::new();
+        // not hashing the actual content to simulate a content hash mismatch
+        hasher.finalize()
+    });
+    let error = import_file(
+        "/",
+        file_name,
+        &DropboxFileMetaData {
+            content_hash: Some(content_hash),
+            rev: rev.to_string(),
+            size: actual_content.len() as u64,
+        },
+        &open_directory,
+        storage.clone(),
+        &dropbox_api,
+        &download_cache,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        concat!(
+            "Failed to download chunk 0 of /file.txt: ",
+            "Content hash mismatch for file /file.txt: expected ",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, got ",
+            "70bc18bef5ae66b72d1995f8db90a583a60d77b4066e4653f1cead613025861c"
+        )
+    );
+    let status = open_directory
+        .request_save()
+        .await
+        .expect("Failed to save directory");
+    // the digest doesn't really matter here
+    let new_reference = status.digest.last_known_digest.clone();
+    assert_eq!(
+        status,
+        OpenDirectoryStatus::new(
+            DigestStatus::new(new_reference, true),
+            1,
+            0,
+            OpenFileStats::new(0, 0, 0, 0, 0),
+            modified,
+        ),
+    );
+    assert_eq!(0, download_cache.number_of_entries().await.unwrap());
+}
+
+#[test_log::test(tokio::test)]
 async fn test_import_directory_entry_dropbox_failure() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);

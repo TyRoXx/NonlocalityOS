@@ -8,6 +8,7 @@ use astraea::{
 };
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::future::join_all;
 use pretty_assertions::assert_eq;
 use std::{pin::Pin, sync::Arc};
 
@@ -293,6 +294,93 @@ async fn test_persistent_save_and_load_non_empty() {
     );
     assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
     // the entry should still exist
+    {
+        let (result_reference, result_length) = cache_loaded
+            .require(&chunk_cache_key, make_download_file())
+            .await
+            .unwrap();
+        assert_eq!(result_reference, reference);
+        assert_eq!(result_length, length);
+        assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
+        assert_eq!(1, *download_file_counter.lock().await);
+        assert_eq!(
+            update_root.current_value().await,
+            Some(cache_saved_reference)
+        );
+    }
+}
+
+#[test_log::test(tokio::test)]
+async fn test_persistent_file_cache_require_same_chunk_multiple_times() {
+    // This test is to ensure that if multiple concurrent calls to require() are made for the same chunk,
+    // only one of them will actually download the chunk, and the others will wait for it to finish and then return the same result.
+    let storage = InMemoryTreeStorage::empty();
+    let update_root = PersistentSaveAndLoadNonEmptyUpdateRoot::new();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let original_cache = PersistentFileCacheMap::new(
+        FileCacheMap::new(
+            sorted_tree::prolly_tree_editable_node::EditableNode::new(),
+            &storage,
+            chunk_size,
+        ),
+        &storage,
+        &update_root,
+        "test_root".to_string(),
+    );
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(Bytes::new()).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    let length = 0u64;
+    let chunk_cache_key = Sha256ChunkCacheKey::new([0u8; 32], 0);
+    let download_file_counter = Arc::new(tokio::sync::Mutex::new(0));
+    let make_download_file = || {
+        let reference = reference.clone();
+        let download_file_counter = download_file_counter.clone();
+        Box::new(move || {
+            Box::pin(async move {
+                let mut counter = download_file_counter.lock().await;
+                *counter += 1;
+                Ok((reference, length))
+            }) as Pin<Box<dyn std::future::Future<Output = Result<(_, u64), _>> + Send>>
+        })
+    };
+    assert_eq!(0, original_cache.number_of_entries().await.unwrap());
+    assert_eq!(0, *download_file_counter.lock().await);
+    assert_eq!(None, update_root.current_value().await);
+    const CONCURRENCY: usize = 10;
+    join_all((0..CONCURRENCY).map(|_| async {
+        let (result_reference, result_length) = original_cache
+            .require(&chunk_cache_key, make_download_file())
+            .await
+            .unwrap();
+        assert_eq!(result_reference, reference);
+        assert_eq!(result_length, length);
+        assert_eq!(1, original_cache.number_of_entries().await.unwrap());
+        assert_eq!(1, *download_file_counter.lock().await);
+    }))
+    .await;
+    let cache_saved_reference = update_root.current_value().await.unwrap();
+    assert_eq!(
+        cache_saved_reference.digest(),
+        &BlobDigest::parse_hex_string(concat!(
+            "4b2bd26620b490261ff1e76b42d5504aa11f9bdfdaea670e871883460765b799",
+            "4df19e9dbb9661549e19755f76bd6b4bd1a4802454ddeca0e4da3a2ffc7474ae"
+        ))
+        .unwrap()
+    );
+    let cache_loaded = PersistentFileCacheMap::new(
+        FileCacheMap::load(&cache_saved_reference, &storage, chunk_size)
+            .await
+            .unwrap(),
+        &storage,
+        &update_root,
+        "test_root".to_string(),
+    );
+    assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
     {
         let (result_reference, result_length) = cache_loaded
             .require(&chunk_cache_key, make_download_file())
