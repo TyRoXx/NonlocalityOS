@@ -543,6 +543,143 @@ async fn test_import_directory_entry_file_success_large() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_import_directory_entry_file_unsupported_name() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256ChunkCacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let empty_directory_reference = open_directory.latest_reference();
+    let dropbox_api = FailingDropboxApi {};
+    let importer = DropboxImporter::new(
+        storage.clone(),
+        &empty_directory_reference,
+        &dropbox_api,
+        &download_cache,
+    );
+    // TODO: expect an error to be reported
+    importer
+        .import_directory_entry(
+            "/",
+            &DropboxFolderEntry {
+                name: ">".to_string(),
+                kind: DropboxFolderEntryKind::File {
+                    metadata: DropboxFileMetaData {
+                        content_hash: Some(format_dropbox_content_hash(&{
+                            let hasher = DropboxContentHasher::new();
+                            hasher.finalize()
+                        })),
+                        rev: "1".to_string(),
+                        size: 0,
+                    },
+                },
+            },
+            &open_directory,
+        )
+        .await
+        .unwrap();
+    assert_directory_contents(&open_directory, &BTreeMap::new()).await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_import_directory_entry_file_missing_content_hash() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256ChunkCacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let empty_directory_reference = open_directory.latest_reference();
+    let dropbox_api = FailingDropboxApi {};
+    let importer = DropboxImporter::new(
+        storage.clone(),
+        &empty_directory_reference,
+        &dropbox_api,
+        &download_cache,
+    );
+    // TODO: expect an error to be reported
+    importer
+        .import_directory_entry(
+            "/",
+            &DropboxFolderEntry {
+                name: "file.txt".to_string(),
+                kind: DropboxFolderEntryKind::File {
+                    metadata: DropboxFileMetaData {
+                        // The content hash is missing, which should trigger the importer to report an error or handle it accordingly.
+                        content_hash: None,
+                        rev: "1".to_string(),
+                        size: 0,
+                    },
+                },
+            },
+            &open_directory,
+        )
+        .await
+        .unwrap();
+    assert_directory_contents(&open_directory, &BTreeMap::new()).await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_import_directory_entry_file_invalid_content_hash() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256ChunkCacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let empty_directory_reference = open_directory.latest_reference();
+    let dropbox_api = FailingDropboxApi {};
+    let importer = DropboxImporter::new(
+        storage.clone(),
+        &empty_directory_reference,
+        &dropbox_api,
+        &download_cache,
+    );
+    // TODO: expect an error to be reported
+    importer
+        .import_directory_entry(
+            "/",
+            &DropboxFolderEntry {
+                name: "file.txt".to_string(),
+                kind: DropboxFolderEntryKind::File {
+                    metadata: DropboxFileMetaData {
+                        // The content hash is invalid, which should trigger the importer to report an error or handle it accordingly.
+                        content_hash: Some("invalid".to_string()),
+                        rev: "1".to_string(),
+                        size: 0,
+                    },
+                },
+            },
+            &open_directory,
+        )
+        .await
+        .unwrap();
+    assert_directory_contents(&open_directory, &BTreeMap::new()).await;
+}
+
+#[test_log::test(tokio::test)]
 async fn test_import_directory_entry_subdirectory_success() {
     let storage = Arc::new(InMemoryTreeStorage::empty());
     let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
@@ -622,6 +759,44 @@ async fn test_import_directory_dropbox_failure() {
     if entries.next().await.is_some() {
         panic!("Unexpected directory entry")
     }
+}
+
+#[test_log::test(tokio::test)]
+async fn test_import_directory_entry_subdirectory_unsupported_name() {
+    let storage = Arc::new(InMemoryTreeStorage::empty());
+    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+    let download_cache_tree = sorted_tree::prolly_tree_editable_node::EditableNode::<
+        Sha256ChunkCacheKey,
+        PersistableFileCacheEntry,
+    >::new();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let download_cache = FileCacheMap::new(download_cache_tree, &*storage, chunk_size);
+    let open_directory = Arc::new(
+        OpenDirectory::create_directory(std::path::PathBuf::from("/"), storage.clone(), clock, 1)
+            .await
+            .unwrap(),
+    );
+    let empty_directory_reference = open_directory.latest_reference();
+    let dropbox_api = FailingDropboxApi {};
+    let importer = DropboxImporter::new(
+        storage.clone(),
+        &empty_directory_reference,
+        &dropbox_api,
+        &download_cache,
+    );
+    // TODO: expect an error to be reported
+    importer
+        .import_directory_entry(
+            "/",
+            &DropboxFolderEntry {
+                name: ">".to_string(),
+                kind: DropboxFolderEntryKind::Folder,
+            },
+            &open_directory,
+        )
+        .await
+        .unwrap();
+    assert_directory_contents(&open_directory, &BTreeMap::new()).await;
 }
 
 #[test_log::test(tokio::test)]
