@@ -221,6 +221,7 @@ impl SQLiteStorage {
     }
 
     pub fn configure_connection(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
+        // https://sqlite.org/foreignkeys.html
         connection.pragma_update(None, "foreign_keys", "on")?;
         // "The default suggested cache size is -2000, which means the cache size is limited to 2048000 bytes of memory."
         // https://www.sqlite.org/pragma.html#pragma_cache_size
@@ -254,6 +255,7 @@ impl SQLiteStorage {
         }
         connection
             .execute(
+                // https://sqlite.org/foreignkeys.html
                 "CREATE TABLE reference (
                     id INTEGER PRIMARY KEY NOT NULL,
                     origin INTEGER NOT NULL REFERENCES tree ON DELETE CASCADE,
