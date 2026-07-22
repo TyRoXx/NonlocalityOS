@@ -55,12 +55,10 @@ pub fn to_reference_type(deep_type: &DeepType) -> (GenericType<ReferenceIndex>, 
             ref parameters,
             ref return_type,
         } => {
-            let mut parameters_references = Vec::new();
-            let mut children = Vec::new();
-            for (index, parameter) in parameters.iter().enumerate() {
-                parameters_references.push(ReferenceIndex(index as u64));
-                children.push(parameter.clone());
-            }
+            let parameters_references: Vec<_> = (0u64..parameters.len() as u64)
+                .map(ReferenceIndex)
+                .collect();
+            let mut children = parameters.clone();
             // TODO: Why does the return type come after all parameters in the children vec?
             // Is this order significant? Should this ordering convention be documented?
             let return_type_reference = ReferenceIndex(children.len() as u64);
@@ -81,10 +79,10 @@ pub fn to_reference_type(deep_type: &DeepType) -> (GenericType<ReferenceIndex>, 
 
 pub fn type_to_deep_tree(deep_type: &DeepType) -> Result<DeepTree, TreeSerializationError> {
     let (body, children) = to_reference_type(deep_type);
-    let mut children_as_deep_trees = Vec::new();
-    for child in &children {
-        children_as_deep_trees.push(type_to_deep_tree(child)?);
-    }
+    let children_as_deep_trees: Vec<_> = children
+        .iter()
+        .map(type_to_deep_tree)
+        .collect::<Result<_, _>>()?;
     let children = match DeepTreeChildren::try_from(children_as_deep_trees) {
         Some(success) => success,
         None => return Err(TreeSerializationError::TooManyChildren),
@@ -103,38 +101,42 @@ pub fn from_reference_type(body: &GenericType<ReferenceIndex>, children: &[DeepT
         GenericType::Any => DeepType(GenericType::Any),
         GenericType::String => DeepType(GenericType::String),
         GenericType::TreeWithKnownChildTypes(ref children_references) => {
-            let mut resulting_children = Vec::new();
-            for reference in children_references {
-                let index = reference.0 as usize;
-                if index < children.len() {
-                    resulting_children.push(children[index].clone());
-                } else {
-                    // TODO: This panic suggests a bug in type construction or serialization/deserialization.
-                    // Should this be a proper error type that can be handled? When could this realistically occur?
-                    // Is there a way to validate the tree structure before getting here to make this unreachable?
-                    // BUG POTENTIAL: If deserialization doesn't validate reference indices, corrupted data could panic here.
-                    // TODO error handling
-                    // This should not happen if the tree is well-formed.
-                    panic!("Reference index out of bounds: {index}");
-                }
-            }
+            let resulting_children: Vec<_> = children_references
+                .iter()
+                .map(|reference| {
+                    let index = reference.0 as usize;
+                    if index < children.len() {
+                        children[index].clone()
+                    } else {
+                        // TODO: This panic suggests a bug in type construction or serialization/deserialization.
+                        // Should this be a proper error type that can be handled? When could this realistically occur?
+                        // Is there a way to validate the tree structure before getting here to make this unreachable?
+                        // BUG POTENTIAL: If deserialization doesn't validate reference indices, corrupted data could panic here.
+                        // TODO error handling
+                        // This should not happen if the tree is well-formed.
+                        panic!("Reference index out of bounds: {index}");
+                    }
+                })
+                .collect();
             DeepType(GenericType::TreeWithKnownChildTypes(resulting_children))
         }
         GenericType::Function {
             ref parameters,
             ref return_type,
         } => {
-            let mut resulting_parameters = Vec::new();
-            for reference in parameters {
-                let index: usize = reference.0.try_into().expect("TODO");
-                if index < children.len() {
-                    resulting_parameters.push(children[index].clone());
-                } else {
-                    // TODO error handling
-                    // This should not happen if the tree is well-formed.
-                    panic!("Reference index out of bounds: {index}");
-                }
-            }
+            let resulting_parameters: Vec<_> = parameters
+                .iter()
+                .map(|reference| {
+                    let index: usize = reference.0.try_into().expect("TODO");
+                    if index < children.len() {
+                        children[index].clone()
+                    } else {
+                        // TODO error handling
+                        // This should not happen if the tree is well-formed.
+                        panic!("Reference index out of bounds: {index}");
+                    }
+                })
+                .collect();
             let resulting_return_type = {
                 let index: usize = return_type.0.try_into().expect("TODO");
                 if index < children.len() {
