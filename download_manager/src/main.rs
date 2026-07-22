@@ -132,11 +132,7 @@ fn load_undownloaded_urls_from_database(
         "ORDER BY url ASC"
     ))?;
     let url_iter = statement.query_map((), |row| row.get::<_, String>(0))?;
-    let mut urls = Vec::new();
-    for url_result in url_iter {
-        urls.push(url_result?);
-    }
-    Ok(urls)
+    url_iter.collect()
 }
 
 fn load_downloaded_urls_from_database(
@@ -169,11 +165,7 @@ fn load_failed_urls_from_database(
         let fail_count = row.get::<_, u32>(1)?;
         Ok((url, fail_count))
     })?;
-    let mut urls = Vec::new();
-    for url_result in url_iter {
-        urls.push(url_result?);
-    }
-    Ok(urls)
+    url_iter.collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
