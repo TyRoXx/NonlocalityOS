@@ -736,3 +736,68 @@ async fn test_sql_errors() {
         storage.collect_some_garbage().await
     );
 }
+
+#[test_log::test(tokio::test)]
+async fn test_foreign_key_reference_origin() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    {
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        SQLiteStorage::create_schema(&connection).unwrap();
+        let storage = SQLiteStorage::from(connection).unwrap();
+        let child = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+            .await
+            .unwrap();
+        let parent = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::empty(),
+                TreeChildren::try_from(vec![child]).unwrap(),
+            ))))
+            .await
+            .unwrap();
+        storage.update_root("test", &parent).await.unwrap();
+        storage.commit_changes().await.unwrap();
+    }
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::configure_connection(&connection).unwrap();
+    assert_eq!(
+        2,
+        connection
+            .query_row("SELECT COUNT(*) FROM tree", [], |row| row.get(0))
+            .unwrap()
+    );
+    assert_eq!(
+        1,
+        connection
+            .query_row("SELECT COUNT(*) FROM reference", [], |row| row.get(0))
+            .unwrap()
+    );
+    assert_eq!(
+        1,
+        connection
+            .query_row("SELECT COUNT(*) FROM root", [], |row| row.get(0))
+            .unwrap()
+    );
+    connection.execute("DELETE FROM tree", []).unwrap();
+    assert_eq!(
+        0,
+        connection
+            .query_row("SELECT COUNT(*) FROM tree", [], |row| row.get(0))
+            .unwrap()
+    );
+    // reference.origin is a foreign key to tree.id, so deleting all trees should also delete all references.
+    assert_eq!(
+        0,
+        connection
+            .query_row("SELECT COUNT(*) FROM reference", [], |row| row.get(0))
+            .unwrap()
+    );
+    // root does not use foreign keys, so deleting all trees does not delete roots.
+    assert_eq!(
+        1,
+        connection
+            .query_row("SELECT COUNT(*) FROM root", [], |row| row.get(0))
+            .unwrap()
+    );
+}
