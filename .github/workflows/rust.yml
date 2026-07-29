@@ -10,8 +10,8 @@ env:
   CARGO_TERM_COLOR: always
   # https://github.com/mozilla/sccache/blob/main/docs/GHA.md
   SCCACHE_GHA_ENABLED: on
-  SCCACHE_VERSION: "v0.16.0"
-  SCCACHE_FILENAME: "sccache-v0.16.0-x86_64-unknown-linux-musl.tar.gz"
+  SCCACHE_VERSION: "v0.17.0"
+  SCCACHE_FILENAME: "sccache-v0.17.0-x86_64-unknown-linux-musl.tar.gz"
   RUSTC_WRAPPER: sccache
   RUST_BACKTRACE: 1
 
