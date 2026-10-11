@@ -19,7 +19,8 @@
 
 ## Linux Mint / Ubuntu / Debian
 
-* `sudo apt install build-essential libssl-dev podman clang`
+* `sudo apt install build-essential libssl-dev podman clang bubblewrap`
+  * bubblewrap is required for sandboxing with mxc-sdk.
 * restart your terminal
 
 # Tests

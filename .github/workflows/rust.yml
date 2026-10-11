@@ -18,7 +18,8 @@ env:
 jobs:
   build:
     name: Rust3
-    runs-on: ubuntu-24.04
+    # Upgraded from ubuntu-24.04 to resolve a permission error with bubblewrap (mxc-sdk)
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     concurrency:
       # https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
@@ -62,6 +63,10 @@ jobs:
 
     ########################
     # task cargo_test begin
+    - name: Install test runtime dependencies. bubblewrap is required for sandboxing with mxc-sdk.
+      if: matrix.task == 'cargo_test'
+      run: sudo apt install -y bubblewrap
+
     - name: Run tests with coverage
       if: matrix.task == 'cargo_test'
       run: ./coverage.sh
