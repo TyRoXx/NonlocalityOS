@@ -2,7 +2,7 @@ use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
-    model::{params::LlamaModelParams, AddBos, LlamaModel},
+    model::{params::LlamaModelParams, LlamaModel},
     sampling::LlamaSampler,
 };
 use sha2::{Digest, Sha256};
@@ -133,9 +133,7 @@ fn main() {
     let prompt = "In one short sentence, what is Rust?";
 
     // Tokenize the prompt
-    let tokens = model
-        .str_to_token(prompt, AddBos::Always)
-        .expect("Failed to tokenize prompt");
+    let tokens = model.vocab().tokenize(prompt.as_bytes(), true, true);
 
     println!("Prompt: {}", prompt);
     println!("Generating response...\n");
@@ -171,7 +169,7 @@ fn main() {
         let new_token = sampler.sample(&ctx, -1);
 
         // Check if we've reached the end of generation
-        if model.is_eog_token(new_token) {
+        if model.vocab().is_eog(new_token) {
             break;
         }
 
@@ -179,10 +177,15 @@ fn main() {
         sampler.accept(new_token);
 
         // Convert token to string and append to response
-        let token_str = model
-            .token_to_piece(new_token, &mut decoder, false, None)
-            .expect("Failed to convert token to string");
-        response.push_str(&token_str);
+        let piece = model.vocab().token_to_piece(new_token, true, None);
+        let mut piece_str =
+            String::with_capacity(decoder.max_utf8_buffer_length(piece.len()).unwrap());
+        let (result, read, _) = decoder.decode_to_string(&piece, &mut piece_str, false);
+        assert!(
+            matches!(result, encoding_rs::CoderResult::InputEmpty) && read == piece.len(),
+            "UTF-8 decoder capacity bound must consume the complete token"
+        );
+        response.push_str(&piece_str);
 
         // Clear batch and add the new token with the correct position
         batch.clear();
