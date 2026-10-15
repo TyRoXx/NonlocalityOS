@@ -10,6 +10,12 @@ Just run the binary - it will automatically download Phi-3 Mini if the model doe
 cargo run --bin hello_llm --release
 ```
 
+Windows:
+
+```
+.\hello_llm.bat
+```
+
 ## Model Download
 
 The program will automatically attempt to download Phi-3 Mini (Q4_K_M quantized, ~2.3 GB) from Hugging Face if `models/model.gguf` doesn't exist.
