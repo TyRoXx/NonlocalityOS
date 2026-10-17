@@ -192,11 +192,11 @@ async fn test_save_and_load_non_empty() {
     }
 }
 
-struct PersistentSaveAndLoadNonEmptyUpdateRoot {
+struct UpdateRootOnce {
     current_value: tokio::sync::Mutex<Option<StrongReference>>,
 }
 
-impl PersistentSaveAndLoadNonEmptyUpdateRoot {
+impl UpdateRootOnce {
     pub fn new() -> Self {
         Self {
             current_value: tokio::sync::Mutex::new(None),
@@ -209,7 +209,7 @@ impl PersistentSaveAndLoadNonEmptyUpdateRoot {
 }
 
 #[async_trait]
-impl UpdateRoot for PersistentSaveAndLoadNonEmptyUpdateRoot {
+impl UpdateRoot for UpdateRootOnce {
     async fn update_root(
         &self,
         name: &str,
@@ -217,6 +217,43 @@ impl UpdateRoot for PersistentSaveAndLoadNonEmptyUpdateRoot {
     ) -> std::result::Result<(), StoreError> {
         assert_eq!(name, "test_root");
         let mut current_value = self.current_value.lock().await;
+        assert!(current_value.is_none());
+        *current_value = Some(target.clone());
+        Ok(())
+    }
+}
+
+struct UpdateRootMultipleTimes {
+    current_value: tokio::sync::Mutex<Option<StrongReference>>,
+}
+
+impl UpdateRootMultipleTimes {
+    pub fn new() -> Self {
+        Self {
+            current_value: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    pub async fn current_value(&self) -> Option<StrongReference> {
+        self.current_value.lock().await.clone()
+    }
+}
+
+#[async_trait]
+impl UpdateRoot for UpdateRootMultipleTimes {
+    async fn update_root(
+        &self,
+        name: &str,
+        target: &StrongReference,
+    ) -> std::result::Result<(), StoreError> {
+        assert_eq!(name, "test_root");
+        let mut current_value = self.current_value.lock().await;
+        match &*current_value {
+            None => {}
+            Some(previous_value) => {
+                assert_ne!(previous_value, target);
+            }
+        }
         *current_value = Some(target.clone());
         Ok(())
     }
@@ -225,7 +262,7 @@ impl UpdateRoot for PersistentSaveAndLoadNonEmptyUpdateRoot {
 #[test_log::test(tokio::test)]
 async fn test_persistent_save_and_load_non_empty() {
     let storage = InMemoryTreeStorage::empty();
-    let update_root = PersistentSaveAndLoadNonEmptyUpdateRoot::new();
+    let update_root = UpdateRootOnce::new();
     let chunk_size = DEFAULT_CHUNK_SIZE;
     let original_cache = PersistentFileCacheMap::new(
         FileCacheMap::new(
@@ -310,7 +347,7 @@ async fn test_persistent_file_cache_require_same_chunk_multiple_times() {
     // This test is to ensure that if multiple concurrent calls to require() are made for the same chunk,
     // only one of them will actually download the chunk, and the others will wait for it to finish and then return the same result.
     let storage = InMemoryTreeStorage::empty();
-    let update_root = PersistentSaveAndLoadNonEmptyUpdateRoot::new();
+    let update_root = UpdateRootOnce::new();
     let chunk_size = DEFAULT_CHUNK_SIZE;
     let original_cache = PersistentFileCacheMap::new(
         FileCacheMap::new(
@@ -398,6 +435,111 @@ async fn test_persistent_file_cache_require_same_chunk_multiple_times() {
         assert_eq!(
             update_root.current_value().await,
             Some(cache_saved_reference)
+        );
+    }
+}
+
+#[test_log::test(tokio::test)]
+async fn test_persistent_save_multiple_entries() {
+    let number_of_entries = 3u32;
+    let storage = InMemoryTreeStorage::empty();
+    let update_root = UpdateRootMultipleTimes::new();
+    let chunk_size = DEFAULT_CHUNK_SIZE;
+    let original_cache = PersistentFileCacheMap::new(
+        FileCacheMap::new(
+            sorted_tree::prolly_tree_editable_node::EditableNode::new(),
+            &storage,
+            chunk_size,
+        ),
+        &storage,
+        &update_root,
+        "test_root".to_string(),
+    );
+    fn make_chunk_cache_key(index: u32) -> Sha256ChunkCacheKey {
+        Sha256ChunkCacheKey::new([0u8; 32], index)
+    }
+    let download_file_counter = Arc::new(tokio::sync::Mutex::new(0));
+    let mut content_references = Vec::new();
+    for i in 0..number_of_entries {
+        let content = Bytes::from_owner(i.to_be_bytes());
+        let length = content.len() as u64;
+        let reference = storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(content).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
+        let chunk_cache_key = make_chunk_cache_key(i);
+        let make_download_file = || {
+            let reference = reference.clone();
+            let download_file_counter = download_file_counter.clone();
+            Box::new(move || {
+                Box::pin(async move {
+                    let mut counter = download_file_counter.lock().await;
+                    *counter += 1;
+                    Ok((reference, length))
+                })
+                    as Pin<Box<dyn std::future::Future<Output = Result<(_, u64), _>> + Send>>
+            })
+        };
+        assert_eq!(
+            content_references.len() as u64,
+            original_cache.number_of_entries().await.unwrap()
+        );
+        assert_eq!(i, *download_file_counter.lock().await);
+        // add a cache entry
+        {
+            let report = original_cache
+                .require(&chunk_cache_key, make_download_file())
+                .await
+                .unwrap();
+            assert_eq!(RequireReport::new(reference.clone(), length, false), report);
+            assert_eq!(
+                i as u64 + 1,
+                original_cache.number_of_entries().await.unwrap()
+            );
+            assert_eq!(i + 1, *download_file_counter.lock().await);
+        }
+        content_references.push((reference, length));
+    }
+    let cache_saved_reference = update_root.current_value().await.unwrap();
+    assert_eq!(
+        cache_saved_reference.digest(),
+        &BlobDigest::parse_hex_string(concat!(
+            "295aaccf829b8809ba7d3228c62393c233f417b5e6560873c01500f81c5a2f0f",
+            "ae07a7101d0758592de56b653911cac89da207a0ab22a9fd814ac0b64ce76f6d"
+        ))
+        .unwrap()
+    );
+    let cache_loaded = PersistentFileCacheMap::new(
+        FileCacheMap::load(&cache_saved_reference, &storage, chunk_size)
+            .await
+            .unwrap(),
+        &storage,
+        &update_root,
+        "test_root".to_string(),
+    );
+    assert_eq!(
+        number_of_entries as u64,
+        cache_loaded.number_of_entries().await.unwrap()
+    );
+    // the entries should still exist
+    for i in 0..number_of_entries {
+        let chunk_cache_key = make_chunk_cache_key(i);
+        let report = cache_loaded
+            .require(&chunk_cache_key, Box::new(|| unreachable!()))
+            .await
+            .unwrap();
+        let (reference, length) = content_references[i as usize].clone();
+        assert_eq!(RequireReport::new(reference, length, true), report);
+        assert_eq!(
+            number_of_entries as u64,
+            cache_loaded.number_of_entries().await.unwrap()
+        );
+        assert_eq!(
+            update_root.current_value().await,
+            Some(cache_saved_reference.clone())
         );
     }
 }
