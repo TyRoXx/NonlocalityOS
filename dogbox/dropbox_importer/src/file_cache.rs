@@ -46,6 +46,23 @@ impl std::fmt::Display for Sha256ChunkCacheKey {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequireReport {
+    pub reference: StrongReference,
+    pub size: u64,
+    pub is_cache_hit: bool,
+}
+
+impl RequireReport {
+    pub fn new(reference: StrongReference, size: u64, is_cache_hit: bool) -> Self {
+        Self {
+            reference,
+            size,
+            is_cache_hit,
+        }
+    }
+}
+
 #[async_trait]
 pub trait FileCache: Send + Sync {
     async fn require<'t>(
@@ -61,7 +78,7 @@ pub trait FileCache: Send + Sync {
                 > + Send
                 + 't,
         >,
-    ) -> std::io::Result<(StrongReference, u64)>;
+    ) -> std::io::Result<RequireReport>;
 
     fn chunk_size(&self) -> u64;
 }
@@ -168,7 +185,7 @@ impl<'a> FileCacheMap<'a> {
         &'a self,
         chunk_cache_key: &Sha256ChunkCacheKey,
         download_file_chunk: DownloadFileCallback<'a>,
-    ) -> std::io::Result<(StrongReference, u64)> {
+    ) -> std::io::Result<RequireReport> {
         // TODO: don't hold the lock during the download
         let mut entries_locked = self.entries.lock().await;
         let maybe_found = entries_locked
@@ -180,7 +197,11 @@ impl<'a> FileCacheMap<'a> {
         match maybe_found {
             Some(entry) => {
                 info!("Cache hit for chunk cache key {}", chunk_cache_key);
-                Ok((entry.content_reference, entry.content_size))
+                Ok(RequireReport::new(
+                    entry.content_reference,
+                    entry.content_size,
+                    true,
+                ))
             }
             None => {
                 info!("Cache miss for chunk cache key {}", chunk_cache_key);
@@ -197,7 +218,7 @@ impl<'a> FileCacheMap<'a> {
                             "Failed to insert key into download cache: {e}"
                         ))
                     })?;
-                Ok((content_reference, content_size))
+                Ok(RequireReport::new(content_reference, content_size, false))
             }
         }
     }
@@ -218,7 +239,7 @@ impl FileCache for FileCacheMap<'_> {
                 > + Send
                 + 't,
         >,
-    ) -> std::io::Result<(StrongReference, u64)> {
+    ) -> std::io::Result<RequireReport> {
         // We call this function because code coverage doesn't work for async_traits.
         self.require_impl(chunk_cache_key, download_file_chunk)
             .await
@@ -259,7 +280,7 @@ impl<'a> PersistentFileCacheMap<'a> {
         &'a self,
         chunk_cache_key: &Sha256ChunkCacheKey,
         download_file_chunk: DownloadFileCallback<'a>,
-    ) -> std::io::Result<(StrongReference, u64)> {
+    ) -> std::io::Result<RequireReport> {
         let success = self
             .original_cache
             .require(chunk_cache_key, download_file_chunk)
@@ -299,7 +320,7 @@ impl FileCache for PersistentFileCacheMap<'_> {
                 > + Send
                 + 't,
         >,
-    ) -> std::io::Result<(StrongReference, u64)> {
+    ) -> std::io::Result<RequireReport> {
         // We call this function because code coverage doesn't work for async_traits.
         self.require_impl(chunk_cache_key, download_file_chunk)
             .await
