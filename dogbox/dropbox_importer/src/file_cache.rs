@@ -285,22 +285,24 @@ impl<'a> PersistentFileCacheMap<'a> {
             .original_cache
             .require(chunk_cache_key, download_file_chunk)
             .await?;
-        // TODO: only save and update root if the cache was modified (i.e. if it was a cache miss)
-        let saved = self
-            .original_cache
-            .save(self.store_tree)
-            .await
-            .map_err(|e| {
-                std::io::Error::other(format!("Failed to save file cache after download: {e}"))
-            })?;
-        self.update_root
-            .update_root(&self.root_name, &saved)
-            .await
-            .map_err(|e| {
-                std::io::Error::other(format!(
-                    "Failed to update root after saving file cache: {e}"
-                ))
-            })?;
+        // If it was a cache hit, there can be no change to the cache, so we don't need to save.
+        if !success.is_cache_hit {
+            let saved = self
+                .original_cache
+                .save(self.store_tree)
+                .await
+                .map_err(|e| {
+                    std::io::Error::other(format!("Failed to save file cache after download: {e}"))
+                })?;
+            self.update_root
+                .update_root(&self.root_name, &saved)
+                .await
+                .map_err(|e| {
+                    std::io::Error::other(format!(
+                        "Failed to update root after saving file cache: {e}"
+                    ))
+                })?;
+        }
         Ok(success)
     }
 }
