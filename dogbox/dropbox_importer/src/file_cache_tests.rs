@@ -1,5 +1,6 @@
 use crate::file_cache::{
-    FileCache, FileCacheMap, PersistentFileCacheMap, Sha256ChunkCacheKey, DEFAULT_CHUNK_SIZE,
+    FileCache, FileCacheMap, PersistentFileCacheMap, RequireReport, Sha256ChunkCacheKey,
+    DEFAULT_CHUNK_SIZE,
 };
 use astraea::{
     in_memory_storage::InMemoryTreeStorage,
@@ -46,23 +47,21 @@ async fn test_require_miss_and_hit() {
     assert_eq!(0, *download_file_counter.lock().await);
     // cache miss
     {
-        let (result_reference, result_length) = cache
+        let report = cache
             .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
-        assert_eq!(result_reference, reference);
-        assert_eq!(result_length, length);
+        assert_eq!(RequireReport::new(reference.clone(), length, false), report);
         assert_eq!(1, cache.number_of_entries().await.unwrap());
         assert_eq!(1, *download_file_counter.lock().await);
     }
     // cache hit
     {
-        let (result_reference, result_length) = cache
+        let report = cache
             .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
-        assert_eq!(result_reference, reference);
-        assert_eq!(result_length, length);
+        assert_eq!(RequireReport::new(reference, length, true), report);
         assert_eq!(1, cache.number_of_entries().await.unwrap());
         assert_eq!(1, *download_file_counter.lock().await);
     }
@@ -160,12 +159,11 @@ async fn test_save_and_load_non_empty() {
     assert_eq!(0, *download_file_counter.lock().await);
     // add a cache entry
     {
-        let (result_reference, result_length) = original_cache
+        let report = original_cache
             .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
-        assert_eq!(result_reference, reference);
-        assert_eq!(result_length, length);
+        assert_eq!(RequireReport::new(reference.clone(), length, false), report);
         assert_eq!(1, original_cache.number_of_entries().await.unwrap());
         assert_eq!(1, *download_file_counter.lock().await);
     }
@@ -184,12 +182,11 @@ async fn test_save_and_load_non_empty() {
     assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
     // the entry should still exist
     {
-        let (result_reference, result_length) = cache_loaded
+        let report = cache_loaded
             .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
-        assert_eq!(result_reference, reference);
-        assert_eq!(result_length, length);
+        assert_eq!(RequireReport::new(reference.clone(), length, true), report);
         assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
         assert_eq!(1, *download_file_counter.lock().await);
     }
@@ -266,12 +263,11 @@ async fn test_persistent_save_and_load_non_empty() {
     assert_eq!(None, update_root.current_value().await);
     // add a cache entry
     {
-        let (result_reference, result_length) = original_cache
+        let report = original_cache
             .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
-        assert_eq!(result_reference, reference);
-        assert_eq!(result_length, length);
+        assert_eq!(RequireReport::new(reference.clone(), length, false), report);
         assert_eq!(1, original_cache.number_of_entries().await.unwrap());
         assert_eq!(1, *download_file_counter.lock().await);
     }
@@ -295,12 +291,11 @@ async fn test_persistent_save_and_load_non_empty() {
     assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
     // the entry should still exist
     {
-        let (result_reference, result_length) = cache_loaded
+        let report = cache_loaded
             .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
-        assert_eq!(result_reference, reference);
-        assert_eq!(result_length, length);
+        assert_eq!(RequireReport::new(reference.clone(), length, true), report);
         assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
         assert_eq!(1, *download_file_counter.lock().await);
         assert_eq!(
@@ -352,17 +347,28 @@ async fn test_persistent_file_cache_require_same_chunk_multiple_times() {
     assert_eq!(0, *download_file_counter.lock().await);
     assert_eq!(None, update_root.current_value().await);
     const CONCURRENCY: usize = 10;
-    join_all((0..CONCURRENCY).map(|_| async {
-        let (result_reference, result_length) = original_cache
+    let mut are_cache_hits = join_all((0..CONCURRENCY).map(|_| async {
+        let report = original_cache
             .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
-        assert_eq!(result_reference, reference);
-        assert_eq!(result_length, length);
+        assert_eq!(report.reference, reference);
+        assert_eq!(report.size, length);
         assert_eq!(1, original_cache.number_of_entries().await.unwrap());
         assert_eq!(1, *download_file_counter.lock().await);
+        report.is_cache_hit
     }))
     .await;
+    // Only one can be a miss, but it's not deterministic which one it will be.
+    are_cache_hits.sort();
+    assert_eq!(
+        are_cache_hits,
+        [false]
+            .iter()
+            .chain(&vec![true; CONCURRENCY - 1])
+            .copied()
+            .collect::<Vec<_>>()
+    );
     let cache_saved_reference = update_root.current_value().await.unwrap();
     assert_eq!(
         cache_saved_reference.digest(),
@@ -382,12 +388,11 @@ async fn test_persistent_file_cache_require_same_chunk_multiple_times() {
     );
     assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
     {
-        let (result_reference, result_length) = cache_loaded
+        let report = cache_loaded
             .require(&chunk_cache_key, make_download_file())
             .await
             .unwrap();
-        assert_eq!(result_reference, reference);
-        assert_eq!(result_length, length);
+        assert_eq!(RequireReport::new(reference.clone(), length, true), report);
         assert_eq!(1, cache_loaded.number_of_entries().await.unwrap());
         assert_eq!(1, *download_file_counter.lock().await);
         assert_eq!(

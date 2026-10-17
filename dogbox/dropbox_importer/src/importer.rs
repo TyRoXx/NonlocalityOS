@@ -76,7 +76,7 @@ async fn download_file_in_chunks(
         let chunk_size = std::cmp::min(max_chunk_size, file_size - downloaded_bytes);
         let chunk_cache_key =
             crate::file_cache::Sha256ChunkCacheKey::new((*content_hash).into(), chunk_index);
-        let (chunk_reference, downloaded_chunk_size) = download_cache
+        let require_report = download_cache
             .require(&chunk_cache_key, {
                 let dropbox_file_path = dropbox_file_path.clone();
                 let dropbox_file_rev = rev.to_string();
@@ -104,24 +104,28 @@ async fn download_file_in_chunks(
                     chunk_index, dropbox_file_path
                 ))
             })?;
-        if chunk_size != downloaded_chunk_size {
+        if chunk_size != require_report.size {
             return Err(std::io::Error::other(format!(
                 "Downloaded chunk size {} does not match expected chunk size {} for chunk {} of {}",
-                downloaded_chunk_size, chunk_size, chunk_index, dropbox_file_path
+                require_report.size, chunk_size, chunk_index, dropbox_file_path
             )));
         }
 
-        hash_segmented_blob(&mut dropbox_hasher, &chunk_reference, storage.as_ref())
-            .await
-            .map_err(|e| {
-                std::io::Error::other(format!(
-                    "Failed to hash chunk {} of {}: {e}",
-                    chunk_index, dropbox_file_path
-                ))
-            })?;
+        hash_segmented_blob(
+            &mut dropbox_hasher,
+            &require_report.reference,
+            storage.as_ref(),
+        )
+        .await
+        .map_err(|e| {
+            std::io::Error::other(format!(
+                "Failed to hash chunk {} of {}: {e}",
+                chunk_index, dropbox_file_path
+            ))
+        })?;
 
-        downloaded_bytes += downloaded_chunk_size;
-        chunks.push(chunk_reference);
+        downloaded_bytes += require_report.size;
+        chunks.push(require_report.reference);
     }
 
     let calculated_dropbox_content_hash: Sha256Digest = dropbox_hasher.finalize();
