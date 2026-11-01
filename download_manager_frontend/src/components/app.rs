@@ -1,7 +1,7 @@
 use codee::string::JsonSerdeCodec;
 use leptos::prelude::*;
 use leptos::web_sys::{FormData, HtmlFormElement, SubmitEvent};
-use leptos_use::storage::use_local_storage;
+use leptos_use_storage::use_local_storage;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
