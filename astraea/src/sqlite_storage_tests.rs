@@ -949,7 +949,7 @@ async fn test_find_inconsistencies_all_ok_one_tree() {
     let database_path = workspace.path().join("database.sqlite");
     let connection = rusqlite::Connection::open(&database_path).unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::new_with_configuration(connection, false).unwrap();
+    let storage = SQLiteStorage::new_with_configuration(connection, false, None).unwrap();
     let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
@@ -964,7 +964,7 @@ async fn test_find_inconsistencies_all_ok_many_trees() {
     let many = 10_001u32;
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::new_with_configuration(connection, false).unwrap();
+    let storage = SQLiteStorage::new_with_configuration(connection, false, None).unwrap();
     let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
@@ -1029,7 +1029,7 @@ async fn test_find_inconsistencies_failed_to_load_tree() {
             rusqlite::params![digest_array, 1u8, vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9],],
         )
         .unwrap();
-    let storage = SQLiteStorage::new_with_configuration(connection, false).unwrap();
+    let storage = SQLiteStorage::new_with_configuration(connection, false, None).unwrap();
     let inconsistencies = storage.find_inconsistencies(&None).await.unwrap();
     assert_eq!(
         inconsistencies,
@@ -1049,7 +1049,7 @@ async fn test_find_inconsistencies_dangling_root() {
     let database_path = workspace.path().join("database.sqlite");
     let connection = rusqlite::Connection::open(&database_path).unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::new_with_configuration(connection, false).unwrap();
+    let storage = SQLiteStorage::new_with_configuration(connection, false, None).unwrap();
     let root_name = "dangling_root";
     let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
@@ -1075,4 +1075,19 @@ async fn test_find_inconsistencies_dangling_root() {
             *reference.digest()
         )]
     );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_auto_commit_after_number_of_writes() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::new_with_configuration(connection, false, Some(2)).unwrap();
+    let tree = HashedTree::from(Arc::new(Tree::empty()));
+    storage.store_tree(&tree).await.unwrap();
+    storage.store_tree(&tree).await.unwrap();
+    // auto COMMIT happens here:
+    storage.store_tree(&tree).await.unwrap();
+    assert_eq!(1, storage.commit_changes().await.unwrap());
 }
