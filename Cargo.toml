@@ -15,6 +15,7 @@ members=[
     "dogbox/dogbox_tree_editor",
     "dogbox/dogbox_dav_server",
     "dogbox/dropbox_importer",
+    "dogbox/import_dropbox_cli",
     "fuzz",
     "hello_llm",
     "system_tests",

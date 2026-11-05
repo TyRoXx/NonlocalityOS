@@ -157,23 +157,26 @@ impl GarbageCollector {
 struct SQLiteState {
     connection: rusqlite::Connection,
     transaction: Option<TransactionStats>,
+    auto_commit_after_number_of_writes: Option<u64>,
     garbage_collector: GarbageCollector,
 }
 
 impl SQLiteState {
     fn require_transaction(&mut self, add_writes: u64) -> std::result::Result<(), rusqlite::Error> {
-        match self.transaction {
-            Some(ref mut stats) => {
+        if let Some(ref mut stats) = self.transaction {
+            if stats.writes >= self.auto_commit_after_number_of_writes.unwrap_or(u64::MAX) {
+                info!("Auto-committing transaction after {} writes", stats.writes);
+                self.connection.execute("COMMIT;", ())?;
+                stats.writes = add_writes;
+            } else {
                 stats.writes += add_writes;
-                Ok(())
-            }
-            None => {
-                debug!("BEGIN TRANSACTION");
-                self.connection.execute("BEGIN TRANSACTION;", ())?;
-                self.transaction = Some(TransactionStats { writes: add_writes });
-                Ok(())
+                return Ok(());
             }
         }
+        debug!("BEGIN TRANSACTION");
+        self.connection.execute("BEGIN TRANSACTION;", ())?;
+        self.transaction = Some(TransactionStats { writes: add_writes });
+        Ok(())
     }
 }
 
@@ -183,12 +186,17 @@ pub struct SQLiteStorage {
 }
 
 impl SQLiteStorage {
-    pub fn from(connection: rusqlite::Connection) -> rusqlite::Result<Self> {
+    /// `auto_commit_after_number_of_writes` specifies the number of writes after which the transaction should be automatically committed. If `None`, auto-commit is disabled. A COMMIT can be expensive, so a higher value can improve performance by reducing the frequency of commits.
+    pub fn from(
+        connection: rusqlite::Connection,
+        auto_commit_after_number_of_writes: Option<u64>,
+    ) -> rusqlite::Result<Self> {
         Self::configure_connection(&connection)?;
         Ok(Self {
             state: Mutex::new(SQLiteState {
                 connection,
                 transaction: None,
+                auto_commit_after_number_of_writes,
                 garbage_collector: GarbageCollector::new(),
             }),
         })

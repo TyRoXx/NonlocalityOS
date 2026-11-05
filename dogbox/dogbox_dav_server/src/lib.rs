@@ -379,7 +379,7 @@ pub async fn run_dav_server(
     sqlite_connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
     info!("VACUUM completed");
 
-    let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection)?);
+    let blob_storage_database = Arc::new(SQLiteStorage::from(sqlite_connection, None)?);
     let root_name = "latest";
     let open_file_write_buffer_in_blocks = DEFAULT_WRITE_BUFFER_IN_BLOCKS;
     let root_path = std::path::PathBuf::from("/");

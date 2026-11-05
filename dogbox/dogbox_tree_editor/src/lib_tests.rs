@@ -637,7 +637,7 @@ async fn test_read_file_after_garbage_collection() {
     let modified = test_clock();
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = Arc::new(SQLiteStorage::from(connection).unwrap());
+    let storage = Arc::new(SQLiteStorage::from(connection, None).unwrap());
     let empty_file_reference = TreeEditor::store_empty_file(storage.clone()).await.unwrap();
     let directory = Arc::new(OpenDirectory::new(
         std::path::PathBuf::from("/"),

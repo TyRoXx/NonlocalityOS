@@ -2450,6 +2450,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "import_dropbox_cli"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "dotenv",
+ "dropbox-sdk",
+ "dropbox_importer",
+ "pretty_assertions",
+ "rusqlite",
+ "sorted_tree",
+ "test-log",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "include_dir"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
