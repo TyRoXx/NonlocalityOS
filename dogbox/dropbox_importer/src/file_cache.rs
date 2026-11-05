@@ -1,10 +1,11 @@
 use astraea::{
-    storage::{LoadTree, StoreTree, StrongReference, UpdateRoot},
+    storage::{LoadRoot, LoadTree, StoreTree, StrongReference, UpdateRoot},
     tree::TREE_BLOB_MAX_LENGTH,
 };
 use async_trait::async_trait;
 use dogbox_tree_editor::segmented_blob::DEFAULT_MAX_CHILDREN_PER_TREE;
 use serde::{Deserialize, Serialize};
+use sorted_tree::prolly_tree_editable_node::EditableNode;
 use tracing::info;
 
 // Chosen for efficient representation as a segmented blob tree and concatenation into bigger segmented blob trees.
@@ -287,6 +288,7 @@ impl<'a> PersistentFileCacheMap<'a> {
             .await?;
         // If it was a cache hit, there can be no change to the cache, so we don't need to save.
         if !success.is_cache_hit {
+            info!("Creating cache entry for {:?}", chunk_cache_key);
             let saved = self
                 .original_cache
                 .save(self.store_tree)
@@ -304,6 +306,37 @@ impl<'a> PersistentFileCacheMap<'a> {
                 })?;
         }
         Ok(success)
+    }
+
+    pub async fn load_or_create(
+        load_tree: &'a (dyn LoadTree + Send + Sync),
+        store_tree: &'a (dyn StoreTree + Send + Sync),
+        load_root: &'a (dyn LoadRoot + Send + Sync),
+        update_root: &'a (dyn UpdateRoot + Send + Sync),
+        root_name: String,
+        chunk_size: u64,
+    ) -> std::result::Result<PersistentFileCacheMap<'a>, Box<dyn std::error::Error>> {
+        let existing_root = load_root.load_root(&root_name).await?;
+        if let Some(root) = existing_root {
+            let original_cache = FileCacheMap::load(&root, load_tree, chunk_size).await?;
+            return Ok(PersistentFileCacheMap::new(
+                original_cache,
+                store_tree,
+                update_root,
+                root_name,
+            ));
+        }
+        let original_cache = FileCacheMap::new(
+            EditableNode::<Sha256ChunkCacheKey, PersistableFileCacheEntry>::new(),
+            load_tree,
+            chunk_size,
+        );
+        Ok(PersistentFileCacheMap::new(
+            original_cache,
+            store_tree,
+            update_root,
+            root_name,
+        ))
     }
 }
 
