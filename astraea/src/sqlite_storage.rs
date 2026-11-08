@@ -30,7 +30,6 @@ impl StrongReferenceTrait for SQLiteStrongReferenceImpl {}
 #[derive(Debug)]
 struct GarbageCollector {
     additional_roots: BTreeMap<BlobDigest, (i64, Weak<SQLiteStrongReferenceImpl>)>,
-    last_gc_additional_roots_len: usize,
     has_gc_new_tree_table: bool,
 }
 
@@ -38,7 +37,6 @@ impl GarbageCollector {
     fn new() -> Self {
         Self {
             additional_roots: BTreeMap::new(),
-            last_gc_additional_roots_len: 0,
             has_gc_new_tree_table: false,
         }
     }
@@ -47,10 +45,8 @@ impl GarbageCollector {
         &mut self,
         root: &BlobDigest,
         root_tree_id: i64,
-        connection: &rusqlite::Connection,
     ) -> rusqlite::Result<StrongReference> {
         let result = self.require_additional_root_entry(root, root_tree_id)?;
-        self.check_automatic_collection(connection)?;
         Ok(result)
     }
 
@@ -82,27 +78,6 @@ impl GarbageCollector {
                 }
             }
         }
-    }
-
-    fn check_automatic_collection(
-        &mut self,
-        connection: &rusqlite::Connection,
-    ) -> rusqlite::Result<()> {
-        let additional_roots_len = self.additional_roots.len();
-        // Not sure what's a good minimum here.
-        let minimum_additional_roots_len_for_gc = 100;
-        if (additional_roots_len >= minimum_additional_roots_len_for_gc)
-            && (additional_roots_len > self.last_gc_additional_roots_len * 2)
-        {
-            info!("Automatic garbage collection triggered because the additional root count {} exceeded a threshold", additional_roots_len);
-            let stats = self.collect_garbage(connection)?;
-            info!(
-                "Automatic garbage collection collected {} trees",
-                stats.trees_collected
-            );
-            self.last_gc_additional_roots_len = self.additional_roots.len();
-        }
-        Ok(())
     }
 
     fn require_gc_new_tree_table(
@@ -172,7 +147,6 @@ impl GarbageCollector {
             "Garbage collection deleted {} unreferenced trees",
             deleted_trees
         );
-        self.last_gc_additional_roots_len = self.additional_roots.len();
         Ok(GarbageCollectionStats {
             trees_collected: deleted_trees as u64,
         })
@@ -316,12 +290,12 @@ impl StoreTree for SQLiteStorage {
                 }
             };
             if let Some(id) = tree_id {
-                let (connection_locked, garbage_collector) = {
+                let garbage_collector = {
                     let state = &mut *state_locked;
-                    (&state.connection, &mut state.garbage_collector)
+                    &mut state.garbage_collector
                 };
                 return garbage_collector
-                    .require_additional_root(tree.digest(), id, connection_locked)
+                    .require_additional_root(tree.digest(), id)
                     .map_err(|error| StoreError::Rusqlite(error.to_string()));
             }
         }
@@ -411,12 +385,12 @@ impl StoreTree for SQLiteStorage {
             tree_id
         };
 
-        let (connection_locked, garbage_collector) = {
+        let garbage_collector = {
             let state = &mut *state_locked;
-            (&state.connection, &mut state.garbage_collector)
+            &mut state.garbage_collector
         };
         garbage_collector
-            .require_additional_root(&digest, tree_id, connection_locked)
+            .require_additional_root(&digest, tree_id)
             .map_err(|error| StoreError::Rusqlite(error.to_string()))
     }
 }
@@ -472,7 +446,7 @@ async fn load_tree_impl(
             };
         // Keep the parent alive while we load the children to prevent it from being garbage collected in the middle of loading.
         let root_reference = garbage_collector
-            .require_additional_root(reference, tree_id, connection_locked)
+            .require_additional_root(reference, tree_id)
             .map_err(|error| LoadError::Rusqlite(error.to_string()))?;
         let tree_blob = TreeBlob::try_from(decompressed_data.into())
             .map_err(|error| LoadError::Deserialization(*reference, error))?;
@@ -515,12 +489,12 @@ async fn load_tree_impl(
     };
     let mut child_references = Vec::new();
     for (child_digest, child_tree_id) in child_digests {
-        let (connection_locked, garbage_collector) = {
+        let garbage_collector = {
             let state = &mut *state_locked;
-            (&state.connection, &mut state.garbage_collector)
+            &mut state.garbage_collector
         };
         let child_reference = garbage_collector
-            .require_additional_root(&child_digest, child_tree_id, connection_locked)
+            .require_additional_root(&child_digest, child_tree_id)
             .map_err(|error| LoadError::Rusqlite(error.to_string()))?;
         child_references.push(child_reference);
     }
@@ -644,12 +618,12 @@ impl LoadRoot for SQLiteStorage {
             .map_err(|err| LoadError::Rusqlite(format!("{}", err)))?;
         match target {
             Some((digest, tree_id)) => {
-                let (connection_locked, garbage_collector) = {
+                let garbage_collector = {
                     let state = &mut *state_locked;
-                    (&state.connection, &mut state.garbage_collector)
+                    &mut state.garbage_collector
                 };
                 let reference = garbage_collector
-                    .require_additional_root(&digest, tree_id, connection_locked)
+                    .require_additional_root(&digest, tree_id)
                     .map_err(|error| LoadError::Rusqlite(error.to_string()))?;
                 Ok(Some(reference))
             }
