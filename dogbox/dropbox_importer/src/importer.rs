@@ -45,6 +45,7 @@ async fn hash_segmented_blob(
             tokio::task::spawn_blocking(move || delayed_hashed_tree.delayed_tree().clone().hash()),
         ));
     }
+    let mut all_data = Vec::new();
     for (digest, join_handle) in parallel_hash_operations.into_iter() {
         let hashed_tree = match join_handle.await {
             Ok(joined) => match joined {
@@ -53,8 +54,22 @@ async fn hash_segmented_blob(
             },
             Err(_) => todo!(),
         };
-        hasher.update(hashed_tree.tree().blob().as_slice());
+        all_data.push(
+            hashed_tree
+                .tree()
+                .blob()
+                .as_slice().to_vec(),
+        );
     }
+    hasher
+        .update(
+            all_data
+                .iter()
+                .map(|element| element.as_slice())
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .await;
     Ok(())
 }
 

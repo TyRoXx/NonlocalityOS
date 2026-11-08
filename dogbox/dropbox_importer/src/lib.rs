@@ -1,4 +1,4 @@
-mod dropbox_content_hash;
+pub mod dropbox_content_hash;
 
 #[cfg(test)]
 mod dropbox_content_hash_tests;
