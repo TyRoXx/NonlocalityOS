@@ -1,3 +1,4 @@
+pub mod dropbox_content_hash_update;
 pub mod lambda_compiler_parse;
 pub mod lambda_compiler_tokenize;
 pub mod prolly_tree_editable_node_insert;
