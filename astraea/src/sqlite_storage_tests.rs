@@ -20,7 +20,7 @@ fn test_create_schema() {
 async fn test_store_unit_first_time() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
@@ -58,7 +58,7 @@ async fn test_store_unit_first_time() {
 async fn test_store_unit_again() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let reference_1 = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
@@ -103,7 +103,7 @@ async fn test_store_unit_again() {
 async fn test_store_blob() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let tree = Arc::new(Tree::new(
         TreeBlob::try_from(Bytes::from("test 123")).unwrap(),
         TreeChildren::empty(),
@@ -140,7 +140,7 @@ async fn test_store_blob() {
 async fn test_store_reference() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let child_reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::new(
             TreeBlob::try_from(Bytes::from("ref")).unwrap(),
@@ -184,7 +184,7 @@ async fn test_store_reference() {
 async fn test_store_two_references() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let mut child_references = Vec::new();
     for i in 0..2u32 {
         let child_reference = storage
@@ -232,7 +232,7 @@ async fn test_store_two_references() {
 async fn test_store_three_references() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let mut child_references = Vec::new();
     for i in 0..3u32 {
         let child_reference = storage
@@ -280,7 +280,7 @@ async fn test_store_three_references() {
 async fn test_load_tree_not_found() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let reference = BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap();
     let result = storage.load_tree(&reference).await;
     assert_eq!(LoadError::TreeNotFound(reference), result.unwrap_err());
@@ -290,7 +290,7 @@ async fn test_load_tree_not_found() {
 async fn test_update_root() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let reference_1 = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
@@ -316,7 +316,7 @@ async fn test_update_root() {
 async fn test_roots_may_be_equal() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let reference_1 = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
@@ -351,7 +351,7 @@ async fn test_compression_compressible_data() {
     // Test that compressible data works correctly with compression
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
 
     // Create a highly compressible blob (repeated data)
     let compressible_data = "A".repeat(1000);
@@ -391,7 +391,7 @@ async fn test_compression_uncompressible_data() {
     // Test that uncompressible data is stored and retrieved correctly
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
 
     // Create random-like data that won't compress well
     let uncompressible_data: Vec<u8> = (0..100).map(|i| (i * 7 + 13) as u8).collect();
@@ -431,7 +431,7 @@ async fn test_compression_large_blob() {
     // Test compression with a larger blob
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
 
     // Create a large compressible blob (half repetitive, half varied)
     let mut large_data = "ABCDEFGH".repeat(500);
@@ -477,7 +477,7 @@ async fn test_compression_empty_blob() {
     // Test that empty blobs work correctly
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
 
     let tree = Arc::new(Tree::empty());
     let reference = storage
@@ -524,7 +524,7 @@ async fn test_compression_load_corrupted_blob() {
             ],
         )
         .unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let loaded_back = storage.load_tree(&digest).await;
     assert_eq!(
         LoadError::Inconsistency(
@@ -541,7 +541,7 @@ async fn test_load_too_many_children() {
     let database_path = workspace.path().join("database.sqlite");
     let connection = rusqlite::Connection::open(&database_path).unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let reference = BlobDigest::parse_hex_string(concat!(
         "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
         "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
@@ -606,7 +606,7 @@ async fn test_load_too_many_children() {
 async fn test_collect_garbage() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     assert_eq!(
         GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
@@ -645,7 +645,7 @@ async fn test_collect_garbage() {
 async fn test_collect_garbage_within_transaction() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     // store_tree starts a transaction, so this tests that garbage collection works correctly when there is an open transaction
     let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
@@ -663,7 +663,7 @@ async fn test_collect_garbage_within_transaction() {
 async fn test_strong_reference() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     assert_eq!(
         GarbageCollectionStats { trees_collected: 0 },
         storage.collect_some_garbage().await.unwrap()
@@ -701,7 +701,7 @@ async fn test_sql_errors() {
     let database_path = workspace.path().join("database.sqlite");
     let connection = rusqlite::Connection::open(&database_path).unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let reference = storage
         .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
         .await
@@ -711,7 +711,7 @@ async fn test_sql_errors() {
     // Delete important tables to make all operations fail with SQL errors.
     connection.execute("DROP TABLE tree", []).unwrap();
     connection.execute("DROP TABLE root", []).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     assert_eq!(
         LoadError::Rusqlite("no such table: tree".to_string()),
         storage.load_tree(reference.digest()).await.unwrap_err()
@@ -744,7 +744,7 @@ async fn test_foreign_key_reference_origin() {
     {
         let connection = rusqlite::Connection::open(&database_path).unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::from(connection).unwrap();
+        let storage = SQLiteStorage::from(connection, None).unwrap();
         let child = storage
             .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
             .await
@@ -800,4 +800,19 @@ async fn test_foreign_key_reference_origin() {
             .query_row("SELECT COUNT(*) FROM root", [], |row| row.get(0))
             .unwrap()
     );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_auto_commit_after_number_of_writes() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection, Some(2)).unwrap();
+    let tree = HashedTree::from(Arc::new(Tree::empty()));
+    storage.store_tree(&tree).await.unwrap();
+    storage.store_tree(&tree).await.unwrap();
+    // auto COMMIT happens here:
+    storage.store_tree(&tree).await.unwrap();
+    assert_eq!(1, storage.commit_changes().await.unwrap());
 }

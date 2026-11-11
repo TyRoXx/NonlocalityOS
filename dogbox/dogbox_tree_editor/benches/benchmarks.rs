@@ -58,7 +58,7 @@ fn make_in_memory_storage() -> Arc<dyn LoadStoreTree + Send + Sync> {
 fn make_sqlite_in_memory_storage() -> Arc<dyn LoadStoreTree + Send + Sync> {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    Arc::new(SQLiteStorage::from(connection).unwrap())
+    Arc::new(SQLiteStorage::from(connection, None).unwrap())
 }
 
 fn read_large_file<S: Fn() -> Arc<dyn LoadStoreTree + Send + Sync>>(

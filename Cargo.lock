@@ -1429,6 +1429,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bytes",
+ "criterion",
  "dogbox_tree",
  "dogbox_tree_editor",
  "dropbox-sdk",
@@ -1819,6 +1820,7 @@ dependencies = [
  "astraea",
  "bytes",
  "dogbox_tree_editor",
+ "dropbox_importer",
  "lambda",
  "lambda_compiler",
  "postcard",
@@ -2447,6 +2449,23 @@ dependencies = [
  "moxcms",
  "num-traits",
  "png",
+]
+
+[[package]]
+name = "import_dropbox_cli"
+version = "0.1.0"
+dependencies = [
+ "astraea",
+ "dotenv",
+ "dropbox-sdk",
+ "dropbox_importer",
+ "pretty_assertions",
+ "rusqlite",
+ "sorted_tree",
+ "test-log",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

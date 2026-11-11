@@ -16,6 +16,7 @@ astraea = { path = "../../astraea" }
 rand = { version = "0", features = [ "small_rng", "min_const_gen" ]}
 sorted_tree = { path = "../../sorted_tree" }
 dogbox_tree_editor = { path ="../../dogbox/dogbox_tree_editor" }
+dropbox_importer = { path ="../../dogbox/dropbox_importer" }
 tracing = "0"
 serde = "1"
 bytes = "1"

@@ -34,18 +34,42 @@ async fn hash_segmented_blob(
     storage: &(dyn LoadTree + Send + Sync),
 ) -> std::result::Result<(), DeserializationError> {
     let (segments, _) = load_segmented_blob(reference.digest(), storage).await?;
+    let mut parallel_hash_operations = Vec::new();
     for segment in segments.iter() {
         let delayed_hashed_tree = storage
             .load_tree(segment.digest())
             .await
             .map_err(DeserializationError::Load)?;
-        // TODO: parallelize the hashing of segments to improve performance for large files with many segments.
-        let hashed_tree = match delayed_hashed_tree.delayed_tree().clone().hash() {
-            Some(success) => success,
-            None => return Err(DeserializationError::TreeHashMismatch(*segment.digest())),
-        };
-        hasher.update(hashed_tree.tree().blob().as_slice());
+        parallel_hash_operations.push((
+            *segment.digest(),
+            tokio::task::spawn_blocking(move || delayed_hashed_tree.delayed_tree().clone().hash()),
+        ));
     }
+    let mut all_data = Vec::new();
+    for (digest, join_handle) in parallel_hash_operations.into_iter() {
+        let hashed_tree = match join_handle.await {
+            Ok(joined) => match joined {
+                Some(hashed_tree) => hashed_tree,
+                None => return Err(DeserializationError::TreeHashMismatch(digest)),
+            },
+            Err(_) => todo!(),
+        };
+        all_data.push(
+            hashed_tree
+                .tree()
+                .blob()
+                .as_slice().to_vec(),
+        );
+    }
+    hasher
+        .update(
+            all_data
+                .iter()
+                .map(|element| element.as_slice())
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .await;
     Ok(())
 }
 

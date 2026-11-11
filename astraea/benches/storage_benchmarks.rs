@@ -13,7 +13,7 @@ use tokio::runtime::Runtime;
 fn sqlite_in_memory_store_tree_redundantly(c: &mut Criterion, tree_blob_size: usize) {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let stored_tree = HashedTree::from(Arc::new(Tree::new(
         TreeBlob::try_from(bytes::Bytes::from(random_bytes(tree_blob_size))).unwrap(),
         TreeChildren::empty(),
@@ -75,7 +75,7 @@ fn generate_random_trees_1000(b: &mut Bencher) {
     b.iter(|| {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         SQLiteStorage::create_schema(&connection).unwrap();
-        let storage = SQLiteStorage::from(connection).unwrap();
+        let storage = SQLiteStorage::from(connection, None).unwrap();
         let _reference = runtime.block_on(generate_random_trees(tree_count_in_database, &storage));
         assert_eq!(
             Ok(tree_count_in_database),
@@ -95,7 +95,7 @@ fn random_bytes(len: usize) -> Vec<u8> {
 fn sqlite_in_memory_load_and_hash_tree(c: &mut Criterion, tree_count_in_database: u64) {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = SQLiteStorage::from(connection).unwrap();
+    let storage = SQLiteStorage::from(connection, None).unwrap();
     let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
     runtime.block_on(generate_random_trees(tree_count_in_database, &storage));
     assert_eq!(
@@ -159,7 +159,7 @@ fn collect_garbage_nothing_to_collect(b: &mut Bencher, tree_count_in_database: u
     let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let storage = Arc::new(SQLiteStorage::from(connection).unwrap());
+    let storage = Arc::new(SQLiteStorage::from(connection, None).unwrap());
     runtime.block_on(async {
         let mut previous_reference: Option<StrongReference> = None;
         assert_ne!(0, tree_count_in_database);
