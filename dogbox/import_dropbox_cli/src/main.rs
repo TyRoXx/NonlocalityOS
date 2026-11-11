@@ -64,7 +64,7 @@ async fn main() -> std::io::Result<()> {
         SQLiteStorage::create_schema(&connection).unwrap();
     }
     // not sure what's the best value for auto commit
-    let auto_commit_after_number_of_writes = Some(20);
+    let auto_commit_after_number_of_writes = Some(200);
     let storage = Arc::new(
         SQLiteStorage::from(connection, auto_commit_after_number_of_writes)
             .expect("Failed to create SQLiteStorage"),
