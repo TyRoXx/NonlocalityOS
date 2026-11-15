@@ -1,5 +1,5 @@
 use crate::{
-    sqlite_storage::SQLiteStorage,
+    sqlite_storage::{DatabaseInconsistency, SQLiteStorage},
     storage::{
         CollectGarbage, CommitChanges, GarbageCollectionStats, LoadError, LoadRoot, LoadTree,
         StoreError, StoreTree, UpdateRoot,
@@ -511,7 +511,11 @@ async fn test_compression_empty_blob() {
 async fn test_compression_load_corrupted_blob() {
     let connection = rusqlite::Connection::open_in_memory().unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
-    let digest = BlobDigest::parse_hex_string("f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909").unwrap();
+    let digest = BlobDigest::parse_hex_string(concat!(
+        "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+        "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+    ))
+    .unwrap();
     let digest_array: [u8; 64] = digest.into();
     connection
         .execute(
@@ -532,6 +536,72 @@ async fn test_compression_load_corrupted_blob() {
             "Failed to decompress tree blob using lz4: OffsetOutOfBounds".to_string()
         ),
         loaded_back.unwrap_err()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_is_compressed_constraint() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let digest = BlobDigest::parse_hex_string(concat!(
+        "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+        "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+    ))
+    .unwrap();
+    let digest_array: [u8; 64] = digest.into();
+    let error = connection
+        .execute(
+            "INSERT INTO tree (digest, is_compressed, tree_blob) VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                digest_array,
+                // only 0 or 1 allowed
+                2u8,
+                vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            ],
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "CHECK constraint failed: is_compressed_boolean"
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_load_tree_with_invalid_is_compressed() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    // Remove the is_compressed constraint to allow inserting invalid values. Despite what Google or AI will tell you, SQLite does support dropping constraints using ALTER TABLE.
+    connection
+        .execute("ALTER TABLE tree DROP CONSTRAINT is_compressed_boolean", [])
+        .unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    let tree = Arc::new(Tree::new(
+        TreeBlob::try_from(Bytes::new()).unwrap(),
+        TreeChildren::empty(),
+    ));
+    let reference = storage
+        .store_tree(&HashedTree::from(tree.clone()))
+        .await
+        .unwrap();
+    storage.commit_changes().await.unwrap();
+    let connection2 = rusqlite::Connection::open(&database_path).unwrap();
+    // update is_compressed to an invalid value
+    let rows = connection2
+        .execute(
+            "UPDATE tree SET is_compressed = 2 WHERE digest = ?1",
+            rusqlite::params![reference.digest().to_array()],
+        )
+        .unwrap();
+    assert_eq!(rows, 1);
+    let error = storage.load_tree(reference.digest()).await.unwrap_err();
+    assert_eq!(
+        error,
+        LoadError::Inconsistency(
+            *reference.digest(),
+            "Invalid is_compressed value: 2, expected 0 or 1".to_string()
+        )
     );
 }
 
@@ -599,6 +669,75 @@ async fn test_load_too_many_children() {
             "Tree has too many children: 1001".to_string()
         ),
         storage.load_tree(stored.digest()).await.unwrap_err()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_load_invalid_reference_index() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+        .await
+        .unwrap();
+    storage.commit_changes().await.unwrap();
+    let child_digest = BlobDigest::parse_hex_string(concat!(
+        "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+        "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+    ))
+    .unwrap();
+    {
+        let connection2 = rusqlite::Connection::open(&database_path).unwrap();
+        let tree_row_id: i64 = {
+            let stored_array: [u8; 64] = (*reference.digest()).into();
+            let mut statement = connection2
+                .prepare_cached("SELECT id FROM tree WHERE digest = ?1")
+                .unwrap();
+            statement
+                .query_row(
+                    (&stored_array,),
+                    |row: &rusqlite::Row<'_>| -> rusqlite::Result<_, rusqlite::Error> {
+                        row.get(0)
+                    },
+                )
+                .unwrap()
+        };
+        let reference_array: [u8; 64] = child_digest.into();
+        connection2
+            .execute(
+                "INSERT INTO reference (origin, zero_based_index, target) VALUES (?1, ?2, ?3)",
+                (tree_row_id, /* expected 0 */ 1, &reference_array),
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        LoadError::Inconsistency(
+            *reference.digest(),
+            "Expected index 0, but got 1".to_string()
+        ),
+        storage.load_tree(reference.digest()).await.unwrap_err()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_load_invalid_schema() {
+    // Attempt to load a tree from an uninitialized database (no schema created) should result in a Rusqlite error.
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    let digest = BlobDigest::parse_hex_string(concat!(
+        "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+        "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+    ))
+    .unwrap();
+    let error = storage.load_tree(&digest).await.unwrap_err();
+    assert_eq!(
+        error,
+        LoadError::Rusqlite("no such table: tree".to_string())
     );
 }
 
@@ -764,40 +903,176 @@ async fn test_foreign_key_reference_origin() {
     assert_eq!(
         2,
         connection
-            .query_row("SELECT COUNT(*) FROM tree", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM tree", [], |row| row.get::<_, i64>(0))
             .unwrap()
     );
     assert_eq!(
         1,
         connection
-            .query_row("SELECT COUNT(*) FROM reference", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM reference", [], |row| row
+                .get::<_, i64>(0))
             .unwrap()
     );
     assert_eq!(
         1,
         connection
-            .query_row("SELECT COUNT(*) FROM root", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM root", [], |row| row.get::<_, i64>(0))
             .unwrap()
     );
     connection.execute("DELETE FROM tree", []).unwrap();
     assert_eq!(
         0,
         connection
-            .query_row("SELECT COUNT(*) FROM tree", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM tree", [], |row| row.get::<_, i64>(0))
             .unwrap()
     );
     // reference.origin is a foreign key to tree.id, so deleting all trees should also delete all references.
     assert_eq!(
         0,
         connection
-            .query_row("SELECT COUNT(*) FROM reference", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM reference", [], |row| row
+                .get::<_, i64>(0))
             .unwrap()
     );
     // root does not use foreign keys, so deleting all trees does not delete roots.
     assert_eq!(
         1,
         connection
-            .query_row("SELECT COUNT(*) FROM root", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM root", [], |row| row.get::<_, i64>(0))
             .unwrap()
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_find_inconsistencies_all_ok_one_tree() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::new_with_configuration(connection, false).unwrap();
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+        .await
+        .unwrap();
+    storage.update_root("test", &reference).await.unwrap();
+    let inconsistencies = storage.find_inconsistencies(&None).await.unwrap();
+    assert_eq!(inconsistencies, vec![]);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_find_inconsistencies_all_ok_many_trees() {
+    let many = 10_001u32;
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::new_with_configuration(connection, false).unwrap();
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+        .await
+        .unwrap();
+    storage.update_root("test", &reference).await.unwrap();
+    for i in 0..many {
+        storage
+            .store_tree(&HashedTree::from(Arc::new(Tree::new(
+                TreeBlob::try_from(Bytes::from_owner(i.to_be_bytes())).unwrap(),
+                TreeChildren::empty(),
+            ))))
+            .await
+            .unwrap();
+    }
+    let inconsistencies = storage.find_inconsistencies(&None).await.unwrap();
+    assert_eq!(inconsistencies, vec![]);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_find_inconsistencies_hash_mismatch() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let digest = BlobDigest::parse_hex_string(concat!(
+        "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+        "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+    ))
+    .unwrap();
+    let digest_array: [u8; 64] = digest.into();
+    connection
+        .execute(
+            "INSERT INTO tree (digest, is_compressed, tree_blob) VALUES (?1, ?2, ?3)",
+            rusqlite::params![digest_array, 0u8, vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9],],
+        )
+        .unwrap();
+    let storage = SQLiteStorage::from(connection).unwrap();
+    let inconsistencies = storage.find_inconsistencies(&None).await.unwrap();
+    assert_eq!(
+        inconsistencies,
+        vec![DatabaseInconsistency::HashMismatch(BlobDigest::new(
+            &digest_array
+        ))]
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_find_inconsistencies_failed_to_load_tree() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let digest = BlobDigest::parse_hex_string(concat!(
+        "f0140e314ee38d4472393680e7a72a81abb36b134b467d90ea943b7aa1ea03bf",
+        "2323bc1a2df91f7230a225952e162f6629cf435e53404e9cdd727a2d94e4f909"
+    ))
+    .unwrap();
+    let digest_array: [u8; 64] = digest.into();
+    connection
+        .execute(
+            "INSERT INTO tree (digest, is_compressed, tree_blob) VALUES (?1, ?2, ?3)",
+            rusqlite::params![digest_array, 1u8, vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9],],
+        )
+        .unwrap();
+    let storage = SQLiteStorage::new_with_configuration(connection, false).unwrap();
+    let inconsistencies = storage.find_inconsistencies(&None).await.unwrap();
+    assert_eq!(
+        inconsistencies,
+        vec![DatabaseInconsistency::FailedToLoadTree(
+            BlobDigest::new(&digest_array),
+            LoadError::Inconsistency(
+                BlobDigest::new(&digest_array),
+                "Failed to decompress tree blob using lz4: OffsetOutOfBounds".to_string()
+            )
+        )]
+    );
+}
+
+#[test_log::test(tokio::test)]
+async fn test_find_inconsistencies_dangling_root() {
+    let workspace = tempfile::tempdir().unwrap();
+    let database_path = workspace.path().join("database.sqlite");
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    SQLiteStorage::create_schema(&connection).unwrap();
+    let storage = SQLiteStorage::new_with_configuration(connection, false).unwrap();
+    let root_name = "dangling_root";
+    let reference = storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::empty())))
+        .await
+        .unwrap();
+    storage.update_root(root_name, &reference).await.unwrap();
+    storage.commit_changes().await.unwrap();
+    {
+        // Delete the tree to create a dangling root
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        connection
+            .execute(
+                "DELETE FROM tree WHERE digest = ?1",
+                rusqlite::params![reference.digest().to_array()],
+            )
+            .unwrap();
+    }
+    let inconsistencies = storage.find_inconsistencies(&None).await.unwrap();
+    assert_eq!(
+        inconsistencies,
+        vec![DatabaseInconsistency::RootTreeNotFound(
+            root_name.to_string(),
+            *reference.digest()
+        )]
     );
 }

@@ -15,7 +15,7 @@ use std::{
     sync::{Arc, Weak},
 };
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug)]
 struct TransactionStats {
@@ -32,14 +32,16 @@ struct GarbageCollector {
     additional_roots: BTreeMap<BlobDigest, (i64, Weak<SQLiteStrongReferenceImpl>)>,
     last_gc_additional_roots_len: usize,
     has_gc_new_tree_table: bool,
+    is_automatic_collection_enabled: bool,
 }
 
 impl GarbageCollector {
-    fn new() -> Self {
+    fn new(is_automatic_collection_enabled: bool) -> Self {
         Self {
             additional_roots: BTreeMap::new(),
             last_gc_additional_roots_len: 0,
             has_gc_new_tree_table: false,
+            is_automatic_collection_enabled,
         }
     }
 
@@ -88,6 +90,9 @@ impl GarbageCollector {
         &mut self,
         connection: &rusqlite::Connection,
     ) -> rusqlite::Result<()> {
+        if !self.is_automatic_collection_enabled {
+            return Ok(());
+        }
         let additional_roots_len = self.additional_roots.len();
         // Not sure what's a good minimum here.
         let minimum_additional_roots_len_for_gc = 100;
@@ -203,6 +208,13 @@ impl SQLiteState {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum DatabaseInconsistency {
+    FailedToLoadTree(BlobDigest, LoadError),
+    HashMismatch(BlobDigest),
+    RootTreeNotFound(String, BlobDigest),
+}
+
 #[derive(Debug)]
 pub struct SQLiteStorage {
     state: tokio::sync::Mutex<SQLiteState>,
@@ -210,12 +222,19 @@ pub struct SQLiteStorage {
 
 impl SQLiteStorage {
     pub fn from(connection: rusqlite::Connection) -> rusqlite::Result<Self> {
+        Self::new_with_configuration(connection, true)
+    }
+
+    pub fn new_with_configuration(
+        connection: rusqlite::Connection,
+        is_automatic_collection_enabled: bool,
+    ) -> rusqlite::Result<Self> {
         Self::configure_connection(&connection)?;
         Ok(Self {
             state: Mutex::new(SQLiteState {
                 connection,
                 transaction: None,
-                garbage_collector: GarbageCollector::new(),
+                garbage_collector: GarbageCollector::new(is_automatic_collection_enabled),
             }),
         })
     }
@@ -285,6 +304,99 @@ impl SQLiteStorage {
             )
             .map(|size| assert_eq!(0, size))?;
         Ok(())
+    }
+
+    pub async fn find_inconsistencies(
+        &self,
+        limit_tree_count: &Option<i64>,
+    ) -> rusqlite::Result<Vec<DatabaseInconsistency>> {
+        let mut inconsistencies = self.find_tree_inconsistencies(limit_tree_count).await?;
+        inconsistencies.extend(self.find_root_inconsistencies().await?);
+        Ok(inconsistencies)
+    }
+
+    async fn find_tree_inconsistencies(
+        &self,
+        limit_tree_count: &Option<i64>,
+    ) -> rusqlite::Result<Vec<DatabaseInconsistency>> {
+        let all_tree_digests: Vec<BlobDigest> = {
+            let state_locked = self.state.lock().await;
+            let connection_locked = &state_locked.connection;
+            let mut statement = connection_locked.prepare("SELECT digest FROM tree LIMIT ?1")?;
+            let mut all_tree_digests = Vec::new();
+            for result in statement.query_map([limit_tree_count.unwrap_or(i64::MAX)], |row| {
+                let digest: [u8; 64] = row.get(0)?;
+                Ok(BlobDigest::new(&digest))
+            })? {
+                all_tree_digests.push(result?);
+            }
+            all_tree_digests
+        };
+        info!("Checking {} trees", all_tree_digests.len());
+        let mut inconsistencies = Vec::new();
+        let mut ok_tree_counter = 0;
+        for (index, digest) in all_tree_digests.iter().enumerate() {
+            if (index > 0) && (index % 10_000 == 0) {
+                info!(
+                    "Checked {} out of {} trees so far ({}%)",
+                    index,
+                    all_tree_digests.len(),
+                    (index * 100) / all_tree_digests.len()
+                );
+            }
+            match self.load_tree(digest).await {
+                Ok(loaded) => match loaded.hash() {
+                    Some(_) => {
+                        ok_tree_counter += 1;
+                    }
+                    None => {
+                        debug!("Tree {} has a hash mismatch", digest);
+                        inconsistencies.push(DatabaseInconsistency::HashMismatch(*digest));
+                    }
+                },
+                Err(error) => {
+                    debug!("Failed to load tree {}: {}", digest, error);
+                    inconsistencies.push(DatabaseInconsistency::FailedToLoadTree(*digest, error));
+                }
+            }
+        }
+        info!(
+            "Out of {} trees, {} are OK",
+            all_tree_digests.len(),
+            ok_tree_counter
+        );
+        assert_eq!(
+            all_tree_digests.len(),
+            ok_tree_counter + inconsistencies.len()
+        );
+        Ok(inconsistencies)
+    }
+
+    async fn find_root_inconsistencies(&self) -> rusqlite::Result<Vec<DatabaseInconsistency>> {
+        info!("Checking root inconsistencies");
+        let state_locked = self.state.lock().await;
+        let connection_locked = &state_locked.connection;
+        let mut statement = connection_locked.prepare(
+            "SELECT root.name, root.target FROM root
+             LEFT JOIN tree ON root.target = tree.digest
+             WHERE tree.id IS NULL",
+        )?;
+        let inconsistencies = statement
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                let target: [u8; 64] = row.get(1)?;
+                Ok(DatabaseInconsistency::RootTreeNotFound(
+                    name,
+                    BlobDigest::new(&target),
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if inconsistencies.is_empty() {
+            info!("No root inconsistencies found");
+        } else {
+            info!("Found {} root inconsistencies", inconsistencies.len());
+        }
+        Ok(inconsistencies)
     }
 }
 
@@ -465,6 +577,7 @@ async fn load_tree_impl(
                     error!("No tree found for digest {reference} in the database.");
                     return Err(LoadError::TreeNotFound(*reference));
                 }
+                // Couldn't find a way to provoke this error for tests.
                 Err(sql_error) => {
                     error!("Error loading tree from the database: {sql_error:?}");
                     return Err(LoadError::Rusqlite(format!("{}", sql_error)));
