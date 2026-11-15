@@ -54,12 +54,7 @@ async fn hash_segmented_blob(
             },
             Err(_) => todo!(),
         };
-        all_data.push(
-            hashed_tree
-                .tree()
-                .blob()
-                .as_slice().to_vec(),
-        );
+        all_data.push(hashed_tree.tree().blob().as_slice().to_vec());
     }
     hasher
         .update(
