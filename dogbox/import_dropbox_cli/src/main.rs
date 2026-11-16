@@ -68,6 +68,7 @@ async fn main() -> std::io::Result<()> {
     let storage = Arc::new(
         SQLiteStorage::new_with_configuration(
             connection,
+            // to do: optimize GC for large databases so that we can enable auto GC again
             false,
             auto_commit_after_number_of_writes,
         )
