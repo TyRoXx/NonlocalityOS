@@ -1,7 +1,4 @@
-use astraea::{
-    sqlite_storage::SQLiteStorage,
-    storage::{CollectGarbage, CommitChanges},
-};
+use astraea::{sqlite_storage::SQLiteStorage, storage::CommitChanges};
 use dropbox_importer::{
     dropbox_api::RealDropboxApi, file_cache::PersistentFileCacheMap, importer::import_directory,
 };
@@ -68,7 +65,7 @@ async fn main() -> std::io::Result<()> {
     let storage = Arc::new(
         SQLiteStorage::new_with_configuration(
             connection,
-            // to do: optimize GC for large databases so that we can enable auto GC again
+            // to do: optimize GC for large databases so that we can enable the GC again
             false,
             auto_commit_after_number_of_writes,
         )
@@ -119,10 +116,5 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("Database COMMIT failed");
     info!("Committed database changes: {:?}", committed_changes);
-    let stats = storage
-        .collect_some_garbage()
-        .await
-        .expect("Failed to collect garbage");
-    info!("Collected garbage: {:?}", stats);
     Ok(())
 }
