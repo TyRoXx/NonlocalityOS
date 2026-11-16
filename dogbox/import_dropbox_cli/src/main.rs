@@ -105,8 +105,14 @@ async fn main() -> std::io::Result<()> {
         .request_save()
         .await
         .expect("Failed to save open directory");
+    astraea::storage::UpdateRoot::update_root(
+        storage.as_ref(),
+        "import_dropbox_cli_directory",
+        &status.digest.last_known_digest,
+    )
+    .await
+    .expect("Failed to persist imported directory root");
     info!("Successfully saved imported directory: {:?}", status.digest);
-    // TODO: commit regularly
     let committed_changes = storage
         .commit_changes()
         .await
