@@ -1084,10 +1084,28 @@ async fn test_auto_commit_after_number_of_writes() {
     let connection = rusqlite::Connection::open(&database_path).unwrap();
     SQLiteStorage::create_schema(&connection).unwrap();
     let storage = SQLiteStorage::new_with_configuration(connection, false, Some(2)).unwrap();
-    let tree = HashedTree::from(Arc::new(Tree::empty()));
-    storage.store_tree(&tree).await.unwrap();
-    storage.store_tree(&tree).await.unwrap();
+    storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(Bytes::from_owner(b"A")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
+    // All the trees have to be different so that the write counter increments and triggers auto commit.
+    storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(Bytes::from_owner(b"B")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     // auto COMMIT happens here:
-    storage.store_tree(&tree).await.unwrap();
+    storage
+        .store_tree(&HashedTree::from(Arc::new(Tree::new(
+            TreeBlob::try_from(Bytes::from_owner(b"C")).unwrap(),
+            TreeChildren::empty(),
+        ))))
+        .await
+        .unwrap();
     assert_eq!(1, storage.commit_changes().await.unwrap());
 }
