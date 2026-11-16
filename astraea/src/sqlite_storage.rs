@@ -157,6 +157,10 @@ impl GarbageCollector {
                 return Err(err);
             }
         }
+        info!(
+            "Collecting garbage with additional roots: {}",
+            self.additional_roots.len()
+        );
         let deleted_trees = connection.execute(
             "DELETE FROM tree
         WHERE NOT EXISTS (

@@ -71,50 +71,60 @@ async fn main() -> std::io::Result<()> {
         )
         .expect("Failed to create SQLiteStorage"),
     );
-    let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
-    let dropbox_api = RealDropboxApi {
-        dropbox_client: dropbox_client.clone(),
-    };
-    let chunk_size = dropbox_importer::file_cache::DEFAULT_CHUNK_SIZE;
-    let download_cache = PersistentFileCacheMap::load_or_create(
-        &*storage,
-        &*storage,
-        &*storage,
-        &*storage,
-        "import_dropbox_cli".to_string(),
-        chunk_size,
-    )
-    .await
-    .expect("Failed to load or create persistent file cache");
-    info!(
-        "Loaded or created cache with {} entries",
-        download_cache.number_of_entries().await.unwrap()
-    );
-    let open_directory = import_directory(
-        &dropbox_test_directory,
-        storage.clone(),
-        clock,
-        &dropbox_api,
-        &download_cache,
-    )
-    .await
-    .expect("Failed to import Dropbox directory");
-    let status = open_directory
-        .request_save()
+    {
+        let clock = Arc::new(|| std::time::SystemTime::UNIX_EPOCH);
+        let dropbox_api = RealDropboxApi {
+            dropbox_client: dropbox_client.clone(),
+        };
+        let chunk_size = dropbox_importer::file_cache::DEFAULT_CHUNK_SIZE;
+        let download_cache = PersistentFileCacheMap::load_or_create(
+            &*storage,
+            &*storage,
+            &*storage,
+            &*storage,
+            "import_dropbox_cli".to_string(),
+            chunk_size,
+        )
         .await
-        .expect("Failed to save open directory");
-    astraea::storage::UpdateRoot::update_root(
-        storage.as_ref(),
-        "import_dropbox_cli_directory",
-        &status.digest.last_known_digest,
-    )
-    .await
-    .expect("Failed to persist imported directory root");
-    info!("Successfully saved imported directory: {:?}", status.digest);
-    let committed_changes = storage
-        .commit_changes()
+        .expect("Failed to load or create persistent file cache");
+        info!(
+            "Loaded or created cache with {} entries",
+            download_cache.number_of_entries().await.unwrap()
+        );
+        let open_directory = import_directory(
+            &dropbox_test_directory,
+            storage.clone(),
+            clock,
+            &dropbox_api,
+            &download_cache,
+        )
         .await
-        .expect("Database COMMIT failed");
-    info!("Committed database changes: {:?}", committed_changes);
+        .expect("Failed to import Dropbox directory");
+        let status = open_directory
+            .request_save()
+            .await
+            .expect("Failed to save open directory");
+        astraea::storage::UpdateRoot::update_root(
+            storage.as_ref(),
+            "import_dropbox_cli_directory",
+            &status.digest.last_known_digest,
+        )
+        .await
+        .expect("Failed to persist imported directory root");
+        info!("Successfully saved imported directory: {:?}", status.digest);
+        let committed_changes = storage
+            .commit_changes()
+            .await
+            .expect("Database COMMIT failed");
+        info!("Committed database changes: {:?}", committed_changes);
+        // Drop all the StrongReferences to allow garbage collection to reclaim unreferenced trees.
+    }
+    // to do: make garbage collection efficient enough for large databases
+    /*info!("Collecting garbage..");
+    let stats = storage
+        .collect_some_garbage()
+        .await
+        .expect("Failed to collect garbage");
+    info!("Collected garbage: {:?}", stats);*/
     Ok(())
 }
