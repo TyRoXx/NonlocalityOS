@@ -42,8 +42,7 @@ async fn test_dropbox_content_hasher_small_file_many_pieces() {
     assert_eq!(hex::encode(expected), hex::encode(&*result));
 }
 
-#[test_log::test(tokio::test)]
-async fn test_dropbox_content_hasher_large_file() {
+async fn run_dropbox_content_hasher_large_file(max_update_size: usize) {
     // example file from the Dropbox docs: https://www.dropbox.com/developers/reference/content-hash?_tk=guides_lp&_ad=deepdive3&_camp=content_hash
     let path = std::env::current_dir()
         .unwrap()
@@ -53,7 +52,7 @@ async fn test_dropbox_content_hasher_large_file() {
     let expected = hex!("485291fa0ee50c016982abbfa943957bcd231aae0492ccbaa22c58e3997b35e0");
     let mut hasher = DropboxContentHasher::new();
     loop {
-        let mut buffer = [0u8; 32 * 1024];
+        let mut buffer = vec![0u8; max_update_size];
         let bytes_read = file
             .read(&mut buffer)
             .expect("Couldn't read from test file");
@@ -64,6 +63,16 @@ async fn test_dropbox_content_hasher_large_file() {
     }
     let result = hasher.finalize();
     assert_eq!(expected, *result);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_dropbox_content_hasher_large_file_chunked() {
+    run_dropbox_content_hasher_large_file(32 * 1024).await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_dropbox_content_hasher_large_file_bulk() {
+    run_dropbox_content_hasher_large_file(crate::dropbox_content_hash::BLOCK_SIZE * 3).await;
 }
 
 #[test_log::test(tokio::test)]
