@@ -50,9 +50,12 @@ async fn main() {
             .expect("Failed to open existing database");
             // disable automatic GC for performance reasons and because this tool should change the database as little as possible
             let is_automatic_collection_enabled = false;
-            let storage =
-                SQLiteStorage::new_with_configuration(database, is_automatic_collection_enabled)
-                    .expect("Failed to configure database connection");
+            let storage = SQLiteStorage::new_with_configuration(
+                database,
+                is_automatic_collection_enabled,
+                None,
+            )
+            .expect("Failed to configure database connection");
             let inconsistencies = storage
                 .find_inconsistencies(limit_tree_count)
                 .await

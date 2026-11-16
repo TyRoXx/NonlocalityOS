@@ -65,3 +65,10 @@ path = "fuzz_targets/prolly-tree-size-tracker.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "dropbox-content-hash-update"
+path = "fuzz_targets/dropbox-content-hash-update.rs"
+test = false
+doc = false
+bench = false

@@ -11,18 +11,38 @@ fn test_dropbox_content_hasher_empty_file() {
     assert_eq!(expected, *result);
 }
 
-#[test_log::test]
-fn test_dropbox_content_hasher_small_file() {
+#[test_log::test(tokio::test)]
+async fn test_dropbox_content_hasher_small_file() {
     let data = b"hello world";
     let expected = hex!("bc62d4b80d9e36da29c16c5d4d9f11731f36052c72401a76c23c0fb5a9b74423");
     let mut hasher = DropboxContentHasher::new();
-    hasher.update(data);
+    hasher.update(&[data]).await;
     let result = hasher.finalize();
     assert_eq!(hex::encode(expected), hex::encode(&*result));
 }
 
-#[test_log::test]
-fn test_dropbox_content_hasher_large_file() {
+#[test_log::test(tokio::test)]
+async fn test_dropbox_content_hasher_small_file_two_pieces() {
+    let expected = hex!("bc62d4b80d9e36da29c16c5d4d9f11731f36052c72401a76c23c0fb5a9b74423");
+    let mut hasher = DropboxContentHasher::new();
+    hasher.update(&[b"hello ", b"world"]).await;
+    let result = hasher.finalize();
+    assert_eq!(hex::encode(expected), hex::encode(&*result));
+}
+
+#[test_log::test(tokio::test)]
+async fn test_dropbox_content_hasher_small_file_many_pieces() {
+    let data = b"hello world";
+    let expected = hex!("bc62d4b80d9e36da29c16c5d4d9f11731f36052c72401a76c23c0fb5a9b74423");
+    let mut hasher = DropboxContentHasher::new();
+    hasher
+        .update(data.chunks(1).collect::<Vec<&[u8]>>().as_slice())
+        .await;
+    let result = hasher.finalize();
+    assert_eq!(hex::encode(expected), hex::encode(&*result));
+}
+
+async fn run_dropbox_content_hasher_large_file(max_update_size: usize) {
     // example file from the Dropbox docs: https://www.dropbox.com/developers/reference/content-hash?_tk=guides_lp&_ad=deepdive3&_camp=content_hash
     let path = std::env::current_dir()
         .unwrap()
@@ -32,24 +52,34 @@ fn test_dropbox_content_hasher_large_file() {
     let expected = hex!("485291fa0ee50c016982abbfa943957bcd231aae0492ccbaa22c58e3997b35e0");
     let mut hasher = DropboxContentHasher::new();
     loop {
-        let mut buffer = [0u8; 32 * 1024];
+        let mut buffer = vec![0u8; max_update_size];
         let bytes_read = file
             .read(&mut buffer)
             .expect("Couldn't read from test file");
         if bytes_read == 0 {
             break;
         }
-        hasher.update(&buffer[..bytes_read]);
+        hasher.update(&[&buffer[..bytes_read]]).await;
     }
     let result = hasher.finalize();
     assert_eq!(expected, *result);
 }
 
-#[test_log::test]
-fn test_format_dropbox_content_hash() {
+#[test_log::test(tokio::test)]
+async fn test_dropbox_content_hasher_large_file_chunked() {
+    run_dropbox_content_hasher_large_file(32 * 1024).await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_dropbox_content_hasher_large_file_bulk() {
+    run_dropbox_content_hasher_large_file(crate::dropbox_content_hash::BLOCK_SIZE * 3).await;
+}
+
+#[test_log::test(tokio::test)]
+async fn test_format_dropbox_content_hash() {
     let data = b"hello world";
     let mut hasher = DropboxContentHasher::new();
-    hasher.update(data);
+    hasher.update(&[data]).await;
     let result = hasher.finalize();
     assert_eq!(
         "bc62d4b80d9e36da29c16c5d4d9f11731f36052c72401a76c23c0fb5a9b74423",

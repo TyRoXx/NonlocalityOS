@@ -1,48 +1,59 @@
 use sha2::{Digest, Sha256};
 
 // https://www.dropbox.com/developers/reference/content-hash?_tk=guides_lp&_ad=deepdive3&_camp=content_hash
-const BLOCK_SIZE: usize = 4 * 1024 * 1024;
+pub const BLOCK_SIZE: usize = 4 * 1024 * 1024;
 
 pub struct DropboxContentHasher {
     overall_hasher: Sha256,
-    current_block: Sha256,
-    current_block_size: usize,
+    current_block: Vec<u8>,
 }
 
 impl DropboxContentHasher {
     pub fn new() -> Self {
         Self {
             overall_hasher: Sha256::new(),
-            current_block: Sha256::new(),
-            current_block_size: 0,
+            current_block: Vec::with_capacity(BLOCK_SIZE),
         }
     }
 
-    pub fn update(&mut self, data: &[u8]) {
-        let mut remaining_data = data;
-        while !remaining_data.is_empty() {
-            if self.current_block_size == BLOCK_SIZE {
-                let current_block = self.current_block.clone();
-                self.current_block = Sha256::new();
-                self.overall_hasher.update(current_block.finalize());
-                self.current_block_size = 0;
+    pub async fn update(&mut self, data: &[&[u8]]) {
+        let mut block_hashes = Vec::new();
+
+        for piece in data {
+            let mut remaining_data = *piece;
+            while !remaining_data.is_empty() {
+                let space_in_block = BLOCK_SIZE - self.current_block.len();
+                let (head, rest) =
+                    remaining_data.split_at(::std::cmp::min(remaining_data.len(), space_in_block));
+                self.current_block.extend_from_slice(head);
+                remaining_data = rest;
+
+                if self.current_block.len() == BLOCK_SIZE {
+                    let block =
+                        std::mem::replace(&mut self.current_block, Vec::with_capacity(BLOCK_SIZE));
+                    block_hashes.push(tokio::task::spawn_blocking(move || Sha256::digest(block)));
+                }
             }
+        }
 
-            let space_in_block = BLOCK_SIZE - self.current_block_size;
-            let (head, rest) =
-                remaining_data.split_at(::std::cmp::min(remaining_data.len(), space_in_block));
-            self.current_block.update(head);
-
-            self.current_block_size += head.len();
-            remaining_data = rest;
+        for block_hash in block_hashes {
+            self.overall_hasher
+                .update(block_hash.await.expect("block hashing task failed"));
         }
     }
 
     pub fn finalize(mut self) -> sha2::digest::Output<Sha256> {
-        if self.current_block_size > 0 {
-            self.overall_hasher.update(self.current_block.finalize());
+        if !self.current_block.is_empty() {
+            self.overall_hasher
+                .update(Sha256::digest(self.current_block));
         }
         self.overall_hasher.finalize()
+    }
+}
+
+impl Default for DropboxContentHasher {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

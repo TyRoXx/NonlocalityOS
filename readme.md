@@ -113,10 +113,20 @@ You will have to explicitly mount the filesystem after starting your DAV server.
 2. edit `.env` for your setup
 3. run `astra.bat install` or `./astra.sh install`
 
-# Fuzzing (Linux only)
+# Fuzzing
+
+## Linux
 
 * `./quick_fuzzing.sh`
 * or `./fuzz.sh prolly-tree-insert`
+
+## Windows
+
+`fuzz.bat` currently fails to run:
+
+```
+error: process didn't exit successfully: `target\x86_64-pc-windows-msvc\release\dropbox-content-hash-update.exe -artifact_prefix=C:\dev\NonlocalityOS\fuzz\artifacts\dropbox-content-hash-update\ -max_total_time=5 C:\dev\NonlocalityOS\fuzz\corpus\dropbox-content-hash-update -fork=8` (exit code: 0xc0000135, STATUS_DLL_NOT_FOUND)
+```
 
 # Benchmarks
 
